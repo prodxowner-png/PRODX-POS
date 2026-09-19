@@ -69,6 +69,9 @@ jobs:
       - name: Backend boundary tests
         run: bun run server:test
 
+      - name: Refund HTTP boundary and PostgreSQL invariant tests
+        run: bun run server:test:refund
+
       - name: PostgreSQL foundation and migration gate
         shell: bash
         run: |
@@ -212,5 +215,14 @@ jobs:
             src/modules/pos/PaymentConfirmationModal.tsx \
             src/modules/pos/QuickPayDrawer.tsx; then
             echo "Direct mock order adapter import detected in production checkout UI."
+            exit 1
+          fi
+
+      - name: Verify POS refund does not directly import mock transaction adapter
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -n "from '../../adapters/mockAdapter'" src/components/orders/OrderRefundModal.tsx; then
+            echo "Direct mock refund adapter import detected in production refund UI."
             exit 1
           fi

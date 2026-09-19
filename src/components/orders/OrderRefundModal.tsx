@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Order, CartLineItem } from '../../domain/order';
 import { Money, createMoney, formatMoney, addMoney, subtractMoney } from '../../domain/money';
 import { User } from '../../domain/auth';
@@ -6,7 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { useReceiptPrinter } from '../../context/ReceiptPrinterContext';
-import { orderApi, catalogApi } from '../../adapters/mockAdapter';
+import { createRefundApi } from '../../adapters/refundApiFactory';
 import { SupervisorAuthModal } from '../auth/SupervisorAuthModal';
 import { Modal } from '../common/Modal';
 import { Button } from '../common/Button';
@@ -100,6 +100,11 @@ export const OrderRefundModal: React.FC<OrderRefundModalProps> = ({
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSupervisorModalOpen, setIsSupervisorModalOpen] = useState(false);
+  const refundIdempotencyKeyRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    refundIdempotencyKeyRef.current = null;
+  }, [isOpen, order.id]);
 
   // Reasons list
   const reasons = useMemo(() => [
@@ -206,12 +211,21 @@ export const OrderRefundModal: React.FC<OrderRefundModalProps> = ({
       return;
     }
 
-    // If current logged in user is already manager/admin, they can execute directly with manager credentials
+    // Production supervisor approval must be server-authoritative. The local PIN
+    // modal is retained only for the explicit development mock adapter.
     if (isCurrentUserManager && session?.currentUser) {
       executeRefundProcess(session.currentUser);
-    } else {
-      // Prompt supervisor authorization modal
+    } else if (import.meta.env.DEV) {
       setIsSupervisorModalOpen(true);
+    } else {
+      addToast({
+        title: language === 'th' ? 'ต้องมีการอนุมัติจากเซิร์ฟเวอร์' : 'Server authorization required',
+        message:
+          language === 'th'
+            ? 'การอนุมัติผู้จัดการใน production ต้องตรวจสอบโดยเซิร์ฟเวอร์ก่อนทำรายการ'
+            : 'Supervisor authorization must be verified by the production server before refunding.',
+        type: 'error',
+      });
     }
   };
 
@@ -226,18 +240,43 @@ export const OrderRefundModal: React.FC<OrderRefundModalProps> = ({
 
     try {
       const finalReason = customReasonNote ? `${refundReason} (${customReasonNote})` : refundReason;
+      const refundApi = createRefundApi(session.token);
+      const idempotencyKey =
+        refundIdempotencyKeyRef.current ??
+        (refundIdempotencyKeyRef.current = globalThis.crypto.randomUUID());
+      let refunded: Order;
+      let approvalName = authorizedUser.name;
 
-      const refunded = await orderApi.refundOrder(
-        session.currentStore.id,
-        order.id,
-        effectiveRefundAmount,
-        finalReason,
-        refundMethod,
-        restockItems,
-        authorizedUser.id,
-        authorizedUser.name,
-        itemsToRestockPayload
-      );
+      if (refundApi.mode === 'mock') {
+        refunded = await refundApi.refundOrder(
+          session.currentStore.id,
+          order.id,
+          effectiveRefundAmount,
+          finalReason,
+          refundMethod,
+          restockItems,
+          authorizedUser.id,
+          authorizedUser.name,
+          itemsToRestockPayload
+        );
+      } else {
+        const result = await refundApi.refund({
+          orderId: order.id,
+          refundAmount: effectiveRefundAmount,
+          reason: finalReason,
+          refundMethod,
+          itemsToRestock: restockItems ? itemsToRestockPayload : [],
+          idempotencyKey,
+        });
+        refunded = {
+          ...order,
+          status: result.status,
+          notes: order.notes
+            ? `${order.notes} | [REFUND ${result.idempotencyCached ? 'REPLAY' : 'COMMITTED'}] ${finalReason}`
+            : `[REFUND ${result.idempotencyCached ? 'REPLAY' : 'COMMITTED'}] ${finalReason}`,
+        };
+        approvalName = 'server-authorized principal';
+      }
 
       // Trigger cash drawer kick if cash refund
       if (refundMethod === 'cash') {
@@ -254,8 +293,8 @@ export const OrderRefundModal: React.FC<OrderRefundModalProps> = ({
         title: language === 'th' ? '⚡ คืนเงินและปรับปรุงสต็อกสำเร็จ' : '⚡ Quick Refund Processed',
         message:
           language === 'th'
-            ? `คืนเงินคำสั่งซื้อ #${order.orderNumber} ยอด ${formatMoney(effectiveRefundAmount)} (ปรับสต็อก +${totalRestockedUnits} ชิ้น อนุมัติโดย ${authorizedUser.name})`
-            : `Refunded ${formatMoney(effectiveRefundAmount)} for order #${order.orderNumber}. Restocked +${totalRestockedUnits} units (Approved by ${authorizedUser.name}).`,
+            ? `คืนเงินคำสั่งซื้อ #${order.orderNumber} ยอด ${formatMoney(effectiveRefundAmount)} (ปรับสต็อก +${totalRestockedUnits} ชิ้น อนุมัติโดย ${approvalName})`
+            : `Refunded ${formatMoney(effectiveRefundAmount)} for order #${order.orderNumber}. Restocked +${totalRestockedUnits} units (Approved by ${approvalName}).`,
         type: 'success',
       });
 

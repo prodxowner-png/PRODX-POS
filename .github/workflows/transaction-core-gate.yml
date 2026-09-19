@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   transaction-core:
-    name: PostgreSQL checkout integrity
+    name: PostgreSQL transaction integrity
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -66,8 +66,11 @@ jobs:
           SELECT 1 FROM pg_constraint WHERE conname='prodx_orders_cashier_store_membership_fk';
           SELECT 1 FROM pg_constraint WHERE conname='prodx_inventory_user_store_membership_fk';
           SQL
-      - name: PostgreSQL checkout integration tests
+      - name: PostgreSQL checkout and refund integration tests
         run: bun run server:test:integration
+
+      - name: Refund HTTP boundary and PostgreSQL invariant tests
+        run: bun run server:test:refund
       - name: Re-apply migrations to verify idempotency
         shell: bash
         run: |

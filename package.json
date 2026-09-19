@@ -12,6 +12,7 @@
     "server:check": "tsc -p tsconfig.server.json",
     "server:test": "tsx --test server/**/*.test.ts",
     "server:test:integration": "tsx --test server/**/*.integration.test.ts",
+    "server:test:refund": "tsx --test server/http/refund-route.test.ts server/transactions/refund-postgres.integration.test.ts",
     "theme:validate": "tsx theme-validator.ts --check",
     "theme:fix": "tsx theme-validator.ts",
     "server:start": "tsx server/entrypoint.ts"

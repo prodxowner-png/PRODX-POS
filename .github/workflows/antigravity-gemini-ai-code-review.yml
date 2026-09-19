@@ -1,0 +1,276 @@
+name: Antigravity Gemini AI Code Review
+
+on:
+  # Use the base-branch workflow so PR changes cannot rewrite the
+  # secret-bearing job that reviews them. This workflow never checks out PR code.
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request number to review
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: antigravity-gemini-review-${{ github.event.pull_request.number || inputs.pr_number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Resolve open PR
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_EVENT_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number || '' }}
+        run: |
+          set -euo pipefail
+          test -n "${PR_EVENT_NUMBER:-}"
+          pr="$PR_EVENT_NUMBER"
+          metadata="$(gh pr view "$pr" --repo "$REPO" --json number,state,headRepositoryOwner,headRepository,headRefOid)"
+          test "$(jq -r '.number' <<<"$metadata")" = "$pr"
+          test "$(jq -r '.state' <<<"$metadata")" = "OPEN"
+          head_repo="$(jq -r '.headRepositoryOwner.login + "/" + .headRepository.name' <<<"$metadata")"
+          test "$head_repo" = "$REPO"
+          head_sha="$(jq -r '.headRefOid' <<<"$metadata")"
+          test "${#head_sha}" -eq 40
+          echo "number=$pr" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Verify Gemini credential
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "${GEMINI_API_KEY:-}"
+          echo "GEMINI_API_KEY configured"
+
+      - name: Install pinned Antigravity CLI
+        run: |
+          set -euo pipefail
+          version="1.2.7"
+          url="https://github.com/google-antigravity/antigravity-cli/releases/download/$version/agy_cli_linux_x64.tar.gz"
+          expected_sha256="e410dd56d8c213ef12643d3ff5eaaab57a17e05bbf72e9415322f23879fc4a18"
+          tmpdir="$(mktemp -d)"
+          trap 'rm -rf "$tmpdir"' EXIT
+          curl -fsSL "$url" -o "$tmpdir/agy.tar.gz"
+          printf '%s  %s\n' "$expected_sha256" "$tmpdir/agy.tar.gz" | sha256sum -c -
+          mkdir -p "$HOME/.local/bin" "$tmpdir/extracted"
+          tar -xzf "$tmpdir/agy.tar.gz" -C "$tmpdir/extracted"
+          cli_bin="$(find "$tmpdir/extracted" \( -type f -o -type l \) \( -name agy -o -name antigravity \) -print -quit)"
+          if [ -z "$cli_bin" ]; then
+            echo "Archive contents:"
+            find "$tmpdir/extracted" -maxdepth 3 -print
+            exit 1
+          fi
+          install -m 0755 "$(readlink -f "$cli_bin")" "$HOME/.local/bin/agy"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/agy" --version
+
+      - name: Configure Gemini provider
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.gemini/antigravity-cli"
+          printf '%s\n' '{"modelProvider":"gemini"}' > "$HOME/.gemini/antigravity-cli/settings.json"
+
+      - name: List Gemini models
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          set -euo pipefail
+          agy models
+
+      - name: Fetch and sanitize PR diff
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ steps.pr.outputs.number }}
+        run: |
+          set -euo pipefail
+          gh pr diff "$PR" --repo "$REPO" > pr.diff
+          test -s pr.diff
+          current_head="$(gh pr view "$PR" --repo "$REPO" --json headRefOid --jq '.headRefOid')"
+          test "$current_head" = "${{ steps.pr.outputs.head_sha }}"
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          source = Path("pr.diff").read_text(encoding="utf-8", errors="replace")
+          out = []
+          current_paths = ()
+          sensitive_path = re.compile(r"(?i)(^|/)(?:\.env(?:\..*)?|.*\.(?:pem|key|p12|pfx|crt|cer|der)|.*(?:secret|credential|password|token).*)$")
+          for line in source.splitlines(keepends=True):
+              if line.startswith("diff --git "):
+                  parts = line.split()
+                  current_paths = tuple(
+                      value[2:] for value in parts[2:4]
+                      if value.startswith(("a/", "b/"))
+                  )
+              if any(sensitive_path.search(path) for path in current_paths):
+                  if line.startswith(("diff --git ", "--- ", "+++ ")):
+                      out.append(line)
+                  continue
+              out.append(line)
+
+          text = "".join(out)
+          patterns = [
+              (re.compile(r"(?i)(authorization\s*:\s*bearer\s+)[^\s]+"), r"\1[REDACTED]"),
+              (re.compile(r"(?i)(\"?(?:api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|token|secret|password|authorization)\"?\s*[:=]\s*[\"']?)(?!\$\{\{|\$[A-Z_]+|\[REDACTED\]|<REDACTED>)[^\s,;\"'}`]+"), r"\1[REDACTED]"),
+              (re.compile(r"(?i)-----BEGIN [^-]+-----.*?-----END [^-]+-----", re.S), "[REDACTED_PRIVATE_KEY]"),
+              (re.compile(r"\bgh[pousr]_[A-Za-z0-9_]{20,}\b"), "[REDACTED_GITHUB_TOKEN]"),
+              (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), "[REDACTED_AWS_ACCESS_KEY]"),
+          ]
+          for pattern, replacement in patterns:
+              text = pattern.sub(replacement, text)
+          leak_patterns = [
+              re.compile(r"-----BEGIN [^-]+-----"),
+              re.compile(r"\bgh[pousr]_[A-Za-z0-9_]{20,}\b"),
+              re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
+              re.compile(r"(?i)authorization\s*:\s*bearer\s+[A-Za-z0-9._~+/=-]{20,}"),
+          ]
+          if any(pattern.search(text) for pattern in leak_patterns):
+              raise SystemExit("Potential credential remained after PR-diff sanitization; refusing external review.")
+          max_bytes = 120000
+          if len(text.encode("utf-8")) > max_bytes:
+              raise SystemExit("PR diff exceeds the 120KB review limit; refusing incomplete review.")
+          if not text.strip():
+              raise SystemExit("No reviewable diff remained after sensitive-file filtering.")
+          Path("pr.diff.sanitized").write_text(text, encoding="utf-8")
+          PY
+          wc -c pr.diff.sanitized
+
+      - name: Run production review
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          set -euo pipefail
+          cat > prompt.txt <<'EOF'
+          You are the adversarial production reviewer for PRODX POS, a retail POS system.
+          Review ONLY the supplied sanitized unified diff. Do not assume tests passed unless the diff proves it.
+          Focus on financial integrity, inventory integrity, server authority, authentication/authorization,
+          auditability, idempotency/race conditions, offline sync correctness, PostgreSQL transaction boundaries,
+          secrets/security, API wiring, error handling, observability, and regression risk.
+
+          The supplied diff may contain sanitizer markers such as [REDACTED]. Never infer a shell syntax error from a redacted fragment. Only report syntax errors when the complete relevant source syntax is visible in the supplied diff. Treat claims about runtime behavior, files, lines, or tests as unsupported unless the diff itself provides evidence.
+
+          Return ONLY valid JSON with this exact shape:
+          {"verdict":"PASS|WARN|FAIL","summary":"...","findings":[{"severity":"P0|P1|P2|P3","file":"...","line":"...","issue":"...","evidence":"...","recommendation":"..."}]}
+          Use FAIL for any release-blocking correctness/security issue, WARN for non-blocking concerns,
+          and PASS only when no material issue is found. Do not invent files, lines, behavior, or test results.
+          EOF
+          printf '\n--- SANITIZED PR DIFF ---\n' >> prompt.txt
+          cat pr.diff.sanitized >> prompt.txt
+
+          cat > review-schema.json <<'EOF'
+          {
+            "type":"object",
+            "additionalProperties":false,
+            "required":["verdict","summary","findings"],
+            "properties":{
+              "verdict":{"type":"string","enum":["PASS","WARN","FAIL"]},
+              "summary":{"type":"string"},
+              "findings":{
+                "type":"array",
+                "items":{
+                  "type":"object",
+                  "additionalProperties":false,
+                  "required":["severity","file","line","issue","evidence","recommendation"],
+                  "properties":{
+                    "severity":{"type":"string","enum":["P0","P1","P2","P3"]},
+                    "file":{"type":"string"},
+                    "line":{"type":"string"},
+                    "issue":{"type":"string"},
+                    "evidence":{"type":"string"},
+                    "recommendation":{"type":"string"}
+                  }
+                }
+              }
+            }
+          }
+          EOF
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          prompt = Path("prompt.txt").read_text()
+          event = {"event":"user","message":{"content":prompt}}
+          Path("prompt.ndjson").write_text(json.dumps(event, ensure_ascii=False) + "\n")
+          PY
+
+          set +e
+          review_ok=0
+          for model in gemini-3.8-flash-low gemini-3.7-flash-low gemini-3.6-flash-low; do
+            echo "Trying Antigravity model: $model"
+            rm -f agy-output.ndjson agy-result.json review.json
+            agy --model "$model" --mode plan --sandbox               --input-format stream-json --output-format stream-json               --json-schema review-schema.json --print-timeout 15m               < prompt.ndjson > agy-output.ndjson
+            agy_exit=$?
+            if [ "$agy_exit" -ne 0 ]; then
+              echo "Model $model failed (exit $agy_exit); trying the next configured model."
+              continue
+            fi
+            if ! test -s agy-output.ndjson; then
+              echo "Model $model returned no output; trying the next configured model."
+              continue
+            fi
+            if ! jq -e 'select(.event == "result")' agy-output.ndjson >/dev/null 2>&1; then
+              echo "Model $model returned no result event; trying the next configured model."
+              continue
+            fi
+            jq -s 'map(select(.event == "result") | .result) | last' agy-output.ndjson > agy-result.json
+            if jq -e '.structured_output | type == "object"' agy-result.json >/dev/null 2>&1; then
+              jq '.structured_output' agy-result.json > review.json
+            else
+              jq -r '.response // empty' agy-result.json > review.json
+            fi
+            if jq -e 'type == "object" and (.verdict == "PASS" or .verdict == "WARN" or .verdict == "FAIL") and (.summary | type == "string") and (.findings | type == "array") and all(.findings[]; type == "object" and (.severity | IN("P0","P1","P2","P3")) and (.file | type == "string") and (.line | type == "string") and (.issue | type == "string") and (.evidence | type == "string") and (.recommendation | type == "string"))' review.json >/dev/null 2>&1; then
+              review_ok=1
+              echo "Antigravity review succeeded with $model."
+              break
+            fi
+            echo "Model $model did not produce a valid structured review; trying the next configured model."
+          done
+          set -e
+
+          if [ "$review_ok" -ne 1 ]; then
+            echo "All configured Gemini models failed to produce a valid review." >&2
+            exit 1
+          fi
+
+          jq . review.json
+
+      - name: Publish review to PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ steps.pr.outputs.number }}
+          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          final_head="$(gh pr view "$PR" --repo "$REPO" --json headRefOid --jq '.headRefOid')"
+          test "$final_head" = "${{ steps.pr.outputs.head_sha }}"
+          verdict="$(jq -r '.verdict' review.json)"
+          summary="$(jq -r '.summary' review.json)"
+          {
+            echo "## Antigravity Gemini Production Review"
+            echo "**Reviewed head:** `$HEAD_SHA`"
+            echo
+            echo "**Verdict:** $verdict"
+            echo
+            echo "$summary"
+            echo
+            echo "### Findings"
+            jq -r 'if (.findings|length)==0 then "No findings." else (.findings[] | "- **[" + .severity + "]** " + .file + (if .line then ":" + .line else "" end) + " — " + .issue + "\n  - Evidence: " + .evidence + "\n  - Recommendation: " + .recommendation) end' review.json
+            echo
+            echo "_Reviewed with pinned Antigravity CLI 1.2.7 + Gemini fallback models; diff was sanitized and size-capped._"
+          } > review-comment.md
+          gh pr comment "$PR" --repo "$REPO" --body-file review-comment.md
+          test "$verdict" != "FAIL"
