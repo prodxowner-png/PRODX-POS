@@ -10,6 +10,7 @@ export type ProductionRefundRequest = {
   refundMethod: "cash" | "card" | "qr_digital";
   itemsToRestock: readonly RefundItemRestock[];
   idempotencyKey: string;
+  supervisorAuthorizationToken: string;
 };
 
 export type ProductionRefundResponse = {
@@ -61,6 +62,9 @@ export function createProductionRefundApi(token: string) {
       if (!token.trim()) {
         throw new Error("Authenticated session token is required for refund.");
       }
+      if (!request.supervisorAuthorizationToken.trim()) {
+        throw new Error("Server supervisor authorization is required for refund.");
+      }
 
       const response = await fetch(`${requireBaseUrl()}/api/v1/orders/refund`, {
         method: "POST",
@@ -77,6 +81,7 @@ export function createProductionRefundApi(token: string) {
           refundMethod: request.refundMethod,
           itemsToRestock: request.itemsToRestock,
           idempotencyKey: request.idempotencyKey,
+          supervisorAuthorizationToken: request.supervisorAuthorizationToken,
         }),
       });
 

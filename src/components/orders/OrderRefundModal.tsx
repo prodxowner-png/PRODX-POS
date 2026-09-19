@@ -7,6 +7,7 @@ import { useToast } from '../../context/ToastContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { useReceiptPrinter } from '../../context/ReceiptPrinterContext';
 import { createRefundApi } from '../../adapters/refundApiFactory';
+import { createProductionSupervisorAuthorizationApi } from '../../adapters/productionSupervisorAuthorizationApi';
 import { SupervisorAuthModal } from '../auth/SupervisorAuthModal';
 import { Modal } from '../common/Modal';
 import { Button } from '../common/Button';
@@ -211,30 +212,21 @@ export const OrderRefundModal: React.FC<OrderRefundModalProps> = ({
       return;
     }
 
-    // Production supervisor approval must be server-authoritative. The local PIN
-    // modal is retained only for the explicit development mock adapter.
-    if (isCurrentUserManager && session?.currentUser) {
-      executeRefundProcess(session.currentUser);
-    } else if (import.meta.env.DEV) {
-      setIsSupervisorModalOpen(true);
+    // Every production refund must obtain a fresh, server-issued supervisor grant.
+    // The local PIN remains the explicit development-only mock authorization path.
+    if (import.meta.env.DEV && isCurrentUserManager && session?.currentUser) {
+      void executeRefundProcess(session.currentUser);
     } else {
-      addToast({
-        title: language === 'th' ? 'ต้องมีการอนุมัติจากเซิร์ฟเวอร์' : 'Server authorization required',
-        message:
-          language === 'th'
-            ? 'การอนุมัติผู้จัดการใน production ต้องตรวจสอบโดยเซิร์ฟเวอร์ก่อนทำรายการ'
-            : 'Supervisor authorization must be verified by the production server before refunding.',
-        type: 'error',
-      });
+      setIsSupervisorModalOpen(true);
     }
   };
 
-  const handleSupervisorAuthorized = async (supervisor: User) => {
+  const handleSupervisorAuthorized = async (supervisor: User, _notes?: string, secret?: string) => {
     setIsSupervisorModalOpen(false);
-    await executeRefundProcess(supervisor);
+    await executeRefundProcess(supervisor, secret);
   };
 
-  const executeRefundProcess = async (authorizedUser: User) => {
+  const executeRefundProcess = async (authorizedUser: User, supervisorSecret?: string) => {
     if (!session) return;
     setIsProcessing(true);
 
@@ -260,6 +252,17 @@ export const OrderRefundModal: React.FC<OrderRefundModalProps> = ({
           itemsToRestockPayload
         );
       } else {
+        if (!supervisorSecret?.trim()) {
+          throw new Error(language === 'th'
+            ? 'ต้องยืนยันรหัสผ่านผู้อนุมัติผ่านเซิร์ฟเวอร์ก่อนคืนเงิน'
+            : 'A supervisor secret is required for server authorization.');
+        }
+        const authorization = await createProductionSupervisorAuthorizationApi(session.token).authorize({
+          action: 'refund',
+          orderId: order.id,
+          supervisorUsername: authorizedUser.email,
+          supervisorSecret,
+        });
         const result = await refundApi.refund({
           orderId: order.id,
           refundAmount: effectiveRefundAmount,
@@ -267,6 +270,7 @@ export const OrderRefundModal: React.FC<OrderRefundModalProps> = ({
           refundMethod,
           itemsToRestock: restockItems ? itemsToRestockPayload : [],
           idempotencyKey,
+          supervisorAuthorizationToken: authorization.authorizationToken,
         });
         refunded = {
           ...order,

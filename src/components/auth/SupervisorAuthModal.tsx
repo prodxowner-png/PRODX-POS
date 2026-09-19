@@ -27,7 +27,7 @@ export interface SupervisorAuthModalProps {
   title?: string;
   actionDescription: string;
   requiredRole?: Role; // default 'manager' (allows manager and admin)
-  onAuthorized: (supervisor: User, notes?: string) => void;
+  onAuthorized: (supervisor: User, notes?: string, secret?: string) => void;
 }
 
 export const SupervisorAuthModal: React.FC<SupervisorAuthModalProps> = ({
@@ -122,7 +122,7 @@ export const SupervisorAuthModal: React.FC<SupervisorAuthModalProps> = ({
 
     if (matchedSupervisor) {
       playScannerSound('supervisor_authorized');
-      onAuthorized(matchedSupervisor, overrideReason || actionDescription);
+      onAuthorized(matchedSupervisor, overrideReason || actionDescription, pin);
       onClose();
     } else {
       playScannerSound('error');
@@ -322,8 +322,9 @@ export const SupervisorAuthModal: React.FC<SupervisorAuthModalProps> = ({
           </button>
         </div>
 
-        {/* Biometric Passkey Override Option */}
-        <div className="pt-2 max-w-xs mx-auto">
+        {/* Biometric passkey is available only in the local mock flow; production
+            authorization must submit the supervisor secret to the server. */}
+        {import.meta.env.DEV && <div className="pt-2 max-w-xs mx-auto">
           <button
             type="button"
             onClick={handlePasskeyOverride}
@@ -343,7 +344,7 @@ export const SupervisorAuthModal: React.FC<SupervisorAuthModalProps> = ({
               </>
             )}
           </button>
-        </div>
+        </div>}
       </div>
     </Modal>
   );

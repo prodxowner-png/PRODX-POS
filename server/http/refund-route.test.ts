@@ -9,6 +9,7 @@ const principal = {
   userId: "server-user",
   organizationId: "org-1",
   storeId: "store-1",
+  sessionId: "session-1",
 };
 
 const start = async (app: ReturnType<typeof createApp>) => {
@@ -51,6 +52,8 @@ test("refund route derives the authorizing user from the authenticated principal
         ] as unknown as T[],
       };
     }
+    if (sql.includes("UPDATE prodx_supervisor_authorizations"))
+      return { rows: [{ supervisorUserId: "supervisor-1" }] as unknown as T[] };
     if (sql.includes("FROM prodx_store_memberships"))
       return { rows: [{ id: "membership-1" }] as unknown as T[] };
     if (sql.includes("FROM prodx_payments"))
@@ -102,6 +105,7 @@ test("refund route derives the authorizing user from the authenticated principal
         refundMethod: "cash",
         itemsToRestock: [],
         idempotencyKey: "refund-route-test",
+        supervisorAuthorizationToken: "server-issued-token",
         authorizedByUserId: "browser-supplied-attacker",
         authorizedByName: "Untrusted Browser User",
       }),
@@ -110,7 +114,8 @@ test("refund route derives the authorizing user from the authenticated principal
     assert.equal(response.status, 201);
     assert.equal((await response.json()).success, true);
     assert.ok(refundInsertParameters);
-    assert.equal(refundInsertParameters?.[9], principal.userId);
+    assert.equal(refundInsertParameters?.[9], "supervisor-1");
+    assert.equal(refundInsertParameters?.[10], principal.userId);
     assert.notEqual(refundInsertParameters?.[9], "browser-supplied-attacker");
   } finally {
     await server.close();

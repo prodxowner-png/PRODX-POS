@@ -1,7 +1,19 @@
 import crypto from 'node:crypto';
 import type { Money } from '../../src/domain/money';
 import type { RefundItemRestock } from '../../src/adapters/types';
-import type { TransactionalSqlExecutor } from '../db/transaction';
+import type { SqlQueryExecutor, TransactionalSqlExecutor } from '../db/transaction';
+import { createSupervisorAuthorizationService, SupervisorAuthorizationError } from '../auth/supervisor-authorization';
+
+type SupervisorAuthorizationDb = {
+  query<T extends Record<string, unknown>>(sql: string, parameters?: readonly unknown[]): Promise<readonly T[]>;
+};
+
+const supervisorAuthorizationDb = (tx: SqlQueryExecutor): SupervisorAuthorizationDb => ({
+  async query<T extends Record<string, unknown>>(sql: string, parameters: readonly unknown[] = []) {
+    const result = await tx.query<T>(sql, parameters);
+    return result.rows;
+  },
+});
 
 export class RefundValidationError extends Error { readonly code = 'REFUND_VALIDATION_FAILED'; }
 export class RefundConflictError extends Error { readonly code = 'REFUND_CONFLICT'; }
@@ -10,7 +22,7 @@ export class RefundProviderUnavailableError extends Error { readonly code = 'REF
 type RefundRequest = {
   storeId: string; orderId: string; refundAmount: Money; reason: string;
   refundMethod: 'cash' | 'card' | 'qr_digital'; authorizedByUserId: string;
-  itemsToRestock?: readonly RefundItemRestock[]; idempotencyKey: string;
+  itemsToRestock?: readonly RefundItemRestock[]; idempotencyKey: string; supervisorAuthorizationToken?: string; requesterUserId?: string; requesterSessionId?: string;
 };
 type RefundResponse = {
   success: true; refundId: string; orderId: string;
@@ -51,19 +63,23 @@ export const createRefundService = (db: TransactionalSqlExecutor) => ({
     if (!request.reason.trim()) throw new RefundValidationError('Refund reason is required.');
     if (request.refundMethod !== 'cash') throw new RefundProviderUnavailableError('Card and QR refunds require a configured payment-provider adapter; the server will fail closed until one is configured.');
 
+    if (request.supervisorAuthorizationToken && (!request.requesterUserId || !request.requesterSessionId)) {
+      throw new RefundValidationError('Supervisor authorization requires requester user and session binding.');
+    }
+    const requesterUserId = request.requesterUserId ?? request.authorizedByUserId;
     const restock = normalizeRestockRequest(request.itemsToRestock ?? []);
     const requestedItemsFingerprint = [...restock].map((item) => ({ productId: item.productId, quantity: item.quantity })).sort((a, b) => a.productId.localeCompare(b.productId));
 
     return db.transaction(async (tx) => {
-      const existing = (await tx.query(`SELECT r.id, r.order_id, r.amount::text AS amount, r.method, r.reason, r.authorized_by_user_id,
-          r.currency, r.result_status AS status
+      const existing = (await tx.query(`SELECT r.id, r.order_id, r.amount::text AS amount, r.method, r.reason,
+          r.authorized_by_user_id, r.requester_user_id, r.currency, r.result_status AS status
         FROM prodx_refunds r JOIN prodx_orders o ON o.id = r.order_id AND o.store_id = r.store_id
         WHERE r.store_id=$1 AND r.idempotency_key=$2 LIMIT 1`, [request.storeId, request.idempotencyKey])).rows[0] as
-        | { id: string; order_id: string; amount: string; method: string; reason: string; authorized_by_user_id: string; currency: string; status: 'server_confirmed' | 'refunded' }
+        | { id: string; order_id: string; amount: string; method: string; reason: string; authorized_by_user_id: string; requester_user_id: string; currency: string; status: 'server_confirmed' | 'refunded' }
         | undefined;
       if (existing) {
         const isSameScalarRequest = existing.order_id === request.orderId && existing.method === request.refundMethod &&
-          existing.reason === request.reason.trim() && existing.authorized_by_user_id === request.authorizedByUserId &&
+          existing.reason === request.reason.trim() && existing.requester_user_id === requesterUserId &&
           existing.currency === request.refundAmount.currency && dbCents(existing.amount) === amount;
         if (!isSameScalarRequest) throw new RefundConflictError('This idempotency key was already used for a different refund request.');
 
@@ -81,11 +97,32 @@ export const createRefundService = (db: TransactionalSqlExecutor) => ({
 
       const order = (await tx.query(`SELECT * FROM prodx_orders WHERE id=$1 AND store_id=$2 FOR UPDATE`, [request.orderId, request.storeId])).rows[0] as any;
       if (!order) throw new RefundValidationError('Order was not found in the authenticated store.');
+
+      let supervisorUserId = request.authorizedByUserId;
+      if (request.supervisorAuthorizationToken && request.requesterUserId && request.requesterSessionId) {
+        try {
+          supervisorUserId = (await createSupervisorAuthorizationService(supervisorAuthorizationDb(tx)).consume({
+            token: request.supervisorAuthorizationToken,
+            organizationId: String(order.organization_id),
+            storeId: request.storeId,
+            requesterUserId: request.requesterUserId,
+            requesterSessionId: request.requesterSessionId,
+            action: 'refund',
+            orderId: request.orderId,
+          })).supervisorUserId;
+        } catch (error) {
+          if (error instanceof SupervisorAuthorizationError) {
+            throw new RefundConflictError('Supervisor authorization is expired, already consumed, or not bound to this refund request.');
+          }
+          throw error;
+        }
+      }
+
       if (order.status !== 'server_confirmed') throw new RefundConflictError('Only server-confirmed sales can be refunded.');
 
       const membership = (await tx.query(`SELECT 1 FROM prodx_store_memberships
         WHERE organization_id=$1 AND store_id=$2 AND user_id=$3 AND active=true
-        FOR UPDATE`, [order.organization_id, request.storeId, request.authorizedByUserId])).rows[0];
+        FOR UPDATE`, [order.organization_id, request.storeId, supervisorUserId])).rows[0];
       if (!membership) throw new RefundConflictError('The authorizing user is not an active member of the target store.');
 
       const currency = String(order.currency).trim();
@@ -108,23 +145,23 @@ export const createRefundService = (db: TransactionalSqlExecutor) => ({
 
       const refundId = crypto.randomUUID();
       const inserted = (await tx.query(`INSERT INTO prodx_refunds
-        (id,organization_id,store_id,order_id,amount,currency,result_status,method,reason,authorized_by_user_id,idempotency_key)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT(store_id,idempotency_key) DO NOTHING
+        (id,organization_id,store_id,order_id,amount,currency,result_status,method,reason,authorized_by_user_id,requester_user_id,idempotency_key)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT(store_id,idempotency_key) DO NOTHING
         RETURNING id, order_id, amount::text`, [
           refundId, order.organization_id, request.storeId, request.orderId, numeric(amount),
           currency, resultStatus, request.refundMethod, request.reason.trim(),
-          request.authorizedByUserId, request.idempotencyKey,
+          supervisorUserId, requesterUserId, request.idempotencyKey,
         ])).rows[0];
       if (!inserted) {
-        const concurrent = (await tx.query(`SELECT r.id, r.order_id, r.amount::text AS amount, r.method, r.reason, r.authorized_by_user_id,
-            r.currency, r.result_status AS status
+        const concurrent = (await tx.query(`SELECT r.id, r.order_id, r.amount::text AS amount, r.method, r.reason,
+            r.authorized_by_user_id, r.requester_user_id, r.currency, r.result_status AS status
           FROM prodx_refunds r JOIN prodx_orders o ON o.id = r.order_id AND o.store_id = r.store_id
           WHERE r.store_id=$1 AND r.idempotency_key=$2 LIMIT 1`, [request.storeId, request.idempotencyKey])).rows[0] as
-          | { id: string; order_id: string; amount: string; method: string; reason: string; authorized_by_user_id: string; currency: string; status: 'server_confirmed' | 'refunded' }
+          | { id: string; order_id: string; amount: string; method: string; reason: string; authorized_by_user_id: string; requester_user_id: string; currency: string; status: 'server_confirmed' | 'refunded' }
           | undefined;
         if (!concurrent) throw new RefundConflictError('Idempotency conflict could not be resolved.');
         const sameScalar = concurrent.order_id === request.orderId && concurrent.method === request.refundMethod &&
-          concurrent.reason === request.reason.trim() && concurrent.authorized_by_user_id === request.authorizedByUserId &&
+          concurrent.reason === request.reason.trim() && concurrent.requester_user_id === requesterUserId &&
           concurrent.currency === request.refundAmount.currency && dbCents(concurrent.amount) === amount;
         if (!sameScalar) throw new RefundConflictError('This idempotency key was already used for a different refund request.');
         const concurrentItems = (await tx.query(`SELECT product_id, SUM(quantity)::int AS quantity FROM prodx_refund_items
@@ -193,21 +230,21 @@ export const createRefundService = (db: TransactionalSqlExecutor) => ({
         await tx.query(`INSERT INTO prodx_inventory_ledger
           (id,organization_id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id)
           VALUES($1,$2,$3,$4,$5,$6,'refund_restock',$7,$8)`,
-          [crypto.randomUUID(), order.organization_id, request.storeId, allocation.productId, allocation.quantity, stock.current_stock, refundId, request.authorizedByUserId]);
+          [crypto.randomUUID(), order.organization_id, request.storeId, allocation.productId, allocation.quantity, stock.current_stock, refundId, supervisorUserId]);
       }
       await tx.query(`INSERT INTO prodx_cash_movements
         (id,organization_id,store_id,shift_id,refund_id,type,amount,reason,performed_by_user_id,currency)
         VALUES($1,$2,$3,$4,$5,'cash_refund',$6,$7,$8,$9)`,
         [crypto.randomUUID(), order.organization_id, request.storeId, shift.id, refundId, numeric(amount),
-          `Refund for Order #${order.order_number}: ${request.reason.trim()}`, request.authorizedByUserId, currency]);
+          `Refund for Order #${order.order_number}: ${request.reason.trim()}`, supervisorUserId, currency]);
 
       const status = resultStatus;
       await tx.query(`UPDATE prodx_orders SET status=$1 WHERE id=$2 AND store_id=$3`, [status, request.orderId, request.storeId]);
       await tx.query(`INSERT INTO prodx_audit_log
         (id,organization_id,store_id,register_id,user_id,action,severity,details)
         VALUES($1,$2,$3,$4,$5,'order_refund_committed','critical',$6::jsonb)`,
-        [crypto.randomUUID(), order.organization_id, request.storeId, order.register_id, request.authorizedByUserId,
-          JSON.stringify({ refundId, orderId: request.orderId, amount: numeric(amount), method: request.refundMethod, reason: request.reason.trim(), idempotencyKey: request.idempotencyKey })]);
+        [crypto.randomUUID(), order.organization_id, request.storeId, order.register_id, requesterUserId,
+          JSON.stringify({ refundId, orderId: request.orderId, amount: numeric(amount), method: request.refundMethod, reason: request.reason.trim(), idempotencyKey: request.idempotencyKey, supervisorUserId, requesterUserId })]);
       return { success: true, refundId, orderId: request.orderId, status,
         refundedAmount: { amountInCents: Number(amount), currency }, message: 'Refund committed atomically with cash and inventory ledger entries.', idempotencyCached: false };
     });
