@@ -127,6 +127,8 @@ jobs:
           auditability, idempotency/race conditions, offline sync correctness, PostgreSQL transaction boundaries,
           secrets/security, API wiring, error handling, observability, and regression risk.
 
+          The supplied diff may contain sanitizer markers such as [REDACTED]. Never infer a shell syntax error from a redacted fragment. Only report syntax errors when the complete relevant source syntax is visible in the supplied diff. Treat claims about runtime behavior, files, lines, or tests as unsupported unless the diff itself provides evidence.
+
           Return ONLY valid JSON with this exact shape:
           {"verdict":"PASS|WARN|FAIL","summary":"...","findings":[{"severity":"P0|P1|P2|P3","file":"...","line":"...","issue":"...","evidence":"...","recommendation":"..."}]}
           Use FAIL for any release-blocking correctness/security issue, WARN for non-blocking concerns,
