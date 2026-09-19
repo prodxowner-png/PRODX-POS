@@ -89,7 +89,7 @@ test("refund route derives the authorizing user from the authenticated principal
 
   const app = createApp({
     authenticateRequest: () => principal,
-    authorizeRequest: () => true,
+    authorizeRequest: () => false,
     configureRoutes: (configuredApp) => registerRefundRoute(configuredApp, db),
   });
   const server = await start(app);
