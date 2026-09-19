@@ -23,7 +23,9 @@ concurrency:
 
 jobs:
   review:
-    runs-on: ubuntu-latest
+    # Use the authenticated Antigravity Pro-account runner so review does not
+    # depend on GEMINI_API_KEY or the Codex quota. The job never checks out PR code.
+    runs-on: [self-hosted, linux, prodx-antigravity]
     timeout-minutes: 20
     steps:
       - name: Resolve open PR
@@ -45,14 +47,6 @@ jobs:
           test "${#head_sha}" -eq 40
           echo "number=$pr" >> "$GITHUB_OUTPUT"
           echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
-
-      - name: Verify Gemini credential
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: |
-          set -euo pipefail
-          test -n "${GEMINI_API_KEY:-}"
-          echo "GEMINI_API_KEY configured"
 
       - name: Install pinned Antigravity CLI
         run: |
@@ -76,17 +70,11 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           "$HOME/.local/bin/agy" --version
 
-      - name: Configure Gemini provider
+      - name: Verify Antigravity Pro-account runner
         run: |
           set -euo pipefail
-          mkdir -p "$HOME/.gemini/antigravity-cli"
-          printf '%s\n' '{"modelProvider":"gemini"}' > "$HOME/.gemini/antigravity-cli/settings.json"
-
-      - name: List Gemini models
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: |
-          set -euo pipefail
+          command -v agy >/dev/null
+          command -v jq >/dev/null
           agy models
 
       - name: Fetch and sanitize PR diff
