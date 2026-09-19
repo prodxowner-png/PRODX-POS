@@ -4,7 +4,7 @@ import {
   createSupervisorAuthorizationService,
   SupervisorAuthorizationError,
 } from '../auth/supervisor-authorization';
-import type { SqlExecutor } from '../auth/postgres-repository';
+import type { TransactionalSqlExecutor } from '../db/transaction';
 
 type Body = {
   action: 'refund';
@@ -22,9 +22,7 @@ const valid = (value: unknown): value is Body => {
     typeof body.supervisorSecret === 'string' && body.supervisorSecret.length > 0;
 };
 
-export const registerSupervisorAuthorizationRoute = (app: Express, db: SqlExecutor): void => {
-  const service = createSupervisorAuthorizationService(db);
-
+export const registerSupervisorAuthorizationRoute = (app: Express, db: TransactionalSqlExecutor): void => {
   app.post('/api/v1/authorizations/supervisor', requirePermission('pos.refund'), async (request: Request, response: Response) => {
     const context = request.prodxContext;
     if (!context) {
@@ -44,7 +42,10 @@ export const registerSupervisorAuthorizationRoute = (app: Express, db: SqlExecut
     }
 
     try {
-      const result = await service.authorize({
+      const result = await db.transaction((tx) => createSupervisorAuthorizationService({
+        query: async <T extends Record<string, unknown>>(sql: string, parameters: readonly unknown[] = []) =>
+          (await tx.query<T>(sql, parameters)).rows,
+      }).authorize({
         organizationId: context.principal.organizationId,
         storeId: context.principal.storeId,
         requesterUserId: context.principal.userId,
@@ -53,7 +54,7 @@ export const registerSupervisorAuthorizationRoute = (app: Express, db: SqlExecut
         orderId: request.body.orderId,
         supervisorUsername: request.body.supervisorUsername,
         supervisorSecret: request.body.supervisorSecret,
-      });
+      }));
       response.status(201).json(result);
     } catch (error) {
       if (error instanceof SupervisorAuthorizationError) {

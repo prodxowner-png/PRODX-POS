@@ -32,9 +32,22 @@ const LOCKOUT_MS = 15 * 60 * 1000;
 export const hashAuthorizationToken = (token: string): string =>
   crypto.createHash('sha256').update(token, 'utf8').digest('hex');
 
+const recordSecurityEvent = async (
+  db: SqlExecutor,
+  input: { organizationId: string; userId?: string | null; eventType: string; metadata: Record<string, unknown> },
+): Promise<void> => {
+  await db.query(
+    `INSERT INTO prodx_security_audit_events
+      (id, organization_id, user_id, event_type, metadata)
+     VALUES ($1, $2, $3, $4, $5::jsonb)`,
+    [crypto.randomUUID(), input.organizationId, input.userId ?? null, input.eventType, JSON.stringify(input.metadata)],
+  );
+};
+
 export const createSupervisorAuthorizationService = (db: SqlExecutor, now: () => Date = () => new Date()) => ({
   async authorize(input: SupervisorAuthorizationRequest): Promise<SupervisorAuthorizationResult> {
-    if (!input.supervisorUsername.trim() || !input.supervisorSecret || !input.orderId) {
+    if (!input.organizationId || !input.storeId || !input.requesterUserId || !input.requesterSessionId ||
+        !input.orderId || !input.supervisorUsername.trim() || !input.supervisorSecret) {
       throw new SupervisorAuthorizationError('INVALID_CREDENTIALS');
     }
 
@@ -57,23 +70,34 @@ export const createSupervisorAuthorizationService = (db: SqlExecutor, now: () =>
 
     if (!credential || credential.status !== 'active' ||
         (credential.lockedUntil && credential.lockedUntil > current)) {
+      await recordSecurityEvent(db, {
+        organizationId: input.organizationId,
+        userId: credential?.userId ?? null,
+        eventType: 'SUPERVISOR_AUTH_REJECTED',
+        metadata: { action: input.action, orderId: input.orderId, requesterUserId: input.requesterUserId, reason: 'invalid_or_locked' },
+      });
       throw new SupervisorAuthorizationError('INVALID_CREDENTIALS');
     }
 
     const valid = await verifyPassword(input.supervisorSecret, credential.secretHash);
     if (!valid) {
-      const nextAttempts = Number(credential.failedAttempts) + 1;
-      const lockedUntil = nextAttempts >= MAX_FAILED_ATTEMPTS
-        ? new Date(current.getTime() + LOCKOUT_MS)
-        : null;
+      const lockUntil = new Date(current.getTime() + LOCKOUT_MS);
+      // Increment in SQL so concurrent failures cannot overwrite one another's count.
       await db.query(
         `UPDATE prodx_user_credentials
-            SET failed_attempts = $2,
-                locked_until = CASE WHEN $3::timestamptz IS NULL THEN locked_until ELSE $3::timestamptz END,
+            SET failed_attempts = failed_attempts + 1,
+                locked_until = CASE WHEN failed_attempts + 1 >= $2 THEN $3::timestamptz ELSE locked_until END,
                 updated_at = CURRENT_TIMESTAMP
-          WHERE user_id = $1`,
-        [credential.userId, nextAttempts, lockedUntil],
+          WHERE user_id = $1
+            AND (locked_until IS NULL OR locked_until <= $4::timestamptz)`,
+        [credential.userId, MAX_FAILED_ATTEMPTS, lockUntil, current],
       );
+      await recordSecurityEvent(db, {
+        organizationId: input.organizationId,
+        userId: credential.userId,
+        eventType: 'SUPERVISOR_AUTH_FAILED',
+        metadata: { action: input.action, orderId: input.orderId, requesterUserId: input.requesterUserId },
+      });
       throw new SupervisorAuthorizationError('INVALID_CREDENTIALS');
     }
 
@@ -102,7 +126,15 @@ export const createSupervisorAuthorizationService = (db: SqlExecutor, now: () =>
         LIMIT 1`,
       [input.organizationId, input.storeId, credential.userId],
     );
-    if (!allowed[0]) throw new SupervisorAuthorizationError('SUPERVISOR_NOT_ALLOWED');
+    if (!allowed[0]) {
+      await recordSecurityEvent(db, {
+        organizationId: input.organizationId,
+        userId: credential.userId,
+        eventType: 'SUPERVISOR_AUTH_DENIED',
+        metadata: { action: input.action, orderId: input.orderId, requesterUserId: input.requesterUserId, reason: 'store_permission_missing' },
+      });
+      throw new SupervisorAuthorizationError('SUPERVISOR_NOT_ALLOWED');
+    }
 
     await db.query(
       `UPDATE prodx_user_credentials
@@ -123,6 +155,12 @@ export const createSupervisorAuthorizationService = (db: SqlExecutor, now: () =>
        input.requesterSessionId, credential.userId, input.action, input.orderId,
        hashAuthorizationToken(token), expiresAt],
     );
+    await recordSecurityEvent(db, {
+      organizationId: input.organizationId,
+      userId: credential.userId,
+      eventType: 'SUPERVISOR_AUTHORIZATION_GRANTED',
+      metadata: { action: input.action, orderId: input.orderId, requesterUserId: input.requesterUserId, requesterSessionId: input.requesterSessionId, expiresAt: expiresAt.toISOString() },
+    });
 
     return { authorizationToken: token, supervisorUserId: credential.userId, expiresAt: expiresAt.toISOString() };
   },
@@ -131,6 +169,7 @@ export const createSupervisorAuthorizationService = (db: SqlExecutor, now: () =>
     token: string; organizationId: string; storeId: string; requesterUserId: string;
     requesterSessionId: string; action: 'refund'; orderId: string;
   }): Promise<{ supervisorUserId: string }> {
+    if (!input.token.trim()) throw new SupervisorAuthorizationError('AUTHORIZATION_EXPIRED');
     const hash = hashAuthorizationToken(input.token);
     const rows = await db.query<{ supervisorUserId: string }>(
       `UPDATE prodx_supervisor_authorizations
@@ -148,7 +187,23 @@ export const createSupervisorAuthorizationService = (db: SqlExecutor, now: () =>
       [hash, input.organizationId, input.storeId, input.requesterUserId,
        input.requesterSessionId, input.action, input.orderId],
     );
-    if (!rows[0]) throw new SupervisorAuthorizationError('AUTHORIZATION_EXPIRED');
-    return { supervisorUserId: rows[0].supervisorUserId };
+    if (rows[0]) return { supervisorUserId: rows[0].supervisorUserId };
+
+    const state = await db.query<{ consumedAt: Date | null; expiresAt: Date }>(
+      `SELECT consumed_at AS "consumedAt", expires_at AS "expiresAt"
+         FROM prodx_supervisor_authorizations
+        WHERE authorization_hash = $1
+          AND organization_id = $2
+          AND store_id = $3
+          AND requester_user_id = $4
+          AND requester_session_id = $5
+          AND action_key = $6
+          AND order_id = $7
+        LIMIT 1`,
+      [hash, input.organizationId, input.storeId, input.requesterUserId,
+       input.requesterSessionId, input.action, input.orderId],
+    );
+    if (state[0]?.consumedAt) throw new SupervisorAuthorizationError('AUTHORIZATION_REPLAYED');
+    throw new SupervisorAuthorizationError('AUTHORIZATION_EXPIRED');
   },
 });

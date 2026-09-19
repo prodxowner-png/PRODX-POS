@@ -30,7 +30,7 @@ export const createProductionApp = () => {
       registerRefundRoute(configuredApp, transactions);
       registerPaymentLifecycleRoute(configuredApp, transactions);
       registerSyncRoute(configuredApp, transactions);
-      registerSupervisorAuthorizationRoute(configuredApp, sql);
+      registerSupervisorAuthorizationRoute(configuredApp, transactions);
     },
   });
 
