@@ -167,27 +167,45 @@ jobs:
           PY
 
           set +e
-          agy --model gemini-3.7-flash-low --mode plan --sandbox             --input-format stream-json --output-format stream-json             --json-schema review-schema.json --print-timeout 15m             < prompt.ndjson > agy-output.ndjson
-          agy_exit=$?
+          review_ok=0
+          for model in gemini-3.8-flash-low gemini-3.7-flash-low gemini-3.6-flash-low; do
+            echo "Trying Antigravity model: $model"
+            rm -f agy-output.ndjson agy-result.json review.json
+            agy --model "$model" --mode plan --sandbox               --input-format stream-json --output-format stream-json               --json-schema review-schema.json --print-timeout 15m               < prompt.ndjson > agy-output.ndjson
+            agy_exit=$?
+            if [ "$agy_exit" -ne 0 ]; then
+              echo "Model $model failed (exit $agy_exit); trying the next configured model."
+              continue
+            fi
+            if ! test -s agy-output.ndjson; then
+              echo "Model $model returned no output; trying the next configured model."
+              continue
+            fi
+            if ! jq -e 'select(.event == "result")' agy-output.ndjson >/dev/null 2>&1; then
+              echo "Model $model returned no result event; trying the next configured model."
+              continue
+            fi
+            jq -s 'map(select(.event == "result") | .result) | last' agy-output.ndjson > agy-result.json
+            if jq -e '.structured_output | type == "object"' agy-result.json >/dev/null 2>&1; then
+              jq '.structured_output' agy-result.json > review.json
+            else
+              jq -r '.response // empty' agy-result.json > review.json
+            fi
+            if jq -e 'type == "object" and (.verdict == "PASS" or .verdict == "WARN" or .verdict == "FAIL") and (.findings | type == "array")' review.json >/dev/null 2>&1; then
+              review_ok=1
+              echo "Antigravity review succeeded with $model."
+              break
+            fi
+            echo "Model $model did not produce a valid structured review; trying the next configured model."
+          done
           set -e
 
-          test -s agy-output.ndjson
-          jq -e 'select(.event == "result")' agy-output.ndjson >/dev/null
-
-          jq -s '
-            map(select(.event == "result") | .result)
-            | last
-          ' agy-output.ndjson > agy-result.json
-
-          if jq -e '.structured_output | type == "object"' agy-result.json >/dev/null 2>&1; then
-            jq '.structured_output' agy-result.json > review.json
-          else
-            jq -r '.response' agy-result.json > review.json
+          if [ "$review_ok" -ne 1 ]; then
+            echo "All configured Gemini models failed to produce a valid review." >&2
+            exit 1
           fi
 
-          jq -e 'type == "object" and (.verdict == "PASS" or .verdict == "WARN" or .verdict == "FAIL") and (.findings | type == "array")' review.json >/dev/null
           jq . review.json
-          test "$agy_exit" -eq 0 || echo "Antigravity returned non-zero with a valid structured review; preserving the review result."
 
       - name: Publish review to PR
         env:
@@ -208,7 +226,7 @@ jobs:
             echo "### Findings"
             jq -r 'if (.findings|length)==0 then "No findings." else (.findings[] | "- **[" + .severity + "]** " + .file + (if .line then ":" + .line else "" end) + " — " + .issue + "\n  - Evidence: " + .evidence + "\n  - Recommendation: " + .recommendation) end' review.json
             echo
-            echo "_Reviewed with pinned Antigravity CLI 1.2.7 + Gemini 3.7 Flash Low; diff was sanitized and size-capped._"
+            echo "_Reviewed with pinned Antigravity CLI 1.2.7 + Gemini fallback models; diff was sanitized and size-capped._"
           } > review-comment.md
           gh pr comment "$PR" --repo "$REPO" --body-file review-comment.md
           test "$verdict" != "FAIL"
