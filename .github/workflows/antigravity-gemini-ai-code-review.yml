@@ -208,29 +208,64 @@ jobs:
 
           set +e
           review_ok=0
-          for model in gemini-3.8-flash-low gemini-3.7-flash-low gemini-3.6-flash-low; do
+          # Prefer the model used by the authenticated Pro-account workflow,
+          # then fall back through the low-cost Gemini models.
+          for model in gemini-3.7-flash-medium gemini-3.8-flash-low gemini-3.7-flash-low gemini-3.6-flash-low; do
             echo "Trying Antigravity model: $model"
             rm -f agy-output.ndjson agy-result.json review.json
-            agy --model "$model" --mode plan --sandbox               --input-format stream-json --output-format stream-json               --json-schema review-schema.json --print-timeout 15m               < prompt.ndjson > agy-output.ndjson
+            agy --model "$model" --mode plan --sandbox \
+              --input-format stream-json --output-format stream-json \
+              --json-schema review-schema.json --print-timeout 15m \
+              < prompt.ndjson > agy-output.ndjson
             agy_exit=$?
             if [ "$agy_exit" -ne 0 ]; then
               echo "Model $model failed (exit $agy_exit); trying the next configured model."
               continue
             fi
-            if ! test -s agy-output.ndjson; then
-              echo "Model $model returned no output; trying the next configured model."
-              continue
-            fi
-            if ! jq -e 'select(.event == "result")' agy-output.ndjson >/dev/null 2>&1; then
-              echo "Model $model returned no result event; trying the next configured model."
+            if ! test -s agy-output.ndjson || ! jq -e 'select(.event == "result")' agy-output.ndjson >/dev/null 2>&1; then
+              echo "Model $model returned no usable result event; trying the next configured model."
               continue
             fi
             jq -s 'map(select(.event == "result") | .result) | last' agy-output.ndjson > agy-result.json
-            if jq -e '.structured_output | type == "object"' agy-result.json >/dev/null 2>&1; then
-              jq '.structured_output' agy-result.json > review.json
-            else
-              jq -r '.response // empty' agy-result.json > review.json
-            fi
+
+            # Antigravity versions have returned structured_output as either an
+            # object or a JSON-encoded string. Normalize both forms before jq
+            # validates the review schema.
+            python - <<'PY2'
+          import json
+          import re
+          from pathlib import Path
+
+          result = json.loads(Path("agy-result.json").read_text())
+          candidates = [result.get("structured_output"), result.get("response")]
+
+          def parse(value):
+              if isinstance(value, dict):
+                  return value
+              if not isinstance(value, str):
+                  return None
+              texts = [value.strip()]
+              texts.extend(re.findall(r"```(?:json)?\s*(.*?)```", value, flags=re.S | re.I))
+              for text in texts:
+                  try:
+                      parsed = json.loads(text)
+                      if isinstance(parsed, dict):
+                          return parsed
+                  except json.JSONDecodeError:
+                      first, last = text.find("{"), text.rfind("}")
+                      if first >= 0 and last > first:
+                          try:
+                              parsed = json.loads(text[first:last + 1])
+                              if isinstance(parsed, dict):
+                                  return parsed
+                          except json.JSONDecodeError:
+                              pass
+              return None
+
+          review = next((parse(candidate) for candidate in candidates if parse(candidate)), None)
+          if review is not None:
+              Path("review.json").write_text(json.dumps(review, ensure_ascii=False))
+          PY2
             if jq -e 'type == "object" and (.verdict == "PASS" or .verdict == "WARN" or .verdict == "FAIL") and (.summary | type == "string") and (.findings | type == "array") and all(.findings[]; type == "object" and (.severity | IN("P0","P1","P2","P3")) and (.file | type == "string") and (.line | type == "string") and (.issue | type == "string") and (.evidence | type == "string") and (.recommendation | type == "string"))' review.json >/dev/null 2>&1; then
               review_ok=1
               echo "Antigravity review succeeded with $model."
