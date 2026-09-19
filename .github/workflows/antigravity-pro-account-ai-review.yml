@@ -59,9 +59,13 @@ jobs:
         run: |
           set -euo pipefail
           command -v gh >/dev/null
-          gh pr view "$PR" --repo "$REPO" --json number,state,headRepositoryOwner,headRepository             --jq '"\(.number) \(.state) \(.headRepositoryOwner.login)/\(.headRepository.name)"' | tee pr-meta.txt
+          gh pr view "$PR" --repo "$REPO" --json number,state,headRepositoryOwner,headRepository,headRefName             --jq '"\(.number) \(.state) \(.headRepositoryOwner.login)/\(.headRepository.name) \(.headRefName)"' | tee pr-meta.txt
           test "$(awk '{print $2}' pr-meta.txt)" = "OPEN"
           test "$(awk '{print $3}' pr-meta.txt)" = "$REPO"
+          case "$(awk '{print $4}' pr-meta.txt)" in
+            chore/antigravity-*) ;;
+            *) echo "Pro-account runner is restricted to trusted Antigravity branches." >&2; exit 1 ;;
+          esac
           echo "number=$PR" >> "$GITHUB_OUTPUT"
 
       - name: Fetch and sanitize PR diff
