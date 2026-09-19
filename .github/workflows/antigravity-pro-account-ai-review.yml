@@ -19,31 +19,12 @@ jobs:
     runs-on: [self-hosted, linux, prodx-antigravity]
     timeout-minutes: 20
     steps:
-      - name: Verify runner account authentication
-        run: |
-          set -euo pipefail
-          test -z "${GEMINI_API_KEY:-}" || { echo "GEMINI_API_KEY must not be set on the Pro-account runner." >&2; exit 1; }
-          test -f "$HOME/.gemini/antigravity-cli/settings.json" || true
-          agy models
-          agy -p "Reply with exactly PRODX_PRO_ACCOUNT_AUTH_OK" --model gemini-3.7-flash-medium --output-format json --print-timeout 3m > auth-check.json
-          jq -e '.status == "SUCCESS" and (.response | contains("PRODX_PRO_ACCOUNT_AUTH_OK"))' auth-check.json >/dev/null
-
-      - name: Resolve repository-owned PR
-        id: pr
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          PR: ${{ inputs.pr_number }}
-        run: |
-          set -euo pipefail
-          gh pr view "$PR" --repo "$REPO" --json number,state,headRepositoryOwner,headRepository             --jq '"(.number) (.state) (.headRepositoryOwner.login)/(.headRepository.name)"' | tee pr-meta.txt
-          test "$(awk '{print $2}' pr-meta.txt)" = "OPEN"
-          test "$(awk '{print $3}' pr-meta.txt)" = "$REPO"
-          echo "number=$PR" >> "$GITHUB_OUTPUT"
-
       - name: Install pinned Antigravity CLI
         run: |
           set -euo pipefail
+          command -v curl >/dev/null
+          command -v sha256sum >/dev/null
+          command -v tar >/dev/null
           version="1.2.7"
           url="https://github.com/google-antigravity/antigravity-cli/releases/download/$version/agy_cli_linux_x64.tar.gz"
           expected_sha256="e410dd56d8c213ef12643d3ff5eaaab57a17e05bbf72e9415322f23879fc4a18"
@@ -57,7 +38,31 @@ jobs:
           test -n "$cli_bin"
           install -m 0755 "$(readlink -f "$cli_bin")" "$HOME/.local/bin/agy"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          agy --version
+          "$HOME/.local/bin/agy" --version
+
+      - name: Verify runner account authentication
+        run: |
+          set -euo pipefail
+          command -v jq >/dev/null
+          command -v agy >/dev/null
+          test -z "${GEMINI_API_KEY:-}" || { echo "GEMINI_API_KEY must not be set on the Pro-account runner." >&2; exit 1; }
+          agy models
+          agy -p "Reply with exactly PRODX_PRO_ACCOUNT_AUTH_OK" --model gemini-3.7-flash-medium --output-format json --print-timeout 3m > auth-check.json
+          jq -e '.status == "SUCCESS" and (.response | contains("PRODX_PRO_ACCOUNT_AUTH_OK"))' auth-check.json >/dev/null
+
+      - name: Resolve repository-owned PR
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ inputs.pr_number }}
+        run: |
+          set -euo pipefail
+          command -v gh >/dev/null
+          gh pr view "$PR" --repo "$REPO" --json number,state,headRepositoryOwner,headRepository             --jq '"\(.number) \(.state) \(.headRepositoryOwner.login)/\(.headRepository.name)"' | tee pr-meta.txt
+          test "$(awk '{print $2}' pr-meta.txt)" = "OPEN"
+          test "$(awk '{print $3}' pr-meta.txt)" = "$REPO"
+          echo "number=$PR" >> "$GITHUB_OUTPUT"
 
       - name: Fetch and sanitize PR diff
         env:
@@ -66,10 +71,14 @@ jobs:
           PR: ${{ steps.pr.outputs.number }}
         run: |
           set -euo pipefail
+          command -v gh >/dev/null
+          command -v python3 >/dev/null
           gh pr diff "$PR" --repo "$REPO" > pr.diff
-          python - <<'PY'
+          test -s pr.diff
+          python3 - <<'PY'
           from pathlib import Path
           import re
+
           source = Path("pr.diff").read_text(errors="replace")
           out, current = [], None
           sensitive = re.compile(r"(?i)(^|/)(?:\.env(?:\..*)?|.*\.(?:pem|key|p12|pfx|crt|cer|der))$")
@@ -82,6 +91,7 @@ jobs:
                       out.append(line)
                   continue
               out.append(line)
+
           text = "".join(out)
           text = re.sub(r"(?i)(api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|token|secret|password|authorization)(\s*[:=]\s*)[^\s\n]+", r"\1\2[REDACTED]", text)
           text = re.sub(r"(?i)-----BEGIN [^-]+-----.*?-----END [^-]+-----", "[REDACTED_PRIVATE_KEY]", text, flags=re.S)
@@ -99,10 +109,12 @@ jobs:
           PR: ${{ steps.pr.outputs.number }}
         run: |
           set -euo pipefail
+          command -v jq >/dev/null
+          command -v python3 >/dev/null
           cat > review-schema.json <<'EOF'
           {"type":"object","additionalProperties":false,"required":["verdict","summary","findings"],"properties":{"verdict":{"type":"string","enum":["PASS","WARN","FAIL"]},"summary":{"type":"string"},"findings":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["severity","file","line","issue","evidence","recommendation"],"properties":{"severity":{"type":"string","enum":["P0","P1","P2","P3"]},"file":{"type":"string"},"line":{"type":"string"},"issue":{"type":"string"},"evidence":{"type":"string"},"recommendation":{"type":"string"}}}}}}
           EOF
-          python - <<'PY'
+          python3 - <<'PY'
           import json
           from pathlib import Path
           prompt = """You are the adversarial production reviewer for PRODX POS.
@@ -132,6 +144,7 @@ FAIL means a CRITICAL/HIGH issue is supported.
           PR: ${{ steps.pr.outputs.number }}
         run: |
           set -euo pipefail
+          command -v gh >/dev/null
           verdict="$(jq -r '.verdict' review.json)"
           summary="$(jq -r '.summary' review.json)"
           {
