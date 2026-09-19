@@ -1,5 +1,4 @@
 import type { Express, Request, Response } from 'express';
-import { requirePermission } from './createApp';
 import {
   createSupervisorAuthorizationService,
   SupervisorAuthorizationError,
@@ -23,7 +22,7 @@ const valid = (value: unknown): value is Body => {
 };
 
 export const registerSupervisorAuthorizationRoute = (app: Express, db: TransactionalSqlExecutor): void => {
-  app.post('/api/v1/authorizations/supervisor', requirePermission('pos.refund'), async (request: Request, response: Response) => {
+  app.post('/api/v1/authorizations/supervisor', async (request: Request, response: Response) => {
     const context = request.prodxContext;
     if (!context) {
       response.status(500).json({ error: { code: 'REQUEST_CONTEXT_MISSING', message: 'Request context is required.' } });
