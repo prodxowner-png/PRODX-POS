@@ -45,3 +45,10 @@ Enter the PR number.
 
 Only after this produces a real PASS/WARN/FAIL result should the canonical AI-review
 workflow be migrated from the API-key provider to the Pro-account runner.
+
+## Trust and exact-head requirements
+
+- The automatic Gemini workflow is base-controlled (`pull_request_target`) and never checks out or executes pull-request code.
+- It accepts only repository-owned pull requests, sanitizes the diff, refuses leaked credentials and refuses truncated diffs.
+- It re-reads the pull-request head after downloading the diff and fails if the SHA changed during review.
+- The review result is valid only for the exact head SHA that was reviewed; a later push requires a new run.

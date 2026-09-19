@@ -1,7 +1,9 @@
 name: Antigravity Gemini AI Code Review
 
 on:
-  pull_request:
+  # Use the base-branch workflow so PR changes cannot rewrite the
+  # secret-bearing job that reviews them. This workflow never checks out PR code.
+  pull_request_target:
     types: [opened, synchronize, reopened]
   workflow_dispatch:
     inputs:
@@ -14,6 +16,10 @@ permissions:
   contents: read
   pull-requests: write
   issues: write
+
+concurrency:
+  group: antigravity-gemini-review-${{ github.event.pull_request.number || inputs.pr_number || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
   review:
@@ -30,9 +36,15 @@ jobs:
           set -euo pipefail
           test -n "${PR_EVENT_NUMBER:-}"
           pr="$PR_EVENT_NUMBER"
-          head_repo="$(gh pr view "$pr" --repo "$REPO" --json headRepositoryOwner --jq '.headRepositoryOwner.login')/$(gh pr view "$pr" --repo "$REPO" --json headRepository --jq '.headRepository.name')"
+          metadata="$(gh pr view "$pr" --repo "$REPO" --json number,state,headRepositoryOwner,headRepository,headRefOid)"
+          test "$(jq -r '.number' <<<"$metadata")" = "$pr"
+          test "$(jq -r '.state' <<<"$metadata")" = "OPEN"
+          head_repo="$(jq -r '.headRepositoryOwner.login + "/" + .headRepository.name' <<<"$metadata")"
           test "$head_repo" = "$REPO"
+          head_sha="$(jq -r '.headRefOid' <<<"$metadata")"
+          test "${#head_sha}" -eq 40
           echo "number=$pr" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
 
       - name: Verify Gemini credential
         env:
@@ -86,32 +98,53 @@ jobs:
           set -euo pipefail
           gh pr diff "$PR" --repo "$REPO" > pr.diff
           test -s pr.diff
+          current_head="$(gh pr view "$PR" --repo "$REPO" --json headRefOid --jq '.headRefOid')"
+          test "$current_head" = "${{ steps.pr.outputs.head_sha }}"
           python - <<'PY'
           from pathlib import Path
           import re
 
-          source = Path("pr.diff").read_text(errors="replace")
-          lines = source.splitlines(keepends=True)
+          source = Path("pr.diff").read_text(encoding="utf-8", errors="replace")
           out = []
-          current_path = None
-          sensitive = re.compile(r"(?i)(^|/)(?:\.env(?:\..*)?|.*\.(?:pem|key|p12|pfx|crt|cer|der))$")
-          for line in lines:
+          current_paths = ()
+          sensitive_path = re.compile(r"(?i)(^|/)(?:\.env(?:\..*)?|.*\.(?:pem|key|p12|pfx|crt|cer|der)|.*(?:secret|credential|password|token).*)$")
+          for line in source.splitlines(keepends=True):
               if line.startswith("diff --git "):
                   parts = line.split()
-                  current_path = parts[2][2:] if len(parts) >= 3 and parts[2].startswith("a/") else None
-              if current_path and sensitive.search(current_path):
-                  if line.startswith("diff --git ") or line.startswith("--- ") or line.startswith("+++ "):
+                  current_paths = tuple(
+                      value[2:] for value in parts[2:4]
+                      if value.startswith(("a/", "b/"))
+                  )
+              if any(sensitive_path.search(path) for path in current_paths):
+                  if line.startswith(("diff --git ", "--- ", "+++ ")):
                       out.append(line)
                   continue
               out.append(line)
 
-          s = "".join(out)
-          s = re.sub(r"(?i)(api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|token|secret|password|authorization)(\s*[:=]\s*)[^\s\n]+", r"\1\2[REDACTED]", s)
-          s = re.sub(r"(?i)-----BEGIN [^-]+-----.*?-----END [^-]+-----", "[REDACTED_PRIVATE_KEY]", s, flags=re.S)
+          text = "".join(out)
+          patterns = [
+              (re.compile(r"(?i)(authorization\s*:\s*bearer\s+)[^\s]+"), r"\1[REDACTED]"),
+              (re.compile(r"(?i)(\"?(?:api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|token|secret|password|authorization)\"?\s*[:=]\s*[\"']?)(?!\$\{\{|\$[A-Z_]+|\[REDACTED\]|<REDACTED>)[^\s,;\"'}`]+"), r"\1[REDACTED]"),
+              (re.compile(r"(?i)-----BEGIN [^-]+-----.*?-----END [^-]+-----", re.S), "[REDACTED_PRIVATE_KEY]"),
+              (re.compile(r"\bgh[pousr]_[A-Za-z0-9_]{20,}\b"), "[REDACTED_GITHUB_TOKEN]"),
+              (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), "[REDACTED_AWS_ACCESS_KEY]"),
+          ]
+          for pattern, replacement in patterns:
+              text = pattern.sub(replacement, text)
+          leak_patterns = [
+              re.compile(r"-----BEGIN [^-]+-----"),
+              re.compile(r"\bgh[pousr]_[A-Za-z0-9_]{20,}\b"),
+              re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
+              re.compile(r"(?i)authorization\s*:\s*bearer\s+[A-Za-z0-9._~+/=-]{20,}"),
+          ]
+          if any(pattern.search(text) for pattern in leak_patterns):
+              raise SystemExit("Potential credential remained after PR-diff sanitization; refusing external review.")
           max_bytes = 120000
-          if len(s.encode()) > max_bytes:
-              s = s.encode()[:max_bytes].decode("utf-8", "ignore") + "\n[DIFF_TRUNCATED]\n"
-          Path("pr.diff.sanitized").write_text(s)
+          if len(text.encode("utf-8")) > max_bytes:
+              raise SystemExit("PR diff exceeds the 120KB review limit; refusing incomplete review.")
+          if not text.strip():
+              raise SystemExit("No reviewable diff remained after sensitive-file filtering.")
+          Path("pr.diff.sanitized").write_text(text, encoding="utf-8")
           PY
           wc -c pr.diff.sanitized
 
@@ -198,7 +231,7 @@ jobs:
             else
               jq -r '.response // empty' agy-result.json > review.json
             fi
-            if jq -e 'type == "object" and (.verdict == "PASS" or .verdict == "WARN" or .verdict == "FAIL") and (.findings | type == "array")' review.json >/dev/null 2>&1; then
+            if jq -e 'type == "object" and (.verdict == "PASS" or .verdict == "WARN" or .verdict == "FAIL") and (.summary | type == "string") and (.findings | type == "array") and all(.findings[]; type == "object" and (.severity | IN("P0","P1","P2","P3")) and (.file | type == "string") and (.line | type == "string") and (.issue | type == "string") and (.evidence | type == "string") and (.recommendation | type == "string"))' review.json >/dev/null 2>&1; then
               review_ok=1
               echo "Antigravity review succeeded with $model."
               break
@@ -219,12 +252,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           PR: ${{ steps.pr.outputs.number }}
+          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
         run: |
           set -euo pipefail
+          final_head="$(gh pr view "$PR" --repo "$REPO" --json headRefOid --jq '.headRefOid')"
+          test "$final_head" = "${{ steps.pr.outputs.head_sha }}"
           verdict="$(jq -r '.verdict' review.json)"
           summary="$(jq -r '.summary' review.json)"
           {
             echo "## Antigravity Gemini Production Review"
+            echo "**Reviewed head:** `$HEAD_SHA`"
             echo
             echo "**Verdict:** $verdict"
             echo

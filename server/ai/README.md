@@ -14,7 +14,7 @@ OpenRouter is no longer part of the canonical CI review lane. The application AI
 
 GitHub PR -> Antigravity CLI -> Gemini -> structured PRODX review -> PR comment -> CI decision
 
-The review lane never exposes provider credentials to the browser and never grants the reviewer write access to the repository.
+The review lane never exposes provider credentials to the browser. Its token is limited to repository read access plus PR/issue comments; it has no repository contents write permission. The automatic workflow is base-controlled and reviews only the exact head SHA it fetched.
 
 ## Production integration boundary
 
