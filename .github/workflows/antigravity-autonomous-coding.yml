@@ -1,6 +1,9 @@
 name: Antigravity Autonomous Production Executor
 
 on:
+  push:
+    branches:
+      - 'antigravity/**'
   pull_request_target:
     types: [opened, synchronize, reopened]
   workflow_dispatch:
@@ -15,7 +18,7 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: antigravity-autonomous-${{ github.event.pull_request.number || inputs.pr_number || github.run_id }}
+  group: antigravity-autonomous-${{ github.event.pull_request.number || inputs.pr_number || github.ref_name || github.run_id }}
   cancel-in-progress: true
 
 jobs:
@@ -33,9 +36,13 @@ jobs:
           EVENT_PR: ${{ github.event.pull_request.number || inputs.pr_number || '' }}
         run: |
           set -euo pipefail
-          test -n "${EVENT_PR:-}"
-          metadata="$(gh pr view "$EVENT_PR" --repo "$REPO" --json number,state,headRepositoryOwner,headRepository,headRefName,headRefOid,baseRefName)"
-          test "$(jq -r '.number' <<<"$metadata")" = "$EVENT_PR"
+          event_pr="${EVENT_PR:-}"
+          if [ -z "$event_pr" ]; then
+            event_pr="$(gh pr list --repo "$REPO" --head "${GITHUB_REF_NAME}" --state open --json number --jq '.[0].number // empty')"
+          fi
+          test -n "${event_pr:-}"
+          metadata="$(gh pr view "$event_pr" --repo "$REPO" --json number,state,headRepositoryOwner,headRepository,headRefName,headRefOid,baseRefName)"
+          test "$(jq -r '.number' <<<"$metadata")" = "$event_pr"
           test "$(jq -r '.state' <<<"$metadata")" = "OPEN"
           test "$(jq -r '.baseRefName' <<<"$metadata")" = "main"
           head_repo="$(jq -r '.headRepositoryOwner.login + "/" + .headRepository.name' <<<"$metadata")"
@@ -48,7 +55,7 @@ jobs:
           head_sha="$(jq -r '.headRefOid' <<<"$metadata")"
           test "${#head_sha}" -eq 40
           {
-            echo "number=$EVENT_PR"
+            echo "number=$event_pr"
             echo "head_ref=$head_ref"
             echo "head_sha=$head_sha"
           } >> "$GITHUB_OUTPUT"
