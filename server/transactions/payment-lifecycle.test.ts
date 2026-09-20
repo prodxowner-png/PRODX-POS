@@ -68,7 +68,7 @@ test('payment lifecycle rechecks idempotency after acquiring the payment lock',a
     }
     return {rows:[]};
   }};
-  const result = await createPaymentLifecycleService({transaction:async(fn:any)=>fn(tx)}).transition({
+  const result = await createPaymentLifecycleService({query:async()=>({rows:[]}), transaction:async(fn:any)=>fn(tx)}).transition({
     storeId:'store-1',orderId:'ord-1',paymentId:'pay-1',idempotencyKey:'idem-1',to:'captured',provider:'terminal',
   });
   assert.deepEqual(result, concurrent);
