@@ -115,12 +115,12 @@ jobs:
           16. Report PASS/FAIL/BLOCKED separately for each gate.
 
           IMPORTANT CURRENT PROJECT CONTEXT:
-          - PR #129 concerns payment lifecycle idempotency under concurrency.
-          - Pay special attention to replay equivalence for providerReference, failureCode, and failureReason both before and after locking.
-          - Pay special attention to concurrent requests sharing (store_id, idempotency_key) while carrying different payment data.
+          - The target PR is resolved dynamically above; do not assume a fixed PR number or stale task.
+          - Inspect the current PR and its actual changed files before deciding what work remains.
           - Preserve the architecture gate and PostgreSQL integration gate.
           - PostgreSQL unavailable means BLOCKED, not PASS.
           - Never fix a failing test by weakening or deleting the test.
+          - Do not invent a project-specific defect from historical context unless the current PR or repository evidence supports it.
 
           SECURITY:
           - Never print or commit credentials.
