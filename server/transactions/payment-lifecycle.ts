@@ -22,10 +22,46 @@ export const createPaymentLifecycleService = (db: TransactionalSqlExecutor) => (
     if (!input.idempotencyKey.trim()) throw new PaymentLifecycleError('Payment idempotency key is required.');
     if (!input.provider.trim()) throw new PaymentLifecycleError('Payment provider is required.');
     return db.transaction(async tx => {
-      const existing = (await tx.query('SELECT * FROM prodx_payment_attempts WHERE store_id=$1 AND idempotency_key=$2 LIMIT 1', [input.storeId, input.idempotencyKey])).rows[0];
-      if (existing) return existing;
-      const payment = (await tx.query('SELECT * FROM prodx_payments WHERE id=$1 AND store_id=$2 FOR UPDATE', [input.paymentId, input.storeId])).rows[0] as Record<string, unknown> | undefined;
+      const findAttempt = async () => (await tx.query(
+        'SELECT * FROM prodx_payment_attempts WHERE store_id=$1 AND idempotency_key=$2 LIMIT 1',
+        [input.storeId, input.idempotencyKey],
+      )).rows[0] as Record<string, unknown> | undefined;
+
+      const existing = await findAttempt();
+      if (existing) {
+        if (
+          existing.order_id !== input.orderId ||
+          existing.payment_id !== input.paymentId ||
+          existing.status !== input.to ||
+          existing.provider !== input.provider
+        ) {
+          throw new PaymentLifecycleError('Idempotency key was already used for a different payment lifecycle command.');
+        }
+        return existing;
+      }
+
+      // Serialize lifecycle transitions on the payment row. The idempotency lookup
+      // above intentionally remains fast, but must be repeated after the lock because
+      // another transaction may have committed the same key while this one waited.
+      const payment = (await tx.query(
+        'SELECT * FROM prodx_payments WHERE id=$1 AND store_id=$2 FOR UPDATE',
+        [input.paymentId, input.storeId],
+      )).rows[0] as Record<string, unknown> | undefined;
       if (!payment || payment.order_id !== input.orderId) throw new PaymentLifecycleError('Payment does not belong to the requested store and order.');
+
+      const concurrent = await findAttempt();
+      if (concurrent) {
+        if (
+          concurrent.order_id !== input.orderId ||
+          concurrent.payment_id !== input.paymentId ||
+          concurrent.status !== input.to ||
+          concurrent.provider !== input.provider
+        ) {
+          throw new PaymentLifecycleError('Idempotency key was already used for a different payment lifecycle command.');
+        }
+        return concurrent;
+      }
+
       const current = payment.status as PaymentLifecycleStatus;
       const allowed = current === input.to || (current === 'authorized' && input.to === 'captured');
       if (!allowed) throw new PaymentLifecycleError(`Invalid payment transition ${current} -> ${input.to}.`);
