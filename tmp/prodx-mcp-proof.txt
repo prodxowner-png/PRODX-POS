@@ -1,0 +1,3 @@
+PRODX_MCP_PROOF=read-write-delete
+branch=antigravity/prodx-ai-platform-current-main
+purpose=harmless GitHub MCP direct-operation proof
