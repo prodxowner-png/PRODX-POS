@@ -28,10 +28,7 @@ export class GeminiAIProvider implements AIProvider {
     const functionDeclarations = tools.map((tool) => ({
       name: tool.name,
       description: tool.description,
-      parameters: {
-        type: Type.OBJECT,
-        properties: {},
-      },
+      parameters: tool.inputSchema ?? { type: Type.OBJECT, properties: {} },
     }));
 
     const response = await this.client.models.generateContent({
