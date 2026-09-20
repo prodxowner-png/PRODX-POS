@@ -33,6 +33,7 @@ export interface AIProvider {
 export interface AIToolDefinition {
   name: string;
   description: string;
+  inputSchema?: Record<string, unknown>;
   execute: (args: Record<string, unknown>) => Promise<unknown>;
   authoritative: boolean;
   allowedActors: readonly AIActor[];
