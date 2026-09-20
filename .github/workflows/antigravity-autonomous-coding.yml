@@ -108,7 +108,10 @@ jobs:
           9. Do not weaken or skip gates.
           10. Do not change main, branch protection, secrets, or deployment settings.
           11. Do not merge the PR.
-          12. If there are meaningful changes, commit them and push them to the current branch.
+          11a. Do not invoke `gh`, GitHub APIs, or any unapproved MCP tool; GitHub writes are executor-owned.
+          11b. Allowed writes are only a local commit on the checked-out trusted branch; pushing is performed after executor validation.
+          11c. Never access unrelated repositories or modify workflows, secrets, security settings, or branch protection.
+          12. If there are meaningful changes, commit them locally; the executor, not the agent, performs the final push.
           13. If there is nothing to change, do not create a no-op commit.
           14. Verify the final HEAD SHA after pushing.
           15. Inspect GitHub Actions for that exact HEAD. Do not claim CI passed unless the exact SHA was checked.
@@ -145,28 +148,60 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           PR: ${{ steps.pr.outputs.number }}
+          HEAD_REF: ${{ steps.pr.outputs.head_ref }}
           HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
         run: |
           set -euo pipefail
           git config user.name "antigravity[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
 
+          # The agent is deliberately not given GH_TOKEN. It may create local
+          # commits, but only this executor validates and pushes them.
+          # Never persist a token in .git/config or any workspace credential file.
           # Scoped runner permissions must already be configured on the dedicated
           # Antigravity runner. We deliberately do not use --dangerously-skip-permissions.
-          agy -p "$(cat autonomous-task.md)"             --model gemini-3.7-flash-medium             --mode accept-edits             --sandbox             --output-format stream-json             --print-timeout 35m             > agy-run.ndjson
+          env -u GH_TOKEN agy -p "$(cat autonomous-task.md)"             --model gemini-3.7-flash-medium             --mode accept-edits             --sandbox             --output-format stream-json             --print-timeout 35m             > agy-run.ndjson
 
           jq -s 'map(select(.event=="result") | .result) | last' agy-run.ndjson > agy-result.json
           jq -e '.status == "SUCCESS"' agy-result.json >/dev/null
+          test -z "$(git status --porcelain)"
 
-          final_head="$(gh pr view "$PR" --repo "$REPO" --json headRefOid --jq '.headRefOid')"
-          echo "Agent started from $HEAD_SHA and PR now points to $final_head"
+          local_head="$(git rev-parse HEAD)"
+          test "$(git rev-parse --verify "$HEAD_SHA^{commit}")" = "$HEAD_SHA"
+          git merge-base --is-ancestor "$HEAD_SHA" "$local_head"
 
-          if [ "$final_head" != "$HEAD_SHA" ]; then
+          # Guard against accidental credential persistence before any push.
+          ! git config --local --get-regexp '(^|\.)credential|remote\..*url' | grep -F 'x-access-token:'
+          if grep -R -F -- "$GH_TOKEN" .git/config .git-credentials 2>/dev/null; then
+            echo "GitHub token was persisted in the workspace" >&2
+            exit 1
+          fi
+
+          if [ "$local_head" != "$HEAD_SHA" ]; then
+            auth_header="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+            (
+              export GIT_CONFIG_COUNT=1
+              export GIT_CONFIG_KEY_0=http.extraheader
+              export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth_header"
+              git push origin "HEAD:${HEAD_REF}"
+            )
             echo "AUTONOMOUS_COMMIT_CREATED=true" >> "$GITHUB_ENV"
           else
             echo "AUTONOMOUS_COMMIT_CREATED=false" >> "$GITHUB_ENV"
           fi
+
+          final_metadata="$(gh pr view "$PR" --repo "$REPO" --json number,state,headRepositoryOwner,headRepository,headRefName,headRefOid,baseRefName)"
+          test "$(jq -r '.number' <<<"$final_metadata")" = "$PR"
+          test "$(jq -r '.state' <<<"$final_metadata")" = "OPEN"
+          test "$(jq -r '.baseRefName' <<<"$final_metadata")" = "main"
+          test "$(jq -r '.headRepositoryOwner.login + "/" + .headRepository.name' <<<"$final_metadata")" = "$REPO"
+          test "$(jq -r '.headRefName' <<<"$final_metadata")" = "$HEAD_REF"
+          final_head="$(jq -r '.headRefOid' <<<"$final_metadata")"
+          test "$final_head" = "$local_head"
+          test "$(git rev-parse --verify "$final_head^{commit}")" = "$final_head"
+          git merge-base --is-ancestor "$HEAD_SHA" "$final_head"
+          echo "Agent started from $HEAD_SHA and final PR HEAD is $final_head"
+          echo "FINAL_HEAD_SHA=$final_head" >> "$GITHUB_ENV"
 
       - name: Publish executor report
         if: always()
