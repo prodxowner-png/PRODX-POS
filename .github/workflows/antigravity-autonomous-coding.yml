@@ -13,8 +13,6 @@ on:
 permissions:
   contents: write
   pull-requests: write
-  issues: write
-  actions: write
 
 concurrency:
   group: antigravity-autonomous-${{ github.event.pull_request.number || inputs.pr_number || github.run_id }}
@@ -60,7 +58,7 @@ jobs:
         with:
           ref: ${{ steps.pr.outputs.head_sha }}
           fetch-depth: 0
-          persist-credentials: true
+          persist-credentials: false
 
       - name: Verify Antigravity Pro account
         run: |
@@ -145,6 +143,7 @@ jobs:
           set -euo pipefail
           git config user.name "antigravity[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
 
           # Scoped runner permissions must already be configured on the dedicated
           # Antigravity runner. We deliberately do not use --dangerously-skip-permissions.
@@ -193,4 +192,4 @@ jobs:
           set -euo pipefail
           # GitHub intentionally suppresses most recursive workflow triggers from
           # GITHUB_TOKEN. workflow_dispatch is an explicit supported exception.
-          gh workflow run antigravity-autonomous-coding.yml             --repo "$REPO"             --ref main             -f pr_number="$PR"
+          echo "Autonomous continuation is disabled in the hardened executor; wait for the trusted synchronize event."
