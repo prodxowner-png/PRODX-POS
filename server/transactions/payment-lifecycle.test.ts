@@ -52,23 +52,25 @@ test('payment lifecycle rejects reusing an idempotency key for a different comma
 });
 
 test('payment lifecycle rechecks idempotency after acquiring the payment lock',async()=>{
-  const attempts: Record<string,unknown>[] = [];
   let firstLookup = true;
+  let insertCalled = false;
+  const concurrent={id:'attempt-concurrent',order_id:'ord-1',payment_id:'pay-1',status:'captured',provider:'terminal'};
   const payment={id:'pay-1',order_id:'ord-1',status:'authorized'};
   const tx={query:async(sql:string)=>{
     if(sql.includes('FROM prodx_payment_attempts')) {
       if (firstLookup) { firstLookup=false; return {rows:[]}; }
-      attempts.push({id:'attempt-concurrent',order_id:'ord-1',payment_id:'pay-1',status:'captured',provider:'terminal'});
-      return {rows:[attempts[0]]};
+      return {rows:[concurrent]};
     }
     if(sql.includes('FROM prodx_payments')) return {rows:[payment]};
-    throw new Error('The implementation should replay after the second idempotency lookup.');
+    if(sql.includes('UPDATE prodx_payments') || sql.includes('INSERT INTO prodx_payment_attempts')) {
+      insertCalled = true;
+      throw new Error('A concurrent idempotency result should be replayed before mutation.');
+    }
+    return {rows:[]};
   }};
-  await assert.rejects(
-    createPaymentLifecycleService({transaction:async(fn:any)=>fn(tx)}).transition({
-      storeId:'store-1',orderId:'ord-1',paymentId:'pay-1',idempotencyKey:'idem-1',to:'captured',provider:'terminal',
-    }),
-    /should replay after the second idempotency lookup/,
-  );
-  assert.equal(attempts.length,1);
+  const result = await createPaymentLifecycleService({transaction:async(fn:any)=>fn(tx)}).transition({
+    storeId:'store-1',orderId:'ord-1',paymentId:'pay-1',idempotencyKey:'idem-1',to:'captured',provider:'terminal',
+  });
+  assert.deepEqual(result, concurrent);
+  assert.equal(insertCalled,false);
 });
