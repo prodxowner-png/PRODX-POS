@@ -37,7 +37,9 @@ jobs:
         with:
           inlineScript: |
             set -euo pipefail
-            az group create               --name "${{ secrets.AZURE_RG }}"               --location "${{ env.AZURE_LOCATION }}"
+            az group create \
+              --name "${{ secrets.AZURE_RG }}" \
+              --location "${{ env.AZURE_LOCATION }}"
 
       - name: Provision Ubuntu runtime VM
         uses: azure/cli@v2
@@ -45,10 +47,21 @@ jobs:
           inlineScript: |
             set -euo pipefail
 
-            if az vm show               --resource-group "${{ secrets.AZURE_RG }}"               --name "${{ env.VM_NAME }}"               >/dev/null 2>&1; then
+            if az vm show \
+              --resource-group "${{ secrets.AZURE_RG }}" \
+              --name "${{ env.VM_NAME }}" \
+              >/dev/null 2>&1; then
               echo "VM already exists: ${{ env.VM_NAME }}"
             else
-              az vm create                 --resource-group "${{ secrets.AZURE_RG }}"                 --name "${{ env.VM_NAME }}"                 --image Ubuntu2204                 --size "${{ env.VM_SIZE }}"                 --admin-username "${{ secrets.ADMIN_USERNAME }}"                 --ssh-key-values "${{ secrets.SSH_PUBLIC_KEY }}"                 --public-ip-address ""                 --assign-identity
+              az vm create \
+                --resource-group "${{ secrets.AZURE_RG }}" \
+                --name "${{ env.VM_NAME }}" \
+                --image Ubuntu2204 \
+                --size "${{ env.VM_SIZE }}" \
+                --admin-username "${{ secrets.ADMIN_USERNAME }}" \
+                --ssh-key-values "${{ secrets.SSH_PUBLIC_KEY }}" \
+                --public-ip-address "" \
+                --assign-identity
             fi
 
       - name: Install and register GitHub Actions runner
@@ -60,57 +73,86 @@ jobs:
           inlineScript: |
             set -euo pipefail
 
-            runner_token="$(gh api               --method POST               -H "Accept: application/vnd.github+json"               -H "X-GitHub-Api-Version: 2022-11-28"               "repos/${REPO}/actions/runners/registration-token"               --jq '.token')"
+            runner_token="$(gh api \
+              --method POST \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "repos/${REPO}/actions/runners/registration-token" \
+              --jq '.token')"
 
+            test -n "${runner_token}"
             echo "::add-mask::${runner_token}"
 
-            az vm run-command invoke               --resource-group "${{ secrets.AZURE_RG }}"               --name "${{ env.VM_NAME }}"               --command-id RunShellScript               --scripts "
-                set -euo pipefail
+            cat > /tmp/prodx-runner-bootstrap.sh <<EOF
+            set -euo pipefail
 
-                id prodxrunner >/dev/null 2>&1 ||                   sudo useradd --create-home --shell /bin/bash prodxrunner
+            id prodxrunner >/dev/null 2>&1 || \
+              sudo useradd --create-home --shell /bin/bash prodxrunner
 
-                sudo apt-get update
-                sudo DEBIAN_FRONTEND=noninteractive apt-get install -y                   ca-certificates                   curl                   git                   jq                   build-essential                   python3                   python3-pip
+            sudo apt-get update
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+              ca-certificates curl git jq build-essential python3 python3-pip
 
-                if ! command -v docker >/dev/null 2>&1; then
-                  curl -fsSL https://get.docker.com | sudo sh
-                fi
+            if ! command -v docker >/dev/null 2>&1; then
+              curl -fsSL https://get.docker.com | sudo sh
+            fi
 
-                sudo systemctl enable --now docker
-                sudo usermod -aG docker prodxrunner
+            sudo systemctl enable --now docker
+            sudo usermod -aG docker prodxrunner
+            sudo install -d -o prodxrunner -g prodxrunner /opt/actions-runner
 
-                sudo install -d -o prodxrunner -g prodxrunner /opt/actions-runner
+            if [ ! -f /opt/actions-runner/run.sh ]; then
+              arch=\$(uname -m)
+              case "\$arch" in
+                x86_64) runner_arch=x64 ;;
+                aarch64) runner_arch=arm64 ;;
+                *) echo "Unsupported architecture: \$arch" >&2; exit 1 ;;
+              esac
 
-                if [ ! -f /opt/actions-runner/run.sh ]; then
-                  arch=$(uname -m)
-                  case "$arch" in
-                    x86_64) runner_arch=x64 ;;
-                    aarch64) runner_arch=arm64 ;;
-                    *) echo "Unsupported architecture: $arch" >&2; exit 1 ;;
-                  esac
+              version=\$(curl -fsSL https://api.github.com/repos/actions/runner/releases/latest | jq -r '.tag_name' | sed 's/^v//')
+              curl -fsSL \
+                -o /tmp/actions-runner.tar.gz \
+                "https://github.com/actions/runner/releases/download/v\${version}/actions-runner-linux-\${runner_arch}-\${version}.tar.gz"
 
-                  version=$(curl -fsSL https://api.github.com/repos/actions/runner/releases/latest | jq -r '.tag_name' | sed 's/^v//')
-                  curl -fsSL                     -o /tmp/actions-runner.tar.gz                     "https://github.com/actions/runner/releases/download/v${version}/actions-runner-linux-${runner_arch}-${version}.tar.gz"
+              sudo tar -xzf /tmp/actions-runner.tar.gz -C /opt/actions-runner
+              sudo chown -R prodxrunner:prodxrunner /opt/actions-runner
+            fi
 
-                  sudo tar -xzf /tmp/actions-runner.tar.gz -C /opt/actions-runner
-                  sudo chown -R prodxrunner:prodxrunner /opt/actions-runner
-                fi
+            sudo -u prodxrunner env HOME=/home/prodxrunner bash -lc '
+              cd /opt/actions-runner
+              if [ ! -f .runner ]; then
+                ./config.sh \
+                  --unattended \
+                  --url "https://github.com/${REPO}" \
+                  --token "${RUNNER_TOKEN}" \
+                  --name "${{ env.RUNNER_NAME }}" \
+                  --labels "${{ env.RUNNER_LABELS }}" \
+                  --work "_work" \
+                  --replace
+              fi
+            '
 
-                sudo -u prodxrunner                   env HOME=/home/prodxrunner                   bash -lc '
-                    cd /opt/actions-runner
-                    if [ ! -f .runner ]; then
-                      ./config.sh                         --unattended                         --url "https://github.com/${REPO}"                         --token "${runner_token}"                         --name "${{ env.RUNNER_NAME }}"                         --labels "${{ env.RUNNER_LABELS }}"                         --work "_work"                         --replace
-                    fi
-                  '
+            if ! systemctl list-unit-files | grep -q 'actions.runner.*.service'; then
+              cd /opt/actions-runner
+              sudo ./svc.sh install prodxrunner
+            fi
 
-                if [ ! -f /etc/systemd/system/actions.runner.${{ github.repository_owner }}-${{ github.event.repository.name }}.${{ env.RUNNER_NAME }}.service ]; then
-                  cd /opt/actions-runner
-                  sudo ./svc.sh install prodxrunner
-                fi
+            sudo ./svc.sh start
+            sudo ./svc.sh status
+            EOF
 
-                sudo ./svc.sh start
-                sudo ./svc.sh status
-              "
+            sed -i \
+              -e "s|\${RUNNER_TOKEN}|\${runner_token}|g" \
+              -e "s|\${REPO}|\${REPO}|g" \
+              /tmp/prodx-runner-bootstrap.sh
+
+            az vm run-command invoke \
+              --resource-group "${{ secrets.AZURE_RG }}" \
+              --name "${{ env.VM_NAME }}" \
+              --command-id RunShellScript \
+              --scripts "$(cat /tmp/prodx-runner-bootstrap.sh)"
+
+            rm -f /tmp/prodx-runner-bootstrap.sh
 
       - name: Verify runner registration
         env:
@@ -118,6 +160,10 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          gh api             -H "Accept: application/vnd.github+json"             -H "X-GitHub-Api-Version: 2022-11-28"             "repos/${REPO}/actions/runners"             --jq '.runners[] | select(.name=="${{ env.RUNNER_NAME }}") | {name,status,busy,labels:[.labels[].name]}'
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "repos/${REPO}/actions/runners" \
+            --jq '.runners[] | select(.name=="${{ env.RUNNER_NAME }}") | {name,status,busy,labels:[.labels[].name]}'
 
           echo "PRODX Azure Antigravity runner verification completed."
