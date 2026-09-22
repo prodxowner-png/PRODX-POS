@@ -11,6 +11,7 @@ import { registerRefundRoute } from './http/refund-route';
 import { registerPaymentLifecycleRoute } from './http/payment-lifecycle-route';
 import { registerSyncRoute } from './http/sync-route';
 import { registerSupervisorAuthorizationRoute } from './http/supervisor-authorization-route';
+import { registerCatalogRoute } from './http/catalog-route';
 
 export const createProductionApp = () => {
   const pool = createPostgresPool();
@@ -35,6 +36,7 @@ export const createProductionApp = () => {
       registerPaymentLifecycleRoute(configuredApp, transactions);
       registerSyncRoute(configuredApp, transactions);
       registerSupervisorAuthorizationRoute(configuredApp, transactions);
+      registerCatalogRoute(configuredApp, transactions);
     },
   });
 
