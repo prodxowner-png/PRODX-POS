@@ -82,7 +82,7 @@ jobs:
           {"modelProvider":"gemini"}
           EOF
           agy models
-          agy -p "Reply with exactly PRODX_AUTONOMOUS_AUTH_OK" --model gemini-3.7-flash-medium --output-format json --print-timeout 3m > auth-check.json
+          agy -p "Reply with exactly PRODX_AUTONOMOUS_AUTH_OK" --model gemini-3.8-flash-low --output-format json --print-timeout 3m > auth-check.json
           jq -e '.status == "SUCCESS" and (.response | contains("PRODX_AUTONOMOUS_AUTH_OK"))' auth-check.json >/dev/null
 
       - name: Prepare autonomous task contract
@@ -161,7 +161,7 @@ jobs:
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
 
           # GitHub-hosted runner is ephemeral; this branch is validation-only until the lane is merged. We deliberately do not use --dangerously-skip-permissions.
-          agy -p "$(cat autonomous-task.md)"             --model gemini-3.7-flash-medium             --mode accept-edits             --sandbox             --output-format stream-json             --print-timeout 35m             > agy-run.ndjson
+          agy -p "$(cat autonomous-task.md)"             --model gemini-3.8-flash-low             --mode accept-edits             --sandbox             --output-format stream-json             --print-timeout 35m             > agy-run.ndjson
 
           jq -s 'map(select(.event=="result") | .result) | last' agy-run.ndjson > agy-result.json
           jq -e '.status == "SUCCESS"' agy-result.json >/dev/null
