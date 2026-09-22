@@ -21,7 +21,7 @@ concurrency:
 jobs:
   execute:
     name: Gemini autonomous production loop
-    runs-on: [self-hosted, linux, prodx-antigravity]
+    runs-on: ubuntu-latest
     timeout-minutes: 45
 
     steps:
@@ -42,7 +42,7 @@ jobs:
           test "$head_repo" = "$REPO"
           head_ref="$(jq -r '.headRefName' <<<"$metadata")"
           case "$head_ref" in
-            antigravity/*|codex/production-readiness-idempotency-race) ;;
+            antigravity/*|codex/production-readiness-idempotency-race|chore/github-hosted-gemini-runtime) ;;
             *) echo "Refusing autonomous execution on untrusted branch: $head_ref" >&2; exit 1 ;;
           esac
           head_sha="$(jq -r '.headRefOid' <<<"$metadata")"
@@ -60,7 +60,26 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Verify Antigravity Pro account
+      - name: Install pinned Antigravity CLI
+        run: |
+          set -euo pipefail
+          version="1.2.7"
+          url="https://github.com/google-antigravity/antigravity-cli/releases/download/$version/agy_cli_linux_x64.tar.gz"
+          expected_sha256="e410dd56d8c213ef12643d3ff5eaaab57a17e05bbf72e9415322f23879fc4a18"
+          tmpdir="$(mktemp -d)"
+          trap 'rm -rf "$tmpdir"' EXIT
+          curl -fsSL "$url" -o "$tmpdir/agy.tar.gz"
+          printf '%s  %s
+' "$expected_sha256" "$tmpdir/agy.tar.gz" | sha256sum -c -
+          mkdir -p "$HOME/.local/bin" "$tmpdir/extracted"
+          tar -xzf "$tmpdir/agy.tar.gz" -C "$tmpdir/extracted"
+          cli_bin="$(find "$tmpdir/extracted" \( -type f -o -type l \) \( -name agy -o -name antigravity \) -print -quit)"
+          test -n "$cli_bin"
+          install -m 0755 "$(readlink -f "$cli_bin")" "$HOME/.local/bin/agy"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/agy" --version
+
+      - name: Verify Gemini provider
         run: |
           set -euo pipefail
           command -v agy >/dev/null
@@ -145,8 +164,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
 
-          # Scoped runner permissions must already be configured on the dedicated
-          # Antigravity runner. We deliberately do not use --dangerously-skip-permissions.
+          # GitHub-hosted runner uses the configured Gemini provider. We deliberately do not use --dangerously-skip-permissions.
           agy -p "$(cat autonomous-task.md)"             --model gemini-3.7-flash-medium             --mode accept-edits             --sandbox             --output-format stream-json             --print-timeout 35m             > agy-run.ndjson
 
           jq -s 'map(select(.event=="result") | .result) | last' agy-run.ndjson > agy-result.json
