@@ -1,6 +1,9 @@
 name: Antigravity Autonomous Production Executor
 
 on:
+  push:
+    branches:
+      - 'chore/github-hosted-gemini-runtime'
   pull_request_target:
     types: [opened, synchronize, reopened]
   workflow_dispatch:
