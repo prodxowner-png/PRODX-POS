@@ -133,8 +133,11 @@ export interface IShiftApi {
     reason: string,
     userId: string
   ): Promise<CashMovement>;
-  clockIn(storeId: string): Promise<TimeclockRecord>;
-  clockOut(storeId: string): Promise<TimeclockRecord>;
+  // Production implementations use the authenticated session and therefore only
+  // require the store id. The optional second argument preserves compatibility
+  // with the explicit mock adapter's legacy PIN-oriented contract.
+  clockIn(storeId: string, legacyStoreId?: string): Promise<TimeclockRecord>;
+  clockOut(storeId: string, legacyStoreId?: string): Promise<TimeclockRecord>;
   getTimeclockRecords(storeId: string): Promise<TimeclockRecord[]>;
 }
 
