@@ -8,6 +8,7 @@ import { registerCheckoutRoute } from './http/checkout-route';
 import { createApp } from './http/createApp';
 import { registerRefundRoute } from './http/refund-route';
 import { registerPaymentLifecycleRoute } from './http/payment-lifecycle-route';
+import { registerOrderRoute } from './http/order-route';
 import { registerSyncRoute } from './http/sync-route';
 import { registerSupervisorAuthorizationRoute } from './http/supervisor-authorization-route';
 import { registerCatalogRoute } from './http/catalog-route';
@@ -29,6 +30,7 @@ export const createProductionApp = () => {
     authorizeRequest: authorize,
     configureRoutes: (configuredApp) => {
       registerCheckoutRoute(configuredApp, transactions);
+      registerOrderRoute(configuredApp, transactions);
       registerRefundRoute(configuredApp, transactions);
       registerPaymentLifecycleRoute(configuredApp, transactions);
       registerSyncRoute(configuredApp, transactions);
