@@ -68,6 +68,31 @@ export const createShiftService=(db:TransactionalSqlExecutor)=>{
    return loadShift(tx,storeId,shiftId);
   });
  };
+ const clockIn=async(storeId:string,userId:string)=>{
+  return db.transaction(async tx=>{
+   const user=(await tx.query<any>(`SELECT id,organization_id,display_name FROM prodx_users WHERE id=$1 AND organization_id=(SELECT organization_id FROM prodx_stores WHERE id=$2)`,[userId,storeId])).rows[0];
+   if(!user) throw new ShiftError('SHIFT_NOT_FOUND','Authenticated user is not a member of this store.');
+   const existing=(await tx.query<any>(`SELECT id FROM prodx_timeclock_records WHERE store_id=$1 AND user_id=$2 AND status='clocked_in' FOR UPDATE`,[storeId,userId])).rows[0];
+   if(existing) throw new ShiftError('SHIFT_ALREADY_OPEN','User is already clocked in.');
+   const shift=(await tx.query<any>(`SELECT id FROM prodx_shifts WHERE store_id=$1 AND cashier_id=$2 AND status='open' ORDER BY opened_at DESC LIMIT 1`,[storeId,userId])).rows[0];
+   const id=crypto.randomUUID();
+   await tx.query(`INSERT INTO prodx_timeclock_records(id,organization_id,store_id,user_id,shift_id,status) VALUES($1,$2,$3,$4,$5,'clocked_in')`,[id,user.organization_id,storeId,userId,shift?.id??null]);
+   return {id,userId,userName:user.display_name,employeeCode:user.id,shiftId:shift?.id,status:'clocked_in',clockedInAt:new Date().toISOString()};
+  });
+ };
+ const clockOut=async(storeId:string,userId:string)=>{
+  return db.transaction(async tx=>{
+   const row=(await tx.query<any>(`SELECT id,clocked_in_at,shift_id FROM prodx_timeclock_records WHERE store_id=$1 AND user_id=$2 AND status='clocked_in' FOR UPDATE`,[storeId,userId])).rows[0];
+   if(!row) throw new ShiftError('SHIFT_NOT_FOUND','User is not clocked in.');
+   await tx.query(`UPDATE prodx_timeclock_records SET status='clocked_out',clocked_out_at=CURRENT_TIMESTAMP WHERE id=$1`,[row.id]);
+   const user=(await tx.query<any>(`SELECT display_name,id FROM prodx_users WHERE id=$1`,[userId])).rows[0];
+   return {id:row.id,userId,userName:user.display_name,employeeCode:user.id,shiftId:row.shift_id??undefined,status:'clocked_out',clockedInAt:new Date(row.clocked_in_at).toISOString(),clockedOutAt:new Date().toISOString()};
+  });
+ };
+ const getTimeclockRecords=async(storeId:string)=>{
+  const rows=(await db.query<any>(`SELECT t.id,t.user_id,t.shift_id,t.status,t.clocked_in_at,t.clocked_out_at,u.display_name FROM prodx_timeclock_records t JOIN prodx_users u ON u.id=t.user_id WHERE t.store_id=$1 ORDER BY t.clocked_in_at DESC LIMIT 200`,[storeId])).rows;
+  return rows.map((r:any)=>({id:r.id,userId:r.user_id,userName:r.display_name,employeeCode:r.user_id,shiftId:r.shift_id??undefined,status:r.status,clockedInAt:new Date(r.clocked_in_at).toISOString(),clockedOutAt:r.clocked_out_at?new Date(r.clocked_out_at).toISOString():undefined}));
+ };
  const recordCashMovement=async(storeId:string,shiftId:string,type:CashMovementType,amountCents:number,reason:string,userId:string)=>{
   if(!Number.isSafeInteger(amountCents)||amountCents<=0) throw new ShiftError('INVALID_AMOUNT','Cash movement amount must be positive whole cents.');
   if(!reason.trim()) throw new ShiftError('INVALID_MOVEMENT','Cash movement reason is required.');
@@ -82,5 +107,5 @@ export const createShiftService=(db:TransactionalSqlExecutor)=>{
    return (await tx.query<any>(`SELECT id,shift_id,type,amount::text,reason,performed_by_user_id,created_at,currency FROM prodx_cash_movements WHERE id=$1`,[id])).rows[0];
   });
  };
- return {getCurrentShift,openShift,closeShift,recordCashMovement};
+ return {getCurrentShift,openShift,closeShift,recordCashMovement,clockIn,clockOut,getTimeclockRecords};
 };
