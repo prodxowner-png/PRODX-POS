@@ -36,9 +36,13 @@ jobs:
           EVENT_PR: ${{ github.event.pull_request.number || inputs.pr_number || '' }}
         run: |
           set -euo pipefail
-          test -n "${EVENT_PR:-}"
-          metadata="$(gh pr view "$EVENT_PR" --repo "$REPO" --json number,state,headRepositoryOwner,headRepository,headRefName,headRefOid,baseRefName)"
-          test "$(jq -r '.number' <<<"$metadata")" = "$EVENT_PR"
+          pr="${EVENT_PR:-}"
+          if [ -z "$pr" ]; then
+            pr="$(gh pr list --repo "$REPO" --head "$GITHUB_REF_NAME" --state open --json number --jq '.[0].number')"
+          fi
+          test -n "$pr"
+          metadata="$(gh pr view "$pr" --repo "$REPO" --json number,state,headRepositoryOwner,headRepository,headRefName,headRefOid,baseRefName)"
+          test "$(jq -r '.number' <<<"$metadata")" = "$pr"
           test "$(jq -r '.state' <<<"$metadata")" = "OPEN"
           test "$(jq -r '.baseRefName' <<<"$metadata")" = "main"
           head_repo="$(jq -r '.headRepositoryOwner.login + "/" + .headRepository.name' <<<"$metadata")"
@@ -51,7 +55,7 @@ jobs:
           head_sha="$(jq -r '.headRefOid' <<<"$metadata")"
           test "${#head_sha}" -eq 40
           {
-            echo "number=$EVENT_PR"
+            echo "number=$pr"
             echo "head_ref=$head_ref"
             echo "head_sha=$head_sha"
           } >> "$GITHUB_OUTPUT"
