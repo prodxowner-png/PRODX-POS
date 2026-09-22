@@ -777,7 +777,7 @@ export class MockAuthApi implements IAuthApi {
     };
   }
 
-  async getStores(_orgSlug: string): Promise<readonly Store[]> {
+  async getStores(_token: string, _orgSlug: string): Promise<readonly Store[]> {
     await delay(40);
     return SEED_STORES;
   }
