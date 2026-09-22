@@ -108,7 +108,7 @@ export interface IOrderApi {
   createOrder(req: CheckoutRequest): Promise<CheckoutResponse>;
   getOrders(storeId: string, limit?: number): Promise<readonly Order[]>;
   getOrderById(storeId: string, orderId: string): Promise<Order | null>;
-  voidOrder(storeId: string, orderId: string, reason: string, authorizedByUserId: string): Promise<Order>;
+  voidOrder(storeId: string, orderId: string, reason: string, authorizedByUserId: string, authorizationToken?: string): Promise<Order>;
   refundOrder(
     storeId: string,
     orderId: string,
