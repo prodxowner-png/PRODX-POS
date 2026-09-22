@@ -7,7 +7,7 @@ import {
 import type { TransactionalSqlExecutor } from '../db/transaction';
 
 type Body = {
-  action: 'refund';
+  action: 'refund' | 'void';
   orderId: string;
   supervisorUsername: string;
   supervisorSecret: string;
@@ -16,7 +16,7 @@ type Body = {
 const valid = (value: unknown): value is Body => {
   if (!value || typeof value !== 'object') return false;
   const body = value as Record<string, unknown>;
-  return body.action === 'refund' &&
+  return (body.action === 'refund' || body.action === 'void') &&
     typeof body.orderId === 'string' && body.orderId.trim().length > 0 &&
     typeof body.supervisorUsername === 'string' && body.supervisorUsername.trim().length > 0 &&
     typeof body.supervisorSecret === 'string' && body.supervisorSecret.length > 0;
