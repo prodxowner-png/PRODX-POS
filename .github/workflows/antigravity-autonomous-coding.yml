@@ -1,10 +1,7 @@
 name: Antigravity Autonomous Production Executor
 
 on:
-  # Temporary branch-only trigger validates the hosted lane before merge.
-  push:
-    branches:
-      - 'chore/github-hosted-gemini-runtime'
+  # Secret-bearing autonomous execution only runs with explicit PR identity.
   pull_request_target:
     types: [opened, synchronize, reopened]
   workflow_dispatch:
@@ -24,7 +21,7 @@ concurrency:
 
 jobs:
   execute:
-    name: Gemini autonomous production loop (API key)
+    name: Gemini autonomous production loop
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -38,9 +35,7 @@ jobs:
         run: |
           set -euo pipefail
           pr="${EVENT_PR:-}"
-          if [ -z "$pr" ]; then
-            pr="$(gh pr list --repo "$REPO" --head "$GITHUB_REF_NAME" --state open --json number --jq '.[0].number')"
-          fi
+          # Never infer PR identity from a branch name.
           test -n "$pr"
           metadata="$(gh pr view "$pr" --repo "$REPO" --json number,state,headRepositoryOwner,headRepository,headRefName,headRefOid,baseRefName)"
           test "$(jq -r '.number' <<<"$metadata")" = "$pr"
