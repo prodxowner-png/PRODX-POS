@@ -1,6 +1,7 @@
-name: Antigravity Gemini AI Code Review
+name: Gemini API Hosted AI Code Review
 
 on:
+  # Secret-bearing review runs only with explicit PR identity.
   # Use the base-branch workflow so PR changes cannot rewrite the
   # secret-bearing job that reviews them. This workflow never checks out PR code.
   pull_request_target:
@@ -23,7 +24,8 @@ concurrency:
 
 jobs:
   review:
-    # Use an ephemeral GitHub-hosted runner. The job never checks out PR code.
+    # Use an ephemeral GitHub-hosted runner and the server-side Gemini API key.
+    # The job never checks out PR code, and the API key is injected only for review.
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -35,8 +37,9 @@ jobs:
           PR_EVENT_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number || '' }}
         run: |
           set -euo pipefail
-          test -n "${PR_EVENT_NUMBER:-}"
-          pr="$PR_EVENT_NUMBER"
+          pr="${PR_EVENT_NUMBER:-}"
+          # Never infer PR identity from a branch name.
+          test -n "$pr"
           metadata="$(gh pr view "$pr" --repo "$REPO" --json number,state,headRepositoryOwner,headRepository,headRefOid)"
           test "$(jq -r '.number' <<<"$metadata")" = "$pr"
           test "$(jq -r '.state' <<<"$metadata")" = "OPEN"
@@ -69,11 +72,18 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           "$HOME/.local/bin/agy" --version
 
-      - name: Verify Antigravity Pro-account runner
+      - name: Configure and verify Gemini API-key provider
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           set -euo pipefail
+          test -n "${GEMINI_API_KEY:-}" || { echo "GEMINI_API_KEY secret is required for the hosted Gemini lane." >&2; exit 1; }
           command -v agy >/dev/null
           command -v jq >/dev/null
+          mkdir -p "$HOME/.gemini/antigravity-cli"
+          cat > "$HOME/.gemini/antigravity-cli/settings.json" <<'EOF'
+          {"modelProvider":"gemini"}
+          EOF
           agy models
 
       - name: Fetch and sanitize PR diff
@@ -292,7 +302,7 @@ jobs:
             echo "### Findings"
             jq -r 'if (.findings|length)==0 then "No findings." else (.findings[] | "- **[" + .severity + "]** " + .file + (if .line then ":" + .line else "" end) + " — " + .issue + "\n  - Evidence: " + .evidence + "\n  - Recommendation: " + .recommendation) end' review.json
             echo
-            echo "_Reviewed with pinned Antigravity CLI 1.2.7 + Gemini fallback models; diff was sanitized and size-capped._"
+            echo "_Reviewed with pinned Antigravity CLI 1.2.7 + Gemini API-key provider; diff was sanitized and size-capped._"
           } > review-comment.md
           gh pr comment "$PR" --repo "$REPO" --body-file review-comment.md
           test "$verdict" != "FAIL"
