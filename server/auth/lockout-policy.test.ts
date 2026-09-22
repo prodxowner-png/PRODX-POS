@@ -25,9 +25,7 @@ test('approved policy: fifth failure locks for 15 minutes and active-lockout att
     findDevice: async () => device,
     touchSession: async () => {},
     findDeviceByKey: async () => null,
-    revokeSession: async () => undefined,
-  findDeviceByKey: async () => null,
-  revokeSession: async () => undefined
+    revokeSession: async () => undefined
   };
   const now = new Date('2026-09-14T00:00:00.000Z');
   const issuer = createSessionIssuer(repository, async () => false, () => now);
