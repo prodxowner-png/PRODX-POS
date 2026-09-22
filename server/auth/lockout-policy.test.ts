@@ -23,7 +23,9 @@ test('approved policy: fifth failure locks for 15 minutes and active-lockout att
     createSession: async () => {},
     findSessionByTokenHash: async () => null,
     findDevice: async () => device,
-    touchSession: async () => {},,
+    touchSession: async () => {},
+    findDeviceByKey: async () => null,
+    revokeSession: async () => undefined,
   findDeviceByKey: async () => null,
   revokeSession: async () => undefined
   };
