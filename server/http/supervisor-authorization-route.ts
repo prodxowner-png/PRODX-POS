@@ -1,5 +1,4 @@
 import type { Express, Request, Response } from 'express';
-import { requirePermission } from './createApp';
 import type { NextFunction } from 'express';
 import {
   createSupervisorAuthorizationService,
