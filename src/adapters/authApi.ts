@@ -59,5 +59,7 @@ export const productionAuthApi: IAuthApi = {
   logout: () => request<void>('/auth/logout', { method: 'POST' }),
   verifySession: (token: string) => requestWithBearer<SessionContext | null>('/auth/session', token),
   getStores: (orgSlug: string) =>
-    request<readonly Store[]>(`/organizations/${encodeURIComponent(orgSlug)}/stores`),
+    requestWithBearer<readonly Store[]>(`/organizations/${encodeURIComponent(orgSlug)}/stores`, (() => {
+      throw new Error('getStores requires an authenticated session token.');
+    })()),
 };
