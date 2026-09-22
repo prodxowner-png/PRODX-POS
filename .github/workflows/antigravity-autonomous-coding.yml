@@ -63,6 +63,24 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Install pinned Antigravity CLI
+        run: |
+          set -euo pipefail
+          version="1.2.7"
+          url="https://github.com/google-antigravity/antigravity-cli/releases/download/$version/agy_cli_linux_x64.tar.gz"
+          expected_sha256="e410dd56d8c213ef12643d3ff5eaaab57a17e05bbf72e9415322f23879fc4a18"
+          tmpdir="$(mktemp -d)"
+          trap 'rm -rf "$tmpdir"' EXIT
+          curl -fsSL "$url" -o "$tmpdir/agy.tar.gz"
+          printf '%s  %s\\n' "$expected_sha256" "$tmpdir/agy.tar.gz" | sha256sum -c -
+          mkdir -p "$HOME/.local/bin" "$tmpdir/extracted"
+          tar -xzf "$tmpdir/agy.tar.gz" -C "$tmpdir/extracted"
+          cli_bin="$(find "$tmpdir/extracted" \\( -type f -o -type l \\) \\( -name agy -o -name antigravity \\) -print -quit)"
+          test -n "$cli_bin"
+          install -m 0755 "$(readlink -f "$cli_bin")" "$HOME/.local/bin/agy"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/agy" --version
+
       - name: Configure and verify Gemini API-key provider
         id: gemini_auth
         env:
