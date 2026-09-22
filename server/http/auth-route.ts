@@ -64,7 +64,7 @@ export const registerAuthRoutes = (app: Express, db: SqlExecutor, sessions: Sess
     if(!org){ response.status(401).json(errorBody(request,'AUTHENTICATION_FAILED','Invalid credentials or store scope.')); return; }
     const storeRows=await db.query<{id:string;code:string}>(`SELECT id,code FROM prodx_stores WHERE organization_id=$1 AND lower(code)=lower($2) AND active=TRUE LIMIT 1`,[org.id,body.storeCode.trim()]);
     const store=storeRows[0];
-    const device=store ? await db.query<{id:string;store_id:string;status:string}>(`SELECT id,store_id,status FROM prodx_devices WHERE organization_id=$1 AND store_id=$2 AND device_key=$3 LIMIT 1`,[org.id,store.id,body.registerId.trim()]) : [];
+    const device=store ? await db.query<{id:string;store_id:string;status:string;device_key:string}>(`SELECT id,store_id,status,device_key FROM prodx_devices WHERE organization_id=$1 AND store_id=$2 AND device_key=$3 LIMIT 1`,[org.id,store.id,body.registerId.trim()]) : [];
     if(!store || !device[0] || device[0].status!=='active'){ response.status(401).json(errorBody(request,'AUTHENTICATION_FAILED','Invalid credentials or store scope.')); return; }
     const issued=await sessions.authenticateCredentials({username:body.emailOrPin,password:body.passwordOrPin,deviceId:device[0].id});
     if(!issued){ response.status(401).json(errorBody(request,'AUTHENTICATION_FAILED','Invalid credentials or store scope.')); return; }
@@ -73,6 +73,7 @@ export const registerAuthRoutes = (app: Express, db: SqlExecutor, sessions: Sess
     const context=await loadSessionContext(db,principal,issued.token,issued.expiresAt.toISOString());
     if(!context){ await sessions.revokeBearer(issued.token); response.status(401).json(errorBody(request,'AUTHENTICATION_FAILED','Session scope could not be established.')); return; }
     context.currentStore = {...context.currentStore};
+    context.registerId = device[0].device_key;
     response.status(200).json(context);
   });
 
