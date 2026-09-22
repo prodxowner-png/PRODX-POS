@@ -222,16 +222,16 @@ jobs:
             echo "## Antigravity Autonomous Executor"
             echo
             echo "**PR:** #$PR"
-            echo "**Current HEAD:** `$final_head`"
+            echo "**Current HEAD:** \`$final_head\`"
             echo
             echo "Gemini/Antigravity was executed on the trusted repository-owned branch."
             echo
-            echo "**Direct Gemini API smoke:** `${GEMINI_API_STATUS:-not-run}` (HTTP `${GEMINI_API_HTTP:-n/a}`)"
-            echo "**Antigravity Gemini provider smoke:** `${AGY_AUTH_STATUS:-not-run}`"
+            echo "**Direct Gemini API smoke:** \`${GEMINI_API_STATUS:-not-run}\` (HTTP \`${GEMINI_API_HTTP:-n/a}\`)"
+            echo "**Antigravity Gemini provider smoke:** \`${AGY_AUTH_STATUS:-not-run}\`"
             echo
             echo "See the workflow log for the machine-readable completion summary."
           if [ -f gemini-auth-state.txt ]; then
-            echo "**Auth state:** `$(tr "\n" " " < gemini-auth-state.txt)`"
+            echo "**Auth state:** \`$(tr "\n" " " < gemini-auth-state.txt)\`"
           fi
           } > executor-report.md
           gh pr comment "$PR" --repo "$REPO" --body-file executor-report.md
