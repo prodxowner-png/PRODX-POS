@@ -17,6 +17,6 @@ export function createProductionOrderApi(token:string):Pick<IOrderApi,'createOrd
   createOrder:(req:CheckoutRequest)=>request<CheckoutResponse>('/api/v1/orders/checkout',{method:'POST',body:JSON.stringify(req)}),
   getOrders:(storeId:string,limit=100)=>request<readonly Order[]>(`/api/v1/orders?limit=${Math.min(Math.max(Math.trunc(limit)||50,1),200)}`),
   getOrderById:(storeId:string,orderId:string)=>request<Order|null>(`/api/v1/orders/${encodeURIComponent(orderId)}`),
-  voidOrder:(storeId:string,orderId:string,reason:string,authorizedByUserId:string)=>request<Order>('/api/v1/orders/void',{method:'POST',body:JSON.stringify({orderId,reason,authorizedByUserId})}),
+  voidOrder:(storeId:string,orderId:string,reason:string,authorizedByUserId:string,authorizationToken='')=>request<Order>('/api/v1/orders/void',{method:'POST',body:JSON.stringify({orderId,reason,authorizedByUserId,authorizationToken})}),
  };
 }
