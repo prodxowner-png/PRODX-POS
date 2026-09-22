@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
-import { auditApi } from '../../adapters/mockAdapter';
+import { createAuditApi } from '../../adapters/auditApiFactory';
 import { AuditLogEntry } from '../../domain/audit';
 import { Card } from '../../components/common/Card';
 import { Badge } from '../../components/common/Badge';
@@ -13,6 +13,7 @@ import { Shield, RefreshCw, AlertTriangle, AlertOctagon, CheckCircle, Terminal, 
 
 export const AuditScreen: React.FC = () => {
   const { session } = useAuth();
+  const auditApi = session ? createAuditApi(session.token) : null;
   const { t, language } = useLanguage();
   const [logs, setLogs] = useState<readonly AuditLogEntry[]>([]);
   const [search, setSearch] = useState('');
@@ -25,7 +26,7 @@ export const AuditScreen: React.FC = () => {
     if (!session) return;
     setIsLoading(true);
     try {
-      const data = await auditApi.getLogs(session.currentStore.id, 50);
+      const data = await auditApi!.getLogs(session.currentStore.id, 50);
       setLogs(data);
     } catch (err) {
       console.error('[AuditScreen] Error fetching audit logs:', err);
@@ -36,7 +37,7 @@ export const AuditScreen: React.FC = () => {
 
   useEffect(() => {
     fetchLogs();
-  }, [session]);
+  }, [session, auditApi]);
 
   const filtered = logs.filter((l) => {
     const matchesSeverity = severityFilter === 'all' || l.severity === severityFilter;
