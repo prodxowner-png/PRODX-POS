@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { User, Role } from '../../domain/auth';
-import { SEED_USERS } from '../../adapters/mockAdapter';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { playScannerSound } from '../../services/soundService';
@@ -39,7 +38,7 @@ export const SupervisorAuthModal: React.FC<SupervisorAuthModalProps> = ({
   onAuthorized,
 }) => {
   const { language } = useLanguage();
-  const { staffUsers, getStaffPin } = useAuth();
+  const { staffUsers } = useAuth();
   const [pin, setPin] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [selectedSupervisor, setSelectedSupervisor] = useState<User | null>(null);
@@ -47,7 +46,7 @@ export const SupervisorAuthModal: React.FC<SupervisorAuthModalProps> = ({
   const [isVerifyingPasskey, setIsVerifyingPasskey] = useState(false);
 
   // Eligible supervisors from system users
-  const eligibleSupervisors = (staffUsers && staffUsers.length > 0 ? staffUsers : SEED_USERS).filter((u) =>
+  const eligibleSupervisors = (staffUsers ?? []).filter((u) =>
     requiredRole === 'admin' ? u.role === 'admin' : u.role === 'admin' || u.role === 'manager'
   );
 
@@ -106,33 +105,17 @@ export const SupervisorAuthModal: React.FC<SupervisorAuthModalProps> = ({
   };
 
   const handleVerifyPin = () => {
-    // Check known PINs: custom supervisor pin, admin '1234', manager '5678'
-    let matchedSupervisor: User | undefined;
-
-    if (selectedSupervisor && getStaffPin(selectedSupervisor.id) === pin) {
-      matchedSupervisor = selectedSupervisor;
-    } else if (pin === '1234') {
-      matchedSupervisor = eligibleSupervisors.find((u) => u.role === 'admin') || selectedSupervisor || eligibleSupervisors[0];
-    } else if (pin === '5678') {
-      matchedSupervisor = eligibleSupervisors.find((u) => u.role === 'manager') || selectedSupervisor || eligibleSupervisors[0];
-    } else {
-      // Check all eligible supervisors
-      matchedSupervisor = eligibleSupervisors.find((u) => getStaffPin(u.id) === pin);
+    if (!selectedSupervisor || pin.length < 4) {
+      setErrorMsg(language === 'th' ? 'กรุณาเลือกผู้อนุมัติและใส่ PIN' : 'Select a supervisor and enter the PIN.');
+      return;
     }
 
-    if (matchedSupervisor) {
-      playScannerSound('supervisor_authorized');
-      onAuthorized(matchedSupervisor, overrideReason || actionDescription, pin);
-      onClose();
-    } else {
-      playScannerSound('error');
-      setErrorMsg(
-        language === 'th'
-          ? 'รหัส PIN ผู้จัดการไม่ถูกต้อง (ลอง 1234 หรือ 5678 หรือ PIN ที่ตั้งไว้)'
-          : 'Invalid supervisor PIN (try 1234, 5678, or configured PIN)'
-      );
-      setPin('');
-    }
+    // The PIN is submitted to the production authorization boundary.
+    // The server verifies the credential, role/permission, tenant/store scope,
+    // lockout policy, and issues the single-use authorization token.
+    playScannerSound('supervisor_authorized');
+    onAuthorized(selectedSupervisor, overrideReason || actionDescription, pin);
+    onClose();
   };
 
   const handlePasskeyOverride = async () => {
@@ -281,8 +264,8 @@ export const SupervisorAuthModal: React.FC<SupervisorAuthModalProps> = ({
           ) : (
             <div className="text-[11px] text-text/50">
               {language === 'th'
-                ? 'คำใบ้ทดสอบ: Admin = 1234, Manager = 5678'
-                : 'Demo Hint: Admin = 1234, Manager = 5678'}
+                ? 'PIN จะถูกตรวจสอบโดยเซิร์ฟเวอร์และไม่ถูกเก็บในระบบ'
+                : 'PIN is verified by the server and is not stored in the client'}
             </div>
           )}
         </div>
