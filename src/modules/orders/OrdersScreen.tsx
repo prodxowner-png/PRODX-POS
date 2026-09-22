@@ -249,7 +249,7 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({ onNavigate }) => {
     setIsSupervisorVoidModalOpen(true);
   };
 
-  const handleSupervisorVoidAuthorized = async (supervisor: User, reasonNotes?: string) => {
+  const handleSupervisorVoidAuthorized = async (supervisor: User, reasonNotes?: string, supervisorSecret?: string) => {
     if (!session || !selectedOrder) return;
     setIsVoiding(true);
     try {
@@ -261,7 +261,7 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({ onNavigate }) => {
             action: 'void',
             orderId: selectedOrder.id,
             supervisorUsername: supervisor.email,
-            supervisorSecret: reasonNotes?.split('::secret::')[1] || '',
+            supervisorSecret: supervisorSecret || '',
           })).authorizationToken;
       const voided = await api.voidOrder(
         session.currentStore.id,
