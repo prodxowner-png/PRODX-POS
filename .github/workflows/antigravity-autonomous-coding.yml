@@ -69,29 +69,38 @@ jobs:
           persist-credentials: false
 
       - name: Configure and verify Gemini API-key provider
+        id: gemini_auth
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
-          set -euo pipefail
-          test -n "${GEMINI_API_KEY:-}" || { echo "GEMINI_API_KEY secret is required for the hosted Gemini lane." >&2; exit 1; }
-          command -v agy >/dev/null
-          command -v gh >/dev/null
-          command -v jq >/dev/null
+          set -u
+          status=0
+          test -n "${GEMINI_API_KEY:-}" || { echo "GEMINI_API_KEY secret is missing."; echo "GEMINI_API_STATUS=missing" >> "$GITHUB_ENV"; exit 1; }
+          command -v agy >/dev/null || { echo "Antigravity CLI is missing."; echo "GEMINI_API_STATUS=cli_missing" >> "$GITHUB_ENV"; exit 1; }
+          command -v jq >/dev/null || { echo "jq is missing."; echo "GEMINI_API_STATUS=jq_missing" >> "$GITHUB_ENV"; exit 1; }
+          command -v curl >/dev/null || { echo "curl is missing."; echo "GEMINI_API_STATUS=curl_missing" >> "$GITHUB_ENV"; exit 1; }
           mkdir -p "$HOME/.gemini/antigravity-cli"
-          cat > "$HOME/.gemini/antigravity-cli/settings.json" <<'EOF'
-          {"modelProvider":"gemini"}
-          EOF
-          # First verify the API key independently through Google's official Gemini REST API.
-          # This separates key/quota/endpoint failures from Antigravity CLI failures.
-          cat > gemini-api-smoke.json <<'EOF'
-          {"contents":[{"parts":[{"text":"Reply with exactly PRODX_GEMINI_API_OK"}]}]}
-          EOF
-          curl --fail-with-body --silent --show-error             -H "x-goog-api-key: $GEMINI_API_KEY"             -H "Content-Type: application/json"             -X POST             "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"             --data-binary @gemini-api-smoke.json > gemini-api-result.json
-          jq -e '.candidates[0].content.parts[0].text | contains("PRODX_GEMINI_API_OK")' gemini-api-result.json >/dev/null
-
-          # Then verify the same key through Antigravity's Gemini provider.
+          printf '%s
+' '{"modelProvider":"gemini"}' > "$HOME/.gemini/antigravity-cli/settings.json"
+          printf '%s
+' '{"contents":[{"parts":[{"text":"Reply with exactly PRODX_GEMINI_API_OK"}]}]}' > gemini-api-smoke.json
+          http_code="$(curl --silent --show-error --output gemini-api-result.json --write-out '%{http_code}' -H "x-goog-api-key: $GEMINI_API_KEY" -H "Content-Type: application/json" -X POST "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent" --data-binary @gemini-api-smoke.json)" || status=1
+          if [ "$status" -ne 0 ] || [ "$http_code" != "200" ]; then
+            echo "Direct Gemini API smoke: FAIL (HTTP ${http_code:-curl-error})"
+            echo "GEMINI_API_STATUS=direct_api_failed" >> "$GITHUB_ENV"
+            echo "GEMINI_API_HTTP=${http_code:-unknown}" >> "$GITHUB_ENV"
+            exit 1
+          fi
+          jq -e '.candidates[0].content.parts[0].text | contains("PRODX_GEMINI_API_OK")' gemini-api-result.json >/dev/null || { echo "Direct Gemini API smoke: FAIL (unexpected response shape)"; echo "GEMINI_API_STATUS=direct_api_bad_response" >> "$GITHUB_ENV"; echo "GEMINI_API_HTTP=200" >> "$GITHUB_ENV"; exit 1; }
+          echo "Direct Gemini API smoke: PASS"
+          echo "GEMINI_API_STATUS=direct_api_pass" >> "$GITHUB_ENV"
+          echo "GEMINI_API_HTTP=200" >> "$GITHUB_ENV"
+          set +e
           agy -p "Reply with exactly PRODX_AUTONOMOUS_AUTH_OK" --output-format json --print-timeout 3m > auth-check.json
-          jq -e '.status == "SUCCESS" and (.response | contains("PRODX_AUTONOMOUS_AUTH_OK"))' auth-check.json >/dev/null
+          agy_rc=$?
+          set -e
+          if [ "$agy_rc" -ne 0 ]; then echo "Antigravity Gemini provider smoke: FAIL (exit $agy_rc)"; echo "AGY_AUTH_STATUS=failed" >> "$GITHUB_ENV"; exit "$agy_rc"; fi
+          if jq -e '.status == "SUCCESS" and (.response | contains("PRODX_AUTONOMOUS_AUTH_OK"))' auth-check.json >/dev/null; then echo "Antigravity Gemini provider smoke: PASS"; echo "AGY_AUTH_STATUS=pass" >> "$GITHUB_ENV"; else echo "Antigravity Gemini provider smoke: FAIL (unexpected response)"; echo "AGY_AUTH_STATUS=bad_response" >> "$GITHUB_ENV"; exit 1; fi
 
       - name: Prepare autonomous task contract
         env:
