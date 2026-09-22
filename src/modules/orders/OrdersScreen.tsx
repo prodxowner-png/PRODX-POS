@@ -5,7 +5,8 @@ import { useToast } from '../../context/ToastContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { useBreadcrumb, BreadcrumbLevel } from '../../context/BreadcrumbContext';
 import { useReceiptPrinter } from '../../context/ReceiptPrinterContext';
-import { orderApi } from '../../adapters/mockAdapter';
+import { createOrderTransactionApi } from '../../adapters/orderTransactionApiFactory';
+import { createProductionSupervisorAuthorizationApi } from '../../adapters/productionSupervisorAuthorizationApi';
 import { Order, TransactionStatus } from '../../domain/order';
 import { formatMoney } from '../../domain/money';
 import { Card, CardHeader, CardBody } from '../../components/common/Card';
@@ -144,7 +145,7 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({ onNavigate }) => {
       if (!session) return;
       setIsLoading(true);
       try {
-        const list = await orderApi.getOrders(session.currentStore.id);
+        const list = await createOrderTransactionApi(session.token).getOrders(session.currentStore.id);
         setOrders(list);
 
         // Auto-select order if navigated from Command Palette or external link
@@ -252,11 +253,22 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({ onNavigate }) => {
     if (!session || !selectedOrder) return;
     setIsVoiding(true);
     try {
-      const voided = await orderApi.voidOrder(
+      const reason = reasonNotes || 'Supervisor authorized void';
+      const api = createOrderTransactionApi(session.token);
+      const authorizationToken = import.meta.env.DEV
+        ? undefined
+        : (await createProductionSupervisorAuthorizationApi(session.token).authorize({
+            action: 'void',
+            orderId: selectedOrder.id,
+            supervisorUsername: supervisor.email,
+            supervisorSecret: reasonNotes?.split('::secret::')[1] || '',
+          })).authorizationToken;
+      const voided = await api.voidOrder(
         session.currentStore.id,
         selectedOrder.id,
-        reasonNotes || 'Supervisor PIN authorized void',
-        supervisor.id
+        reason,
+        supervisor.id,
+        authorizationToken
       );
       setOrders((prev) => prev.map((o) => (o.id === voided.id ? voided : o)));
       setSelectedOrder(voided);
