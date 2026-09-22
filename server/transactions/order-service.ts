@@ -3,7 +3,6 @@ import type { SqlQueryExecutor, TransactionalSqlExecutor } from '../db/transacti
 import { orderFromDb } from './checkout-service';
 import { createSupervisorAuthorizationService, SupervisorAuthorizationError } from '../auth/supervisor-authorization';
 
-export class OrderQueryError extends Error { constructor(public readonly code:'ORDER_NOT_FOUND'|'ORDER_STORE_SCOPE'='ORDER_NOT_FOUND',message='Order not found.') { super(message); } }
 export class OrderVoidError extends Error { constructor(public readonly code:'ORDER_NOT_FOUND'|'ORDER_ALREADY_FINALIZED'|'VOID_INVALID'='VOID_INVALID',message='Unable to void order.') { super(message); } }
 
 export const createOrderService=(db:TransactionalSqlExecutor)=>({
