@@ -42,25 +42,49 @@ const requestId = (request: Request): string => {
   return supplied && supplied.length <= 128 ? supplied : crypto.randomUUID();
 };
 
+const requireAuthorizedContext = async (
+  request: Request,
+  response: Response,
+  permission: string,
+): Promise<boolean> => {
+  const context = request.prodxContext;
+  if (!context) {
+    sendError(response, 500, 'REQUEST_CONTEXT_MISSING', 'Request context is required.', request.id);
+    return false;
+  }
+
+  const authorizer = request.app.locals.prodxAuthorize as AuthorizeRequest | undefined;
+  if (!authorizer) {
+    sendError(response, 500, 'AUTHORIZATION_NOT_CONFIGURED', 'Authorization is not configured.', context.requestId);
+    return false;
+  }
+
+  return authorizer(context, permission);
+};
+
 export const requirePermission = (permission: string) => {
   return async (request: Request, response: Response, next: NextFunction): Promise<void> => {
-    const context = request.prodxContext;
-    if (!context) {
-      sendError(response, 500, 'REQUEST_CONTEXT_MISSING', 'Request context is required.', request.id);
+    if (!(await requireAuthorizedContext(request, response, permission))) {
+      if (!response.headersSent) {
+        sendError(response, 403, 'FORBIDDEN', 'The requested capability is not authorized.', request.prodxContext?.requestId ?? request.id);
+      }
       return;
     }
+    next();
+  };
+};
 
-    const authorizer = request.app.locals.prodxAuthorize as AuthorizeRequest | undefined;
-    if (!authorizer) {
-      sendError(response, 500, 'AUTHORIZATION_NOT_CONFIGURED', 'Authorization is not configured.', context.requestId);
+export const requirePermissionOrSupervisorAuthorization = (permission: string) => {
+  return async (request: Request, response: Response, next: NextFunction): Promise<void> => {
+    const hasPermission = await requireAuthorizedContext(request, response, permission);
+    const body = request.body;
+    const hasServerGrant = typeof body?.supervisorAuthorizationToken === 'string' && body.supervisorAuthorizationToken.trim().length > 0;
+    if (!hasPermission && !hasServerGrant) {
+      if (!response.headersSent) {
+        sendError(response, 403, 'FORBIDDEN', 'The requested capability is not authorized.', request.prodxContext?.requestId ?? request.id);
+      }
       return;
     }
-
-    if (!(await authorizer(context, permission))) {
-      sendError(response, 403, 'FORBIDDEN', 'The requested capability is not authorized.', context.requestId);
-      return;
-    }
-
     next();
   };
 };
