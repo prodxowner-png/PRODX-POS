@@ -1,6 +1,6 @@
 import type { Express, Request, Response } from 'express';
 import { requirePermission } from './createApp';
-import type { SqlQueryExecutor } from '../db/types';
+import type { SqlQueryExecutor } from '../db/transaction';
 
 type CatalogRow = {
   id: string; name: string; slug: string;
