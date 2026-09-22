@@ -133,8 +133,8 @@ export interface IShiftApi {
     reason: string,
     userId: string
   ): Promise<CashMovement>;
-  clockIn(pin: string, storeId: string): Promise<TimeclockRecord>;
-  clockOut(pin: string, storeId: string): Promise<TimeclockRecord>;
+  clockIn(storeId: string): Promise<TimeclockRecord>;
+  clockOut(storeId: string): Promise<TimeclockRecord>;
   getTimeclockRecords(storeId: string): Promise<TimeclockRecord[]>;
 }
 
