@@ -6,7 +6,7 @@ import { useToast } from '../../context/ToastContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { useBreadcrumb, BreadcrumbLevel } from '../../context/BreadcrumbContext';
 import { useSettings } from '../../context/SettingsContext';
-import { catalogApi } from '../../adapters/mockAdapter';
+import { createCatalogReadApi } from '../../adapters/catalogApiFactory';
 import { Product, Category } from '../../domain/catalog';
 import { ProductCard } from './ProductCard';
 import { CartPanel } from './CartPanel';
@@ -42,6 +42,7 @@ import {
 
 export const PosScreen: React.FC = () => {
   const { session } = useAuth();
+  const catalogApi = useMemo(() => session ? createCatalogReadApi(session.token) : null, [session]);
   const { addItem, totals, items, clearCart } = useCart();
   const { addToast } = useToast();
   const { t, language } = useLanguage();
@@ -152,8 +153,8 @@ export const PosScreen: React.FC = () => {
     setIsLoading(true);
     try {
       const [cats, prods] = await Promise.all([
-        catalogApi.getCategories(session.currentStore.id),
-        catalogApi.getProducts(session.currentStore.id),
+        catalogApi!.getCategories(),
+        catalogApi!.getProducts(),
       ]);
       setCategories([...cats]);
       setProducts([...prods]);
@@ -167,7 +168,7 @@ export const PosScreen: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [session, addToast, language]);
+  }, [session, catalogApi, addToast, language]);
 
   // Load catalog on store change
   useEffect(() => {
@@ -246,7 +247,7 @@ export const PosScreen: React.FC = () => {
 
       if (!prod) {
         try {
-          const remoteProd = await catalogApi.getProductByBarcode(session.currentStore.id, code);
+          const remoteProd = await catalogApi!.getProductByBarcode(code);
           if (remoteProd) {
             prod = remoteProd;
           }
