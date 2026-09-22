@@ -20,8 +20,8 @@ concurrency:
 
 jobs:
   execute:
-    name: Gemini autonomous production loop
-    runs-on: [self-hosted, linux, prodx-antigravity]
+    name: Gemini autonomous production loop (API key)
+    runs-on: ubuntu-latest
     timeout-minutes: 45
 
     steps:
@@ -60,13 +60,19 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Verify Antigravity Pro account
+      - name: Configure and verify Gemini API-key provider
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           set -euo pipefail
+          test -n "${GEMINI_API_KEY:-}" || { echo "GEMINI_API_KEY secret is required for the hosted Gemini lane." >&2; exit 1; }
           command -v agy >/dev/null
           command -v gh >/dev/null
           command -v jq >/dev/null
-          test -z "${GEMINI_API_KEY:-}" || { echo "GEMINI_API_KEY must not be used by the Pro-account executor." >&2; exit 1; }
+          mkdir -p "$HOME/.gemini/antigravity-cli"
+          cat > "$HOME/.gemini/antigravity-cli/settings.json" <<'EOF'
+          {"modelProvider":"gemini"}
+          EOF
           agy models
           agy -p "Reply with exactly PRODX_AUTONOMOUS_AUTH_OK" --model gemini-3.7-flash-medium --output-format json --print-timeout 3m > auth-check.json
           jq -e '.status == "SUCCESS" and (.response | contains("PRODX_AUTONOMOUS_AUTH_OK"))' auth-check.json >/dev/null
@@ -135,6 +141,7 @@ jobs:
 
       - name: Run autonomous coding agent
         env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           PR: ${{ steps.pr.outputs.number }}
@@ -145,8 +152,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
 
-          # Scoped runner permissions must already be configured on the dedicated
-          # Antigravity runner. We deliberately do not use --dangerously-skip-permissions.
+          # GitHub-hosted runner is ephemeral. We deliberately do not use --dangerously-skip-permissions.
           agy -p "$(cat autonomous-task.md)"             --model gemini-3.7-flash-medium             --mode accept-edits             --sandbox             --output-format stream-json             --print-timeout 35m             > agy-run.ndjson
 
           jq -s 'map(select(.event=="result") | .result) | last' agy-run.ndjson > agy-result.json
