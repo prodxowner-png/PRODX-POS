@@ -218,6 +218,23 @@ jobs:
             exit 1
           fi
 
+      - name: Verify shift production boundary has no direct mock adapter wiring
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -R --line-number --include='*.ts' --include='*.tsx' "from '../adapters/mockAdapter'" src/context/ShiftContext.tsx; then
+            echo "Direct mock shift adapter import detected in production ShiftContext."
+            exit 1
+          fi
+          if grep -n "from '../../adapters/mockAdapter'" src/modules/shift/ClockInOutModal.tsx; then
+            echo "Direct mock shift adapter import detected in production timeclock UI."
+            exit 1
+          fi
+          if grep -R -n -E --include='*.ts' --include='*.tsx' "Demo: 1234|1234 \(Admin\)|5678 \(Manager\)|0000 \(Cashier\)" src/modules/shift; then
+            echo "Demo timeclock credentials detected in production shift UI."
+            exit 1
+          fi
+
       - name: Verify POS refund does not directly import mock transaction adapter
         shell: bash
         run: |
