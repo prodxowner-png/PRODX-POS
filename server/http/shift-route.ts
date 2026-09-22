@@ -6,6 +6,18 @@ import type { TransactionalSqlExecutor } from '../db/transaction';
 const centsFromBody=(value:unknown):number=>{
  if(typeof value!=='number'||!Number.isFinite(value)||!Number.isSafeInteger(value)) throw new Error('Money must be supplied as whole cents.');
  return value;
+ app.post('/api/v1/timeclock/clock-in',requirePermission('pos.sell'),async(req:Request,res:Response)=>{
+  const ctx=req.prodxContext;if(!ctx){res.status(500).json({error:{code:'REQUEST_CONTEXT_MISSING',message:'Request context is required.'}});return;}
+  try{res.status(201).json(await service.clockIn(ctx.principal.storeId,ctx.principal.userId));}catch(e){if(e instanceof ShiftError){res.status(status(e)).json({error:{code:e.code,message:e.message}});return;}res.status(500).json({error:{code:'TIMECLOCK_FAILED',message:'Unable to clock in.'}});}
+ });
+ app.post('/api/v1/timeclock/clock-out',requirePermission('pos.sell'),async(req:Request,res:Response)=>{
+  const ctx=req.prodxContext;if(!ctx){res.status(500).json({error:{code:'REQUEST_CONTEXT_MISSING',message:'Request context is required.'}});return;}
+  try{res.json(await service.clockOut(ctx.principal.storeId,ctx.principal.userId));}catch(e){if(e instanceof ShiftError){res.status(status(e)).json({error:{code:e.code,message:e.message}});return;}res.status(500).json({error:{code:'TIMECLOCK_FAILED',message:'Unable to clock out.'}});}
+ });
+ app.get('/api/v1/timeclock/records',requirePermission('pos.sell'),async(req:Request,res:Response)=>{
+  const ctx=req.prodxContext;if(!ctx){res.status(500).json({error:{code:'REQUEST_CONTEXT_MISSING',message:'Request context is required.'}});return;}
+  try{res.json(await service.getTimeclockRecords(ctx.principal.storeId));}catch{res.status(500).json({error:{code:'TIMECLOCK_FAILED',message:'Unable to load timeclock records.'}});}
+ });
 };
 const status=(e:ShiftError)=>e.code==='SHIFT_NOT_FOUND'||e.code==='REGISTER_NOT_FOUND'?404:e.code==='SHIFT_ALREADY_OPEN'||e.code==='SHIFT_CLOSED'?409:400;
 
