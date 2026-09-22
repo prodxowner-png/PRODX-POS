@@ -73,7 +73,7 @@ jobs:
 ' "$expected_sha256" "$tmpdir/agy.tar.gz" | sha256sum -c -
           mkdir -p "$HOME/.local/bin" "$tmpdir/extracted"
           tar -xzf "$tmpdir/agy.tar.gz" -C "$tmpdir/extracted"
-          cli_bin="$(find "$tmpdir/extracted" ( -type f -o -type l ) ( -name agy -o -name antigravity ) -print -quit)"
+          cli_bin="$(find "$tmpdir/extracted" \( -type f -o -type l \) \( -name agy -o -name antigravity \) -print -quit)"
           test -n "$cli_bin"
           install -m 0755 "$(readlink -f "$cli_bin")" "$HOME/.local/bin/agy"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
