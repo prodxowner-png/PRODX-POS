@@ -7,7 +7,7 @@ const executor=(payment: Record<string,unknown>, attempts: Record<string,unknown
     if(sql.includes('FROM prodx_payment_attempts')) return {rows:attempts};
     if(sql.includes('UPDATE prodx_payments')) { payment.status='captured'; return {rows:[payment]}; }
     if(sql.includes('INSERT INTO prodx_payment_attempts')) {
-      const attempt={id:'attempt-1',idempotency_key:'idem-1',order_id:payment.order_id,payment_id:payment.id,status:'captured',provider:'terminal'};
+      const attempt={id:'attempt-1',idempotency_key:'idem-1',order_id:payment.order_id,payment_id:payment.id,status:'captured',provider:'terminal',provider_reference:null,failure_code:null,failure_reason:null};
       attempts.push(attempt);
       return {rows:[attempt]};
     }
@@ -20,57 +20,45 @@ const executor=(payment: Record<string,unknown>, attempts: Record<string,unknown
 const transition = (db:any, overrides: Record<string,unknown> = {}) =>
   createPaymentLifecycleService(db).transition({
     storeId:'store-1',orderId:'ord-1',paymentId:'pay-1',idempotencyKey:'idem-1',to:'captured',provider:'terminal',
+    providerReference:'ref-1', failureCode:undefined, failureReason:undefined,
     ...overrides,
   });
 
 test('payment lifecycle replays an existing idempotency attempt',async()=>{
-  const existing={id:'attempt-1',status:'captured',order_id:'ord-1',payment_id:'pay-1',provider:'terminal'};
+  const existing={id:'attempt-1',status:'captured',order_id:'ord-1',payment_id:'pay-1',provider:'terminal',provider_reference:'ref-1',failure_code:null,failure_reason:null};
   const result=await transition(executor({id:'pay-1',order_id:'ord-1',status:'authorized'},[existing]));
   assert.deepEqual(result,existing);
 });
 
-test('payment lifecycle rejects cross-order transitions',async()=>{
-  await assert.rejects(
-    transition(executor({id:'pay-1',order_id:'other-order',status:'authorized'})),
-    PaymentLifecycleError,
-  );
+test('payment lifecycle rejects replay when provider reference differs',async()=>{
+  const existing={id:'attempt-1',status:'captured',order_id:'ord-1',payment_id:'pay-1',provider:'terminal',provider_reference:'ref-old',failure_code:null,failure_reason:null};
+  await assert.rejects(transition(executor({id:'pay-1',order_id:'ord-1',status:'authorized'},[existing])), /different payment lifecycle command/);
 });
 
-test('payment lifecycle rejects invalid transitions',async()=>{
-  await assert.rejects(
-    transition(executor({id:'pay-1',order_id:'ord-1',status:'failed'}), {idempotencyKey:'idem-3'}),
-    /Invalid payment transition failed -> captured/,
-  );
+test('payment lifecycle rejects replay when failure details differ',async()=>{
+  const existing={id:'attempt-1',status:'failed',order_id:'ord-1',payment_id:'pay-1',provider:'terminal',provider_reference:null,failure_code:'E1',failure_reason:'declined'};
+  await assert.rejects(transition(executor({id:'pay-1',order_id:'ord-1',status:'authorized'},[existing]), {to:'failed',failureCode:'E1',failureReason:'changed'}), /different payment lifecycle command/);
 });
+
+test('payment lifecycle rejects cross-order transitions',async()=>{ await assert.rejects(transition(executor({id:'pay-1',order_id:'other-order',status:'authorized'})), PaymentLifecycleError); });
+
+test('payment lifecycle rejects invalid transitions',async()=>{ await assert.rejects(transition(executor({id:'pay-1',order_id:'ord-1',status:'failed'}), {idempotencyKey:'idem-3',providerReference:undefined}), /Invalid payment transition failed -> captured/); });
 
 test('payment lifecycle rejects reusing an idempotency key for a different command',async()=>{
-  const existing={id:'attempt-1',status:'failed',order_id:'ord-1',payment_id:'pay-1',provider:'terminal'};
-  await assert.rejects(
-    transition(executor({id:'pay-1',order_id:'ord-1',status:'authorized'},[existing])),
-    /Idempotency key was already used for a different payment lifecycle command/,
-  );
+  const existing={id:'attempt-1',status:'failed',order_id:'ord-1',payment_id:'pay-1',provider:'terminal',provider_reference:null,failure_code:null,failure_reason:null};
+  await assert.rejects(transition(executor({id:'pay-1',order_id:'ord-1',status:'authorized'},[existing]), {providerReference:undefined}), /different payment lifecycle command/);
 });
 
 test('payment lifecycle rechecks idempotency after acquiring the payment lock',async()=>{
-  let firstLookup = true;
-  let insertCalled = false;
-  const concurrent={id:'attempt-concurrent',order_id:'ord-1',payment_id:'pay-1',status:'captured',provider:'terminal'};
+  let firstLookup = true; let insertCalled = false;
+  const concurrent={id:'attempt-concurrent',order_id:'ord-1',payment_id:'pay-1',status:'captured',provider:'terminal',provider_reference:'ref-1',failure_code:null,failure_reason:null};
   const payment={id:'pay-1',order_id:'ord-1',status:'authorized'};
   const tx={query:async(sql:string)=>{
-    if(sql.includes('FROM prodx_payment_attempts')) {
-      if (firstLookup) { firstLookup=false; return {rows:[]}; }
-      return {rows:[concurrent]};
-    }
+    if(sql.includes('FROM prodx_payment_attempts')) { if(firstLookup){firstLookup=false;return {rows:[]};} return {rows:[concurrent]}; }
     if(sql.includes('FROM prodx_payments')) return {rows:[payment]};
-    if(sql.includes('UPDATE prodx_payments') || sql.includes('INSERT INTO prodx_payment_attempts')) {
-      insertCalled = true;
-      throw new Error('A concurrent idempotency result should be replayed before mutation.');
-    }
+    if(sql.includes('UPDATE prodx_payments') || sql.includes('INSERT INTO prodx_payment_attempts')) { insertCalled=true; throw new Error('concurrent result should be replayed'); }
     return {rows:[]};
   }};
-  const result = await createPaymentLifecycleService({query:async()=>({rows:[]}), transaction:async(fn:any)=>fn(tx)}).transition({
-    storeId:'store-1',orderId:'ord-1',paymentId:'pay-1',idempotencyKey:'idem-1',to:'captured',provider:'terminal',
-  });
-  assert.deepEqual(result, concurrent);
-  assert.equal(insertCalled,false);
+  const result=await createPaymentLifecycleService({query:async()=>({rows:[]}),transaction:async(fn:any)=>fn(tx)}).transition({storeId:'store-1',orderId:'ord-1',paymentId:'pay-1',idempotencyKey:'idem-1',to:'captured',provider:'terminal',providerReference:'ref-1'});
+  assert.deepEqual(result,concurrent); assert.equal(insertCalled,false);
 });
