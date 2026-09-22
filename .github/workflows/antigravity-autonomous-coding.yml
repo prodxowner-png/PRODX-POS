@@ -160,7 +160,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
 
-          # GitHub-hosted runner is ephemeral; this branch is validation-only until the lane is merged. We deliberately do not use --dangerously-skip-permissions.
+          # GitHub-hosted runner is ephemeral; validation uses the API-key-compatible Gemini model. We deliberately do not use --dangerously-skip-permissions.
           agy -p "$(cat autonomous-task.md)"             --model gemini-3.8-flash-low             --mode accept-edits             --sandbox             --output-format stream-json             --print-timeout 35m             > agy-run.ndjson
 
           jq -s 'map(select(.event=="result") | .result) | last' agy-run.ndjson > agy-result.json
