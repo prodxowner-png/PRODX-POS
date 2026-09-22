@@ -56,7 +56,7 @@ export const productionAuthApi: IAuthApi = {
       method: 'POST',
       body: JSON.stringify(req),
     }),
-  logout: () => request<void>('/auth/logout', { method: 'POST' }),
+  logout: (token: string) => requestWithBearer<void>('/auth/logout', token, { method: 'POST' }),
   verifySession: (token: string) => requestWithBearer<SessionContext | null>('/auth/session', token),
   getStores: (token: string, orgSlug: string) =>
     requestWithBearer<readonly Store[]>(`/organizations/${encodeURIComponent(orgSlug)}/stores`, token),
