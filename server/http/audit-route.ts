@@ -1,7 +1,7 @@
 import type { Express, Request, Response } from 'express';
 import { requirePermission } from './createApp';
-import type { SqlExecutor } from '../db/postgres';
-export const registerAuditRoute = (app: Express, db: SqlExecutor, permission = 'reports.read'): void => {
+import type { SqlQueryExecutor } from '../db/transaction';
+export const registerAuditRoute = (app: Express, db: SqlQueryExecutor, permission = 'reports.read'): void => {
   app.get('/api/v1/audit/logs', requirePermission(permission), async (request: Request, response: Response) => {
     const context = request.prodxContext;
     if (!context) { response.status(500).json({error:{code:'REQUEST_CONTEXT_MISSING',message:'Request context is required.',requestId:request.id}}); return; }
