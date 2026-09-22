@@ -25,7 +25,7 @@ jobs:
   review:
     # Use the authenticated Antigravity Pro-account runner so review does not
     # depend on GEMINI_API_KEY or the Codex quota. The job never checks out PR code.
-    runs-on: [self-hosted, linux, prodx-antigravity]
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - name: Resolve open PR
