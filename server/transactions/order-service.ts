@@ -15,6 +15,14 @@ const authorizationDb = (tx: SqlQueryExecutor) => ({
     (await tx.query<T>(sql, params)).rows,
 });
 
+const dbMoneyToCents = (value: unknown): bigint => {
+  const match = String(value).trim().match(/^(\d+)(?:\.(\d{1,2}))?$/);
+  if (!match) throw new OrderVoidError('VOID_INVALID', 'Payment amount is not a valid monetary value.');
+  return BigInt(match[1]) * 100n + BigInt((match[2] ?? '').padEnd(2, '0'));
+};
+
+const centsToDbMoney = (value: bigint): string => `${value / 100n}.${(value % 100n).toString().padStart(2, '0')}`;
+
 export const createOrderService = (db: TransactionalSqlExecutor) => ({
   async getOrders(storeId: string, limit = 100) {
     const safe = Math.min(Math.max(Math.trunc(limit) || 50, 1), 200);
@@ -54,9 +62,9 @@ export const createOrderService = (db: TransactionalSqlExecutor) => ({
       }
 
       const payments = (await tx.query<{ amount: string; method: string }>('SELECT amount::text,method FROM prodx_payments WHERE store_id=$1 AND order_id=$2', [input.storeId, input.orderId])).rows;
-      const cash = payments.filter((payment) => payment.method === 'cash').reduce((sum, payment) => sum + Number(payment.amount), 0);
-      if (cash > 0) {
-        await tx.query('INSERT INTO prodx_cash_movements(id,organization_id,store_id,shift_id,type,amount,reason,performed_by_user_id,currency) VALUES($1,$2,$3,$4,\'cash_refund\',$5,$6,$7,$8)', [crypto.randomUUID(), row.organization_id, input.storeId, row.shift_id, cash, input.reason, input.requesterUserId, row.currency]);
+      const cash = payments.filter((payment) => payment.method === 'cash').reduce((sum, payment) => sum + dbMoneyToCents(payment.amount), 0n);
+      if (cash > 0n) {
+        await tx.query('INSERT INTO prodx_cash_movements(id,organization_id,store_id,shift_id,type,amount,reason,performed_by_user_id,currency) VALUES($1,$2,$3,$4,\'cash_refund\',$5,$6,$7,$8)', [crypto.randomUUID(), row.organization_id, input.storeId, row.shift_id, centsToDbMoney(cash), input.reason, input.requesterUserId, row.currency]);
       }
       await tx.query("UPDATE prodx_orders SET status='voided' WHERE id=$1 AND store_id=$2", [input.orderId, input.storeId]);
       await tx.query("INSERT INTO prodx_audit_log(id,organization_id,store_id,register_id,user_id,action,severity,details) VALUES($1,$2,$3,$4,$5,'order_voided','warn',$6::jsonb)", [crypto.randomUUID(), row.organization_id, input.storeId, row.register_id, input.requesterUserId, JSON.stringify({ orderId: input.orderId, reason: input.reason, supervisorUserId: auth.supervisorUserId })]);
