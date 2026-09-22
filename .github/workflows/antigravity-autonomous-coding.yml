@@ -1,6 +1,7 @@
 name: Antigravity Autonomous Production Executor
 
 on:
+  # Temporary branch-only trigger validates the hosted lane before merge.
   push:
     branches:
       - 'chore/github-hosted-gemini-runtime'
