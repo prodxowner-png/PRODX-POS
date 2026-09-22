@@ -1191,8 +1191,8 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({ onNavigate }) => {
           title={language === 'th' ? `อนุมัติยกเลิกบิล #${selectedOrder.orderNumber}` : `Authorize Void Order #${selectedOrder.orderNumber}`}
           actionDescription={language === 'th' ? 'กรุณาให้ผู้จัดการหรือแอดมินใส่รหัส PIN เพื่อยืนยันการยกเลิกคำสั่งซื้อ' : 'Please enter manager or administrator PIN to void this transaction.'}
           requiredRole="manager"
-          onAuthorized={(supervisor, reason) => {
-            handleSupervisorVoidAuthorized(supervisor, reason);
+          onAuthorized={(supervisor, reason, secret) => {
+            void handleSupervisorVoidAuthorized(supervisor, reason, secret);
           }}
         />
       )}
