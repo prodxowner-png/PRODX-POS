@@ -39,8 +39,11 @@ jobs:
           PR_EVENT_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number || '' }}
         run: |
           set -euo pipefail
-          test -n "${PR_EVENT_NUMBER:-}"
-          pr="$PR_EVENT_NUMBER"
+          pr="${PR_EVENT_NUMBER:-}"
+          if [ -z "$pr" ]; then
+            pr="$(gh pr list --repo "$REPO" --head "$GITHUB_REF_NAME" --state open --json number --jq '.[0].number')"
+          fi
+          test -n "$pr"
           metadata="$(gh pr view "$pr" --repo "$REPO" --json number,state,headRepositoryOwner,headRepository,headRefOid)"
           test "$(jq -r '.number' <<<"$metadata")" = "$pr"
           test "$(jq -r '.state' <<<"$metadata")" = "OPEN"
