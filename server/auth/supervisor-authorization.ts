@@ -122,9 +122,9 @@ export const createSupervisorAuthorizationService = (db: SqlExecutor, now: () =>
           AND m.store_id = $2
           AND m.user_id = $3
           AND m.active = TRUE
-          AND p.permission_key = 'pos.refund'
+          AND p.permission_key = CASE WHEN $4 = 'void' THEN 'pos.void' ELSE 'pos.refund' END
         LIMIT 1`,
-      [input.organizationId, input.storeId, credential.userId],
+      [input.organizationId, input.storeId, credential.userId, input.action],
     );
     if (!allowed[0]) {
       await recordSecurityEvent(db, {
