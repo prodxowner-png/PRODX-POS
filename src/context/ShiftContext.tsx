@@ -5,7 +5,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { Shift, CashMovement, CashMovementType } from '../domain/shift';
 import { Money, createMoney } from '../domain/money';
-import { shiftApi } from '../adapters/mockAdapter';
+import { createShiftApi } from '../adapters/shiftApiFactory';
 import { useAuth } from './AuthContext';
 import { useToast } from './ToastContext';
 
@@ -25,6 +25,7 @@ export const ShiftProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const { addToast } = useToast();
   const [currentShift, setCurrentShift] = useState<Shift | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const shiftApi = session?.token ? createShiftApi(session.token) : null;
 
   const refreshShift = useCallback(async () => {
     if (!session) {
@@ -34,6 +35,7 @@ export const ShiftProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
     try {
       setIsLoading(true);
+      if (!shiftApi) throw new Error('Authenticated shift session is required.');
       const shift = await shiftApi.getCurrentShift(session.currentStore.id, session.registerId);
       setCurrentShift(shift);
     } catch (err) {
@@ -50,12 +52,8 @@ export const ShiftProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const openShift = async (openingFloat: Money): Promise<Shift | undefined> => {
     if (!session) return undefined;
     try {
-      const shift = await shiftApi.openShift(
-        session.currentStore.id,
-        session.registerId,
-        openingFloat,
-        session.currentUser
-      );
+      if (!shiftApi) throw new Error('Authenticated shift session is required.');
+      const shift = await shiftApi.openShift(session.currentStore.id, session.registerId, openingFloat, session.currentUser);
       setCurrentShift(shift);
       addToast({
         title: 'Shift Opened',
@@ -76,6 +74,7 @@ export const ShiftProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const closeShift = async (actualCountedCash: Money, notes?: string): Promise<Shift> => {
     if (!currentShift) throw new Error('No active shift to close');
     try {
+      if (!shiftApi) throw new Error('Authenticated shift session is required.');
       const closed = await shiftApi.closeShift(currentShift.id, actualCountedCash, notes);
       setCurrentShift(null);
       addToast({
@@ -97,13 +96,8 @@ export const ShiftProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const recordCashMovement = async (type: CashMovementType, amount: Money, reason: string) => {
     if (!currentShift || !session) return;
     try {
-      await shiftApi.recordCashMovement(
-        currentShift.id,
-        type,
-        amount,
-        reason,
-        session.currentUser.id
-      );
+      if (!shiftApi) throw new Error('Authenticated shift session is required.');
+      await shiftApi.recordCashMovement(currentShift.id, type, amount, reason, session.currentUser.id);
       await refreshShift();
       addToast({
         title: 'Cash Drawer Movement Recorded',
