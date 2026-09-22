@@ -26,7 +26,9 @@ const repositoryFixture = () => {
     createSession: async (input) => { session = { ...input, revokedAt: null, userStatus: 'active' }; },
     findSessionByTokenHash: async (tokenHash) => session?.tokenHash === tokenHash ? session : null,
     findDevice: async (deviceId) => deviceId === device.id ? device : null,
-    touchSession: async () => { calls.touched += 1; },,
+    touchSession: async () => { calls.touched += 1; },
+    findDeviceByKey: async () => null,
+    revokeSession: async () => undefined,
   findDeviceByKey: async () => null,
   revokeSession: async () => undefined
   };
