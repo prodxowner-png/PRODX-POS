@@ -1,5 +1,5 @@
 import type { Express, Request, Response } from 'express';
-import { requirePermission } from './createApp';
+import { requirePermissionOrSupervisorAuthorization } from './createApp';
 import {
   createRefundService,
   RefundConflictError,
@@ -17,7 +17,7 @@ type RefundBody = {
   refundMethod: 'cash' | 'card' | 'qr_digital';
   itemsToRestock?: readonly RefundBodyItem[];
   idempotencyKey: string;
-  supervisorAuthorizationToken: string;
+  supervisorAuthorizationToken?: string;
 };
 
 const MAX_MONEY_CENTS = 999_999_999_999;
@@ -48,7 +48,8 @@ const isValidRefundBody = (value: unknown): value is RefundBody => {
     typeof body.reason === 'string' && body.reason.trim().length > 0 &&
     (body.refundMethod === 'cash' || body.refundMethod === 'card' || body.refundMethod === 'qr_digital') &&
     typeof body.idempotencyKey === 'string' && body.idempotencyKey.trim().length > 0 &&
-    typeof body.supervisorAuthorizationToken === 'string' && body.supervisorAuthorizationToken.trim().length > 0 &&
+    (body.supervisorAuthorizationToken === undefined ||
+      (typeof body.supervisorAuthorizationToken === 'string' && body.supervisorAuthorizationToken.trim().length > 0)) &&
     isValidRestockList(body.itemsToRestock)
   );
 };
@@ -60,7 +61,7 @@ export const registerRefundRoute = (
 ): void => {
   const service = createRefundService(db);
 
-  app.post('/api/v1/orders/refund', requirePermission(permission), async (request: Request, response: Response) => {
+  app.post('/api/v1/orders/refund', requirePermissionOrSupervisorAuthorization(permission), async (request: Request, response: Response) => {
     try {
       const context = request.prodxContext;
       if (!context) {
