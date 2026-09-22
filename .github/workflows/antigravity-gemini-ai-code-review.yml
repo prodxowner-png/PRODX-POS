@@ -1,6 +1,9 @@
 name: Gemini API Hosted AI Code Review
 
 on:
+  push:
+    branches:
+      - 'chore/github-hosted-gemini-runtime'
   # Use the base-branch workflow so PR changes cannot rewrite the
   # secret-bearing job that reviews them. This workflow never checks out PR code.
   pull_request_target:
