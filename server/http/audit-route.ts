@@ -15,7 +15,7 @@ export const registerAuditRoute = (app: Express, db: SqlExecutor, permission = '
        WHERE a.organization_id=$1 AND a.store_id=$2
        ORDER BY a.created_at DESC,a.id DESC LIMIT $3`,
       [context.principal.organizationId,context.principal.storeId,limit],
-    );
+    ));
     response.json(rows.map((r:any)=>({id:r.id,storeId:r.store_id,registerId:r.register_id ?? '',userId:r.user_id,userName:r.user_name,
       action:r.action,severity:r.severity,details:r.details,timestamp:new Date(r.created_at).toISOString()})));
   });
