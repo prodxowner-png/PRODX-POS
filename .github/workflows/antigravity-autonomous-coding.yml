@@ -80,10 +80,8 @@ jobs:
           command -v jq >/dev/null || { echo "jq is missing."; echo "GEMINI_API_STATUS=jq_missing" >> "$GITHUB_ENV"; exit 1; }
           command -v curl >/dev/null || { echo "curl is missing."; echo "GEMINI_API_STATUS=curl_missing" >> "$GITHUB_ENV"; exit 1; }
           mkdir -p "$HOME/.gemini/antigravity-cli"
-          printf '%s
-' '{"modelProvider":"gemini"}' > "$HOME/.gemini/antigravity-cli/settings.json"
-          printf '%s
-' '{"contents":[{"parts":[{"text":"Reply with exactly PRODX_GEMINI_API_OK"}]}]}' > gemini-api-smoke.json
+          printf '%s\\n' '{"modelProvider":"gemini"}' > "$HOME/.gemini/antigravity-cli/settings.json"
+          printf '%s\\n' '{"contents":[{"parts":[{"text":"Reply with exactly PRODX_GEMINI_API_OK"}]}]}' > gemini-api-smoke.json
           http_code="$(curl --silent --show-error --output gemini-api-result.json --write-out '%{http_code}' -H "x-goog-api-key: $GEMINI_API_KEY" -H "Content-Type: application/json" -X POST "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent" --data-binary @gemini-api-smoke.json)" || status=1
           if [ "$status" -ne 0 ] || [ "$http_code" != "200" ]; then
             echo "Direct Gemini API smoke: FAIL (HTTP ${http_code:-curl-error})"
