@@ -1,4 +1,5 @@
 import type { IAuditApi } from './types';
+import type { AuditLogEntry } from '../domain/audit';
 const BASE=import.meta.env.VITE_AUTH_API_BASE_URL;
 export function createProductionAuditApi(token:string): IAuditApi {
   const request=async<T>(path:string):Promise<T>=>{
@@ -11,6 +12,6 @@ export function createProductionAuditApi(token:string): IAuditApi {
   };
   return {
     recordEvent: async()=>{throw new Error('Client audit writes are server-authoritative and are not exposed as a generic client mutation.');},
-    getLogs:(storeId,limit=50)=>request<Awaited<ReturnType<IAuditApi['getLogs']>>>(`/api/v1/audit/logs?limit=${Math.min(Math.max(limit,1),200)}`),
+    getLogs:(storeId,limit=50)=>request<readonly AuditLogEntry[]>(`/api/v1/audit/logs?limit=${Math.min(Math.max(limit,1),200)}`),
   };
 }
