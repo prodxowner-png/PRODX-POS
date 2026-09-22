@@ -9,7 +9,7 @@ type DbRow=Record<string, any>;
 const cents=(v:unknown,field:string):bigint=>{const n=BigInt((v as any)?.amountInCents??-1);if(n<0n)throw new CheckoutValidationError(`${field} must be a non-negative integer minor-unit amount.`);return n;};
 const numeric=(n:bigint)=>`${n/100n}.${(n%100n).toString().padStart(2,'0')}`;
 const dbCents=(v:unknown)=>{const m=/^(\d+)\.(\d{2})$/.exec(String(v));if(!m)throw new CheckoutValidationError('Database monetary value is invalid.');return BigInt(m[1])*100n+BigInt(m[2]);};
-const orderFromDb=async(db:SqlQueryExecutor,o:DbRow,cached:boolean):Promise<CheckoutResponse>=>{
+export const orderFromDb=async(db:SqlQueryExecutor,o:DbRow,cached:boolean):Promise<CheckoutResponse>=>{
  const items=(await db.query(`SELECT oi.*,p.sku,p.barcode,p.name,p.category_id,p.cost_price_amount::text,p.tax_rate_bps,p.reorder_point,p.unit_of_measure,p.current_stock FROM prodx_order_items oi JOIN prodx_products p ON p.id=oi.product_id AND p.store_id=oi.store_id WHERE oi.order_id=$1 ORDER BY oi.id`,[o.id])).rows;
  const payments=(await db.query(`SELECT id,method,amount::text,tendered_cash::text,change_given::text,auth_code,card_last_four,terminal_reference,currency,created_at FROM prodx_payments WHERE order_id=$1 ORDER BY created_at,id`,[o.id])).rows;
  const currency=o.currency;const money=(v:any)=>({amountInCents:Number(dbCents(v)),currency});
