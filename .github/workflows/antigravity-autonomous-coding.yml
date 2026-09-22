@@ -81,7 +81,15 @@ jobs:
           cat > "$HOME/.gemini/antigravity-cli/settings.json" <<'EOF'
           {"modelProvider":"gemini"}
           EOF
-          agy models
+          # First verify the API key independently through Google's official Gemini REST API.
+          # This separates key/quota/endpoint failures from Antigravity CLI failures.
+          cat > gemini-api-smoke.json <<'EOF'
+          {"contents":[{"parts":[{"text":"Reply with exactly PRODX_GEMINI_API_OK"}]}]}
+          EOF
+          curl --fail-with-body --silent --show-error             -H "x-goog-api-key: $GEMINI_API_KEY"             -H "Content-Type: application/json"             -X POST             "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"             --data-binary @gemini-api-smoke.json > gemini-api-result.json
+          jq -e '.candidates[0].content.parts[0].text | contains("PRODX_GEMINI_API_OK")' gemini-api-result.json >/dev/null
+
+          # Then verify the same key through Antigravity's Gemini provider.
           agy -p "Reply with exactly PRODX_AUTONOMOUS_AUTH_OK" --output-format json --print-timeout 3m > auth-check.json
           jq -e '.status == "SUCCESS" and (.response | contains("PRODX_AUTONOMOUS_AUTH_OK"))' auth-check.json >/dev/null
 
