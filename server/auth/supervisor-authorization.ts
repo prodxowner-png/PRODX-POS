@@ -7,7 +7,7 @@ export type SupervisorAuthorizationRequest = {
   storeId: string;
   requesterUserId: string;
   requesterSessionId: string;
-  action: 'refund';
+  action: 'refund' | 'void';
   orderId: string;
   supervisorUsername: string;
   supervisorSecret: string;
@@ -167,7 +167,7 @@ export const createSupervisorAuthorizationService = (db: SqlExecutor, now: () =>
 
   async consume(input: {
     token: string; organizationId: string; storeId: string; requesterUserId: string;
-    requesterSessionId: string; action: 'refund'; orderId: string;
+    requesterSessionId: string; action: 'refund' | 'void'; orderId: string;
   }): Promise<{ supervisorUserId: string }> {
     if (!input.token.trim()) throw new SupervisorAuthorizationError('AUTHORIZATION_EXPIRED');
     const hash = hashAuthorizationToken(input.token);
