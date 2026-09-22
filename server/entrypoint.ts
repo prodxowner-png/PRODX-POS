@@ -34,7 +34,7 @@ export const createProductionApp = () => {
       registerSyncRoute(configuredApp, transactions);
       registerSupervisorAuthorizationRoute(configuredApp, transactions);
       registerCatalogRoute(configuredApp, transactions);
-      registerAuditRoute(configuredApp, sql);
+      registerAuditRoute(configuredApp, transactions);
     },
   });
 
