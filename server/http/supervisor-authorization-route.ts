@@ -1,5 +1,6 @@
 import type { Express, Request, Response } from 'express';
 import { requirePermission } from './createApp';
+import type { NextFunction } from 'express';
 import {
   createSupervisorAuthorizationService,
   SupervisorAuthorizationError,
@@ -22,8 +23,18 @@ const valid = (value: unknown): value is Body => {
     typeof body.supervisorSecret === 'string' && body.supervisorSecret.length > 0;
 };
 
+const requireActionPermission = async (request: Request, response: Response, next: NextFunction): Promise<void> => {
+  const context=request.prodxContext;
+  const body=request.body as Record<string,unknown>;
+  const permission=body.action==='void'?'pos.void':'pos.refund';
+  const authorizer=request.app.locals.prodxAuthorize as ((ctx:typeof context,permission:string)=>Promise<boolean>)|undefined;
+  if(!context||!authorizer){response.status(500).json({error:{code:'AUTHORIZATION_NOT_CONFIGURED',message:'Authorization is not configured.'}});return;}
+  if(!(await authorizer(context,permission))){response.status(403).json({error:{code:'FORBIDDEN',message:'The requested capability is not authorized.'}});return;}
+  next();
+};
+
 export const registerSupervisorAuthorizationRoute = (app: Express, db: TransactionalSqlExecutor): void => {
-  app.post('/api/v1/authorizations/supervisor', requirePermission('pos.refund'), async (request: Request, response: Response) => {
+  app.post('/api/v1/authorizations/supervisor', requireActionPermission, async (request: Request, response: Response) => {
     const context = request.prodxContext;
     if (!context) {
       response.status(500).json({ error: { code: 'REQUEST_CONTEXT_MISSING', message: 'Request context is required.' } });
