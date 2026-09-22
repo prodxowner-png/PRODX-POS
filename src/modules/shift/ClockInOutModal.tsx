@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { Modal } from '../../components/common/Modal';
 import { Button } from '../../components/common/Button';
 import { useLanguage } from '../../context/LanguageContext';
-import { Clock, ShieldCheck, UserCheck } from 'lucide-react';
 import { createShiftApi } from '../../adapters/shiftApiFactory';
 import { useToast } from '../../context/ToastContext';
 import { useAuth } from '../../context/AuthContext';
@@ -73,7 +72,7 @@ export const ClockInOutModal: React.FC<ClockInOutModalProps> = ({
       isOpen={isOpen}
       onClose={handleClose}
       title={language === 'th' ? 'ระบบลงเวลา (Timeclock)' : 'Timeclock'}
-      description={language === 'th' ? 'กรุณากรอกรหัส PIN 4 หลักเพื่อลงเวลาเข้า-ออกงาน' : 'Enter your 4-digit PIN to clock in or out.'}
+      description={language === 'th' ? 'ยืนยันการลงเวลาโดยใช้เซสชันที่เข้าสู่ระบบแล้ว' : 'Confirm your timeclock action using your authenticated session.'}
       maxWidth="sm"
     >
       <div className="space-y-5 flex flex-col items-center">
@@ -113,7 +112,8 @@ export const ClockInOutModal: React.FC<ClockInOutModalProps> = ({
         </div>
         <Button onClick={handleSubmit} disabled={isSubmitting}>
           {isSubmitting ? '...' : (mode === 'in' ? (language === 'th' ? 'ยืนยันเข้างาน' : 'Confirm Clock In') : (language === 'th' ? 'ยืนยันออกงาน' : 'Confirm Clock Out'))}
-        </Button>      </div>
+        </Button>
+      </div>
     </Modal>
   );
 };
