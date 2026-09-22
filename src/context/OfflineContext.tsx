@@ -8,7 +8,6 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { OutboxItem } from '../domain/sync';
-import { mockState } from '../adapters/mockAdapter';
 import { createSyncApi } from '../adapters/syncApiFactory';
 import { Order } from '../domain/order';
 import { useToast } from './ToastContext';
@@ -93,7 +92,7 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // Real-time Sync Latency state
   const [syncLatencyMs, setSyncLatencyMs] = useState<number | null>(() => {
-    return browserOnline && !isSimulatedOffline ? Math.max(12, mockState.getSimulatedLatency() + 14) : null;
+    return browserOnline && !isSimulatedOffline ? null : null;
   });
   const [isMeasuringLatency, setIsMeasuringLatency] = useState<boolean>(false);
   const [lastSyncCycleAt, setLastSyncCycleAt] = useState<string | null>(() => new Date().toISOString());
@@ -101,14 +100,14 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
     {
       id: `lat-init-1`,
       timestamp: new Date(Date.now() - 15000).toISOString(),
-      latencyMs: Math.max(14, mockState.getSimulatedLatency() + 12),
+      latencyMs: 1,
       source: 'cloud_heartbeat',
       status: 'success',
     },
     {
       id: `lat-init-2`,
       timestamp: new Date(Date.now() - 30000).toISOString(),
-      latencyMs: Math.max(12, mockState.getSimulatedLatency() + 18),
+      latencyMs: 1,
       source: 'cloud_heartbeat',
       status: 'success',
     },
@@ -244,7 +243,6 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const toggleSimulatedOffline = () => {
     setIsSimulatedOffline((prev) => {
       const next = !prev;
-      mockState.isSimulatedOffline = next;
       return next;
     });
   };
