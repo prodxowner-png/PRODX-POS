@@ -2,8 +2,8 @@ import React, { useState } from 'react';
 import { Modal } from '../../components/common/Modal';
 import { Button } from '../../components/common/Button';
 import { useLanguage } from '../../context/LanguageContext';
-import { Clock, ShieldCheck, UserCheck, KeyRound } from 'lucide-react';
-import { shiftApi } from '../../adapters/mockAdapter';
+import { Clock, ShieldCheck, UserCheck } from 'lucide-react';
+import { createShiftApi } from '../../adapters/shiftApiFactory';
 import { useToast } from '../../context/ToastContext';
 import { useAuth } from '../../context/AuthContext';
 import { TimeclockRecord } from '../../domain/shift';
@@ -23,37 +23,26 @@ export const ClockInOutModal: React.FC<ClockInOutModalProps> = ({
   const { addToast } = useToast();
   const { session } = useAuth();
   
-  const [pin, setPin] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [mode, setMode] = useState<'in' | 'out'>('in');
 
   if (!session) return null;
 
-  const handleNumpad = (num: string) => {
-    if (pin.length < 4) {
-      setPin(prev => prev + num);
-    }
-  };
-
-  const handleBackspace = () => {
-    setPin(prev => prev.slice(0, -1));
-  };
-
   const handleSubmit = async () => {
-    if (pin.length !== 4) return;
-    
+    if (!session?.token) return;
     setIsSubmitting(true);
     try {
+      const shiftApi = createShiftApi(session.token);
       let record;
       if (mode === 'in') {
-        record = await shiftApi.clockIn(pin, session.currentStore.id);
+        record = await shiftApi.clockIn(session.currentStore.id);
         addToast({
           title: language === 'th' ? 'ลงเวลาเข้าสำเร็จ' : 'Clocked In Successfully',
           message: `${record.userName} clocked in at ${new Date(record.clockedInAt).toLocaleTimeString()}`,
           type: 'success',
         });
       } else {
-        record = await shiftApi.clockOut(pin, session.currentStore.id);
+        record = await shiftApi.clockOut(session.currentStore.id);
         addToast({
           title: language === 'th' ? 'ลงเวลาออกสำเร็จ' : 'Clocked Out Successfully',
           message: `${record.userName} clocked out at ${new Date(record.clockedOutAt!).toLocaleTimeString()}`,
@@ -68,14 +57,13 @@ export const ClockInOutModal: React.FC<ClockInOutModalProps> = ({
         message: err.message || 'Invalid PIN or already clocked in/out.',
         type: 'error',
       });
-      setPin(''); // Reset on failure
+      // Server-authoritative session state is preserved; no local credential is stored.
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const handleClose = () => {
-    setPin('');
     setMode('in');
     onClose();
   };
@@ -115,63 +103,17 @@ export const ClockInOutModal: React.FC<ClockInOutModalProps> = ({
           </button>
         </div>
 
-        {/* PIN Dots */}
-        <div className="flex justify-center gap-4">
-          {[0, 1, 2, 3].map((index) => (
-            <div
-              key={index}
-              className={`w-3.5 h-3.5 rounded-full transition-all duration-200 ${
-                index < pin.length 
-                  ? 'bg-primary scale-110 shadow-xs' 
-                  : 'bg-border'
-              }`}
-            />
-          ))}
+        <div className="text-center space-y-2">
+          <div className="text-sm font-semibold text-text">
+            {session.currentUser.name}
+          </div>
+          <div className="text-[11px] text-text/60">
+            {language === 'th' ? 'การลงเวลาจะยืนยันด้วยเซสชันที่เข้าสู่ระบบแล้ว' : 'Timeclock actions are authorized by your authenticated session.'}
+          </div>
         </div>
-        <div className="text-[11px] text-text/50 font-mono h-4">
-          Demo: 1234 (Admin), 5678 (Manager), 0000 (Cashier)
-        </div>
-
-        {/* Numpad */}
-        <div className="grid grid-cols-3 gap-2.5 w-full max-w-[240px]">
-          {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((num) => (
-            <button
-              key={num}
-              type="button"
-              onClick={() => handleNumpad(num)}
-              className="h-12 rounded-lg border-crisp border border-border bg-card flex items-center justify-center text-lg font-mono font-semibold text-text hover:bg-background active:scale-95 transition-all cursor-pointer"
-            >
-              {num}
-            </button>
-          ))}
-          <button
-            type="button"
-            onClick={handleBackspace}
-            className="h-12 rounded-lg border-crisp border border-border bg-card flex items-center justify-center text-xs font-semibold text-text/70 hover:bg-background active:scale-95 transition-all cursor-pointer"
-          >
-            DEL
-          </button>
-          <button
-            type="button"
-            onClick={() => handleNumpad('0')}
-            className="h-12 rounded-lg border-crisp border border-border bg-card flex items-center justify-center text-lg font-mono font-semibold text-text hover:bg-background active:scale-95 transition-all cursor-pointer"
-          >
-            0
-          </button>
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={pin.length !== 4 || isSubmitting}
-            className={`h-12 rounded-lg flex items-center justify-center text-xs font-semibold active:scale-95 transition-all ${
-              pin.length === 4 
-                ? 'bg-primary text-white shadow-xs hover:opacity-90 cursor-pointer' 
-                : 'bg-card text-text/50 cursor-not-allowed border-crisp border border-border'
-            }`}
-          >
-            OK
-          </button>
-        </div>
-      </div>
+        <Button onClick={handleSubmit} disabled={isSubmitting}>
+          {isSubmitting ? '...' : (mode === 'in' ? (language === 'th' ? 'ยืนยันเข้างาน' : 'Confirm Clock In') : (language === 'th' ? 'ยืนยันออกงาน' : 'Confirm Clock Out'))}
+        </Button>      </div>
     </Modal>
   );
 };
