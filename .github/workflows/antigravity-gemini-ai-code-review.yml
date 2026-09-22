@@ -1,9 +1,7 @@
 name: Gemini API Hosted AI Code Review
 
 on:
-  push:
-    branches:
-      - 'chore/github-hosted-gemini-runtime'
+  # Secret-bearing review runs only with explicit PR identity.
   # Use the base-branch workflow so PR changes cannot rewrite the
   # secret-bearing job that reviews them. This workflow never checks out PR code.
   pull_request_target:
@@ -40,9 +38,7 @@ jobs:
         run: |
           set -euo pipefail
           pr="${PR_EVENT_NUMBER:-}"
-          if [ -z "$pr" ]; then
-            pr="$(gh pr list --repo "$REPO" --head "$GITHUB_REF_NAME" --state open --json number --jq '.[0].number')"
-          fi
+          # Never infer PR identity from a branch name.
           test -n "$pr"
           metadata="$(gh pr view "$pr" --repo "$REPO" --json number,state,headRepositoryOwner,headRepository,headRefOid)"
           test "$(jq -r '.number' <<<"$metadata")" = "$pr"
