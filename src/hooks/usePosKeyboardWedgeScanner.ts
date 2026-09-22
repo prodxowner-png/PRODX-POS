@@ -4,7 +4,7 @@ import { useCart } from '../context/CartContext';
 import { useToast } from '../context/ToastContext';
 import { useLanguage } from '../context/LanguageContext';
 import { formatMoney } from '../domain/money';
-import { catalogApi } from '../adapters/mockAdapter';
+import { createCatalogReadApi } from '../adapters/catalogApiFactory';
 import { useAuth } from '../context/AuthContext';
 import {
   createKeyboardWedgeScanner,
@@ -66,6 +66,7 @@ export function usePosKeyboardWedgeScanner({
   const { addToast } = useToast();
   const { language } = useLanguage();
   const { session } = useAuth();
+  const catalogApi = session ? createCatalogReadApi(session.token) : null;
 
   const [lastScannedBarcode, setLastScannedBarcode] = useState<string | null>(null);
   const [lastScannedProduct, setLastScannedProduct] = useState<Product | null>(null);
@@ -160,9 +161,9 @@ export function usePosKeyboardWedgeScanner({
       setLastScannedAt(event.timestamp);
 
       // Attempt remote query fallback if catalog adapter has this barcode
-      if (session?.currentStore.id) {
+      if (catalogApi) {
         try {
-          const remoteProd = await catalogApi.getProductByBarcode(session.currentStore.id, scannedSku);
+          const remoteProd = await catalogApi?.getProductByBarcode(scannedSku);
           if (remoteProd) {
             if (remoteProd.currentStock <= 0) {
               handleOutOfStock(remoteProd, event);
@@ -185,7 +186,7 @@ export function usePosKeyboardWedgeScanner({
         type: 'warning',
       });
     },
-    [session, addToast, language, handleOutOfStock, handleProductMatched]
+    [catalogApi, addToast, language, handleOutOfStock, handleProductMatched]
   );
 
   // Initialize and maintain keyboard wedge scanner instance
