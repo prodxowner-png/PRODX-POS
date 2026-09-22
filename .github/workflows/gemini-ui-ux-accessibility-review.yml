@@ -1,0 +1,145 @@
+name: Gemini UI UX Accessibility Review
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request number to review
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: gemini-ui-review-${{ github.event.pull_request.number || inputs.pr_number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  "Gemini UI, UX, CSS & accessibility review":
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Resolve open PR
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_EVENT_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number || '' }}
+        run: |
+          set -euo pipefail
+          pr="${PR_EVENT_NUMBER:-}"
+          test -n "$pr"
+          metadata="$(gh pr view "$pr" --repo "$REPO" --json number,state,headRepositoryOwner,headRepository,headRefOid)"
+          test "$(jq -r '.number' <<<"$metadata")" = "$pr"
+          test "$(jq -r '.state' <<<"$metadata")" = "OPEN"
+          head_repo="$(jq -r '.headRepositoryOwner.login + "/" + .headRepository.name' <<<"$metadata")"
+          test "$head_repo" = "$REPO"
+          head_sha="$(jq -r '.headRefOid' <<<"$metadata")"
+          test "${#head_sha}" -eq 40
+          echo "number=$pr" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Install pinned Antigravity CLI
+        run: |
+          set -euo pipefail
+          version="1.2.7"
+          url="https://github.com/google-antigravity/antigravity-cli/releases/download/$version/agy_cli_linux_x64.tar.gz"
+          expected_sha256="e410dd56d8c213ef12643d3ff5eaaab57a17e05bbf72e9415322f23879fc4a18"
+          tmpdir="$(mktemp -d)"
+          trap 'rm -rf "$tmpdir"' EXIT
+          curl -fsSL "$url" -o "$tmpdir/agy.tar.gz"
+          printf '%s  %s\n' "$expected_sha256" "$tmpdir/agy.tar.gz" | sha256sum -c -
+          mkdir -p "$HOME/.local/bin" "$tmpdir/extracted"
+          tar -xzf "$tmpdir/agy.tar.gz" -C "$tmpdir/extracted"
+          cli_bin="$(find "$tmpdir/extracted" \( -type f -o -type l \) \( -name agy -o -name antigravity \) -print -quit)"
+          test -n "$cli_bin"
+          install -m 0755 "$(readlink -f "$cli_bin")" "$HOME/.local/bin/agy"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          agy --version
+
+      - name: Configure Gemini API-key provider
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "${GEMINI_API_KEY:-}"
+          mkdir -p "$HOME/.gemini/antigravity-cli"
+          printf '%s\n' '{"modelProvider":"gemini"}' > "$HOME/.gemini/antigravity-cli/settings.json"
+          agy models
+
+      - name: Fetch PR diff
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ steps.pr.outputs.number }}
+        run: |
+          set -euo pipefail
+          gh pr diff "$PR" --repo "$REPO" > pr.diff
+          test -s pr.diff
+          current_head="$(gh pr view "$PR" --repo "$REPO" --json headRefOid --jq '.headRefOid')"
+          test "$current_head" = "${{ steps.pr.outputs.head_sha }}"
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          source = Path("pr.diff").read_text(encoding="utf-8", errors="replace")
+          text = re.sub(r"(?i)(authorization\s*:\s*bearer\s+)[^\s]+", r"\1[REDACTED]", source)
+          text = re.sub(r"-----BEGIN [^-]+-----.*?-----END [^-]+-----", "[REDACTED_PRIVATE_KEY]", text, flags=re.S)
+          text = re.sub(r"\bgh[pousr]_[A-Za-z0-9_]{20,}\b", "[REDACTED_GITHUB_TOKEN]", text)
+          if len(text.encode("utf-8")) > 120000:
+              raise SystemExit("PR diff exceeds 120KB review limit.")
+          Path("pr.diff.sanitized").write_text(text, encoding="utf-8")
+          PY
+
+      - name: Run Gemini UI UX accessibility review
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          set -euo pipefail
+          cat > prompt.txt <<'EOF'
+          Review the supplied sanitized PR diff for PRODX POS as a production UI/UX/accessibility reviewer.
+          Focus on responsive POS behavior, touch targets, keyboard navigation, focus management, semantic HTML,
+          labels and form errors, contrast, loading/error states, localization, CSS regressions, mobile/tablet/desktop
+          layouts, and consistency with a professional retail POS. Do not invent files or behavior.
+          Return ONLY JSON:
+          {"verdict":"PASS|WARN|FAIL","summary":"...","findings":[{"file":"...","line":"...","issue":"...","recommendation":"..."}]}
+          Use FAIL only for a material production-blocking UI, UX, CSS, or accessibility issue.
+          EOF
+          printf '\n--- SANITIZED PR DIFF ---\n' >> prompt.txt
+          cat pr.diff.sanitized >> prompt.txt
+          set +e
+          agy -p "$(cat prompt.txt)" --mode plan --sandbox --output-format json --print-timeout 15m > review.json
+          rc=$?
+          set -e
+          test "$rc" -eq 0
+          jq -e '.status == "SUCCESS"' review.json >/dev/null
+          response="$(jq -r '.response // empty' review.json)"
+          test -n "$response"
+          printf '%s\n' "$response" > review-response.txt
+          if grep -q '"verdict":"FAIL"' review-response.txt; then
+            echo "Gemini UI/UX/accessibility review returned FAIL."
+            exit 1
+          fi
+
+      - name: Publish UI review
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ steps.pr.outputs.number }}
+          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          final_head="$(gh pr view "$PR" --repo "$REPO" --json headRefOid --jq '.headRefOid')"
+          {
+            echo "## Gemini UI/UX/Accessibility Review"
+            echo "**Reviewed head:** `$HEAD_SHA`"
+            echo "**Current HEAD:** `$final_head`"
+            echo
+            if [ -f review-response.txt ]; then cat review-response.txt; else echo "Review did not produce a response."; fi
+          } > ui-review-comment.md
+          gh pr comment "$PR" --repo "$REPO" --body-file ui-review-comment.md
