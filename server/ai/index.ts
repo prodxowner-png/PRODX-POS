@@ -30,3 +30,6 @@ export type {
   AIProvider,
   AIUsage,
 } from './types';
+
+export { GeminiProvider } from './geminiProvider';
+export type { GeminiProviderConfig } from './geminiProvider';
