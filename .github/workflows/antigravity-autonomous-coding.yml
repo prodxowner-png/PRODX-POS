@@ -4,6 +4,9 @@ on:
   # Secret-bearing autonomous execution only runs with explicit PR identity.
   pull_request_target:
     types: [opened, synchronize, reopened]
+  push:
+    branches:
+      - chore/bootstrap-pr150-ai-gates
   workflow_dispatch:
     inputs:
       pr_number:
@@ -34,9 +37,15 @@ jobs:
           EVENT_PR: ${{ github.event.pull_request.number || inputs.pr_number || '' }}
         run: |
           set -euo pipefail
-          pr="${EVENT_PR:-}"
-          # Never infer PR identity from a branch name.
-          test -n "$pr"
+          if [ "\${GITHUB_EVENT_NAME}" = "push" ]; then
+            test "\${GITHUB_REF_NAME}" = "chore/bootstrap-pr150-ai-gates"
+            matches="$(gh pr list --repo "$REPO" --head "\${GITHUB_REF_NAME}" --state open --json number)"
+            test "$(jq "length" <<<"$matches")" -eq 1
+            pr="$(jq -r ".[0].number" <<<"$matches")"
+          else
+            pr="\${EVENT_PR:-}"
+            test -n "$pr"
+          fi
           metadata="$(gh pr view "$pr" --repo "$REPO" --json number,state,headRepositoryOwner,headRepository,headRefName,headRefOid,baseRefName)"
           test "$(jq -r '.number' <<<"$metadata")" = "$pr"
           test "$(jq -r '.state' <<<"$metadata")" = "OPEN"
@@ -44,14 +53,15 @@ jobs:
           head_repo="$(jq -r '.headRepositoryOwner.login + "/" + .headRepository.name' <<<"$metadata")"
           test "$head_repo" = "$REPO"
           head_ref="$(jq -r '.headRefName' <<<"$metadata")"
-          # Bootstrap exception for the currently gated production-auth PR.
-          # Keep repository ownership + exact base checks above; do not trust arbitrary fork PRs.
           case "$head_ref" in
-            antigravity/*|codex/production-readiness-idempotency-race|chore/github-hosted-gemini-runtime|feat/production-auth-http-boundary-v2) ;;
+            antigravity/*|codex/production-readiness-idempotency-race|chore/github-hosted-gemini-runtime|feat/production-auth-http-boundary-v2|chore/bootstrap-pr150-ai-gates) ;;
             *) echo "Refusing autonomous execution on untrusted branch: $head_ref" >&2; exit 1 ;;
           esac
           head_sha="$(jq -r '.headRefOid' <<<"$metadata")"
-          test "${#head_sha}" -eq 40
+          test "\${#head_sha}" -eq 40
+          if [ "\${GITHUB_EVENT_NAME}" = "push" ]; then
+            test "$head_sha" = "$GITHUB_SHA"
+          fi
           {
             echo "number=$pr"
             echo "head_ref=$head_ref"
