@@ -23,7 +23,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  "Gemini code, architecture & security review":
+  review:
     # Use an ephemeral GitHub-hosted runner and the server-side Gemini API key.
     # The job never checks out PR code, and the API key is injected only for review.
     runs-on: ubuntu-latest
