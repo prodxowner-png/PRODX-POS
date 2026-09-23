@@ -138,7 +138,7 @@ jobs:
           echo "GEMINI_API_HTTP=200" >> "$GITHUB_ENV"
           echo "AGY_START" >> gemini-auth-state.txt
           set +e
-          agy -p "Reply with exactly PRODX_AUTONOMOUS_AUTH_OK" --output-format json --print-timeout 3m > auth-check.json
+          agy -p "Reply with exactly PRODX_AUTONOMOUS_AUTH_OK" --output-format json --print-timeout 3m --model gemini-3.8-flash > auth-check.json
           agy_rc=$?
           set -e
           if [ "$agy_rc" -ne 0 ]; then echo "AGY_FAIL" >> gemini-auth-state.txt; echo "Antigravity Gemini provider smoke: FAIL (exit $agy_rc)"; echo "AGY_AUTH_STATUS=failed" >> "$GITHUB_ENV"; exit "$agy_rc"; fi
