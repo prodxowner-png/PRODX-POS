@@ -157,7 +157,7 @@ test('production auth HTTP boundary enforces login scope, session revocation, ma
   assert.equal(freshLogin.status, 200);
   const expiringSession = await freshLogin.json() as { token: string };
   const expiredTokenHash = createHash('sha256').update(expiringSession.token).digest('hex');
-  await pool.query('UPDATE prodx_sessions SET expires_at = CURRENT_TIMESTAMP - INTERVAL \'1 second\' WHERE token_hash = $1', [expiredTokenHash]);
+  await pool.query(`UPDATE prodx_sessions SET issued_at = CURRENT_TIMESTAMP - INTERVAL '2 seconds', expires_at = CURRENT_TIMESTAMP - INTERVAL '1 second' WHERE token_hash = $1`, [expiredTokenHash]);
   const expired = await request('/auth/session', { headers: { authorization: `Bearer ${expiringSession.token}` } });
   assert.equal(expired.status, 401);
 
