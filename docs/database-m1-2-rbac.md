@@ -37,6 +37,10 @@ The initial canonical keys are:
 
 These keys are stable API/domain vocabulary. Tenant administrators grant them through organization-owned roles; application code must not infer privilege from display names. `ai:use` follows the same rule: migration 0018 registers the canonical permission only; it deliberately does not grant it to any role. Production provisioning must explicitly attach `ai:use` to an organization-owned role through the RBAC administration path, and users must receive that role through an organization/store-scoped assignment before the AI route is usable.
 
+## Current implementation status
+
+M1.2 is active in the current migration chain. ai:use is registered by migration 0018 and remains intentionally ungranted by migration; production access requires an organization-owned role grant and store-scoped user-role assignment.
+
 ## Deliberate boundary
 
 M1.2 does not create default `admin`, `manager`, or `cashier` roles. Those are business-policy fixtures and should be introduced only when the product-level authorization policy and bootstrap/administration flow are defined and tested.
