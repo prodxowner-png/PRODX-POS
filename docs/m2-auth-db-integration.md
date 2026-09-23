@@ -1,8 +1,8 @@
 # M2 Authentication PostgreSQL Integration
 
-## Current step
+## Current state
 
-The application composition boundary now constructs the M2 `SessionIssuer` from the PostgreSQL authentication repository and the existing password verifier. The concrete database client remains outside the authentication policy layer and must provide the parameterized `SqlExecutor` contract.
+The production application composition wires authentication through the PostgreSQL repository/session boundary. The concrete database client remains behind the parameterized SqlExecutor contract. Fresh exact-head authentication and PostgreSQL/build/security checks are passing.
 
 ## Security invariants
 
@@ -11,7 +11,7 @@ The application composition boundary now constructs the M2 `SessionIssuer` from 
 - Session persistence receives only the SHA-256 token hash; the bearer token is returned only to the caller.
 - SQL values remain parameterized.
 
-## Remaining gate
+
 
 A concrete PostgreSQL client must be supplied by the application entrypoint, followed by real PostgreSQL integration coverage for credential login, disabled user/device, expired/revoked sessions, cross-tenant isolation, token-hash persistence, and session touch.
 
