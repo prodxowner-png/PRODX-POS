@@ -45,7 +45,7 @@ jobs:
           test "$head_repo" = "$REPO"
           head_ref="$(jq -r '.headRefName' <<<"$metadata")"
           case "$head_ref" in
-            antigravity/*|codex/production-readiness-idempotency-race|chore/github-hosted-gemini-runtime) ;;
+            antigravity/*|codex/production-readiness-idempotency-race|chore/github-hosted-gemini-runtime|feat/production-auth-http-boundary-v2) ;;
             *) echo "Refusing autonomous execution on untrusted branch: $head_ref" >&2; exit 1 ;;
           esac
           head_sha="$(jq -r '.headRefOid' <<<"$metadata")"
