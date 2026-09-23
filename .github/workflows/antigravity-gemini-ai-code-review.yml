@@ -35,7 +35,7 @@ jobs:
     # Use an ephemeral GitHub-hosted runner and the server-side Gemini API key.
     # The job never checks out PR code, and the API key is injected only for review.
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 12
     steps:
       - name: Resolve open PR
         id: pr
@@ -248,12 +248,22 @@ jobs:
           # models that may have independent RPM buckets. The fallback list is
           # intentionally broader than the original 3.6/3.7/3.8-only set so a
           # saturated bucket does not make the entire review lane fail.
-          for model in gemini-3.1-pro-high gemini-3.1-pro-low gemini-3.8-flash-medium gemini-3.7-flash-medium gemini-3.6-flash-medium gemini-3.8-flash-low gemini-3.7-flash-low gemini-3.6-flash-low; do
-            echo "Trying Antigravity model: $model"
+          # Quota guardrail: one primary attempt plus one bounded fallback per PR.
+          # Each attempt resubmits the full sanitized diff, so broad model fan-out can consume RPM/TPM rapidly.
+          models=(gemini-3.7-flash-medium gemini-3.8-flash-medium)
+          attempt=0
+          for model in "${models[@]}"; do
+            attempt=$((attempt + 1)
+            )
+            echo "Trying Antigravity model: $model (attempt $attempt/2)"
             rm -f agy-output.ndjson agy-result.json review.json
-            agy --model "$model" --mode plan --sandbox \
+            if [ "$attempt" -gt 1 ]; then
+              echo "Cooling down 65s before fallback to avoid immediate RPM pressure."
+              sleep 65
+            fi
+            timeout --signal=TERM --kill-after=15s 255s agy --model "$model" --mode plan --sandbox \
               --input-format stream-json --output-format stream-json \
-              --json-schema review-schema.json --print-timeout 15m \
+              --json-schema review-schema.json --print-timeout 240s \
               < prompt.ndjson > agy-output.ndjson
             agy_exit=$?
             if [ "$agy_exit" -ne 0 ]; then
