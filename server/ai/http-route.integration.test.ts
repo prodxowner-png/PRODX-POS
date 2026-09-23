@@ -21,7 +21,7 @@ const start = async (app: ReturnType<typeof createApp>) => {
 
 function makeApp(authenticate: () => typeof principal | null, allowed: boolean) {
   const gateway = new AIGatewayService(
-    { get: () => ({ name: 'gemini', chat: async (request) => ({
+    { get: () => ({ name: 'gemini', chat: async (request: import('./types').AIChatRequest) => ({
       provider: 'gemini', model: request.model ?? 'gemini-3.8-flash',
       choices: [{ message: { role: 'assistant', content: 'ok' } }], raw: {},
     }) }) },
