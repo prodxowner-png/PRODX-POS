@@ -1,4 +1,4 @@
-import type { AIChatRequest, AIChatResponse, AIMessage } from './types';
+import type { AIChatRequest, AIChatResponse, AIMessage, AIProvider } from './types';
 
 const DEFAULT_MAX_REQUEST_CHARS = 60_000;
 const DEFAULT_MAX_OUTPUT_TOKENS = 1_000;
