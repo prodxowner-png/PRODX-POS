@@ -45,13 +45,13 @@ jobs:
           PR_EVENT_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number || '' }}
           PR_BRANCH: ${{ github.ref_name }}
         run: |
-          if [ "\${GITHUB_EVENT_NAME}" = "push" ]; then
-            test "\${PR_BRANCH}" = "chore/bootstrap-pr150-ai-gates"
+          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            test "${PR_BRANCH}" = "chore/bootstrap-pr150-ai-gates"
             matches="$(gh pr list --repo "$REPO" --head "$PR_BRANCH" --state open --json number)"
             test "$(jq "length" <<<"$matches")" -eq 1
             pr="$(jq -r ".[0].number" <<<"$matches")"
           else
-            pr="\${PR_EVENT_NUMBER:-}"
+            pr="${PR_EVENT_NUMBER:-}"
             test -n "$pr"
           fi
           metadata="$(gh pr view "$pr" --repo "$REPO" --json number,state,headRepositoryOwner,headRepository,headRefOid)"
@@ -60,7 +60,7 @@ jobs:
           head_repo="$(jq -r ".headRepositoryOwner.login + "/" + .headRepository.name" <<<"$metadata")"
           test "$head_repo" = "$REPO"
           head_sha="$(jq -r ".headRefOid" <<<"$metadata")"
-          test "\${#head_sha}" -eq 40
+          test "${#head_sha}" -eq 40
           if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
             test "$head_sha" = "$GITHUB_SHA"
           fi
