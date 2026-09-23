@@ -3,6 +3,7 @@ import { requirePermission } from '../http/createApp';
 import type { RequestContext } from '../http/types';
 import { AIGatewayRequestValidationError, AIGatewayService } from './gateway';
 import type { AIMessage, AIMessageRole } from './types';
+import { GeminiProviderError } from './geminiProvider';
 
 const DEFAULT_PERMISSION = 'ai:use';
 const MAX_BODY_BYTES = 64 * 1024;
@@ -53,6 +54,11 @@ export function installAIHttpRoute(router: Router, options: AIHttpRouteOptions):
     } catch (error) {
       if (error instanceof AIRequestValidationError) {
         response.status(error.status).json({ error: { code: error.code, message: error.message, requestId: request.id } });
+        return;
+      }
+      if (error instanceof GeminiProviderError) {
+        const status = error.kind === 'auth' ? 502 : error.kind === 'invalid_request' ? 400 : error.kind === 'rate_limit' ? 429 : 502;
+        response.status(status).json({ error: { code: `AI_${error.kind.toUpperCase()}`, message: error.message, requestId: request.id, ...(error.retryAfterMs === undefined ? {} : { retryAfterMs: error.retryAfterMs }) } });
         return;
       }
       if (error instanceof AIGatewayRequestValidationError) {
