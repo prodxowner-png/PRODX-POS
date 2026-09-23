@@ -33,8 +33,9 @@ The initial canonical keys are:
 - `reports.read`
 - `users.read`, `users.manage`
 - `rbac.manage`
+- `ai:use` — use the authenticated Gemini AI assistant; this permission is application-defined but tenant-granted, never implicitly granted by role name.
 
-These keys are stable API/domain vocabulary. Tenant administrators grant them through organization-owned roles; application code must not infer privilege from display names.
+These keys are stable API/domain vocabulary. Tenant administrators grant them through organization-owned roles; application code must not infer privilege from display names. `ai:use` follows the same rule: migration 0018 registers the canonical permission only; it deliberately does not grant it to any role. Production provisioning must explicitly attach `ai:use` to an organization-owned role through the RBAC administration path, and users must receive that role through an organization/store-scoped assignment before the AI route is usable.
 
 ## Deliberate boundary
 
