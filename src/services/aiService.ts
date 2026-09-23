@@ -69,6 +69,17 @@ export class AiService {
     return { model, temperature, enabled };
   }
 
+  private getSessionToken(): string {
+    try {
+      const raw = localStorage.getItem('prodx_pos_session');
+      if (!raw) return '';
+      const parsed = JSON.parse(raw) as { token?: unknown };
+      return typeof parsed.token === 'string' ? parsed.token.trim() : '';
+    } catch {
+      return '';
+    }
+  }
+
   /**
    * Sends a chat completion through the authenticated backend AI route.
    * The session cookie authorizes the request; no credential is sent from the browser.
@@ -77,10 +88,15 @@ export class AiService {
     const config = this.sanitize({ ...this.getConfig(), ...overrides } as Record<string, unknown>);
     if (!config.enabled) throw new Error('ฟีเจอร์ผู้ช่วย AI ถูกปิดใช้งานอยู่');
 
+    const sessionToken = this.getSessionToken();
     const res = await fetch(AI_BACKEND_CHAT_PATH, {
       method: 'POST',
       credentials: 'include',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
+      },
       body: JSON.stringify({ messages, model: config.model, temperature: config.temperature }),
     });
 
