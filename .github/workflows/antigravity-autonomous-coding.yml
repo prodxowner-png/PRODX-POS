@@ -37,13 +37,13 @@ jobs:
           EVENT_PR: ${{ github.event.pull_request.number || inputs.pr_number || '' }}
         run: |
           set -euo pipefail
-          if [ "\${GITHUB_EVENT_NAME}" = "push" ]; then
-            test "\${GITHUB_REF_NAME}" = "chore/bootstrap-pr150-ai-gates"
-            matches="$(gh pr list --repo "$REPO" --head "\${GITHUB_REF_NAME}" --state open --json number)"
+          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            test "${GITHUB_REF_NAME}" = "chore/bootstrap-pr150-ai-gates"
+            matches="$(gh pr list --repo "$REPO" --head "${GITHUB_REF_NAME}" --state open --json number)"
             test "$(jq "length" <<<"$matches")" -eq 1
             pr="$(jq -r ".[0].number" <<<"$matches")"
           else
-            pr="\${EVENT_PR:-}"
+            pr="${EVENT_PR:-}"
             test -n "$pr"
           fi
           metadata="$(gh pr view "$pr" --repo "$REPO" --json number,state,headRepositoryOwner,headRepository,headRefName,headRefOid,baseRefName)"
@@ -58,8 +58,8 @@ jobs:
             *) echo "Refusing autonomous execution on untrusted branch: $head_ref" >&2; exit 1 ;;
           esac
           head_sha="$(jq -r '.headRefOid' <<<"$metadata")"
-          test "\${#head_sha}" -eq 40
-          if [ "\${GITHUB_EVENT_NAME}" = "push" ]; then
+          test "${#head_sha}" -eq 40
+          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
             test "$head_sha" = "$GITHUB_SHA"
           fi
           {
