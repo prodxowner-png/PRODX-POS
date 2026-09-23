@@ -172,7 +172,7 @@ jobs:
           # Never source the contract from the PR diff or checked-out PR code.
           gh api "repos/$REPO/contents/.agents/skills/prodx-code-review/SKILL.md?ref=main" > trusted-review-skill.json
           jq -e '.type == "file" and .encoding == "base64" and (.sha | type == "string") and (.sha | length == 40)' trusted-review-skill.json >/dev/null
-          jq -r '.content' trusted-review-skill.json | tr -d '\\n' | base64 --decode > trusted-review-contract.md
+          jq -r '.content' trusted-review-skill.json | base64 --decode > trusted-review-contract.md
           test -s trusted-review-contract.md
           test "$(wc -c < trusted-review-contract.md)" -le 40000
           echo "Trusted review skill loaded from main: $(jq -r '.sha' trusted-review-skill.json)"
