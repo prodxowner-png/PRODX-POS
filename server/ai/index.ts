@@ -29,5 +29,5 @@ export type {
   AIUsage,
 } from './types';
 
-export { GeminiProvider } from './geminiProvider';
+export { GeminiProvider, GeminiProviderError } from './geminiProvider';
 export type { GeminiProviderConfig } from './geminiProvider';
