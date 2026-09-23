@@ -82,7 +82,7 @@ export class AiService {
 
   /**
    * Sends a chat completion through the authenticated backend AI route.
-   * The session cookie authorizes the request; no credential is sent from the browser.
+   * The authenticated session bearer is sent only to the configured PRODX backend route; provider credentials never leave the server.
    */
   public async chatCompletion(messages: AiChatMessage[], overrides?: Partial<AiConfig>): Promise<string> {
     const config = this.sanitize({ ...this.getConfig(), ...overrides } as Record<string, unknown>);
