@@ -244,7 +244,7 @@ jobs:
 
           set +e
           review_ok=0
-          # Quota guardrail: one primary attempt plus one bounded fallback per PR.
+          # Quota guardrail: bounded Gemini-only model attempts per PR.
           # Each attempt resubmits the full sanitized diff, so broad model fan-out can consume RPM/TPM rapidly.
           models=(gemini-3.7-flash-medium gemini-3.8-flash-medium)
           attempt=0
@@ -263,7 +263,7 @@ jobs:
             agy_exit=$?
             if [ "$agy_exit" -ne 0 ]; then
               if grep -q 'GenerateRequestsPerDayPerModel-FreeTier' agy-error.log 2>/dev/null; then
-                echo "Gemini daily Free Tier request quota is exhausted; skipping remaining Gemini models and moving directly to OpenRouter failover."
+                echo "Gemini daily Free Tier request quota is exhausted; no non-Gemini fallback is permitted."
                 break
               fi
               echo "Model $model failed (exit $agy_exit); trying the next configured model."
