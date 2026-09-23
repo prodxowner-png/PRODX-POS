@@ -8,7 +8,7 @@ The canonical CI code-review lane now uses Google Gemini through the Antigravity
 
 Configure the GitHub Actions secret GEMINI_API_KEY. The review workflow sets Antigravity's modelProvider to gemini and uses headless structured output.
 
-OpenRouter is no longer part of the canonical CI review lane. The application AI boundary remains provider-neutral; application runtime provider configuration is a separate concern from CI code review.
+Production application AI is Gemini-only. The server registry exposes exactly one provider (`gemini`), and non-Gemini provider identifiers are rejected.
 
 ## Request flow
 
@@ -18,7 +18,7 @@ The review lane never exposes provider credentials to the browser. Its token is 
 
 ## Production integration boundary
 
-Application AI requests must remain behind the authenticated backend boundary so organization/user authorization, rate limits, quota policy, audit logging, and data-redaction rules are enforced before an AI request leaves PRODX.
+Application AI requests are wired through `POST /api/v1/ai/chat` behind the authenticated backend boundary. The production registry contains only Gemini, while authorization, request budgets, audit logging, and data-redaction rules are enforced before an AI request leaves PRODX.
 
 ## Verification
 
