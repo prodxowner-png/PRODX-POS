@@ -1,3 +1,7 @@
+## Reverification after documentation updates — 2026-09-24
+
+Current exact HEAD is 13d154b795b36fcceb5ccc54a8cdb599d358edb2. The deterministic workflows for this documentation-updated HEAD are currently queued/pending, so prior PASS evidence from b76001ca8ff6ec85e45a7834e9b3b63854ad5d3b is historical evidence and is not claimed for the current HEAD. Gemini hosted review and autonomous Gemini runs are also queued.
+
 # PRODX Database Foundation
 
 PostgreSQL is the authoritative transactional store for PRODX POS. The current migration chain on this branch extends through migration 0018 for the Gemini AI permission boundary.
