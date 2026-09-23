@@ -1,15 +1,13 @@
 /**
  * Authentication adapter selection.
  *
- * Mock authentication is allowed only in Vite development mode. Production
- * builds always use the network adapter and fail closed when it is not
- * configured.
+ * Production authentication is authoritative in the backend. The frontend
+ * mock adapter is available only when explicitly enabled for local/demo work.
  */
 import { IAuthApi } from './types';
 import { productionAuthApi } from './authApi';
 import { authApi as mockAuthApi } from './mockAdapter';
 
-export const authApi: IAuthApi =
-  import.meta.env.DEV || !import.meta.env.VITE_AUTH_API_BASE_URL
-    ? mockAuthApi
-    : productionAuthApi;
+const MOCK_APIS_ENABLED = import.meta.env.VITE_ENABLE_MOCK_APIS === 'true';
+
+export const authApi: IAuthApi = MOCK_APIS_ENABLED ? mockAuthApi : productionAuthApi;
