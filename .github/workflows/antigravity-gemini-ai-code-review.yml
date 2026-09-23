@@ -261,9 +261,13 @@ jobs:
             timeout --signal=TERM --kill-after=15s 255s agy --model "$model" --mode plan --sandbox \
               --input-format stream-json --output-format stream-json \
               --json-schema review-schema.json --print-timeout 240s \
-              < prompt.ndjson > agy-output.ndjson
+              < prompt.ndjson > agy-output.ndjson 2>agy-error.log
             agy_exit=$?
             if [ "$agy_exit" -ne 0 ]; then
+              if grep -q 'GenerateRequestsPerDayPerModel-FreeTier' agy-error.log 2>/dev/null; then
+                echo "Gemini daily Free Tier request quota is exhausted; skipping remaining Gemini models and moving directly to OpenRouter failover."
+                break
+              fi
               echo "Model $model failed (exit $agy_exit); trying the next configured model."
               continue
             fi
@@ -324,8 +328,10 @@ jobs:
             echo "Gemini hosted lane did not produce a valid review; attempting the configured OpenRouter failover lane."
             if [ -z "${OPENROUTER_API_KEY:-}" ]; then
               echo "OPENROUTER_API_KEY is not configured; cannot fail over from the exhausted Gemini lane." >&2
+              echo "Configure the GitHub Actions secret OPENROUTER_API_KEY; the workflow never prints or stores its value."
               exit 1
             fi
+            echo "OpenRouter failover credential: configured"
 
             export OPENROUTER_AI_REVIEW_MODEL_ID
             python - <<'PY3'
