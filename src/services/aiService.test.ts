@@ -35,7 +35,8 @@ test('AiService sends the verified session bearer token to the backend AI route'
     const service = AiService.getInstance();
     const reply = await service.chatCompletion([{ role: 'user', content: 'Hello' }]);
     assert.equal(reply, 'ok');
-    assert.equal(String(captured?.headers && (captured.headers as Record<string, string>).Authorization), 'Bearer session-token-123');
+    const headers = new Headers(captured?.headers);
+    assert.equal(headers.get('Authorization'), 'Bearer session-token-123');
     assert.equal(String(captured?.body).includes('session-token-123'), false);
   } finally {
     globalThis.fetch = originalFetch;
@@ -62,8 +63,8 @@ test('AiService does not fabricate an Authorization bearer when no session exist
     service.saveConfig(DEFAULT_AI_CONFIG);
     const reply = await service.chatCompletion([{ role: 'user', content: 'Hello' }]);
     assert.equal(reply, 'ok');
-    const headers = captured?.headers as Record<string, string>;
-    assert.equal(Object.prototype.hasOwnProperty.call(headers, 'Authorization'), false);
+    const headers = new Headers(captured?.headers);
+    assert.equal(headers.has('Authorization'), false);
     assert.equal(AI_BACKEND_CHAT_PATH, '/api/v1/ai/chat');
   } finally {
     globalThis.fetch = originalFetch;
