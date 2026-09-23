@@ -1,14 +1,23 @@
-## Reverification after documentation updates — 2026-09-24
+## Reverification — 2026-09-24
 
-Current exact HEAD is 13d154b795b36fcceb5ccc54a8cdb599d358edb2. The deterministic workflows for this documentation-updated HEAD are currently queued/pending, so prior PASS evidence from b76001ca8ff6ec85e45a7834e9b3b63854ad5d3b is historical evidence and is not claimed for the current HEAD. Gemini hosted review and autonomous Gemini runs are also queued.
+The preceding implementation HEAD was `166cde71bd85a9d6011f89a59467a8955b80fc4b`. Fresh deterministic GitHub Actions evidence for that exact HEAD is 5/5 PASS:
+- AI Provider Hygiene — PASS
+- M1.3 Device Session Gate — PASS
+- Transaction Core Gate — PASS
+- Auth Security Gate — PASS
+- Production Quality Gate — PASS
+
+The current branch HEAD is this documentation update. Gemini hosted review and autonomous Gemini execution remain separate required runtime evidence and are not claimed from deterministic CI alone.
 
 # AI Integration Status
 
-Status: implemented and deterministically verified on exact HEAD b76001ca8ff6ec85e45a7834e9b3b63854ad5d3b; not Production Ready.
+Status: implemented and deterministically verified through the preceding exact HEAD; not Production Ready.
 
-The production backend route is wired and enforces authenticated identity, organization/store scope, and ai:use before Gemini execution. Current tests cover unauthenticated denial, permission denial, authenticated route success, bearer propagation, provider error/retry behavior, audit failure handling, role preservation, and server model allowlisting.
+The production backend route is wired and enforces authenticated identity, organization/store scope, and `ai:use` before Gemini execution. The production authorization integration test uses real PostgreSQL and proves tenant-scoped denial/allow behavior when the canonical `ai:use` permission is linked to an organization-owned role.
 
 Remaining release blockers:
-- runtime evidence that a real tenant role is provisioned with ai:use and reaches the production route;
-- genuine successful Gemini/Antigravity execution on the exact final HEAD;
-- required full production-readiness gate evidence after the provider lane is available.
+- genuine successful Gemini/Antigravity execution with structured output on the final exact HEAD;
+- runtime HTTP evidence that a real provisioned tenant role reaches `POST /api/v1/ai/chat` through authentication/RBAC to Gemini;
+- final production-readiness gate evidence after those runtime proofs.
+
+No bypass, skipped/weakened gate, or non-Gemini fallback is permitted.
