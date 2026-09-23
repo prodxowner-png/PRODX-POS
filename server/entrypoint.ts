@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import crypto from 'node:crypto';
+import express from 'express';
 import { fileURLToPath } from 'node:url';
 import { createPostgresAuthentication } from './auth/composition';
 import { createPostgresAuthorization } from './auth/production-authorization';
@@ -47,7 +48,9 @@ export const createProductionApp = () => {
       registerPaymentLifecycleRoute(configuredApp, transactions);
       registerSyncRoute(configuredApp, transactions);
       registerSupervisorAuthorizationRoute(configuredApp, transactions);
-      installAIHttpRoute(configuredApp, { gateway: aiGateway });
+      const aiRouter = express.Router();
+      installAIHttpRoute(aiRouter, { gateway: aiGateway, permission: 'ai:use' });
+      configuredApp.use('/api/v1/ai', aiRouter);
     },
   });
 
