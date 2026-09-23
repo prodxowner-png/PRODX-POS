@@ -57,7 +57,7 @@ jobs:
           metadata="$(gh pr view "$pr" --repo "$REPO" --json number,state,headRepositoryOwner,headRepository,headRefOid)"
           test "$(jq -r ".number" <<<"$metadata")" = "$pr"
           test "$(jq -r ".state" <<<"$metadata")" = "OPEN"
-          head_repo="$(jq -r ".headRepositoryOwner.login + "/" + .headRepository.name" <<<"$metadata")"
+          head_repo="$(jq -r '.headRepositoryOwner.login + "/" + .headRepository.name' <<<"$metadata")"
           test "$head_repo" = "$REPO"
           head_sha="$(jq -r ".headRefOid" <<<"$metadata")"
           test "${#head_sha}" -eq 40
