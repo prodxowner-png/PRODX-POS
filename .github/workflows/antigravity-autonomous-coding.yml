@@ -138,11 +138,36 @@ jobs:
           echo "GEMINI_API_HTTP=200" >> "$GITHUB_ENV"
           echo "AGY_START" >> gemini-auth-state.txt
           set +e
-          agy -p "Reply with exactly PRODX_AUTONOMOUS_AUTH_OK" --output-format json --print-timeout 3m --model gemini-3.8-flash --effort medium > auth-check.json
-          agy_rc=$?
+          agy_ok=0
+          for model in gemini-3.8-flash-medium gemini-3.7-flash-medium gemini-3.6-flash-medium; do
+            echo "Antigravity Gemini provider smoke: trying $model"
+            rm -f auth-check.json auth-check.stderr
+            agy -p "Reply with exactly PRODX_AUTONOMOUS_AUTH_OK" \
+              --output-format json \
+              --print-timeout 3m \
+              --model "$model" \
+              > auth-check.json 2> auth-check.stderr
+            agy_rc=$?
+            if [ "$agy_rc" -eq 0 ] && jq -e '.status == "SUCCESS" and (.response | contains("PRODX_AUTONOMOUS_AUTH_OK"))' auth-check.json >/dev/null 2>&1; then
+              agy_ok=1
+              echo "AGY_MODEL=$model" >> gemini-auth-state.txt
+              break
+            fi
+            echo "Antigravity model $model failed (exit $agy_rc)"
+            if [ -s auth-check.stderr ]; then
+              sed -E 's/(x-goog-api-key|Authorization|api[_-]?key|token|secret|password)[^[:space:]]*/[REDACTED]/Ig' auth-check.stderr | tail -n 20
+            fi
+          done
           set -e
-          if [ "$agy_rc" -ne 0 ]; then echo "AGY_FAIL" >> gemini-auth-state.txt; echo "Antigravity Gemini provider smoke: FAIL (exit $agy_rc)"; echo "AGY_AUTH_STATUS=failed" >> "$GITHUB_ENV"; exit "$agy_rc"; fi
-          if jq -e '.status == "SUCCESS" and (.response | contains("PRODX_AUTONOMOUS_AUTH_OK"))' auth-check.json >/dev/null; then echo "AGY_PASS" >> gemini-auth-state.txt; echo "Antigravity Gemini provider smoke: PASS"; echo "AGY_AUTH_STATUS=pass" >> "$GITHUB_ENV"; else echo "Antigravity Gemini provider smoke: FAIL (unexpected response)"; echo "AGY_AUTH_STATUS=bad_response" >> "$GITHUB_ENV"; exit 1; fi
+          if [ "$agy_ok" -ne 1 ]; then
+            echo "AGY_FAIL" >> gemini-auth-state.txt
+            echo "Antigravity Gemini provider smoke: FAIL"
+            echo "AGY_AUTH_STATUS=failed" >> "$GITHUB_ENV"
+            exit 1
+          fi
+          echo "AGY_PASS" >> gemini-auth-state.txt
+          echo "Antigravity Gemini provider smoke: PASS"
+          echo "AGY_AUTH_STATUS=pass" >> "$GITHUB_ENV"
 
       - name: Prepare autonomous task contract
         env:
