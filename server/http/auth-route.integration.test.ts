@@ -132,6 +132,33 @@ test('production auth HTTP boundary enforces login scope, session revocation, ma
   const afterLogout = await request('/auth/session', { headers: { authorization: `Bearer ${session.token}` } });
   assert.equal(afterLogout.status, 401);
 
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const lockedAttempt = await request('/auth/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ organizationSlug: 'http-b', storeCode: 'store-b', emailOrPin: 'http-user-b', passwordOrPin: 'wrong', registerId: 'device-b' }),
+    });
+    assert.equal(lockedAttempt.status, 401);
+  }
+
+  const lockedLogin = await request('/auth/login', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ organizationSlug: 'http-b', storeCode: 'store-b', emailOrPin: 'http-user-b', passwordOrPin: 'correct-password', registerId: 'device-b' }),
+  });
+  assert.equal(lockedLogin.status, 401);
+
+  const freshLogin = await request('/auth/login', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ organizationSlug: 'http-a', storeCode: 'store-a', emailOrPin: 'http-user-a', passwordOrPin: 'correct-password', registerId: 'device-a' }),
+  });
+  assert.equal(freshLogin.status, 200);
+  const expiringSession = await freshLogin.json() as { token: string };
+  await pool.query('UPDATE prodx_sessions SET expires_at = CURRENT_TIMESTAMP - INTERVAL ' + "'1 second'" + ' WHERE token_hash = encode(digest($1, \'sha256\'), \'hex\')', [expiringSession.token]);
+  const expired = await request('/auth/session', { headers: { authorization: `Bearer ${expiringSession.token}` } });
+  assert.equal(expired.status, 401);
+
   const disabledLogin = await request('/auth/login', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
