@@ -102,6 +102,8 @@ export const registerAuthRoutes = (app: Express, db: SqlExecutor, sessions: Sess
     if(!header?.startsWith('Bearer ')){ response.status(401).json(errorBody(request,'UNAUTHENTICATED','Authentication is required.')); return; }
     const principal=await sessions.authenticateBearer(header.slice(7).trim());
     if(!principal){ response.status(401).json(errorBody(request,'UNAUTHENTICATED','Authentication session is invalid.')); return; }
+    const organization=await db.query<{id:string}>(`SELECT id FROM prodx_organizations WHERE lower(code)=lower($1) LIMIT 1`,[request.params.orgSlug]);
+    if(organization[0]?.id!==principal.organizationId){ response.json([]); return; }
     const rows=await db.query<{id:string;organization_id:string;code:string;name:string;business_timezone:string}>(
       `SELECT s.id,s.organization_id,s.code,s.name,s.business_timezone
          FROM prodx_stores s JOIN prodx_organizations o ON o.id=s.organization_id

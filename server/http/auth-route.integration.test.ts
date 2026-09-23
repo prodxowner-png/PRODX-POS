@@ -26,6 +26,7 @@ test('production auth HTTP boundary enforces login scope, session revocation, ma
   const passwordHash = await hashPassword('correct-password');
 
   const cleanup = async () => {
+    await pool.query('DELETE FROM prodx_security_audit_events WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
     await pool.query('DELETE FROM prodx_sessions WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
     await pool.query('DELETE FROM prodx_user_credentials WHERE user_id IN ($1, $2)', [ids.userA, ids.userB]);
     await pool.query('DELETE FROM prodx_store_memberships WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
@@ -36,6 +37,7 @@ test('production auth HTTP boundary enforces login scope, session revocation, ma
     await pool.end();
   };
 
+  await pool.query('DELETE FROM prodx_security_audit_events WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
   await pool.query('DELETE FROM prodx_sessions WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
   await pool.query('DELETE FROM prodx_user_credentials WHERE user_id IN ($1, $2)', [ids.userA, ids.userB]);
   await pool.query('DELETE FROM prodx_store_memberships WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
