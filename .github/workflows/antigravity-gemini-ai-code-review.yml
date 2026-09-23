@@ -92,8 +92,6 @@ jobs:
       - name: Configure and verify Gemini API-key provider
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          OPENROUTER_AI_REVIEW_MODEL_ID: ${{ vars.OPENROUTER_AI_REVIEW_MODEL_ID || 'openrouter/auto-beta' }}
         run: |
           set -euo pipefail
           test -n "${GEMINI_API_KEY:-}" || { echo "GEMINI_API_KEY secret is required for the hosted Gemini lane." >&2; exit 1; }
@@ -182,6 +180,8 @@ jobs:
       - name: Run production review
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_AI_REVIEW_MODEL_ID: ${{ vars.OPENROUTER_AI_REVIEW_MODEL_ID || 'openrouter/auto-beta' }}
         run: |
           set -euo pipefail
           cat > prompt.txt <<'EOF'
