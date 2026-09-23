@@ -2,9 +2,13 @@
 
 This document defines the application-security boundary for M2 authentication enforcement.
 
+## Current implementation status — 2026-09-24
+
+The enforcement boundary is wired into the production server path. Protected requests derive identity and tenant/store scope from the verified session rather than client-supplied scope. Fresh exact-head authentication/security checks are passing.
+
 ## Scope
 
-M2 must verify credentials through an explicit service boundary, issue sessions without persisting plaintext bearer tokens, reject disabled devices and expired or revoked sessions, construct an authenticated request context, and delegate authorization to the deterministic policy already established in `server/auth/authorization.ts`.
+M2 verifies credentials through an explicit service boundary, issues sessions without persisting plaintext bearer tokens, rejects disabled devices and expired or revoked sessions, constructs an authenticated request context, and delegates authorization to deterministic policy.
 
 ## Security invariants
 
@@ -17,10 +21,6 @@ M2 must verify credentials through an explicit service boundary, issue sessions 
 - Authorization remains exact and tenant-scoped; wildcard permissions are not supported.
 - No demo unlock credentials or hard-coded production credentials are permitted.
 
-## Deliberate exclusions
-
-M2 does not implement business transactions, inventory, payments, offline sync, hardware integration, refresh-token rotation, or production deployment hardening unless a later approved slice explicitly adds them.
-
 ## Delivery gate
 
-Implementation must be introduced from the current `main` HEAD in a focused pull request and must pass the repository's existing typecheck, backend, database, architecture, and security gates. The branch must not weaken or bypass existing checks.
+Implementation must pass the repository's typecheck, backend, database, architecture, and security gates. The branch must not weaken or bypass existing checks.
