@@ -45,22 +45,22 @@ jobs:
           PR_EVENT_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number || '' }}
           PR_BRANCH: ${{ github.ref_name }}
         run: |
-          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
-            test "${PR_BRANCH}" = "chore/bootstrap-pr150-ai-gates"
-            metadata="$(gh pr list --repo "$REPO" --head "$PR_BRANCH" --state open --json number,state,headRepositoryOwner,headRepository,headRefOid)"
-            test "$(jq "length" <<<"$metadata")" -eq 1
-            pr="$(jq -r ".[0].number" <<<"$metadata")"
+          if [ "\${GITHUB_EVENT_NAME}" = "push" ]; then
+            test "\${PR_BRANCH}" = "chore/bootstrap-pr150-ai-gates"
+            matches="$(gh pr list --repo "$REPO" --head "$PR_BRANCH" --state open --json number)"
+            test "$(jq "length" <<<"$matches")" -eq 1
+            pr="$(jq -r ".[0].number" <<<"$matches")"
           else
-            pr="${PR_EVENT_NUMBER:-}"
+            pr="\${PR_EVENT_NUMBER:-}"
             test -n "$pr"
-            metadata="$(gh pr view "$pr" --repo "$REPO" --json number,state,headRepositoryOwner,headRepository,headRefOid)"
           fi
-          test "$(jq -r ".number // .[0].number" <<<"$metadata")" = "$pr"
-          test "$(jq -r ".state // .[0].state" <<<"$metadata")" = "OPEN"
-          head_repo="$(jq -r "(.headRepositoryOwner.login + "/" + .headRepository.name) // (.[0].headRepositoryOwner.login + "/" + .[0].headRepository.name)" <<<"$metadata")"
+          metadata="$(gh pr view "$pr" --repo "$REPO" --json number,state,headRepositoryOwner,headRepository,headRefOid)"
+          test "$(jq -r ".number" <<<"$metadata")" = "$pr"
+          test "$(jq -r ".state" <<<"$metadata")" = "OPEN"
+          head_repo="$(jq -r ".headRepositoryOwner.login + "/" + .headRepository.name" <<<"$metadata")"
           test "$head_repo" = "$REPO"
-          head_sha="$(jq -r ".headRefOid // .[0].headRefOid" <<<"$metadata")"
-          test "${#head_sha}" -eq 40
+          head_sha="$(jq -r ".headRefOid" <<<"$metadata")"
+          test "\${#head_sha}" -eq 40
           if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
             test "$head_sha" = "$GITHUB_SHA"
           fi
