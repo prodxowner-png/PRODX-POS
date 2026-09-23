@@ -115,8 +115,8 @@ jobs:
           for model in gemini-3.8-flash gemini-3.7-flash gemini-3.6-flash; do
             for attempt in 1 2 3; do
               echo "Direct Gemini API smoke: trying $model (attempt $attempt/3)"
+              status=0
               http_code="$(curl --silent --show-error --output gemini-api-result.json --write-out '%{http_code}' -H "x-goog-api-key: $GEMINI_API_KEY" -H "Content-Type: application/json" -X POST "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent" --data-binary @gemini-api-smoke.json)" || status=1
-              status=\${status:-0}
               if [ "$status" -eq 0 ] && [ "$http_code" = "200" ] && jq -e '.candidates[0].content.parts[0].text | contains("PRODX_GEMINI_API_OK")' gemini-api-result.json >/dev/null 2>&1; then
                 api_ok=1
                 break 2
