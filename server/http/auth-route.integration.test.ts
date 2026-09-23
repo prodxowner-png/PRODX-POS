@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import test from 'node:test';
 import { hashPassword } from '../auth/password';
 import { createProductionApp } from '../entrypoint';
@@ -155,7 +156,8 @@ test('production auth HTTP boundary enforces login scope, session revocation, ma
   });
   assert.equal(freshLogin.status, 200);
   const expiringSession = await freshLogin.json() as { token: string };
-  await pool.query('UPDATE prodx_sessions SET expires_at = CURRENT_TIMESTAMP - INTERVAL ' + "'1 second'" + ' WHERE token_hash = encode(digest($1, \'sha256\'), \'hex\')', [expiringSession.token]);
+  const expiredTokenHash = createHash('sha256').update(expiringSession.token).digest('hex');
+  await pool.query('UPDATE prodx_sessions SET expires_at = CURRENT_TIMESTAMP - INTERVAL \'1 second\' WHERE token_hash = $1', [expiredTokenHash]);
   const expired = await request('/auth/session', { headers: { authorization: `Bearer ${expiringSession.token}` } });
   assert.equal(expired.status, 401);
 
