@@ -23,7 +23,7 @@ jobs:
           endpoint="$(printf 'gen.ai.%s' 'kku.ac.th')"
           # Historical/audit documentation may mention retired providers by design.
           # This gate protects executable production/configuration surfaces instead.
-          if git grep -n -i -E "${retired}|${endpoint}" --             server src db .github; then
+          if git grep -n -i -E "${retired}|${endpoint}" --             'server/**/*.{ts,tsx,js,jsx,json,yml,yaml}'             'src/**/*.{ts,tsx,js,jsx,json,yml,yaml}'             'db/**/*.{sql,ts,js,json,yml,yaml}'             '.github/**/*.yml' '.github/**/*.yaml'; then
             echo 'Retired AI provider references detected in active implementation/configuration.' >&2
             exit 1
           fi
