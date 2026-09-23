@@ -72,7 +72,8 @@ jobs:
           tmpdir="$(mktemp -d)"
           trap 'rm -rf "$tmpdir"' EXIT
           curl -fsSL "$url" -o "$tmpdir/agy.tar.gz"
-          echo "$expected_sha256  $tmpdir/agy.tar.gz" | sha256sum -c -
+          actual_sha256="$(sha256sum "$tmpdir/agy.tar.gz" | cut -d" " -f1)"
+          test "$actual_sha256" = "$expected_sha256"
           mkdir -p "$HOME/.local/bin" "$tmpdir/extracted"
           tar -xzf "$tmpdir/agy.tar.gz" -C "$tmpdir/extracted"
           cli_bin="$(find "$tmpdir/extracted" \( -type f -o -type l \) \( -name agy -o -name antigravity \) -print -quit)"
