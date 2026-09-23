@@ -19,7 +19,7 @@ export interface AiConfig {
 export const AI_BACKEND_CHAT_PATH = '/api/v1/ai/chat';
 
 export const DEFAULT_AI_CONFIG: AiConfig = {
-  model: 'openrouter/auto-beta',
+  model: 'gemini-3.8-flash',
   enabled: true,
   temperature: 0.7,
 };
@@ -61,7 +61,7 @@ export class AiService {
   }
 
   private sanitize(value: Record<string, unknown>): AiConfig {
-    const model = typeof value.model === 'string' && value.model.trim() ? value.model.trim() : DEFAULT_AI_CONFIG.model;
+    const model = typeof value.model === 'string' && /^gemini-[a-z0-9._-]+$/i.test(value.model.trim()) ? value.model.trim() : DEFAULT_AI_CONFIG.model;
     const temperature = typeof value.temperature === 'number' && Number.isFinite(value.temperature)
       ? Math.min(1, Math.max(0, value.temperature))
       : DEFAULT_AI_CONFIG.temperature;
