@@ -110,15 +110,28 @@ jobs:
           printf '%s\n' '{"modelProvider":"gemini"}' > "$HOME/.gemini/antigravity-cli/settings.json"
           printf '%s\n' '{"contents":[{"parts":[{"text":"Reply with exactly PRODX_GEMINI_API_OK"}]}]}' > gemini-api-smoke.json
           echo "DIRECT_API_START" >> gemini-auth-state.txt
-          http_code="$(curl --silent --show-error --output gemini-api-result.json --write-out '%{http_code}' -H "x-goog-api-key: $GEMINI_API_KEY" -H "Content-Type: application/json" -X POST "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent" --data-binary @gemini-api-smoke.json)" || status=1
-          if [ "$status" -ne 0 ] || [ "$http_code" != "200" ]; then
+          http_code=""
+          api_ok=0
+          for model in gemini-3.8-flash gemini-3.7-flash gemini-3.6-flash; do
+            for attempt in 1 2 3; do
+              echo "Direct Gemini API smoke: trying $model (attempt $attempt/3)"
+              http_code="$(curl --silent --show-error --output gemini-api-result.json --write-out '%{http_code}' -H "x-goog-api-key: $GEMINI_API_KEY" -H "Content-Type: application/json" -X POST "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent" --data-binary @gemini-api-smoke.json)" || status=1
+              status=\${status:-0}
+              if [ "$status" -eq 0 ] && [ "$http_code" = "200" ] && jq -e '.candidates[0].content.parts[0].text | contains("PRODX_GEMINI_API_OK")' gemini-api-result.json >/dev/null 2>&1; then
+                api_ok=1
+                break 2
+              fi
+              status=0
+              sleep $((attempt * 5))
+            done
+          done
+          if [ "$api_ok" -ne 1 ]; then
             echo "DIRECT_API_FAIL" >> gemini-auth-state.txt
-            echo "Direct Gemini API smoke: FAIL (HTTP ${http_code:-curl-error})"
+            echo "Direct Gemini API smoke: FAIL (last HTTP \${http_code:-curl-error})"
             echo "GEMINI_API_STATUS=direct_api_failed" >> "$GITHUB_ENV"
-            echo "GEMINI_API_HTTP=${http_code:-unknown}" >> "$GITHUB_ENV"
+            echo "GEMINI_API_HTTP=\${http_code:-unknown}" >> "$GITHUB_ENV"
             exit 1
           fi
-          jq -e '.candidates[0].content.parts[0].text | contains("PRODX_GEMINI_API_OK")' gemini-api-result.json >/dev/null || { echo "Direct Gemini API smoke: FAIL (unexpected response shape)"; echo "GEMINI_API_STATUS=direct_api_bad_response" >> "$GITHUB_ENV"; echo "GEMINI_API_HTTP=200" >> "$GITHUB_ENV"; exit 1; }
           echo "DIRECT_API_PASS" >> gemini-auth-state.txt
           echo "Direct Gemini API smoke: PASS"
           echo "GEMINI_API_STATUS=direct_api_pass" >> "$GITHUB_ENV"
