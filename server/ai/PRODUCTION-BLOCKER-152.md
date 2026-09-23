@@ -1,24 +1,34 @@
 # Production Blockers — Issue #152
 
-Latest exact HEAD reviewed: `405517445c0f1792df8c4396dd6c5588969dedfe`
+Latest exact HEAD reviewed: b76001ca8ff6ec85e45a7834e9b3b63854ad5d3b
 
 Status: HOLD / NOT PRODUCTION READY
 
-Observed root causes:
-- Browser AI Bearer propagation is fixed and covered by tests.
-- `ai:use` is registered by migration 0018 but intentionally has no default role grant; RBAC docs now explicitly define tenant-owned role provisioning and store-scoped assignment as the required production policy.
-- Production Quality Gate was changed to fail closed at 16 canonical permissions and explicitly require `ai:use`, but the first exact-head run exposed an invalid PostgreSQL dollar-quote in the gate script; that CI defect was fixed on the latest head.
-- Provider failures are now audited with typed Gemini failure classes.
-- Gemini provider errors now use bounded jittered retry/backoff for transient classes only.
-- Gateway conversation normalization preserves assistant/model turns and treats caller system content as untrusted context.
-- Backend now enforces a server-owned Gemini model allowlist.
+## Resolved implementation defects
 
-Acceptance evidence required before closing:
-1. Authenticated browser → backend AI route regression coverage. **Implemented/tested.**
-2. Explicit `ai:use` RBAC provisioning policy and DB evidence. **Policy documented; runtime tenant provisioning evidence remains required.**
-3. Fail-closed permission invariant in CI with `ai:use` existence assertion. **Implemented; first fresh run found and fixed a PostgreSQL dollar-quote defect in the gate script.**
-4. Audit coverage for denied, successful, timeout, 429, and provider-failure outcomes. **Targeted provider-failure audit coverage implemented; full exact-head outcome matrix remains to verify.**
-5. Typed safe Gemini errors and bounded jittered retries only for transient classes; no non-Gemini fallback. **Implemented.**
-6. Correct multi-turn role preservation with caller system text treated as untrusted context. **Implemented/tested.**
-7. Server-authoritative Gemini model allowlist. **Implemented/tested.**
-8. Exact-head targeted tests, full required CI, and renewed Gemini runtime evidence. **Still required after latest CI correction.**
+- Browser AI requests propagate the verified session bearer to POST /api/v1/ai/chat.
+- Production Quality Gate fails closed at the current canonical permission count and explicitly asserts ai:use; the invalid PostgreSQL dollar-quote defect found in fresh CI was corrected at the current HEAD.
+- Gemini provider failures are typed and safely mapped; transient retries are bounded and jittered.
+- Provider failures create audit events.
+- Gateway preserves assistant/model turns and treats caller system content as untrusted context.
+- Gemini model selection is server-owned through an allowlist.
+- Production AI route is wired and covered by authenticated integration tests.
+
+## Fresh exact-head evidence
+
+At b76001ca8ff6ec85e45a7834e9b3b63854ad5d3b, deterministic GitHub Actions checks observed are passing:
+- backend/typecheck/PostgreSQL/build/security validation — PASS
+- PostgreSQL transaction integrity — PASS
+- PostgreSQL device/session invariants — PASS
+- auth-security — PASS
+- retired-provider drift check — PASS
+
+The Gemini hosted review reached the real Antigravity/Gemini execution stage but did not produce a structured verdict. The autonomous Gemini lane reached direct API smoke and received HTTP 429 RESOURCE_EXHAUSTED on the configured Free Tier quota; Antigravity provider smoke did not produce a successful runtime result.
+
+## Remaining acceptance evidence
+
+1. Runtime tenant provisioning evidence for ai:use.
+2. Genuine successful Gemini/Antigravity execution on the exact final HEAD.
+3. Final production-readiness gate evidence after the provider lane is available.
+
+No non-Gemini fallback, bypass, forced merge, or weakened gate is permitted.
