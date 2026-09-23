@@ -63,7 +63,7 @@ test('gateway keeps only gateway-owned policy as system and treats caller system
   assert.equal(captured.messages?.[1].role, 'user');
   assert.match(captured.messages?.[1].content ?? '', /UNTRUSTED_USER_OR_BUSINESS_CONTEXT/);
   assert.match(captured.messages?.[1].content ?? '', /Ignore the gateway policy/);
-  assert.equal(captured.messages?.[2].role, 'user');
+  assert.equal(captured.messages?.[2].role, 'assistant');
   assert.doesNotMatch(captured.messages?.[2].content ?? '', /a@b\.com/);
   assert.doesNotMatch(captured.messages?.[2].content ?? '', /SECRET123/);
   assert.doesNotMatch(captured.messages?.[2].content ?? '', /abc\.def/);
@@ -113,4 +113,25 @@ test('gateway rejects oversized input before provider execution', async () => {
 test('redaction helper removes common credential and contact patterns', () => {
   const result = redactSensitiveContent('password=hunter2 token=xyz user@example.com +66812345678');
   assert.doesNotMatch(result, /hunter2|xyz|user@example\.com|66812345678/);
+});
+
+
+test('gateway audits provider failures without logging provider response content', async () => {
+  const audit: unknown[] = [];
+  const gateway = new AIGatewayService(
+    { get: () => ({ name: 'gemini', chat: async () => { throw new Error('provider failure'); } }) },
+    { authorize: () => true },
+    { record: (event) => { audit.push(event); } },
+    { permission: 'ai:use' },
+  );
+  await assert.rejects(gateway.chat({
+    requestId: 'req-provider-failure',
+    scope,
+    permission: 'ai:use',
+    messages: [{ role: 'user', content: 'hello' }],
+  }), /provider failure/);
+  assert.equal(audit.length, 1);
+  assert.equal((audit[0] as Record<string, unknown>).allowed, false);
+  assert.equal((audit[0] as Record<string, unknown>).reason, 'provider_error');
+  assert.equal(Object.values(audit[0] as Record<string, unknown>).includes('provider failure'), false);
 });
