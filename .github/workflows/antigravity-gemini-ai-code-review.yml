@@ -244,17 +244,12 @@ jobs:
 
           set +e
           review_ok=0
-          # Prefer the configured high-capability models, then fall back through
-          # models that may have independent RPM buckets. The fallback list is
-          # intentionally broader than the original 3.6/3.7/3.8-only set so a
-          # saturated bucket does not make the entire review lane fail.
           # Quota guardrail: one primary attempt plus one bounded fallback per PR.
           # Each attempt resubmits the full sanitized diff, so broad model fan-out can consume RPM/TPM rapidly.
           models=(gemini-3.7-flash-medium gemini-3.8-flash-medium)
           attempt=0
           for model in "${models[@]}"; do
-            attempt=$((attempt + 1)
-            )
+            attempt=$((attempt + 1))
             echo "Trying Antigravity model: $model (attempt $attempt/2)"
             rm -f agy-output.ndjson agy-result.json review.json
             if [ "$attempt" -gt 1 ]; then
