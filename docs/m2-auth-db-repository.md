@@ -25,6 +25,10 @@ The product-owner authorization for this implementation establishes the followin
 
 The policy is deliberately server-authoritative and tenant-safe. The application, not the client, decides whether a credential is locked, and the PostgreSQL adapter persists the resulting lockout timestamp.
 
+## Current implementation status
+
+The PostgreSQL authentication adapter is used through the production composition boundary. The lockout policy below is enforced by the authentication service and represented in PostgreSQL security-audit state.
+
 ## Current boundary
 
 `SqlExecutor` is intentionally minimal and vendor-independent. The concrete PostgreSQL client is supplied by the application composition root. This keeps the auth service testable and prevents a database SDK from leaking into the authentication policy layer.
