@@ -34,6 +34,8 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     throw new Error(`Authentication API request failed (${response.status}).`);
   }
 
+  if (response.status === 204) return undefined as T;
+
   return response.json() as Promise<T>;
 }
 
@@ -56,8 +58,8 @@ export const productionAuthApi: IAuthApi = {
       method: 'POST',
       body: JSON.stringify(req),
     }),
-  logout: () => request<void>('/auth/logout', { method: 'POST' }),
+  logout: (token: string) => requestWithBearer<void>('/auth/logout', token, { method: 'POST' }),
   verifySession: (token: string) => requestWithBearer<SessionContext | null>('/auth/session', token),
-  getStores: (orgSlug: string) =>
-    request<readonly Store[]>(`/organizations/${encodeURIComponent(orgSlug)}/stores`),
+  getStores: (token: string, orgSlug: string) =>
+    requestWithBearer<readonly Store[]>(`/organizations/${encodeURIComponent(orgSlug)}/stores`, token),
 };
