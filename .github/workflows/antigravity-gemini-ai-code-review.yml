@@ -92,6 +92,8 @@ jobs:
       - name: Configure and verify Gemini API-key provider
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_AI_REVIEW_MODEL_ID: ${{ vars.OPENROUTER_AI_REVIEW_MODEL_ID || 'openrouter/auto-beta' }}
         run: |
           set -euo pipefail
           test -n "${GEMINI_API_KEY:-}" || { echo "GEMINI_API_KEY secret is required for the hosted Gemini lane." >&2; exit 1; }
@@ -319,8 +321,102 @@ jobs:
           set -e
 
           if [ "$review_ok" -ne 1 ]; then
-            echo "All configured Gemini models failed to produce a valid review." >&2
-            exit 1
+            echo "Gemini hosted lane did not produce a valid review; attempting the configured OpenRouter failover lane."
+            if [ -z "${OPENROUTER_API_KEY:-}" ]; then
+              echo "OPENROUTER_API_KEY is not configured; cannot fail over from the exhausted Gemini lane." >&2
+              exit 1
+            fi
+
+            export OPENROUTER_AI_REVIEW_MODEL_ID
+            python - <<'PY3'
+          import json
+          import os
+          from pathlib import Path
+
+          prompt_event = json.loads(Path("prompt.ndjson").read_text())
+          prompt = prompt_event["message"]["content"]
+          schema = json.loads(Path("review-schema.json").read_text())
+          model = os.environ["OPENROUTER_AI_REVIEW_MODEL_ID"].strip()
+          if not model:
+              raise SystemExit("OPENROUTER_AI_REVIEW_MODEL_ID resolved to an empty value.")
+
+          request = {
+              "model": model,
+              "messages": [{"role": "user", "content": prompt}],
+              "stream": False,
+              "response_format": {
+                  "type": "json_schema",
+                  "json_schema": {
+                      "name": "prodx_review",
+                      "strict": True,
+                      "schema": schema,
+                  },
+              },
+              "provider": {
+                  "require_parameters": True,
+              },
+          }
+          Path("openrouter-request.json").write_text(
+              json.dumps(request, ensure_ascii=False),
+              encoding="utf-8",
+          )
+          PY3
+
+            http_code="$(curl --silent --show-error --max-time 240 \
+              -o openrouter-response.json \
+              -w '%{http_code}' \
+              -X POST 'https://openrouter.ai/api/v1/chat/completions' \
+              -H 'Authorization: Bearer '"$OPENROUTER_API_KEY" \
+              -H 'Content-Type: application/json' \
+              --data-binary @openrouter-request.json || true)"
+
+            case "$http_code" in
+              2??)
+                ;;
+              *)
+                echo "OpenRouter failover returned HTTP ${http_code:-unknown}." >&2
+                jq -r '.error.message // .error.code // "unknown OpenRouter error"' openrouter-response.json 2>/dev/null || true
+                exit 1
+                ;;
+            esac
+
+            python - <<'PY4'
+          import json
+          import re
+          from pathlib import Path
+
+          response = json.loads(Path("openrouter-response.json").read_text())
+          content = (((response.get("choices") or [{}])[0].get("message") or {}).get("content"))
+          if not isinstance(content, str):
+              raise SystemExit("OpenRouter returned no textual structured review content.")
+
+          candidates = [content.strip()]
+          candidates.extend(re.findall(r"```(?:json)?\s*(.*?)```", content, flags=re.S | re.I))
+          parsed = None
+          for candidate in candidates:
+              try:
+                  value = json.loads(candidate)
+              except json.JSONDecodeError:
+                  continue
+              if isinstance(value, dict):
+                  parsed = value
+                  break
+
+          if parsed is None:
+              raise SystemExit("OpenRouter returned content that was not valid JSON.")
+          Path("review.json").write_text(
+              json.dumps(parsed, ensure_ascii=False),
+              encoding="utf-8",
+          )
+          PY4
+
+            if jq -e 'type == "object" and (.verdict == "PASS" or .verdict == "WARN" or .verdict == "FAIL") and (.summary | type == "string") and (.findings | type == "array") and all(.findings[]; type == "object" and (.severity | IN("P0","P1","P2","P3")) and (.file | type == "string") and (.line | type == "string") and (.issue | type == "string") and (.evidence | type == "string") and (.recommendation | type == "string"))' review.json >/dev/null 2>&1; then
+              review_ok=1
+              echo "OpenRouter failover produced a valid structured review with model $OPENROUTER_AI_REVIEW_MODEL_ID."
+            else
+              echo "OpenRouter failover did not produce a valid structured review." >&2
+              exit 1
+            fi
           fi
 
           jq . review.json
