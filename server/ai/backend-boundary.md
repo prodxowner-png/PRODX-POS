@@ -1,19 +1,22 @@
 # AI Backend Integration Boundary
 
-The production AI path is intentionally framework-neutral in this repository.
+The production AI path is implemented in the repository and is no longer a future/external HTTP adapter.
 
 ## Required request flow
 
-```text
-Authenticated backend
+Authenticated backend request
   -> verified user/org/store context
-  -> AIBackendBoundary
-  -> AI Core
-  -> approved AI provider
-```
+  -> ai:use authorization
+  -> AI Gateway
+  -> Gemini Provider
+  -> Gemini API
 
-`AIBackendBoundary` rejects requests without verified identity, organization/store scope, or the required `ai:use` permission before invoking AI Core.
+The gateway rejects requests without verified identity, organization/store scope, or the required ai:use permission before provider execution.
 
-A future HTTP adapter must derive the principal from the backend's verified authentication context. Browser-supplied identity, organization, store, or permission fields must never be treated as authentication evidence.
+Browser-supplied identity, organization, store, or permission fields are never treated as authentication evidence. Provider credentials remain server-side.
 
-No public unauthenticated `/api/ai` route is introduced here because the production authentication backend is external to this React/Vite repository.
+The route is POST /api/v1/ai/chat; unauthenticated requests are rejected.
+
+## Current verification
+
+Exact-head deterministic CI passes on b76001ca8ff6ec85e45a7834e9b3b63854ad5d3b. Genuine Gemini provider runtime success and tenant ai:use provisioning evidence remain outstanding.
