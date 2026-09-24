@@ -23,7 +23,7 @@ test('catalog production route is authenticated, authorized, and store scoped', 
     query: async <T extends Record<string, unknown>>(sql: string, parameters: readonly unknown[] = []) => {
       calls.push({ sql, parameters });
       if (sql.includes('FROM prodx_categories')) {
-        return { rows: [{ id: 'cat-1', name: 'Coffee', slug: 'coffee' }] as T[] };
+        return { rows: [{ id: 'cat-1', name: 'Coffee', slug: 'coffee' }] as unknown as T[] };
       }
       return { rows: [] as T[] };
     },
