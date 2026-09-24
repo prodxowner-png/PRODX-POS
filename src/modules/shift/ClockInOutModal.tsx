@@ -3,7 +3,7 @@ import { Modal } from '../../components/common/Modal';
 import { Button } from '../../components/common/Button';
 import { useLanguage } from '../../context/LanguageContext';
 import { Clock, ShieldCheck, UserCheck, KeyRound } from 'lucide-react';
-import { shiftApi } from '../../adapters/mockAdapter';
+import { createShiftApi } from '../../adapters/productionShiftApiFactory';
 import { useToast } from '../../context/ToastContext';
 import { useAuth } from '../../context/AuthContext';
 import { TimeclockRecord } from '../../domain/shift';
@@ -22,6 +22,7 @@ export const ClockInOutModal: React.FC<ClockInOutModalProps> = ({
   const { language } = useLanguage();
   const { addToast } = useToast();
   const { session } = useAuth();
+  const shiftApi = session ? createShiftApi(session.token) : null;
   
   const [pin, setPin] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -46,14 +47,14 @@ export const ClockInOutModal: React.FC<ClockInOutModalProps> = ({
     try {
       let record;
       if (mode === 'in') {
-        record = await shiftApi.clockIn(pin, session.currentStore.id);
+        record = await shiftApi!.clockIn(pin, session.currentStore.id);
         addToast({
           title: language === 'th' ? 'ลงเวลาเข้าสำเร็จ' : 'Clocked In Successfully',
           message: `${record.userName} clocked in at ${new Date(record.clockedInAt).toLocaleTimeString()}`,
           type: 'success',
         });
       } else {
-        record = await shiftApi.clockOut(pin, session.currentStore.id);
+        record = await shiftApi!.clockOut(pin, session.currentStore.id);
         addToast({
           title: language === 'th' ? 'ลงเวลาออกสำเร็จ' : 'Clocked Out Successfully',
           message: `${record.userName} clocked out at ${new Date(record.clockedOutAt!).toLocaleTimeString()}`,
@@ -129,7 +130,7 @@ export const ClockInOutModal: React.FC<ClockInOutModalProps> = ({
           ))}
         </div>
         <div className="text-[11px] text-text/50 font-mono h-4">
-          Demo: 1234 (Admin), 5678 (Manager), 0000 (Cashier)
+          Production timeclock PIN verification is not yet wired to the server credential boundary.
         </div>
 
         {/* Numpad */}
