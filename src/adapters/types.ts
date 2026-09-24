@@ -124,8 +124,8 @@ export interface IOrderApi {
 
 export interface IShiftApi {
   getCurrentShift(storeId: string, registerId: string): Promise<Shift | null>;
-  openShift(storeId: string, registerId: string, openingFloat: Money, cashier: User): Promise<Shift>;
-  closeShift(shiftId: string, actualCountedCash: Money, notes?: string): Promise<Shift>;
+  openShift(storeId: string, registerId: string, openingFloat: Money, cashier: User, idempotencyKey?: string): Promise<Shift>;
+  closeShift(shiftId: string, actualCountedCash: Money, notes?: string, idempotencyKey?: string): Promise<Shift>;
   recordCashMovement(
     shiftId: string,
     type: CashMovementType,
