@@ -6,15 +6,15 @@ export class CatalogValidationError extends Error {
 
 type DbRow = Record<string, any>;
 
-const productFromRow = (row: DbRow) => ({
+const dbMoneyToCents = (value: unknown): number => {\n  const match = /^(\\d+)\\.(\\d{2})$/.exec(String(value));\n  if (!match) throw new CatalogValidationError('Database monetary value is invalid.');\n  return Number(BigInt(match[1]) * 100n + BigInt(match[2]));\n};\n\nconst productFromRow = (row: DbRow) => ({
   id: row.id,
   storeId: row.store_id,
   sku: row.sku,
   barcode: row.barcode,
   name: row.name,
   categoryId: row.category_id,
-  price: { amountInCents: Number(BigInt(String(row.price_amount).replace('.', ''))), currency: row.currency },
-  costPrice: { amountInCents: Number(BigInt(String(row.cost_price_amount).replace('.', ''))), currency: row.currency },
+  price: { amountInCents: dbMoneyToCents(row.price_amount), currency: row.currency },
+  costPrice: { amountInCents: dbMoneyToCents(row.cost_price_amount), currency: row.currency },
   taxRateBps: row.tax_rate_bps,
   currentStock: row.current_stock,
   reorderPoint: row.reorder_point,
