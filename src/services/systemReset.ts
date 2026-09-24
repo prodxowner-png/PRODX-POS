@@ -1,24 +1,15 @@
+[Reading 43 lines from start (total: 43 lines, 0 remaining)]
+
 import { clearAllCachedData } from '../lib/indexedDb';
-import { mockState } from '../adapters/mockAdapter';
 
 /**
- * PRODX POS - Complete System Cache & Storage Reset Utility
- * 
- * Clears:
- * 1. IndexedDB offline stores (products, categories, orders)
- * 2. LocalStorage POS settings, themes, custom colors, timeouts, print templates, sound config, outbox
- * 3. SessionStorage
- * 4. In-memory Mock State (restoring pristine seed products, categories, shifts, demo orders)
+ * Clears client-side cache and browser storage. Production state is server-authoritative;
+ * this utility must never reset or mutate an in-memory mock repository.
  */
 export async function clearEntireSystemCache(reloadWindow = false): Promise<void> {
   try {
-    // 1. Clear IndexedDB offline storage
     await clearAllCachedData();
 
-    // 2. Reset Mock State memory & IndexedDB seed synchronization
-    await mockState.resetAllData();
-
-    // 3. Clear all LocalStorage keys
     if (typeof window !== 'undefined' && window.localStorage) {
       const keysToRemove: string[] = [];
       for (let i = 0; i < localStorage.length; i++) {
@@ -30,12 +21,10 @@ export async function clearEntireSystemCache(reloadWindow = false): Promise<void
       keysToRemove.forEach((k) => localStorage.removeItem(k));
     }
 
-    // 4. Clear SessionStorage
     if (typeof window !== 'undefined' && window.sessionStorage) {
       sessionStorage.clear();
     }
 
-    // 5. Broadcast reset event across open tabs
     if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
       try {
         const bc = new BroadcastChannel('prodx_pos_system_events');
@@ -54,3 +43,5 @@ export async function clearEntireSystemCache(reloadWindow = false): Promise<void
     throw error;
   }
 }
+
+[executed on device: cs-66110132733-default (42795147-9ac6-4409-8625-90b0742cdd82)]
