@@ -15,7 +15,7 @@ type ShiftRow = {
 };
 type MovementRow = {
   id:string; shift_id:string; type:CashMovementType; amount:string|number; reason:string;
-  performed_by_user_id:string; created_at:string|Date;
+  performed_by_user_id:string; currency:string; created_at:string|Date;
 };
 
 const cents = (money: Money, label: string) => {
@@ -27,18 +27,18 @@ const money = (value: string|number, currency: string): Money => ({ amountInCent
 const hash = (value: unknown) => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
 const mapMovement = (r: MovementRow): CashMovement => ({
-  id:r.id, shiftId:r.shift_id, type:r.type, amount:money(r.amount,r.type==='opening_float'?'THB':'THB'),
+  id:r.id, shiftId:r.shift_id, type:r.type, amount:money(r.amount,r.currency),
   reason:r.reason, performedByUserId:r.performed_by_user_id, timestamp:new Date(r.created_at).toISOString(),
 });
 
 const loadShift = async (db: SqlQueryExecutor, shiftId: string, storeId: string): Promise<Shift> => {
   const s = await db.query<ShiftRow>(`SELECT s.id,s.store_id,s.register_id,s.cashier_id,u.display_name AS cashier_name,s.opened_at,s.closed_at,s.status,s.opening_float_amount,s.actual_counted_cash_amount,s.currency FROM prodx_shifts s JOIN prodx_users u ON u.id=s.cashier_id WHERE s.id=$1 AND s.store_id=$2`,[shiftId,storeId]);
   const row=s.rows[0]; if(!row) throw new ShiftConflictError('Shift not found in this store.');
-  const m=await db.query<MovementRow>(`SELECT id,shift_id,type,amount,reason,performed_by_user_id,created_at FROM prodx_cash_movements WHERE shift_id=$1 AND store_id=$2 ORDER BY created_at,id`,[shiftId,storeId]);
+  const m=await db.query<MovementRow>(`SELECT id,shift_id,type,amount,reason,performed_by_user_id,currency,created_at FROM prodx_cash_movements WHERE shift_id=$1 AND store_id=$2 ORDER BY created_at,id`,[shiftId,storeId]);
   const movements=m.rows.map(mapMovement);
-  let expected=Number(row.opening_float_amount);
+  let expected=0;
   let cashSales=0,cashRefunds=0,paidIn=0,paidOut=0;
-  for(const x of m.rows){const a=Number(x.amount); if(x.type==='cash_sale'){cashSales+=a;expected+=a;} else if(x.type==='cash_refund'){cashRefunds+=a;expected-=a;} else if(x.type==='paid_in'){paidIn+=a;expected+=a;} else if(x.type==='paid_out'||x.type==='drawer_drop'){paidOut+=a;expected-=a;} }
+  for(const x of m.rows){const a=Number(x.amount); if(x.type==='opening_float'){expected+=a;} else if(x.type==='cash_sale'){cashSales+=a;expected+=a;} else if(x.type==='cash_refund'){cashRefunds+=a;expected-=a;} else if(x.type==='paid_in'){paidIn+=a;expected+=a;} else if(x.type==='paid_out'||x.type==='drawer_drop'){paidOut+=a;expected-=a;} }
   const actual=row.actual_counted_cash_amount==null?undefined:money(row.actual_counted_cash_amount,row.currency);
   return {id:row.id,storeId:row.store_id,registerId:row.register_id,cashierId:row.cashier_id,cashierName:row.cashier_name,openedAt:new Date(row.opened_at).toISOString(),closedAt:row.closed_at?new Date(row.closed_at).toISOString():undefined,status:row.status,openingFloat:money(row.opening_float_amount,row.currency),movements,totalCashSales:money(cashSales,row.currency),totalCashRefunds:money(cashRefunds,row.currency),totalPaidIn:money(paidIn,row.currency),totalPaidOut:money(paidOut,row.currency),expectedCashInDrawer:money(expected,row.currency),actualCountedCash:actual,variance:actual?{amountInCents:actual.amountInCents-Math.round(expected*100),currency:row.currency}:undefined};
 };
