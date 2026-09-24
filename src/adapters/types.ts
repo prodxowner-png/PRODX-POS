@@ -70,7 +70,8 @@ export interface ICatalogApi {
     quantityDelta: number,
     reason: StockMovementReason,
     userId: string,
-    notes?: string
+    notes?: string,
+    idempotencyKey?: string
   ): Promise<InventoryLedgerEntry>;
   bulkAdjustStock(
     storeId: string,
@@ -78,7 +79,8 @@ export interface ICatalogApi {
     quantityDelta: number,
     reason: StockMovementReason,
     userId: string,
-    notes?: string
+    notes?: string,
+    idempotencyKey?: string
   ): Promise<readonly InventoryLedgerEntry[]>;
   bulkUpdatePricing(
     storeId: string,
