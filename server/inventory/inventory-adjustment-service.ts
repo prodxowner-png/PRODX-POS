@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import type { TransactionalSqlExecutor } from '../db/transaction';
+import type { SqlQueryExecutor, TransactionalSqlExecutor } from '../db/transaction';
 import type { InventoryLedgerEntry, StockMovementReason } from '../../src/domain/catalog';
 
 const ALLOWED_REASONS = new Set<StockMovementReason>([
@@ -59,7 +59,7 @@ const validateCommon = (context: AdjustmentContext, idempotencyKey: string, reas
 };
 
 const operation = async (
-  tx: Parameters<TransactionalSqlExecutor['transaction']>[0] extends (tx: infer T) => Promise<unknown> ? T : never,
+  tx: SqlQueryExecutor,
   context: AdjustmentContext,
   idempotencyKey: string,
   payload: unknown,
@@ -91,7 +91,7 @@ const operation = async (
   return { id: row.id, replay: true };
 };
 
-const ledgerForOperation = async (tx: any, operationId: string): Promise<InventoryLedgerEntry[]> => {
+const ledgerForOperation = async (tx: SqlQueryExecutor, operationId: string): Promise<InventoryLedgerEntry[]> => {
   const result = await tx.query<LedgerRow>(
     `SELECT id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id,created_at
        FROM prodx_inventory_ledger
