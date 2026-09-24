@@ -11,14 +11,14 @@ const db = (): TransactionalSqlExecutor => {
   const query: SqlQueryExecutor['query'] = async (sql, params = []) => {
     calls.push(sql);
     if (sql.includes('INSERT INTO prodx_shift_operations')) {
-      if (!opInserted) return { rows: [] };
-      opInserted = false; opId = String(params[0]); return { rows: [{ id: opId }] };
+      if (!opInserted) return { rows: [] as T[] };
+      opInserted = false; opId = String(params[0]); return { rows: [{ id: opId }] as T[] };
     }
-    if (sql.includes('SELECT id,payload_hash') && sql.includes('prodx_shift_operations')) return { rows: [{ id: opId, payload_hash: 'different' }] };
+    if (sql.includes('SELECT id,payload_hash') && sql.includes('prodx_shift_operations')) return { rows: [{ id: opId, payload_hash: 'different' }] as T[] };
     if (sql.includes('SELECT id FROM prodx_shifts WHERE register_id')) return { rows: [] };
     if (sql.includes('INSERT INTO prodx_shifts')) return { rows: [] };
-    if (sql.includes('SELECT s.id,s.store_id')) return { rows: [{ id:'shift-1',store_id:'store-1',register_id:'reg-1',cashier_id:'user-1',cashier_name:'Cashier',opened_at:new Date().toISOString(),closed_at:null,status:'open',opening_float_amount:'100.00',actual_counted_cash_amount:null,currency:'THB' }] };
-    if (sql.includes('FROM prodx_cash_movements')) return { rows: [{ id:'mov-1',shift_id:'shift-1',type:'opening_float',amount:'100.00',reason:'Initial opening cash drawer float',performed_by_user_id:'user-1',currency:'THB',created_at:new Date().toISOString() }] };
+    if (sql.includes('SELECT s.id,s.store_id')) return { rows: [{ id:'shift-1',store_id:'store-1',register_id:'reg-1',cashier_id:'user-1',cashier_name:'Cashier',opened_at:new Date().toISOString(),closed_at:null,status:'open',opening_float_amount:'100.00',actual_counted_cash_amount:null,currency:'THB' }] as T[] };
+    if (sql.includes('FROM prodx_cash_movements')) return { rows: [{ id:'mov-1',shift_id:'shift-1',type:'opening_float',amount:'100.00',reason:'Initial opening cash drawer float',performed_by_user_id:'user-1',currency:'THB',created_at:new Date().toISOString() }] as T[] };
     return { rows: [] };
   };
   return { query, transaction: async work => work({ query }) };
