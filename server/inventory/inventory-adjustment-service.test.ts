@@ -11,25 +11,25 @@ const makeDb = (rows: Array<Record<string, unknown>> = []): TransactionalSqlExec
 
   const query: SqlQueryExecutor['query'] = async (sql, params = []) => {
     if (sql.includes('INSERT INTO prodx_inventory_adjustments')) {
-      if (!operationInserted) return { rows: [] };
+      if (!operationInserted) return { rows: [] as T[] };
       operationInserted = false;
       operationId = String(params[0]);
-      return { rows: [{ id: operationId }] };
+      return { rows: [{ id: operationId }] as T[] };
     }
     if (sql.includes('SELECT id,payload_hash') && sql.includes('prodx_inventory_adjustments')) {
-      return { rows: [{ id: operationId, payload_hash: 'different' }] };
+      return { rows: [{ id: operationId, payload_hash: 'different' }] as T[] };
     }
     if (sql.includes('SELECT id,store_id,product_id,quantity_delta')) {
-      return { rows: ledger };
+      return { rows: ledger as T[] };
     }
     if (sql.includes('SELECT organization_id,current_stock')) {
       const p = products.get(String(params[0]));
-      return { rows: p ? [{ ...p }] : [] };
+      return { rows: (p ? [{ ...p }] : []) as T[] };
     }
     if (sql.includes('UPDATE prodx_products')) {
       const p = products.get(String(params[1]));
       if (p) p.current_stock = Number(params[0]);
-      return { rows: [] };
+      return { rows: [] as T[] };
     }
     if (sql.includes('INSERT INTO prodx_inventory_ledger')) {
       ledger.push({
