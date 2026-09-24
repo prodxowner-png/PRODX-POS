@@ -33,7 +33,7 @@ test('audit production route is authenticated, authorized, and store scoped', as
           severity: 'warn',
           details: { reason: 'damaged_write_off' },
           created_at: '2026-09-24T00:00:00.000Z',
-        }] as T[],
+        }] as unknown as T[],
       };
     },
   };
