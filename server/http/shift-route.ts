@@ -20,9 +20,9 @@ export const registerShiftRoute = (app:Express, db:TransactionalSqlExecutor) => 
   app.post('/api/v1/shifts/open', requirePermission('shift:open'), async (req:Request,res:Response)=>{
     try{
       const ctx=req.prodxContext;if(!ctx)return error(res,req,500,'REQUEST_CONTEXT_MISSING','Request context is required.');
-      const b=req.body as {registerId?:string;openingFloat?:{amountInCents?:number;currency?:string};cashierId?:string;cashierName?:string;idempotencyKey?:string};
+      const b=req.body as {registerId?:string;openingFloat?:{amountInCents?:number;currency?:string};idempotencyKey?:string};
       if(!b?.registerId||!b.openingFloat||typeof b.openingFloat.amountInCents!=='number'||typeof b.openingFloat.currency!=='string'||!b.idempotencyKey)return error(res,req,400,'INVALID_REQUEST','Register, opening float and idempotency key are required.');
-      const shift=await service.openShift({organizationId:ctx.principal.organizationId,storeId:ctx.principal.storeId,userId:ctx.principal.userId},b.registerId,createMoney(b.openingFloat.amountInCents,b.openingFloat.currency),{id:ctx.principal.userId,name:b.cashierName??ctx.principal.userId} as any,b.idempotencyKey);
+      const shift=await service.openShift({organizationId:ctx.principal.organizationId,storeId:ctx.principal.storeId,userId:ctx.principal.userId},b.registerId,createMoney(b.openingFloat.amountInCents,b.openingFloat.currency),{id:ctx.principal.userId,name:ctx.principal.userId} as any,b.idempotencyKey);
       return res.status(201).json(shift);
     }catch(e){if(e instanceof ShiftValidationError)return error(res,req,400,e.code,e.message);if(e instanceof ShiftConflictError)return error(res,req,409,e.code,e.message);throw e;}
   });
