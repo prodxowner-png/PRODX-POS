@@ -11,25 +11,25 @@ const makeDb = (rows: Array<Record<string, unknown>> = []): TransactionalSqlExec
 
   const query: SqlQueryExecutor['query'] = async (sql, params = []) => {
     if (sql.includes('INSERT INTO prodx_inventory_adjustments')) {
-      if (!operationInserted) return { rows: [] as T[] };
+      if (!operationInserted) return { rows: [] as unknown[] };
       operationInserted = false;
       operationId = String(params[0]);
-      return { rows: [{ id: operationId }] as T[] };
+      return { rows: [{ id: operationId }] as unknown[] };
     }
     if (sql.includes('SELECT id,payload_hash') && sql.includes('prodx_inventory_adjustments')) {
-      return { rows: [{ id: operationId, payload_hash: 'different' }] as T[] };
+      return { rows: [{ id: operationId, payload_hash: 'different' }] as unknown[] };
     }
     if (sql.includes('SELECT id,store_id,product_id,quantity_delta')) {
-      return { rows: ledger as T[] };
+      return { rows: ledger as unknown[] };
     }
     if (sql.includes('SELECT organization_id,current_stock')) {
       const p = products.get(String(params[0]));
-      return { rows: (p ? [{ ...p }] : []) as T[] };
+      return { rows: (p ? [{ ...p }] : []) as unknown[] };
     }
     if (sql.includes('UPDATE prodx_products')) {
       const p = products.get(String(params[1]));
       if (p) p.current_stock = Number(params[0]);
-      return { rows: [] as T[] };
+      return { rows: [] as unknown[] };
     }
     if (sql.includes('INSERT INTO prodx_inventory_ledger')) {
       ledger.push({
