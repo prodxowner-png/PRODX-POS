@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
-import { auditApi } from '../../adapters/mockAdapter';
+import { createAuditApi } from '../../adapters/productionAuditApiFactory';
 import { AuditLogEntry } from '../../domain/audit';
 import { Card } from '../../components/common/Card';
 import { Badge } from '../../components/common/Badge';
@@ -20,11 +20,13 @@ export const AuditScreen: React.FC = () => {
   const [selectedLog, setSelectedLog] = useState<AuditLogEntry | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [copied, setCopied] = useState(false);
+  const auditApi = session ? createAuditApi(session.token) : null;
 
   const fetchLogs = async () => {
     if (!session) return;
     setIsLoading(true);
     try {
+      if (!auditApi) return;
       const data = await auditApi.getLogs(session.currentStore.id, 50);
       setLogs(data);
     } catch (err) {
