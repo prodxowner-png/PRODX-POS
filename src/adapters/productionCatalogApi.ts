@@ -59,13 +59,13 @@ export function createProductionCatalogApi(token: string): ICatalogApi {
       const suffix = productId ? `?productId=${encodeURIComponent(productId)}` : '';
       return request<readonly InventoryLedgerEntry[]>(`/api/v1/catalog/inventory-ledger${suffix}`);
     },
-    adjustStock: (storeId, productId, quantityDelta, reason, _userId, _notes, idempotencyKey) =>
+    adjustStock: (storeId, productId, quantityDelta, reason, _userId, _notes, idempotencyKey?) =>
       request<InventoryLedgerEntry>('/api/v1/inventory/adjustments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ productId, quantityDelta, reason, idempotencyKey: operationKey(idempotencyKey), storeId }),
       }),
-    bulkAdjustStock: (storeId, productIds, quantityDelta, reason, _userId, _notes, idempotencyKey) =>
+    bulkAdjustStock: (storeId, productIds, quantityDelta, reason, _userId, _notes, idempotencyKey?) =>
       request<readonly InventoryLedgerEntry[]>('/api/v1/inventory/adjustments/bulk', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
