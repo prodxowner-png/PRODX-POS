@@ -6,7 +6,13 @@ export class CatalogValidationError extends Error {
 
 type DbRow = Record<string, any>;
 
-const dbMoneyToCents = (value: unknown): number => {\n  const match = /^(\\d+)\\.(\\d{2})$/.exec(String(value));\n  if (!match) throw new CatalogValidationError('Database monetary value is invalid.');\n  return Number(BigInt(match[1]) * 100n + BigInt(match[2]));\n};\n\nconst productFromRow = (row: DbRow) => ({
+const dbMoneyToCents = (value: unknown): number => {
+  const match = /^(\d+)\.(\d{2})$/.exec(String(value));
+  if (!match) throw new CatalogValidationError('Database monetary value is invalid.');
+  return Number(BigInt(match[1]) * 100n + BigInt(match[2]));
+};
+
+const productFromRow = (row: DbRow) => ({
   id: row.id,
   storeId: row.store_id,
   sku: row.sku,
