@@ -1,3 +1,5 @@
+[Reading 380 lines from start (total: 380 lines, 0 remaining)]
+
 /**
  * PRODX POS - Offline Resilience & Outbox Synchronization Context
  * 
@@ -8,7 +10,6 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { OutboxItem } from '../domain/sync';
-import { mockState } from '../adapters/mockAdapter';
 import { createSyncApi } from '../adapters/syncApiFactory';
 import { Order } from '../domain/order';
 import { useToast } from './ToastContext';
@@ -92,27 +93,10 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
   });
 
   // Real-time Sync Latency state
-  const [syncLatencyMs, setSyncLatencyMs] = useState<number | null>(() => {
-    return browserOnline && !isSimulatedOffline ? Math.max(12, mockState.getSimulatedLatency() + 14) : null;
-  });
+  const [syncLatencyMs, setSyncLatencyMs] = useState<number | null>(null);
   const [isMeasuringLatency, setIsMeasuringLatency] = useState<boolean>(false);
   const [lastSyncCycleAt, setLastSyncCycleAt] = useState<string | null>(() => new Date().toISOString());
-  const [syncLatencyHistory, setSyncLatencyHistory] = useState<SyncLatencyRecord[]>(() => [
-    {
-      id: `lat-init-1`,
-      timestamp: new Date(Date.now() - 15000).toISOString(),
-      latencyMs: Math.max(14, mockState.getSimulatedLatency() + 12),
-      source: 'cloud_heartbeat',
-      status: 'success',
-    },
-    {
-      id: `lat-init-2`,
-      timestamp: new Date(Date.now() - 30000).toISOString(),
-      latencyMs: Math.max(12, mockState.getSimulatedLatency() + 18),
-      source: 'cloud_heartbeat',
-      status: 'success',
-    },
-  ]);
+  const [syncLatencyHistory, setSyncLatencyHistory] = useState<SyncLatencyRecord[]>([]);
 
   const isEffectiveOnline = browserOnline && !isSimulatedOffline;
 
@@ -242,11 +226,7 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, [isEffectiveOnline, language, addToast]);
 
   const toggleSimulatedOffline = () => {
-    setIsSimulatedOffline((prev) => {
-      const next = !prev;
-      mockState.isSimulatedOffline = next;
-      return next;
-    });
+    setIsSimulatedOffline((prev) => !prev);
   };
 
   const queueOutboxItem = <T,>(
@@ -400,3 +380,5 @@ export function useOffline(): OfflineContextType {
   }
   return ctx;
 }
+
+[executed on device: cs-66110132733-default (42795147-9ac6-4409-8625-90b0742cdd82)]
