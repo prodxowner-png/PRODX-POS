@@ -12,7 +12,8 @@ import { Button } from '../../components/common/Button';
 import { Modal } from '../../components/common/Modal';
 import { ClockInOutModal } from './ClockInOutModal';
 import { ShiftPaymentBreakdownModal } from './ShiftPaymentBreakdownModal';
-import { shiftApi, orderApi } from '../../adapters/mockAdapter';
+import { createShiftApi } from '../../adapters/productionShiftApiFactory';
+import { orderApi } from '../../adapters/mockAdapter';
 import { jsPDF } from 'jspdf';
 import {
   Banknote,
@@ -33,6 +34,7 @@ import {
 
 export const ShiftScreen: React.FC = () => {
   const { session } = useAuth();
+  const shiftApi = session ? createShiftApi(session.token) : null;
   const { currentShift, openShift, closeShift, recordCashMovement } = useShift();
   const { addToast } = useToast();
   const { t, language } = useLanguage();
@@ -69,7 +71,7 @@ export const ShiftScreen: React.FC = () => {
 
   useEffect(() => {
     if (session) {
-      shiftApi.getTimeclockRecords(session.currentStore.id)
+      shiftApi!.getTimeclockRecords(session.currentStore.id)
         .then(records => setTimeclockRecords(records))
         .catch(console.error);
 
@@ -81,7 +83,7 @@ export const ShiftScreen: React.FC = () => {
 
   const refreshTimeclock = async () => {
     if (session) {
-      const records = await shiftApi.getTimeclockRecords(session.currentStore.id);
+      const records = await shiftApi!.getTimeclockRecords(session.currentStore.id);
       setTimeclockRecords(records);
       const list = await orderApi.getOrders(session.currentStore.id);
       setOrders(list);
