@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { useLanguage } from '../../context/LanguageContext';
@@ -59,6 +59,7 @@ export const InventoryScreen: React.FC = () => {
   const { setSubLevels } = useBreadcrumb();
 
   const [products, setProducts] = useState<Product[]>([]);
+  const adjustmentOperationKeyRef = useRef<string | null>(null);
   const [categories, setCategories] = useState<readonly Category[]>([]);
   const [ledgerEntries, setLedgerEntries] = useState<readonly InventoryLedgerEntry[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -315,6 +316,7 @@ export const InventoryScreen: React.FC = () => {
   const handleConfirmBulkAdjustment = async () => {
     if (!session || selectedProductIds.length === 0) return;
     setIsSubmitting(true);
+    adjustmentOperationKeyRef.current ??= crypto.randomUUID();
     try {
       const entries = await catalogApi!.bulkAdjustStock(
         session.currentStore.id,
@@ -322,7 +324,8 @@ export const InventoryScreen: React.FC = () => {
         bulkQuantityDelta,
         bulkAdjustReason,
         session.currentUser.id,
-        bulkAdjustNotes
+        bulkAdjustNotes,
+        adjustmentOperationKeyRef.current
       );
 
       setProducts((prev) =>
@@ -342,6 +345,7 @@ export const InventoryScreen: React.FC = () => {
       });
       setIsBulkAdjustModalOpen(false);
       setSelectedProductIds([]);
+      adjustmentOperationKeyRef.current = null;
     } catch (err: any) {
       addToast({
         title: language === 'th' ? 'ปรับปรุงสต็อกไม่สำเร็จ' : 'Bulk Adjustment Failed',
