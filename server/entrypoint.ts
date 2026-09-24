@@ -6,6 +6,7 @@ import { asSqlExecutor, createPostgresPool } from './db/postgres';
 import { createTransactionalPostgresExecutor } from './db/transaction';
 import { registerCheckoutRoute } from './http/checkout-route';
 import { registerCatalogRoute } from './http/catalog-route';
+import { registerAuditRoute } from './http/audit-route';
 import { registerInventoryAdjustmentRoute } from './http/inventory-adjustment-route';
 import { registerShiftRoute } from './http/shift-route';
 import { createApp } from './http/createApp';
@@ -30,6 +31,7 @@ export const createProductionApp = () => {
     authorizeRequest: authorize,
     configureRoutes: (configuredApp) => {
       registerCatalogRoute(configuredApp, sql);
+      registerAuditRoute(configuredApp, sql);
       registerInventoryAdjustmentRoute(configuredApp, transactions);
       registerShiftRoute(configuredApp, transactions);
       registerCheckoutRoute(configuredApp, transactions);
