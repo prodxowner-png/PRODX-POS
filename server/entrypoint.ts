@@ -30,8 +30,8 @@ export const createProductionApp = () => {
     },
     authorizeRequest: authorize,
     configureRoutes: (configuredApp) => {
-      registerCatalogRoute(configuredApp, sql);
-      registerAuditRoute(configuredApp, sql);
+      registerCatalogRoute(configuredApp, transactions);
+      registerAuditRoute(configuredApp, transactions);
       registerInventoryAdjustmentRoute(configuredApp, transactions);
       registerShiftRoute(configuredApp, transactions);
       registerCheckoutRoute(configuredApp, transactions);
