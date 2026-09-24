@@ -2,6 +2,9 @@ name: CodeSandbox API Smoke
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - "ci/codesandbox-api-smoke"
   pull_request:
     paths:
       - ".github/workflows/codesandbox-api-smoke.yml"
