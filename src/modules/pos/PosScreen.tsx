@@ -6,7 +6,7 @@ import { useToast } from '../../context/ToastContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { useBreadcrumb, BreadcrumbLevel } from '../../context/BreadcrumbContext';
 import { useSettings } from '../../context/SettingsContext';
-import { catalogApi } from '../../adapters/mockAdapter';
+import { createCatalogReadApi } from '../../adapters/catalogReadApiFactory';
 import { Product, Category } from '../../domain/catalog';
 import { ProductCard } from './ProductCard';
 import { CartPanel } from './CartPanel';
@@ -42,6 +42,7 @@ import {
 
 export const PosScreen: React.FC = () => {
   const { session } = useAuth();
+  const catalogApi = session ? createCatalogReadApi(session.token) : null;
   const { addItem, totals, items, clearCart } = useCart();
   const { addToast } = useToast();
   const { t, language } = useLanguage();
@@ -152,8 +153,8 @@ export const PosScreen: React.FC = () => {
     setIsLoading(true);
     try {
       const [cats, prods] = await Promise.all([
-        catalogApi.getCategories(session.currentStore.id),
-        catalogApi.getProducts(session.currentStore.id),
+        catalogApi!.getCategories(session.currentStore.id),
+        catalogApi!.getProducts(session.currentStore.id),
       ]);
       setCategories([...cats]);
       setProducts([...prods]);
