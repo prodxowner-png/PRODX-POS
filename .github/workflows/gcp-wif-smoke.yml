@@ -24,7 +24,7 @@ jobs:
           WIF_PROVIDER: projects/80729284682/locations/global/workloadIdentityPools/github-prodx/providers/github-prodx
         run: |
           set -euo pipefail
-          OIDC_TOKEN="$(curl -fsS -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${WIF_PROVIDER}")"
+          OIDC_TOKEN="$(curl -fsS -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=https://iam.googleapis.com/${WIF_PROVIDER}")"
           export OIDC_TOKEN
           python - <<'PY'
           import base64, json, os
