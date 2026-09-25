@@ -66,7 +66,7 @@ PRINCIPAL="principalSet://iam.googleapis.com/${POOL_RESOURCE}/attribute.reposito
 gcloud iam service-accounts add-iam-policy-binding "$SA_EMAIL" \
   --project="$PROJECT_ID" \
   --role="roles/iam.workloadIdentityUser" \
-  --member="$PRINCIPAL" \
+  --member="$PRINCIPAL"
 
 PROVIDER_RESOURCE="projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${POOL_ID}/providers/${PROVIDER_ID}"
 
