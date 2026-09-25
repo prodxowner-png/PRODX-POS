@@ -49,6 +49,7 @@ PROVIDER_FLAGS=(
   --location=global
   --workload-identity-pool="$POOL_ID"
   --issuer-uri="https://token.actions.githubusercontent.com"
+  --allowed-audiences="https://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${POOL_ID}/providers/${PROVIDER_ID}"
   --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.repository_owner=assertion.repository_owner,attribute.ref=assertion.ref,attribute.workflow=assertion.workflow"
   --attribute-condition="assertion.repository == '$REPOSITORY'"
 )
