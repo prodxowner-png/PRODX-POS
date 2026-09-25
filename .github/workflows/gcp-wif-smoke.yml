@@ -19,6 +19,36 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
+      - name: Inspect GitHub OIDC and Google STS
+        env:
+          WIF_PROVIDER: projects/80729284682/locations/global/workloadIdentityPools/github-prodx/providers/github-prodx
+        run: |
+          set -euo pipefail
+          OIDC_TOKEN="$(curl -fsS -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${WIF_PROVIDER}")"
+          export OIDC_TOKEN
+          python - <<'PY'
+          import base64, json, os
+          token = os.environ["OIDC_TOKEN"]
+          payload = token.split(".")[1]
+          payload += "=" * (-len(payload) % 4)
+          claims = json.loads(base64.urlsafe_b64decode(payload))
+          print(json.dumps({k: claims.get(k) for k in ("iss", "aud", "repository", "repository_owner", "ref", "workflow", "sub")}, indent=2, sort_keys=True))
+          PY
+
+          STS_RESPONSE="$(mktemp)"
+          HTTP_STATUS="$(curl -sS -o "$STS_RESPONSE" -w '%{http_code}' \\
+            -X POST https://sts.googleapis.com/v1/token \\
+            -H 'Content-Type: application/x-www-form-urlencoded' \\
+            --data-urlencode 'grant_type=urn:ietf:params:oauth:grant-type:token-exchange' \\
+            --data-urlencode "audience=//iam.googleapis.com/${WIF_PROVIDER}" \\
+            --data-urlencode 'scope=https://www.googleapis.com/auth/cloud-platform' \\
+            --data-urlencode 'requested_token_type=urn:ietf:params:oauth:token-type:access_token' \\
+            --data-urlencode 'subject_token_type=urn:ietf:params:oauth:token-type:jwt' \\
+            --data-urlencode "subject_token=${OIDC_TOKEN}")"
+          echo "STS HTTP status: ${HTTP_STATUS}"
+          cat "$STS_RESPONSE"
+          test "$HTTP_STATUS" = 200
+
       - name: Authenticate with Google Cloud via WIF
         id: auth
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
@@ -26,6 +56,7 @@ jobs:
           project_id: digital-vim-509415-t5
           workload_identity_provider: projects/80729284682/locations/global/workloadIdentityPools/github-prodx/providers/github-prodx
           service_account: prodx-production-admin@digital-vim-509415-t5.iam.gserviceaccount.com
+          audience: //iam.googleapis.com/projects/80729284682/locations/global/workloadIdentityPools/github-prodx/providers/github-prodx
           create_credentials_file: true
           cleanup_credentials: true
 
