@@ -36,6 +36,12 @@ if ! gcloud iam workload-identity-pools describe "$POOL_ID" \
     --project="$PROJECT_ID" \
     --location=global \
     --display-name="PRODX GitHub Actions"
+else
+  # A disabled pool cannot perform token exchange. Re-enable it explicitly.
+  gcloud iam workload-identity-pools update "$POOL_ID" \
+    --project="$PROJECT_ID" \
+    --location=global \
+    --no-disabled
 fi
 
 PROVIDER_FLAGS=(
@@ -58,7 +64,8 @@ else
   # Reconcile an existing provider instead of assuming an earlier bootstrap
   # created the exact issuer/mapping/condition required by this repository.
   gcloud iam workload-identity-pools providers update-oidc "$PROVIDER_ID" \
-    "${PROVIDER_FLAGS[@]}"
+    "${PROVIDER_FLAGS[@]}" \
+    --no-disabled
 fi
 
 PROVIDER_STATE="$(
@@ -68,9 +75,16 @@ PROVIDER_STATE="$(
     --workload-identity-pool="$POOL_ID" \
     --format='value(state)'
 )"
+PROVIDER_DISABLED="$(
+  gcloud iam workload-identity-pools providers describe "$PROVIDER_ID" \
+    --project="$PROJECT_ID" \
+    --location=global \
+    --workload-identity-pool="$POOL_ID" \
+    --format='value(disabled)'
+)"
 
-if [[ "$PROVIDER_STATE" != "ACTIVE" ]]; then
-  echo "ERROR: WIF provider $PROVIDER_ID is not ACTIVE (state=$PROVIDER_STATE)." >&2
+if [[ "$PROVIDER_STATE" != "ACTIVE" || "$PROVIDER_DISABLED" == "True" ]]; then
+  echo "ERROR: WIF provider $PROVIDER_ID is not usable (state=$PROVIDER_STATE disabled=$PROVIDER_DISABLED)." >&2
   exit 1
 fi
 
