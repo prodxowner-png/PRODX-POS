@@ -84,8 +84,32 @@ PROVIDER_DISABLED="$(
     --format='value(disabled)'
 )"
 
+PROVIDER_CONFIG="$(gcloud iam workload-identity-pools providers describe "$PROVIDER_ID" \
+  --project="$PROJECT_ID" \
+  --location=global \
+  --workload-identity-pool="$POOL_ID" \
+  --format='json(name,state,disabled,oidc)')"
+
+echo "WIF provider configuration:"
+echo "$PROVIDER_CONFIG" | jq '{name,state,disabled,issuerUri:.oidc.issuerUri,allowedAudiences:.oidc.allowedAudiences,attributeMapping:.attributeMapping,attributeCondition:.attributeCondition}'
+
+EXPECTED_ISSUER="https://token.actions.githubusercontent.com"
+EXPECTED_AUDIENCE="https://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${POOL_ID}/providers/${PROVIDER_ID}"
+ACTUAL_ISSUER="$(echo "$PROVIDER_CONFIG" | jq -r '.oidc.issuerUri // empty')"
+ACTUAL_AUDIENCE="$(echo "$PROVIDER_CONFIG" | jq -r '.oidc.allowedAudiences[0] // empty')"
+
 if [[ "$PROVIDER_STATE" != "ACTIVE" || "$PROVIDER_DISABLED" == "True" ]]; then
   echo "ERROR: WIF provider $PROVIDER_ID is not usable (state=$PROVIDER_STATE disabled=$PROVIDER_DISABLED)." >&2
+  exit 1
+fi
+
+if [[ "$ACTUAL_ISSUER" != "$EXPECTED_ISSUER" ]]; then
+  echo "ERROR: WIF issuer mismatch: expected=$EXPECTED_ISSUER actual=$ACTUAL_ISSUER" >&2
+  exit 1
+fi
+
+if [[ "$ACTUAL_AUDIENCE" != "$EXPECTED_AUDIENCE" ]]; then
+  echo "ERROR: WIF allowed audience mismatch: expected=$EXPECTED_AUDIENCE actual=$ACTUAL_AUDIENCE" >&2
   exit 1
 fi
 
