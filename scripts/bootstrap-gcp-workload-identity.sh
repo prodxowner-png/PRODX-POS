@@ -38,18 +38,40 @@ if ! gcloud iam workload-identity-pools describe "$POOL_ID" \
     --display-name="PRODX GitHub Actions"
 fi
 
+PROVIDER_FLAGS=(
+  --project="$PROJECT_ID"
+  --location=global
+  --workload-identity-pool="$POOL_ID"
+  --issuer-uri="https://token.actions.githubusercontent.com"
+  --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.repository_owner=assertion.repository_owner,attribute.ref=assertion.ref,attribute.workflow=assertion.workflow"
+  --attribute-condition="assertion.repository == '$REPOSITORY'"
+)
+
 if ! gcloud iam workload-identity-pools providers describe "$PROVIDER_ID" \
   --project="$PROJECT_ID" \
   --location=global \
   --workload-identity-pool="$POOL_ID" >/dev/null 2>&1; then
   gcloud iam workload-identity-pools providers create-oidc "$PROVIDER_ID" \
+    --display-name="GitHub Actions OIDC" \
+    "${PROVIDER_FLAGS[@]}"
+else
+  # Reconcile an existing provider instead of assuming an earlier bootstrap
+  # created the exact issuer/mapping/condition required by this repository.
+  gcloud iam workload-identity-pools providers update-oidc "$PROVIDER_ID" \
+    "${PROVIDER_FLAGS[@]}"
+fi
+
+PROVIDER_STATE="$(
+  gcloud iam workload-identity-pools providers describe "$PROVIDER_ID" \
     --project="$PROJECT_ID" \
     --location=global \
     --workload-identity-pool="$POOL_ID" \
-    --display-name="GitHub Actions OIDC" \
-    --issuer-uri="https://token.actions.githubusercontent.com" \
-    --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.repository_owner=assertion.repository_owner,attribute.ref=assertion.ref,attribute.workflow=assertion.workflow" \
-    --attribute-condition="assertion.repository == '$REPOSITORY'"
+    --format='value(state)'
+)"
+
+if [[ "$PROVIDER_STATE" != "ACTIVE" ]]; then
+  echo "ERROR: WIF provider $PROVIDER_ID is not ACTIVE (state=$PROVIDER_STATE)." >&2
+  exit 1
 fi
 
 SA_EMAIL="${SERVICE_ACCOUNT_ID}@${PROJECT_ID}.iam.gserviceaccount.com"
