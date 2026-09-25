@@ -1,0 +1,38 @@
+name: GCP Workload Identity Smoke
+
+on:
+  push:
+    branches:
+      - chore/bootstrap-gcp-workload-identity
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  auth:
+    name: Verify GitHub OIDC to Google Cloud
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Authenticate with Google Cloud via WIF
+        id: auth
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
+        with:
+          project_id: digital-vim-509415-t5
+          workload_identity_provider: projects/80729284682/locations/global/workloadIdentityPools/github-prodx/providers/github-prodx
+          service_account: prodx-production-admin@digital-vim-509415-t5.iam.gserviceaccount.com
+          create_credentials_file: true
+          cleanup_credentials: true
+
+      - name: Verify federated identity
+        run: |
+          set -euo pipefail
+          gcloud auth list --filter=status:ACTIVE --format='value(account)'
+          gcloud config get-value project
+          gcloud auth print-access-token >/dev/null
+          echo "GCP_WIF_AUTH_OK"
