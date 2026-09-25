@@ -36,15 +36,7 @@ jobs:
           PY
 
           STS_RESPONSE="$(mktemp)"
-          HTTP_STATUS="$(curl -sS -o "$STS_RESPONSE" -w '%{http_code}' \\
-            -X POST https://sts.googleapis.com/v1/token \\
-            -H 'Content-Type: application/x-www-form-urlencoded' \\
-            --data-urlencode 'grant_type=urn:ietf:params:oauth:grant-type:token-exchange' \\
-            --data-urlencode "audience=//iam.googleapis.com/${WIF_PROVIDER}" \\
-            --data-urlencode 'scope=https://www.googleapis.com/auth/cloud-platform' \\
-            --data-urlencode 'requested_token_type=urn:ietf:params:oauth:token-type:access_token' \\
-            --data-urlencode 'subject_token_type=urn:ietf:params:oauth:token-type:jwt' \\
-            --data-urlencode "subject_token=${OIDC_TOKEN}")"
+          HTTP_STATUS="$(curl -sS -o "$STS_RESPONSE" -w '%{http_code}' -X POST https://sts.googleapis.com/v1/token -H 'Content-Type: application/x-www-form-urlencoded' --data-urlencode 'grant_type=urn:ietf:params:oauth:grant-type:token-exchange' --data-urlencode "audience=//iam.googleapis.com/${WIF_PROVIDER}" --data-urlencode 'scope=https://www.googleapis.com/auth/cloud-platform' --data-urlencode 'requested_token_type=urn:ietf:params:oauth:token-type:access_token' --data-urlencode 'subject_token_type=urn:ietf:params:oauth:token-type:jwt' --data-urlencode "subject_token=${OIDC_TOKEN}")"
           echo "STS HTTP status: ${HTTP_STATUS}"
           cat "$STS_RESPONSE"
           test "$HTTP_STATUS" = 200
