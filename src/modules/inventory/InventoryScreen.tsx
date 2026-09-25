@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { useBreadcrumb, BreadcrumbLevel } from '../../context/BreadcrumbContext';
-import { catalogApi } from '../../adapters/mockAdapter';
+import { createCatalogApi } from '../../adapters/productionCatalogApiFactory';
 import { Product, InventoryLedgerEntry, StockMovementReason, Category } from '../../domain/catalog';
 import { formatMoney, createMoney } from '../../domain/money';
 import { Card, CardHeader, CardBody } from '../../components/common/Card';
@@ -53,11 +53,13 @@ import { playScannerSound } from '../../services/soundService';
 
 export const InventoryScreen: React.FC = () => {
   const { session, can } = useAuth();
+  const catalogApi = session ? createCatalogApi(session.token) : null;
   const { addToast } = useToast();
   const { t, language } = useLanguage();
   const { setSubLevels } = useBreadcrumb();
 
   const [products, setProducts] = useState<Product[]>([]);
+  const adjustmentOperationKeyRef = useRef<string | null>(null);
   const [categories, setCategories] = useState<readonly Category[]>([]);
   const [ledgerEntries, setLedgerEntries] = useState<readonly InventoryLedgerEntry[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -166,9 +168,9 @@ export const InventoryScreen: React.FC = () => {
   const handleBulkImportComplete = async (result: BulkImportResult) => {
     if (session) {
       const [freshProducts, freshCategories, freshLedger] = await Promise.all([
-        catalogApi.getProducts(session.currentStore.id),
-        catalogApi.getCategories(session.currentStore.id),
-        catalogApi.getInventoryLedger(session.currentStore.id),
+        catalogApi!.getProducts(session.currentStore.id),
+        catalogApi!.getCategories(session.currentStore.id),
+        catalogApi!.getInventoryLedger(session.currentStore.id),
       ]);
       setProducts([...freshProducts]);
       setCategories([...freshCategories]);
@@ -314,14 +316,16 @@ export const InventoryScreen: React.FC = () => {
   const handleConfirmBulkAdjustment = async () => {
     if (!session || selectedProductIds.length === 0) return;
     setIsSubmitting(true);
+    adjustmentOperationKeyRef.current ??= crypto.randomUUID();
     try {
-      const entries = await catalogApi.bulkAdjustStock(
+      const entries = await catalogApi!.bulkAdjustStock(
         session.currentStore.id,
         selectedProductIds,
         bulkQuantityDelta,
         bulkAdjustReason,
         session.currentUser.id,
-        bulkAdjustNotes
+        bulkAdjustNotes,
+        adjustmentOperationKeyRef.current
       );
 
       setProducts((prev) =>
@@ -341,6 +345,7 @@ export const InventoryScreen: React.FC = () => {
       });
       setIsBulkAdjustModalOpen(false);
       setSelectedProductIds([]);
+      adjustmentOperationKeyRef.current = null;
     } catch (err: any) {
       addToast({
         title: language === 'th' ? 'ปรับปรุงสต็อกไม่สำเร็จ' : 'Bulk Adjustment Failed',
@@ -356,7 +361,7 @@ export const InventoryScreen: React.FC = () => {
     if (!session || selectedProductIds.length === 0) return;
     setIsSubmitting(true);
     try {
-      const updatedProds = await catalogApi.bulkUpdatePricing(
+      const updatedProds = await catalogApi!.bulkUpdatePricing(
         session.currentStore.id,
         selectedProductIds,
         bulkPriceChangeType,
@@ -396,9 +401,9 @@ export const InventoryScreen: React.FC = () => {
     if (!session) return;
     try {
       const [prods, cats, ledger] = await Promise.all([
-        catalogApi.getProducts(session.currentStore.id),
-        catalogApi.getCategories(session.currentStore.id),
-        catalogApi.getInventoryLedger(session.currentStore.id),
+        catalogApi!.getProducts(session.currentStore.id),
+        catalogApi!.getCategories(session.currentStore.id),
+        catalogApi!.getInventoryLedger(session.currentStore.id),
       ]);
       setProducts([...prods]);
       setCategories(cats);
@@ -560,7 +565,7 @@ export const InventoryScreen: React.FC = () => {
         if (qty <= 0) continue;
 
         // Perform stock adjustment
-        const updated = await catalogApi.adjustStock(
+        const updated = await catalogApi!.adjustStock(
           session.currentStore.id,
           id,
           qty,
@@ -641,7 +646,7 @@ export const InventoryScreen: React.FC = () => {
     if (!selectedProduct || !session) return;
     setIsSubmitting(true);
     try {
-      const entry = await catalogApi.adjustStock(
+      const entry = await catalogApi!.adjustStock(
         session.currentStore.id,
         selectedProduct.id,
         adjustQuantity,
