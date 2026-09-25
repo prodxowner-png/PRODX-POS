@@ -20,6 +20,10 @@ M1.1 extends the Gate C foundation with the minimum durable identity state requi
 8. Roles, permissions, store memberships, sessions, devices, manager authorization, and transaction state remain outside M1.1.
 9. Authentication implementation must verify hashes server-side and must never expose credential hashes to the client.
 
+## Current implementation status
+
+M1.1 is active in the PostgreSQL migration chain and is exercised by authentication/security gates. Authentication verifies hashes server-side and never exposes credential hashes to the client.
+
 ## Next slice
 
 M1.2 establishes RBAC and permission persistence, including explicit organization/store authorization scope.

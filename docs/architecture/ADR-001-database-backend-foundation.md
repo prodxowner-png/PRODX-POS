@@ -8,9 +8,9 @@
 
 ## Context
 
-The current PRODX-POS repository is a React/Vite application with a framework-neutral server-side AI boundary. The AI HTTP contract explicitly requires a future production backend to authenticate the transport, derive identity from verified backend authentication context, and never trust browser-supplied identity or permissions.
+The repository now contains a production TypeScript server composition and PostgreSQL-backed authentication/authorization boundary. The AI HTTP adapter is wired at POST /api/v1/ai/chat; it derives authorization from the verified backend principal and requires ai:use. The browser never supplies authoritative identity or permissions.
 
-The repository does not currently contain a verified PostgreSQL persistence layer or a production HTTP backend that can serve as the authoritative system boundary. Implementing database repositories before this decision is accepted would risk coupling domain code to an unapproved persistence design and would weaken the project's architecture gates.
+The original architectural decision remains valid. Earlier statements that the backend/persistence layer were future work are historical context and are superseded by the implemented M0/M1/M2 slices on the current branch.
 
 ## Decision
 
@@ -81,3 +81,8 @@ If implementation violates the approved boundaries or begins domain persistence 
 ## Evidence from current repository
 
 The repository's current package scripts provide frontend typecheck/build plus server typecheck/test commands, while the existing AI integration documentation explicitly describes the repository as a React/Vite application and says the production API route must attach to an authenticated backend boundary. These facts are the basis for this gate.
+
+
+## Implementation status supersession — 2026-09-24
+
+PostgreSQL migrations extend through 0018, production authentication/authorization and HTTP composition are present, and the authenticated Gemini AI route is wired. Fresh deterministic CI checks pass at b76001ca8ff6ec85e45a7834e9b3b63854ad5d3b. This ADR is not a Production Ready acceptance record.

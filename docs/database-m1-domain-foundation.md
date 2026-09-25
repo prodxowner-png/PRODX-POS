@@ -23,6 +23,10 @@ Authentication, users, roles, permissions, catalog, inventory, sales, payments, 
 8. The migration is idempotent and records its version in `prodx_schema_migrations`.
 9. No monetary values are introduced in M1; later financial tables must use PostgreSQL `NUMERIC`/`DECIMAL`.
 
+## Current implementation status
+
+The organization/store foundation is active in the migration chain and is used by later authentication, RBAC, device/session, transaction, refund, and AI authorization boundaries.
+
 ## Next Gate C slices
 
 - M1.1 authentication identity persistence

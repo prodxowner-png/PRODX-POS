@@ -21,6 +21,10 @@ Operate as the autonomous production engineering agent for PRODX-POS. Work from 
 - Do not merge pull requests unless explicitly instructed.
 - Prefer root-cause fixes over test-specific patches.
 
+## Current production AI boundary
+
+The active implementation includes POST /api/v1/ai/chat. The route authenticates through the production backend/session boundary and requires ai:use before Gemini execution. The production application provider is Gemini-only. Historical OKMD/OpenRouter/OpenAI references are audit history, not production fallback architecture.
+
 ## Autonomous execution loop
 
 For every assigned task or PR:
@@ -36,7 +40,7 @@ For every assigned task or PR:
 9. Commit only meaningful changes with a descriptive message.
 10. Push only to the assigned working branch.
 11. Verify the exact pushed SHA and relevant GitHub Actions results.
-12. If a gate is blocked by infrastructure (for example unavailable PostgreSQL), report it as BLOCKED; never convert BLOCKED into PASS.
+12. If a gate is blocked by infrastructure or provider capacity, report it as BLOCKED; never convert BLOCKED into PASS.
 13. Continue until the task is genuinely complete or an external prerequisite prevents progress.
 
 ## PR safety

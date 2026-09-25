@@ -1,23 +1,28 @@
+## Reverification after documentation updates — 2026-09-24
+
+Current exact HEAD is 13d154b795b36fcceb5ccc54a8cdb599d358edb2. The deterministic workflows for this documentation-updated HEAD are currently queued/pending, so prior PASS evidence from b76001ca8ff6ec85e45a7834e9b3b63854ad5d3b is historical evidence and is not claimed for the current HEAD. Gemini hosted review and autonomous Gemini runs are also queued.
+
 # PRODX Database Foundation
 
-M0 Gate B establishes PostgreSQL as the authoritative transactional store while keeping domain persistence closed until Gate C.
+PostgreSQL is the authoritative transactional store for PRODX POS. The current migration chain on this branch extends through migration 0018 for the Gemini AI permission boundary.
 
-## Invariants
+## Current invariants
 
 - PostgreSQL is authoritative for transactional state.
-- Authoritative timestamps use UTC (`TIMESTAMPTZ`).
+- Authoritative timestamps use UTC (TIMESTAMPTZ).
 - Business timezone is supplied explicitly by store/application context.
-- Monetary persistence must use PostgreSQL `NUMERIC`, never JavaScript floating point.
-- Tenant-owned data must carry organization/store scope where applicable.
-- Transactional writes must be atomic.
+- Monetary persistence uses PostgreSQL NUMERIC/decimal semantics; JavaScript floating point is not authoritative money.
+- Tenant-owned data carries organization/store scope where applicable.
+- Transactional writes are atomic.
 - Retried external writes require durable, scope-aware idempotency keys.
-- Inventory, cash, and document numbering require explicit concurrency controls.
-- Migration history has one authoritative head.
+- Inventory, cash, financial state, and document numbering require explicit concurrency controls where applicable.
+- Migration history has one authoritative head and is validated in CI.
+- ai:use is a canonical RBAC permission registered by migration 0018 and intentionally not granted to a default role by migration.
 
 ## Migration policy
 
-Migrations are forward-only, reviewable SQL files under `db/migrations/`. M0 deliberately creates only migration metadata and a migration lock. Business tables are prohibited until Gate C is accepted.
+Migrations are forward-only, reviewable SQL files under db/migrations/. CI applies every migration in lexical order against PostgreSQL 16 and verifies migration head, timestamp behavior, numeric precision, and migration idempotency.
 
-## Validation
+## Current gate evidence
 
-CI provisions PostgreSQL 16, applies every migration in lexical order, verifies the migration head is singular, verifies UTC timestamp behavior and numeric precision behavior, and verifies migration idempotency.
+At HEAD b76001ca8ff6ec85e45a7834e9b3b63854ad5d3b, fresh PostgreSQL transaction-integrity, device/session-invariant, and backend/PostgreSQL/build/security checks are passing. Gemini provider runtime evidence and runtime tenant provisioning for ai:use remain release blockers.

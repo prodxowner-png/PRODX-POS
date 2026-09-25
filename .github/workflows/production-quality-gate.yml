@@ -100,7 +100,18 @@ jobs:
           SELECT conname FROM pg_constraint WHERE conname = 'prodx_roles_id_organization_unique';
           SELECT conname FROM pg_constraint WHERE conname = 'prodx_store_memberships_store_org_fk';
           SELECT conname FROM pg_constraint WHERE conname = 'prodx_user_roles_store_membership_fk';
-          SELECT count(*) = 15 FROM prodx_permissions;
+          DO $$
+          DECLARE
+            permission_count INTEGER;
+          BEGIN
+            SELECT count(*) INTO permission_count FROM prodx_permissions;
+            IF permission_count <> 16 THEN
+              RAISE EXCEPTION 'Expected 16 canonical permissions including ai:use, found %', permission_count;
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM prodx_permissions WHERE permission_key = 'ai:use') THEN
+              RAISE EXCEPTION 'Required ai:use permission is missing';
+            END IF;
+          END $$;
           SQL
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
           INSERT INTO prodx_organizations (id, code, name)

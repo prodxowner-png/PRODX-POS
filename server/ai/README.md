@@ -1,30 +1,34 @@
-# PRODX AI Provider Boundary
+## Reverification after documentation updates — 2026-09-24
 
-This directory contains the server-side, provider-neutral AI boundary for PRODX.
+Current exact HEAD is 13d154b795b36fcceb5ccc54a8cdb599d358edb2. The deterministic workflows for this documentation-updated HEAD are currently queued/pending, so prior PASS evidence from b76001ca8ff6ec85e45a7834e9b3b63854ad5d3b is historical evidence and is not claimed for the current HEAD. Gemini hosted review and autonomous Gemini runs are also queued.
 
-## CI code-review provider
+# PRODX AI — Production Boundary
 
-The canonical CI code-review lane now uses Google Gemini through the Antigravity CLI. Provider credentials belong in the deployment secret manager and must never be committed or bundled into the browser.
+## Current architecture
 
-Configure the GitHub Actions secret GEMINI_API_KEY. The review workflow sets Antigravity's modelProvider to gemini and uses headless structured output.
+The active production application AI provider is Google Gemini only. Historical OKMD/OpenRouter/OpenAI references are legacy audit history and are not current production provider architecture.
 
-OpenRouter is no longer part of the canonical CI review lane. The application AI boundary remains provider-neutral; application runtime provider configuration is a separate concern from CI code review.
+Production request flow:
 
-## Request flow
+Browser -> POST /api/v1/ai/chat -> authentication/session -> ai:use RBAC -> AI Gateway -> Gemini Provider -> Gemini API
 
-GitHub PR -> Antigravity CLI -> Gemini -> structured PRODX review -> PR comment -> CI decision
+The browser never receives or stores the Gemini provider credential. The backend owns provider selection, credential custody, authorization, redaction, request limits, audit logging, safe provider errors, bounded transient retries, and the server-owned model allowlist.
 
-The review lane never exposes provider credentials to the browser. Its token is limited to repository read access plus PR/issue comments; it has no repository contents write permission. The automatic workflow is base-controlled and reviews only the exact head SHA it fetched.
+## AI code-review lane
 
-## Production integration boundary
+The canonical CI review lane also uses Gemini through the pinned Antigravity CLI. It reviews the exact PR head using a sanitized diff and publishes a structured result only when genuine provider execution succeeds.
 
-Application AI requests must remain behind the authenticated backend boundary so organization/user authorization, rate limits, quota policy, audit logging, and data-redaction rules are enforced before an AI request leaves PRODX.
+Current exact-head evidence at b76001ca8ff6ec85e45a7834e9b3b63854ad5d3b: deterministic repository gates pass, but the Gemini hosted review/autonomous provider lane is blocked by quota/runtime evidence. No structured Gemini verdict is claimed.
+
+## Authorization
+
+ai:use is registered by migration 0018. It is not implicitly granted by role name and is not granted by the migration. Tenant-owned RBAC administration must explicitly grant the permission to an organization-owned role and assign that role within organization/store scope.
 
 ## Verification
 
-Provider tests use mocked implementations and never require a real provider API key.
+Provider unit tests use mocked implementations and do not claim real provider availability. Exact-head runtime evidence must be obtained separately.
 
-Run the standard verification checks before changing the provider boundary:
+Standard checks:
 
 ```bash
 npm run lint

@@ -19,7 +19,7 @@ export interface AiConfig {
 export const AI_BACKEND_CHAT_PATH = '/api/v1/ai/chat';
 
 export const DEFAULT_AI_CONFIG: AiConfig = {
-  model: 'openrouter/auto-beta',
+  model: 'gemini-3.8-flash',
   enabled: true,
   temperature: 0.7,
 };
@@ -61,7 +61,7 @@ export class AiService {
   }
 
   private sanitize(value: Record<string, unknown>): AiConfig {
-    const model = typeof value.model === 'string' && value.model.trim() ? value.model.trim() : DEFAULT_AI_CONFIG.model;
+    const model = typeof value.model === 'string' && /^gemini-[a-z0-9._-]+$/i.test(value.model.trim()) ? value.model.trim() : DEFAULT_AI_CONFIG.model;
     const temperature = typeof value.temperature === 'number' && Number.isFinite(value.temperature)
       ? Math.min(1, Math.max(0, value.temperature))
       : DEFAULT_AI_CONFIG.temperature;
@@ -69,18 +69,34 @@ export class AiService {
     return { model, temperature, enabled };
   }
 
+  private getSessionToken(): string {
+    try {
+      const raw = localStorage.getItem('prodx_pos_session');
+      if (!raw) return '';
+      const parsed = JSON.parse(raw) as { token?: unknown };
+      return typeof parsed.token === 'string' ? parsed.token.trim() : '';
+    } catch {
+      return '';
+    }
+  }
+
   /**
    * Sends a chat completion through the authenticated backend AI route.
-   * The session cookie authorizes the request; no credential is sent from the browser.
+   * The authenticated session bearer is sent only to the configured PRODX backend route; provider credentials never leave the server.
    */
   public async chatCompletion(messages: AiChatMessage[], overrides?: Partial<AiConfig>): Promise<string> {
     const config = this.sanitize({ ...this.getConfig(), ...overrides } as Record<string, unknown>);
     if (!config.enabled) throw new Error('ฟีเจอร์ผู้ช่วย AI ถูกปิดใช้งานอยู่');
 
+    const sessionToken = this.getSessionToken();
     const res = await fetch(AI_BACKEND_CHAT_PATH, {
       method: 'POST',
       credentials: 'include',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
+      },
       body: JSON.stringify({ messages, model: config.model, temperature: config.temperature }),
     });
 

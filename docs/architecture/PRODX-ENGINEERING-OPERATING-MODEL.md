@@ -37,12 +37,14 @@ ChatGPT must operate proactively as a project engineering coworker rather than a
 - Report actual status, evidence, risks, decisions needed, and the next planned action.
 - Preserve the Owner's role as decision-maker while taking responsibility for routine engineering management and execution coordination.
 
-## 4. AI provider redundancy
+## 4. AI provider policy
 
-AI provider availability must not become a single point of failure for engineering execution.
+AI provider availability must not become a single point of failure for engineering execution, but the current production application provider is intentionally Gemini-only.
 
 - Use the best available AI engineering capability for each task.
-- When a provider or capability is unavailable, blocked, or degraded, route suitable work to an available fallback provider/capability.
+- Engineering analysis may use an approved alternative capability when Gemini is unavailable, provided the same production gates are preserved.
+- The production application AI registry on the current branch exposes Gemini only.
+- OpenRouter, OpenAI, OKMD, or another provider must not be introduced as a production fallback without an explicit architecture decision and security review.
 - Independent work may continue in parallel while a blocked task is being resolved.
 - Provider fallback must never weaken security, architecture, database, testing, or acceptance gates.
 - A failed gate blocks the affected change until corrected; it does not require unrelated engineering work to stop.
@@ -143,3 +145,8 @@ If a task is blocked, ChatGPT should identify the blocker, use an approved fallb
 - This document is the operational agreement for how PRODX engineering work is managed.
 - Changes to Owner authority, coworker operating behavior, mandatory quality gates, deployment direction, or milestone governance require Owner approval before becoming effective.
 - Technical implementation details may evolve through the normal architecture review process as long as they remain consistent with the approved product principles and do not weaken mandatory gates.
+
+
+## Current implementation status — 2026-09-24
+
+The repository has progressed beyond the original M0-only description: PostgreSQL-backed identity/RBAC/device-session foundations, transaction/refund/payment/supervisor-authorization slices, and the authenticated Gemini AI route are implemented. Release readiness is still gated by exact-head Gemini runtime evidence and explicit runtime tenant provisioning for ai:use.
