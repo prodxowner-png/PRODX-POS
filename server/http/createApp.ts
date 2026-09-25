@@ -20,6 +20,7 @@ declare global {
 export type BackendBoundaryOptions = {
   authenticateRequest: AuthenticateRequest;
   authorizeRequest?: AuthorizeRequest;
+  configurePublicRoutes?: (app: express.Express) => void;
   configureRoutes?: (app: express.Express) => void;
 };
 
@@ -98,6 +99,7 @@ export const createApp = (options: BackendBoundaryOptions) => {
   app.use(express.json({ limit: '1mb' }));
   app.use(attachRequestId);
   app.locals.prodxAuthorize = options.authorizeRequest;
+  options.configurePublicRoutes?.(app);
   app.use(authenticate(options.authenticateRequest));
 
   app.get('/api/v1/health', (_request, response) => {
