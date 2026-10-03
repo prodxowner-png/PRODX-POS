@@ -1,8 +1,8 @@
 /* PRODX Premium Design System
  * Premium Luxury × Modern SaaS × Professional POS
  *
- * This layer is intentionally additive: existing component classes remain valid
- * while new surfaces can adopt the shared tokens/utilities incrementally.
+ * Shared tokens intentionally align with src/index.css so every surface
+ * resolves to the same brand language.
  */
 
 :root {
@@ -12,10 +12,12 @@
   --prodx-orange-400: #fb923c;
   --prodx-orange-500: #f97316;
   --prodx-orange-600: #ea580c;
-  --prodx-ink-950: #09090b;
-  --prodx-ink-900: #111113;
-  --prodx-ink-800: #18181b;
+
+  --prodx-ink-950: #0a0a0b;
+  --prodx-ink-900: #121214;
+  --prodx-ink-800: #1a1a1d;
   --prodx-ink-700: #27272a;
+
   --prodx-stone-100: #f5f5f4;
   --prodx-stone-300: #d6d3d1;
   --prodx-stone-500: #78716c;
@@ -25,10 +27,11 @@
   --prodx-surface-1: var(--prodx-ink-900);
   --prodx-surface-2: var(--prodx-ink-800);
   --prodx-surface-3: #202023;
-  --prodx-content: #fafafa;
+
+  --prodx-content: #fafaf9;
   --prodx-content-muted: #a1a1aa;
   --prodx-line: rgba(255, 255, 255, 0.09);
-  --prodx-line-strong: rgba(255, 255, 255, 0.15);
+  --prodx-line-strong: rgba(255, 255, 255, 0.16);
 
   --prodx-brand: var(--prodx-orange-500);
   --prodx-brand-hover: var(--prodx-orange-400);
@@ -43,8 +46,8 @@
   --prodx-radius-pill: 999px;
 
   --prodx-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.18);
-  --prodx-shadow-md: 0 12px 30px rgba(0, 0, 0, 0.22);
-  --prodx-shadow-lg: 0 24px 60px rgba(0, 0, 0, 0.30);
+  --prodx-shadow-md: 0 16px 36px rgba(0, 0, 0, 0.24);
+  --prodx-shadow-lg: 0 28px 72px rgba(0, 0, 0, 0.32);
   --prodx-shadow-brand: 0 12px 34px rgba(249, 115, 22, 0.18);
 
   --prodx-motion-fast: 140ms cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -57,7 +60,7 @@
   color: var(--prodx-content);
   border: 1px solid var(--prodx-line);
   border-radius: var(--prodx-radius-lg);
-  box-shadow: var(--prodx-shadow-md);
+  box-shadow: var(--prodx-shadow-sm);
 }
 
 .prodx-premium-card {
@@ -66,7 +69,10 @@
   border: 1px solid var(--prodx-line);
   border-radius: var(--prodx-radius-lg);
   box-shadow: var(--prodx-shadow-sm);
-  transition: border-color var(--prodx-motion-base), box-shadow var(--prodx-motion-base), transform var(--prodx-motion-base);
+  transition:
+    border-color var(--prodx-motion-base),
+    box-shadow var(--prodx-motion-base),
+    transform var(--prodx-motion-base);
 }
 
 .prodx-premium-card:hover {
@@ -84,7 +90,10 @@
   color: var(--prodx-content);
   padding: 0 14px;
   outline: none;
-  transition: border-color var(--prodx-motion-fast), box-shadow var(--prodx-motion-fast), background var(--prodx-motion-fast);
+  transition:
+    border-color var(--prodx-motion-fast),
+    box-shadow var(--prodx-motion-fast),
+    background var(--prodx-motion-fast);
 }
 
 .prodx-premium-input::placeholder {
@@ -111,7 +120,11 @@
   justify-content: center;
   gap: 8px;
   font-weight: 700;
-  transition: transform var(--prodx-motion-fast), background var(--prodx-motion-fast), box-shadow var(--prodx-motion-fast), border-color var(--prodx-motion-fast);
+  transition:
+    transform var(--prodx-motion-fast),
+    background var(--prodx-motion-fast),
+    box-shadow var(--prodx-motion-fast),
+    border-color var(--prodx-motion-fast);
 }
 
 .prodx-premium-button:active:not(:disabled) {
@@ -167,7 +180,9 @@
 }
 
 .prodx-premium-grid {
-  background-image: linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.032) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.032) 1px, transparent 1px);
   background-size: 32px 32px;
 }
 
