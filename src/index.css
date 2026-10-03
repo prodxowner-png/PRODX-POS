@@ -17,16 +17,13 @@
   --color-border: var(--border-color);
   --color-border-hover: var(--border-hover);
 
-  /* Override standard Tailwind neutral shades for cohesive enterprise SaaS theme */
   --color-white: var(--card-color);
   --color-slate-50: var(--bg-color);
   --color-zinc-50: var(--bg-color);
   --color-slate-100: var(--bg-color);
   --color-zinc-100: var(--bg-color);
-  
   --color-slate-900: var(--text-color);
   --color-zinc-900: var(--text-color);
-  
   --color-slate-200: var(--border-color);
   --color-zinc-200: var(--border-color);
 }
@@ -35,197 +32,123 @@
 
 @layer base {
   :root {
-    color-scheme: light dark;
-    --primary-color: #3B82F6;
-    --primary-dark: #1D4ED8;
-    --primary-light: rgba(59, 130, 246, 0.12);
-    --primary-glow: rgba(59, 130, 246, 0.25);
-    --bg-color: #090D16;
-    --card-color: #0F172A;
-    --card-hover: #1E293B;
-    --text-color: #F8FAFC;
-    --text-muted: #94A3B8;
-    --border-color: #1E293B;
-    --border-hover: #334155;
-    --button-radius: 12px;
-    --card-radius: 16px;
+    color-scheme: dark;
+    /* PRODX Signature: warm premium orange on graphite/obsidian surfaces. */
+    --primary-color: #F97316;
+    --primary-dark: #C2410C;
+    --primary-light: rgba(249, 115, 22, 0.12);
+    --primary-glow: rgba(249, 115, 22, 0.24);
+
+    --bg-color: #0A0A0B;
+    --card-color: #121214;
+    --card-hover: #1A1A1D;
+    --text-color: #FAFAF9;
+    --text-muted: #A1A1AA;
+    --border-color: rgba(255, 255, 255, 0.09);
+    --border-hover: rgba(255, 255, 255, 0.16);
+
+    --button-radius: 14px;
+    --card-radius: 18px;
   }
 
   body {
-    background-color: var(--color-background);
+    background:
+      radial-gradient(circle at 10% 0%, rgba(249, 115, 22, 0.07), transparent 28%),
+      radial-gradient(circle at 100% 100%, rgba(16, 185, 129, 0.045), transparent 26%),
+      var(--color-background);
     color: var(--color-text);
     font-family: 'K2D', 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    transition: background-color 0.2s ease, color 0.2s ease;
   }
 
-  /* Default HTML headings typography baseline with K2D scale */
-  h1 {
+  ::selection {
+    background: rgba(249, 115, 22, 0.25);
+    color: #fff;
+  }
+
+  h1, h2, h3, h4 {
     font-family: 'K2D', sans-serif;
-    font-size: clamp(1.25rem, 2vw, 1.875rem);
+    text-wrap: balance;
+  }
+
+  h1 {
+    font-size: clamp(1.35rem, 2vw, 1.95rem);
     font-weight: 800;
-    letter-spacing: -0.025em;
+    letter-spacing: -0.03em;
     line-height: 1.2;
   }
 
   h2 {
-    font-family: 'K2D', sans-serif;
-    font-size: clamp(1.125rem, 1.6vw, 1.5rem);
-    font-weight: 700;
-    letter-spacing: -0.02em;
+    font-size: clamp(1.15rem, 1.6vw, 1.5rem);
+    font-weight: 750;
+    letter-spacing: -0.022em;
     line-height: 1.25;
   }
 
   h3 {
-    font-family: 'K2D', sans-serif;
-    font-size: clamp(1rem, 1.2vw, 1.25rem);
+    font-size: clamp(1rem, 1.2vw, 1.2rem);
     font-weight: 700;
-    letter-spacing: -0.015em;
+    letter-spacing: -0.016em;
     line-height: 1.3;
   }
 
   h4 {
-    font-family: 'K2D', sans-serif;
-    font-size: 0.875rem;
-    font-weight: 600;
+    font-size: 0.9rem;
+    font-weight: 650;
     letter-spacing: -0.01em;
     line-height: 1.4;
   }
+
+  button, input, textarea, select {
+    font: inherit;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+  }
 }
 
-/* ========================================================================= */
-/* Central K2D Enterprise Typography Scale Utility Classes                   */
-/* ========================================================================= */
+.text-display-2xl { font-family: 'K2D', sans-serif; font-size: clamp(2rem, 4vw, 3.25rem); font-weight: 800; letter-spacing: -0.038em; line-height: 1.08; }
+.text-display-xl { font-family: 'K2D', sans-serif; font-size: clamp(1.8rem, 3vw, 2.55rem); font-weight: 800; letter-spacing: -0.032em; line-height: 1.12; }
+.text-display-lg { font-family: 'K2D', sans-serif; font-size: clamp(1.4rem, 2.2vw, 1.9rem); font-weight: 750; letter-spacing: -0.028em; line-height: 1.18; }
 
-/* 1. Display Scale (Hero metrics, CFD totals, Grand Totals, High-Impact KPI) */
-.text-display-2xl {
-  font-family: 'K2D', sans-serif;
-  font-size: clamp(2rem, 4vw, 3.25rem);
-  font-weight: 800;
-  letter-spacing: -0.035em;
-  line-height: 1.1;
+.text-heading-1 { font-family: 'K2D', sans-serif; font-size: clamp(1.25rem, 1.8vw, 1.55rem); font-weight: 800; letter-spacing: -0.028em; line-height: 1.22; }
+.text-heading-2 { font-family: 'K2D', sans-serif; font-size: clamp(1.1rem, 1.4vw, 1.28rem); font-weight: 700; letter-spacing: -0.022em; line-height: 1.3; }
+.text-heading-3 { font-family: 'K2D', sans-serif; font-size: 1rem; font-weight: 700; letter-spacing: -0.016em; line-height: 1.35; }
+.text-heading-4 { font-family: 'K2D', sans-serif; font-size: 0.875rem; font-weight: 650; letter-spacing: -0.01em; line-height: 1.4; }
+
+.text-body-lg { font-family: 'K2D', sans-serif; font-size: 1rem; font-weight: 400; line-height: 1.6; }
+.text-body-md, .text-body-base { font-family: 'K2D', sans-serif; font-size: 0.875rem; font-weight: 400; line-height: 1.5; }
+.text-body-sm { font-family: 'K2D', sans-serif; font-size: 0.75rem; font-weight: 400; line-height: 1.45; }
+
+.text-mono-lg, .text-mono-md, .text-mono-sm, .text-mono-xs {
+  font-family: 'JetBrains Mono', monospace;
+  font-feature-settings: "tnum" 1, "zero" 1;
 }
+.text-mono-lg { font-size: 1.125rem; font-weight: 700; letter-spacing: -0.02em; }
+.text-mono-md { font-size: 0.875rem; font-weight: 600; letter-spacing: -0.01em; }
+.text-mono-sm { font-size: 0.75rem; font-weight: 500; letter-spacing: -0.01em; }
+.text-mono-xs { font-size: 0.6875rem; font-weight: 500; letter-spacing: -0.01em; }
 
-.text-display-xl {
+.text-label-lg, .text-label-md, .text-label-sm, .text-label-xs {
   font-family: 'K2D', sans-serif;
-  font-size: clamp(1.75rem, 3vw, 2.5rem);
-  font-weight: 800;
-  letter-spacing: -0.03em;
-  line-height: 1.15;
-}
-
-.text-display-lg {
-  font-family: 'K2D', sans-serif;
-  font-size: clamp(1.35rem, 2.2vw, 1.875rem);
-  font-weight: 700;
-  letter-spacing: -0.025em;
-  line-height: 1.2;
-}
-
-/* 2. Heading Scale (Screen titles, Section headers, Modal titles, Card titles) */
-.text-heading-1 {
-  font-family: 'K2D', sans-serif;
-  font-size: clamp(1.25rem, 1.8vw, 1.5rem);
-  font-weight: 800;
-  letter-spacing: -0.025em;
-  line-height: 1.25;
-}
-
-.text-heading-2 {
-  font-family: 'K2D', sans-serif;
-  font-size: clamp(1.1rem, 1.4vw, 1.25rem);
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  line-height: 1.3;
-}
-
-.text-heading-3 {
-  font-family: 'K2D', sans-serif;
-  font-size: 1rem;
-  font-weight: 700;
-  letter-spacing: -0.015em;
-  line-height: 1.35;
-}
-
-.text-heading-4 {
-  font-family: 'K2D', sans-serif;
-  font-size: 0.875rem;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  line-height: 1.4;
-}
-
-/* 3. Body Scale (Readable body paragraphs, descriptions, and standard text) */
-.text-body-lg {
-  font-family: 'K2D', sans-serif;
-  font-size: 1rem;
-  font-weight: 400;
-  line-height: 1.6;
-}
-
-.text-body-md,
-.text-body-base {
-  font-family: 'K2D', sans-serif;
-  font-size: 0.875rem;
-  font-weight: 400;
-  line-height: 1.5;
-}
-
-.text-body-sm {
-  font-family: 'K2D', sans-serif;
-  font-size: 0.75rem;
-  font-weight: 400;
-  line-height: 1.45;
-}
-
-/* 4. Label Scale (Field labels, metadata badges, section categories) */
-.text-label-lg {
-  font-family: 'K2D', sans-serif;
-  font-size: 0.75rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  line-height: 1.3;
 }
+.text-label-lg { font-size: 0.75rem; letter-spacing: 0.05em; line-height: 1.3; }
+.text-label-md { font-size: 0.6875rem; letter-spacing: 0.06em; line-height: 1.25; }
+.text-label-sm { font-size: 0.625rem; letter-spacing: 0.08em; line-height: 1.2; }
+.text-label-xs { font-size: 0.5625rem; letter-spacing: 0.08em; line-height: 1.15; }
 
-.text-label-md {
-  font-family: 'K2D', sans-serif;
-  font-size: 0.6875rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  line-height: 1.25;
-}
-
-.text-label-sm {
-  font-family: 'K2D', sans-serif;
-  font-size: 0.625rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  line-height: 1.2;
-}
-
-.text-label-xs {
-  font-family: 'K2D', sans-serif;
-  font-size: 0.5625rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  line-height: 1.15;
-}
-
-/* 5. Caption & Helper Scale (Subtitles, hints, timestamps, footnotes) */
-.text-caption-md,
-.text-caption {
+.text-caption-md, .text-caption {
   font-family: 'K2D', sans-serif;
   font-size: 0.6875rem;
   font-weight: 400;
   line-height: 1.4;
   color: var(--text-muted);
 }
-
 .text-caption-sm {
   font-family: 'K2D', sans-serif;
   font-size: 0.625rem;
@@ -234,304 +157,52 @@
   color: var(--text-muted);
 }
 
-/* 6. High-Precision Numeric & Monospace Scale */
-.text-mono-lg {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 1.125rem;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  font-feature-settings: "tnum" 1, "zero" 1;
-}
-
-.text-mono-md {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 0.875rem;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  font-feature-settings: "tnum" 1, "zero" 1;
-}
-
-.text-mono-sm {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 0.75rem;
-  font-weight: 500;
-  letter-spacing: -0.01em;
-  font-feature-settings: "tnum" 1, "zero" 1;
-}
-
-.text-mono-xs {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 0.6875rem;
-  font-weight: 500;
-  letter-spacing: -0.01em;
-  font-feature-settings: "tnum" 1, "zero" 1;
-}
-
-/* High-tech SaaS subtle dot matrix background */
 .tech-dot-matrix {
-  background-image: radial-gradient(rgba(59, 130, 246, 0.15) 1px, transparent 1px);
+  background-image: radial-gradient(rgba(249, 115, 22, 0.11) 1px, transparent 1px);
   background-size: 20px 20px;
 }
-
 .tech-grid-mesh {
   background-size: 40px 40px;
-  background-image: 
-    linear-gradient(to right, rgba(15, 23, 42, 0.04) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(15, 23, 42, 0.04) 1px, transparent 1px);
+  background-image:
+    linear-gradient(to right, rgba(255,255,255,0.035) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255,255,255,0.035) 1px, transparent 1px);
 }
 
-:root.dark .tech-grid-mesh,
-.dark .tech-grid-mesh {
-  background-image: 
-    linear-gradient(to right, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
-}
+.border-crisp { border-width: 1px; }
+.theme-btn-radius { border-radius: var(--button-radius, 14px); }
+.theme-card-radius { border-radius: var(--card-radius, 18px); }
 
-/* Crisp 1px border styling */
-.border-crisp {
-  border-width: 1px;
-}
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
-/* Dynamic theme button and card radii */
-.theme-btn-radius {
-  border-radius: var(--button-radius, 12px);
-}
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(161, 161, 170, 0.28); border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(161, 161, 170, 0.42); }
 
-.theme-card-radius {
-  border-radius: var(--card-radius, 16px);
-}
+.active-scale { transition: transform 120ms cubic-bezier(0.4,0,0.2,1); }
+.active-scale:active:not(:disabled) { transform: scale(0.985); }
+.active-scale-sm { transition: transform 120ms cubic-bezier(0.4,0,0.2,1); }
+.active-scale-sm:active:not(:disabled) { transform: scale(0.975); }
 
-/* Scrollbars & utilities */
-.no-scrollbar::-webkit-scrollbar {
-  display: none;
-}
-.no-scrollbar {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-}
-
-::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.3);
-  border-radius: 4px;
-}
-
-.dark ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.5);
-}
-
-.dark ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.22);
-}
-
-/* Tactile Active Scaling Utilities for Touch & Desktop Feedback */
-.active-scale {
-  transition: transform 0.12s cubic-bezier(0.4, 0, 0.2, 1);
-}
-.active-scale:active:not(:disabled) {
-  transform: scale(0.97);
-}
-
-.active-scale-sm {
-  transition: transform 0.12s cubic-bezier(0.4, 0, 0.2, 1);
-}
-.active-scale-sm:active:not(:disabled) {
-  transform: scale(0.95);
-}
-
-/* Persistent Biometric Prompt Animations */
-@keyframes biometric-glow {
-  0%, 100% {
-    box-shadow: 0 0 14px rgba(16, 185, 129, 0.2), 0 0 28px rgba(16, 185, 129, 0.08);
-  }
-  50% {
-    box-shadow: 0 0 24px rgba(16, 185, 129, 0.42), 0 0 42px rgba(16, 185, 129, 0.2);
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
   }
 }
 
-@keyframes laser-sweep {
-  0% {
-    transform: translateY(-100%);
-    opacity: 0.4;
+@media (max-width: 640px) {
+  :root {
+    --button-radius: 14px;
+    --card-radius: 16px;
   }
-  50% {
-    transform: translateY(100%);
-    opacity: 1;
-  }
-  100% {
-    transform: translateY(-100%);
-    opacity: 0.4;
+
+  body {
+    background:
+      radial-gradient(circle at 50% -10%, rgba(249,115,22,0.08), transparent 34%),
+      var(--color-background);
   }
 }
-
-.animate-biometric-glow {
-  animation: biometric-glow 2.2s ease-in-out infinite;
-}
-
-.animate-laser-sweep {
-  animation: laser-sweep 2.4s ease-in-out infinite;
-}
-
-/* ========================================================================= */
-/* Rhythmic Live Pulse & Signal Wave Animations                              */
-/* ========================================================================= */
-@keyframes live-pulse-glow {
-  0%, 100% {
-    box-shadow: 0 0 8px rgba(16, 185, 129, 0.6), 0 0 16px rgba(16, 185, 129, 0.2);
-    transform: scale(1);
-  }
-  50% {
-    box-shadow: 0 0 16px rgba(16, 185, 129, 0.95), 0 0 28px rgba(16, 185, 129, 0.45);
-    transform: scale(1.08);
-  }
-}
-
-@keyframes live-bar-wave-1 {
-  0%, 100% { height: 5px; }
-  50% { height: 15px; }
-}
-
-@keyframes live-bar-wave-2 {
-  0%, 100% { height: 15px; }
-  50% { height: 7px; }
-}
-
-@keyframes live-bar-wave-3 {
-  0%, 100% { height: 9px; }
-  50% { height: 16px; }
-}
-
-.animate-live-glow {
-  animation: live-pulse-glow 1.8s ease-in-out infinite;
-}
-
-.animate-live-bar-1 {
-  animation: live-bar-wave-1 1.1s ease-in-out infinite;
-}
-
-.animate-live-bar-2 {
-  animation: live-bar-wave-2 1.3s ease-in-out infinite 0.15s;
-}
-
-.animate-live-bar-3 {
-  animation: live-bar-wave-3 1.0s ease-in-out infinite 0.35s;
-}
-
-/* ========================================================================= */
-/* Barcode Scan Line Item Flash & Cart Total Pulse Animations               */
-/* ========================================================================= */
-@keyframes scan-item-flash {
-  0% {
-    box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.45), 0 0 24px rgba(16, 185, 129, 0.35);
-    background-color: rgba(16, 185, 129, 0.18);
-    transform: scale(1.025);
-  }
-  35% {
-    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.35), 0 0 16px rgba(16, 185, 129, 0.2);
-    background-color: rgba(16, 185, 129, 0.12);
-    transform: scale(1.01);
-  }
-  70% {
-    box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.2), 0 0 8px rgba(16, 185, 129, 0.1);
-    background-color: rgba(16, 185, 129, 0.05);
-    transform: scale(1);
-  }
-  100% {
-    box-shadow: none;
-    transform: scale(1);
-  }
-}
-
-@keyframes total-pulse-glow {
-  0% {
-    transform: scale(1);
-    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
-  }
-  30% {
-    transform: scale(1.03);
-    box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.35), 0 0 16px rgba(16, 185, 129, 0.25);
-  }
-  60% {
-    transform: scale(1.015);
-    box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
-  }
-  100% {
-    transform: scale(1);
-    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
-  }
-}
-
-@keyframes total-text-highlight {
-  0% {
-    transform: scale(1);
-    color: inherit;
-  }
-  30% {
-    transform: scale(1.14);
-    color: #10b981;
-    filter: drop-shadow(0 0 6px rgba(16, 185, 129, 0.6));
-  }
-  65% {
-    transform: scale(1.05);
-    color: #059669;
-  }
-  100% {
-    transform: scale(1);
-  }
-}
-
-@keyframes bounce-short {
-  0%, 100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-4px);
-  }
-}
-
-.animate-scan-flash {
-  animation: scan-item-flash 1.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-
-.animate-total-pulse {
-  animation: total-pulse-glow 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-
-.animate-total-text {
-  animation: total-text-highlight 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-
-.animate-bounce-short {
-  animation: bounce-short 0.4s ease-out 2;
-}
-
-/* ========================================================================= */
-/* Visual Inspector Mode (1px dashed outlines for flex & absolute elements)  */
-/* ========================================================================= */
-body.prodx-visual-inspector-active .flex,
-body.prodx-visual-inspector-active [class*="flex-"],
-body.prodx-visual-inspector-active .inline-flex,
-body.prodx-visual-inspector-active .grid,
-body.prodx-visual-inspector-active [class*="absolute"],
-body.prodx-visual-inspector-active [class*="relative"],
-body.prodx-visual-inspector-active [class*="fixed"],
-body.prodx-visual-inspector-active div[class*="flex"],
-body.prodx-visual-inspector-active section,
-body.prodx-visual-inspector-active article,
-body.prodx-visual-inspector-active main {
-  outline: 1px dashed rgba(239, 68, 68, 0.75) !important;
-  outline-offset: -1px;
-}
-
