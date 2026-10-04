@@ -9,9 +9,7 @@
     "types": [
       "node"
     ],
-    "noEmit": true,
-    "noUnusedLocals": false,
-    "noUnusedParameters": false
+    "noEmit": true
   },
   "include": [
     "server/**/*.ts"
