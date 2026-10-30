@@ -13,3 +13,16 @@ test('rejects client grand-total tampering before financial writes',async()=>{co
 test('rejects payment currency mismatch and malformed cash',async()=>{const db=baseDb();await assert.rejects(createCheckoutService(db).checkout(request({payments:[{...request().payments[0],amount:{amountInCents:2000,currency:'USD'}}]})),/Payment currency/);await assert.rejects(createCheckoutService(db).checkout(request({payments:[{...request().payments[0],tenderedCash:{amountInCents:2100,currency:'THB'},changeGiven:{amountInCents:0,currency:'THB'}}]})),/Cash tender/);});
 test('requires idempotency key and positive items',async()=>{const db=baseDb();await assert.rejects(createCheckoutService(db).checkout(request({idempotencyKey:'   '})),(e:unknown)=>e instanceof CheckoutValidationError);await assert.rejects(createCheckoutService(db).checkout(request({items:[]})),(e:unknown)=>e instanceof CheckoutValidationError);});
 test('preserves transaction failures for rollback',async()=>{const db:TransactionalSqlExecutor={query:async()=>({rows:[]}),transaction:async()=>{throw new Error('db failure');}};await assert.rejects(createCheckoutService(db).checkout(request()),/db failure/);});
+
+test('rejects reuse of an idempotency key with a different semantic checkout payload',async()=>{
+ const db=executor(async<T extends Record<string,unknown>>(sql:string)=>{
+  if(sql.includes('FROM prodx_orders'))return rows([{id:'existing-order',idempotency_payload_hash:'0'.repeat(64)}]) as {rows:T[]};
+  throw new Error(`unexpected query: ${sql}`);
+ });
+ await assert.rejects(createCheckoutService(db).checkout(request()),(error:unknown)=>error instanceof CheckoutConflictError);
+});
+test('rejects item and order discounts outside the supported basis-point range',async()=>{
+ const service=createCheckoutService(baseDb());
+ await assert.rejects(service.checkout(request({items:[{...request().items[0],discountBps:10001}]})),(error:unknown)=>error instanceof CheckoutValidationError);
+ await assert.rejects(service.checkout(request({orderDiscountBps:-1})),(error:unknown)=>error instanceof CheckoutValidationError);
+});
