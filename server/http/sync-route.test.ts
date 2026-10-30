@@ -75,6 +75,27 @@ test('sync route rejects idempotency mismatch before database work', async () =>
   }
 });
 
+test('sync route rejects discounted offline orders without pos.discount permission', async () => {
+  const app = createApp({
+    authenticateRequest: () => principal,
+    authorizeRequest: (_context, permission) => permission === 'pos.sell',
+    configureRoutes: (configuredApp) => registerSyncRoute(configuredApp, unreachableDb),
+  });
+  const server = await start(app);
+  try {
+    const payload = { idempotencyKey: 'sync-discount-1', registerId: 'register-1', items: [{ discountBps: 500 }], payments: [], totals: {} };
+    const response = await fetch(`${server.baseUrl}/api/v1/sync/commands`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ item: { id: 'outbox-discount-1', type: 'order_transaction', idempotencyKey: 'sync-discount-1', payload, createdAt: '2026-10-30T00:00:00.000Z', attempts: 0, syncState: 'queued' } }),
+    });
+    assert.equal(response.status, 403);
+    assert.equal((await response.json()).error.code, 'DISCOUNT_NOT_AUTHORIZED');
+  } finally {
+    await server.close();
+  }
+});
+
 test('sync route denies unauthorized access before database work', async () => {
   const app = createApp({
     authenticateRequest: () => principal,
