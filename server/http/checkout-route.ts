@@ -21,7 +21,7 @@ export const registerCheckoutRoute = (app: Express, db: TransactionalSqlExecutor
         response.status(403).json({ error:{code:'STORE_SCOPE_VIOLATION',message:'Checkout store and cashier must match the authenticated principal.',requestId:request.id} });
         return;
       }
-      const hasDiscount = payload.orderDiscountBps !== undefined && payload.orderDiscountBps > 0 || payload.items.some((item) => item.discountBps > 0);
+      const hasDiscount = (payload.orderDiscountBps !== undefined && payload.orderDiscountBps > 0) || payload.items.some((item) => item.discountBps > 0);
       if (hasDiscount) {
         const authorizer = request.app.locals.prodxAuthorize as AuthorizeRequest | undefined;
         if (!authorizer || !(await authorizer(context, 'pos.discount'))) {
