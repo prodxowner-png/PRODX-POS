@@ -4,6 +4,7 @@ import type { OutboxItem } from '../../src/domain/sync';
 import { createCheckoutService, CheckoutConflictError, CheckoutValidationError } from '../transactions/checkout-service';
 import { requirePermission } from './createApp';
 import type { TransactionalSqlExecutor } from '../db/transaction';
+import type { AuthorizeRequest } from './types';
 
 type SyncCommandBody = {
   item: OutboxItem;
@@ -81,6 +82,15 @@ export const registerSyncRoute = (
           error: { code: 'SYNC_PAYLOAD_INVALID', message: 'The order_transaction payload is invalid.', requestId: request.id },
         });
         return;
+      }
+
+      const hasDiscount = (item.payload.orderDiscountBps !== undefined && item.payload.orderDiscountBps > 0) || item.payload.items.some((line) => line.discountBps > 0);
+      if (hasDiscount) {
+        const authorizer = request.app.locals.prodxAuthorize as AuthorizeRequest | undefined;
+        if (!authorizer || !(await authorizer(context, 'pos.discount'))) {
+          response.status(403).json({ error: { code: 'DISCOUNT_NOT_AUTHORIZED', message: 'The authenticated user is not authorized to apply discounts.', requestId: request.id } });
+          return;
+        }
       }
 
       const result = await checkout.checkout({
