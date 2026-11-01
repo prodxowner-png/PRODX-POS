@@ -595,8 +595,9 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
       }],
     }),
   });
-  assert.equal(discountedCheckoutRes.status, 201, await discountedCheckoutRes.text());
-  const discountedCheckoutBody = (await discountedCheckoutRes.json()) as {
+  const discountedCheckoutResponseBody = await discountedCheckoutRes.text();
+  assert.equal(discountedCheckoutRes.status, 201, discountedCheckoutResponseBody);
+  const discountedCheckoutBody = JSON.parse(discountedCheckoutResponseBody) as {
     order: { totals: { orderDiscount: { amountInCents: number }; grandTotal: { amountInCents: number } } };
   };
   assert.equal(discountedCheckoutBody.order.totals.orderDiscount.amountInCents, 220);
