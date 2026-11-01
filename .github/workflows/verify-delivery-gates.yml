@@ -83,8 +83,8 @@ jobs:
           test -s package-lock.json
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if ! git diff --quiet -- package-lock.json; then
-            git add package-lock.json
+          git add package-lock.json
+          if ! git diff --cached --quiet; then
             git commit -m "build: lock CI-resolved edge sync dependencies"
             git push origin "HEAD:${GITHUB_REF_NAME}"
           else
