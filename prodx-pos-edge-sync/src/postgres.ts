@@ -51,7 +51,7 @@ function lineTaxMinor(line: SaleLine): number {
 const COMMIT_SALE_CTE = `
 WITH
  tenant_ctx AS MATERIALIZED (
-   SELECT set_config('app.current_tenant_id', $1::text, true) AS tenant_id
+   SELECT set_config('app.current_tenant_id', $1::uuid::text, true) AS tenant_id
  ),
  checkpoint_lock AS MATERIALIZED (
    SELECT last_committed_seq_no,last_hlc_physical_ms,last_hlc_logical
