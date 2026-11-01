@@ -130,7 +130,16 @@ describe("PRODX Edge sync Durable Object", () => {
     const status=await stub.getStatus(TENANT,TERMINAL,item.sale.idempotency_key);
     expect(status.status).toBe("failed");
     expect(status.failure_code).toBe("PRODUCT_NOT_FOUND_IN_TENANT");
-    await expect(stub.submitBatch(submission([item]))).rejects.toThrow("IDEMPOTENCY_PREVIOUSLY_FAILED");
+    await runInDO(stub, async (instance: IdempotencyGate) => {
+      let failure: unknown;
+      try {
+        await instance.submitBatch(submission([item]));
+      } catch (error) {
+        failure = error;
+      }
+      expect(failure).toBeInstanceOf(Error);
+      expect((failure as Error).message).toContain("IDEMPOTENCY_PREVIOUSLY_FAILED");
+    });
   });
 
   it("reconciles a restored DO checkpoint forward from PostgreSQL before accepting the next sequence", async () => {
