@@ -83,7 +83,8 @@ test('sync route rejects discounted offline orders without pos.discount permissi
   });
   const server = await start(app);
   try {
-    const payload = { idempotencyKey: 'sync-discount-1', registerId: 'register-1', items: [{ discountBps: 500 }], payments: [], totals: {} };
+    const validPayload = request('sync-discount-1');
+    const payload = { ...validPayload, items: validPayload.items.map((line) => ({ ...line, discountBps: 500 })) };
     const response = await fetch(`${server.baseUrl}/api/v1/sync/commands`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -170,4 +171,76 @@ test('production sync HTTP path commits once and returns cached result on replay
       assert.equal((await pool.query('SELECT count(*)::int AS count FROM prodx_payments WHERE store_id=$1 AND order_id=$2', [ids.store, firstBody.confirmedOrder.id])).rows[0].count, 1);
     } finally { await server.close(); }
   } finally { await clean(); await pool.end(); }
+});
+
+
+test('sync route rejects malformed checkout payloads before database or idempotency work', async () => {
+  let databaseCalls = 0;
+  const noDatabase: TransactionalSqlExecutor = {
+    query: async () => { databaseCalls += 1; throw new Error('database must not be reached'); },
+    transaction: async () => { databaseCalls += 1; throw new Error('transaction must not be reached'); },
+  };
+  const app = createApp({
+    authenticateRequest: () => principal,
+    authorizeRequest: (_context, permission) => permission === 'pos.sell',
+    configureRoutes: (configuredApp) => registerSyncRoute(configuredApp, noDatabase),
+  });
+  const server = await start(app);
+  const valid = request('sync-validation-1');
+  const invalidPayloads = [
+    { ...valid, items: undefined },
+    { ...valid, items: null },
+    { ...valid, items: [null] },
+    { ...valid, items: [{ ...valid.items[0], product: null }] },
+    { ...valid, payments: [null] },
+    { ...valid, totals: null },
+    { ...valid, payments: [{ ...valid.payments[0], amount: { amountInCents: 1.25, currency: 'THB' } }] },
+    { ...valid, payments: [{ ...valid.payments[0], amount: { amountInCents: Number.MAX_SAFE_INTEGER + 1, currency: 'THB' } }] },
+    { ...valid, payments: [{ ...valid.payments[0], amount: { amountInCents: 1_000_000_000_000, currency: 'THB' } }] },
+    { ...valid, payments: [{ ...valid.payments[0], amount: { amountInCents: '1000', currency: 'THB' } }] },
+    { ...valid, items: [{ ...valid.items[0], quantity: Number.MAX_SAFE_INTEGER + 1 }] },
+    { ...valid, items: [{ ...valid.items[0], quantity: 2_147_483_648 }] },
+    { ...valid, items: [{ ...valid.items[0], discountBps: 10001 }] },
+  ];
+
+  try {
+    for (const payload of invalidPayloads) {
+      const item = {
+        id: 'sync-validation-command',
+        type: 'order_transaction' as const,
+        idempotencyKey: 'sync-validation-1',
+        payload,
+        createdAt: '2026-11-01T00:00:00.000Z',
+        attempts: 0,
+        syncState: 'queued' as const,
+      };
+      const response = await fetch(`${server.baseUrl}/api/v1/sync/commands`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ item }),
+      });
+      assert.equal(response.status, 400);
+      assert.equal((await response.json()).error.code, 'SYNC_PAYLOAD_INVALID');
+    }
+
+    const malformedMetadata = await fetch(`${server.baseUrl}/api/v1/sync/commands`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        item: {
+          id: 'sync-invalid-metadata',
+          type: 'order_transaction',
+          idempotencyKey: 123,
+          payload: { idempotencyKey: 123 },
+          createdAt: 'not-a-date',
+          attempts: 0,
+          syncState: 'queued',
+        },
+      }),
+    });
+    assert.equal(malformedMetadata.status, 400);
+    assert.equal(databaseCalls, 0, 'invalid outbox commands must not start a query or transaction');
+  } finally {
+    await server.close();
+  }
 });

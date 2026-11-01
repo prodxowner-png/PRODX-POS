@@ -28,3 +28,34 @@ test('rejects item and order discounts outside the supported basis-point range',
  await assert.rejects(service.checkout(request({items:[{...request().items[0],discountBps:10001}]})),(error:unknown)=>error instanceof CheckoutValidationError);
  await assert.rejects(service.checkout(request({orderDiscountBps:-1})),(error:unknown)=>error instanceof CheckoutValidationError);
 });
+
+
+test('validates untrusted checkout structures and safe integer amounts before opening a transaction', async () => {
+ let transactionStarted = false;
+ const db: TransactionalSqlExecutor = {
+  query: async () => ({ rows: [] }),
+  transaction: async () => { transactionStarted = true; throw new Error('transaction must not start'); },
+ };
+ const base = request();
+ const malformed = [
+  { ...base, items: null },
+  { ...base, items: [null] },
+  { ...base, items: [{ ...base.items[0], product: null }] },
+  { ...base, payments: [null] },
+  { ...base, totals: null },
+  { ...base, payments: [{ ...base.payments[0], amount: { amountInCents: 1.5, currency: 'THB' } }] },
+  { ...base, payments: [{ ...base.payments[0], amount: { amountInCents: Number.MAX_SAFE_INTEGER + 1, currency: 'THB' } }] },
+  { ...base, payments: [{ ...base.payments[0], amount: { amountInCents: 1_000_000_000_000, currency: 'THB' } }] },
+  { ...base, payments: [{ ...base.payments[0], amount: { amountInCents: '2000', currency: 'THB' } }] },
+  { ...base, items: [{ ...base.items[0], quantity: Number.MAX_SAFE_INTEGER + 1 }] },
+  { ...base, items: [{ ...base.items[0], quantity: 2_147_483_648 }] },
+ ] as unknown as CheckoutRequest[];
+
+ for (const payload of malformed) {
+  await assert.rejects(
+   createCheckoutService(db).checkout(payload),
+   (error: unknown) => error instanceof CheckoutValidationError,
+  );
+ }
+ assert.equal(transactionStarted, false);
+});

@@ -1,12 +1,21 @@
 import crypto from 'node:crypto';
 import type { CheckoutRequest, CheckoutResponse } from '../../src/adapters/types';
 import type { SqlQueryExecutor, TransactionalSqlExecutor } from '../db/transaction';
+import { assertCheckoutRequest, CheckoutValidationError } from './checkout-validation';
 
-export class CheckoutValidationError extends Error { readonly code='CHECKOUT_VALIDATION_FAILED'; }
+export { CheckoutValidationError } from './checkout-validation';
 export class CheckoutConflictError extends Error { readonly code='CHECKOUT_CONFLICT'; }
 
 type DbRow=Record<string, any>;
-const cents=(v:unknown,field:string):bigint=>{const n=BigInt((v as any)?.amountInCents??-1);if(n<0n)throw new CheckoutValidationError(`${field} must be a non-negative integer minor-unit amount.`);return n;};
+const cents=(v:unknown,field:string):bigint=>{
+ const amount = v && typeof v === 'object' && !Array.isArray(v)
+  ? (v as Record<string, unknown>).amountInCents
+  : undefined;
+ if(typeof amount !== 'number' || !Number.isSafeInteger(amount) || amount < 0 || amount > 999_999_999_999) {
+  throw new CheckoutValidationError(`${field} must be a non-negative safe integer minor-unit amount.`);
+ }
+ return BigInt(amount);
+};
 const numeric=(n:bigint)=>`${n/100n}.${(n%100n).toString().padStart(2,'0')}`;
 const dbCents=(v:unknown)=>{const m=/^(\d+)\.(\d{2})$/.exec(String(v));if(!m)throw new CheckoutValidationError('Database monetary value is invalid.');return BigInt(m[1])*100n+BigInt(m[2]);};
 const checkoutFingerprint=(request:CheckoutRequest):string=>{
@@ -20,8 +29,8 @@ const checkoutFingerprint=(request:CheckoutRequest):string=>{
  return crypto.createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
 };
 const validateBasisPoints=(value:unknown,field:string):number=>{
- if(!Number.isInteger(value)||Number(value)<0||Number(value)>10000)throw new CheckoutValidationError(`${field} must be an integer between 0 and 10000 basis points.`);
- return Number(value);
+ if(typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > 10000)throw new CheckoutValidationError(`${field} must be an integer between 0 and 10000 basis points.`);
+ return value;
 };
 const orderFromDb=async(db:SqlQueryExecutor,o:DbRow,cached:boolean):Promise<CheckoutResponse>=>{
  const items=(await db.query(`SELECT oi.*,p.sku,p.barcode,p.name,p.category_id,p.cost_price_amount::text,p.tax_rate_bps,p.reorder_point,p.unit_of_measure,p.current_stock FROM prodx_order_items oi JOIN prodx_products p ON p.id=oi.product_id AND p.store_id=oi.store_id WHERE oi.order_id=$1 ORDER BY oi.id`,[o.id])).rows;
@@ -31,7 +40,7 @@ const orderFromDb=async(db:SqlQueryExecutor,o:DbRow,cached:boolean):Promise<Chec
 };
 
 export const createCheckoutService=(db:TransactionalSqlExecutor)=>({async checkout(request:CheckoutRequest):Promise<CheckoutResponse>{
- if(!request.idempotencyKey?.trim()||!request.storeId||!request.registerId||!request.cashierId)throw new CheckoutValidationError('Idempotency key, store, register and cashier are required.');
+ assertCheckoutRequest(request);
  if(request.items.length===0)throw new CheckoutValidationError('At least one item is required.');
  for(const item of request.items)validateBasisPoints(item.discountBps,`Discount for product ${item.product.id}`);
  const orderDiscountBps=validateBasisPoints((request as CheckoutRequest & {orderDiscountBps?:number}).orderDiscountBps??0,'Order discount');

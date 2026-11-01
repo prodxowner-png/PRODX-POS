@@ -246,10 +246,44 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
     'Content-Type': 'application/json',
     Authorization: `Bearer ${cashierSession.token}`,
   };
+  const cashierDiscountPayload = {
+    idempotencyKey: 'idem-p4-cashier-discount-denied',
+    storeId: ids.store,
+    registerId: ids.register,
+    cashierId: ids.cashierUser,
+    orderDiscountBps: 1000,
+    items: [{
+      lineId: 'line-p4-cashier-discount',
+      product: { id: '00000000-0000-4000-8000-000000009410' },
+      quantity: 1,
+      unitPrice: { amountInCents: 2199, currency: 'THB' },
+      discountBps: 0,
+      lineSubtotal: { amountInCents: 2055, currency: 'THB' },
+      lineTax: { amountInCents: 144, currency: 'THB' },
+      lineTotal: { amountInCents: 2199, currency: 'THB' },
+    }],
+    totals: {
+      grossSubtotal: { amountInCents: 2199, currency: 'THB' },
+      itemDiscounts: { amountInCents: 0, currency: 'THB' },
+      orderDiscount: { amountInCents: 220, currency: 'THB' },
+      netSubtotal: { amountInCents: 1849, currency: 'THB' },
+      totalTax: { amountInCents: 130, currency: 'THB' },
+      grandTotal: { amountInCents: 1979, currency: 'THB' },
+      totalItemsCount: 1,
+    },
+    payments: [{
+      id: crypto.randomUUID(),
+      method: 'cash',
+      amount: { amountInCents: 1979, currency: 'THB' },
+      tenderedCash: { amountInCents: 2000, currency: 'THB' },
+      changeGiven: { amountInCents: 21, currency: 'THB' },
+      timestamp: new Date().toISOString(),
+    }],
+  };
   const cashierDiscountDenied = await fetch(`${baseUrl}/api/v1/orders/checkout`, {
     method: 'POST',
     headers: cashierHeaders,
-    body: JSON.stringify({ storeId: ids.store, cashierId: ids.cashierUser, orderDiscountBps: 1000, items: [] }),
+    body: JSON.stringify(cashierDiscountPayload),
   });
   assert.equal(cashierDiscountDenied.status, 403);
   assert.equal(((await cashierDiscountDenied.json()) as { error: { code: string } }).error.code, 'DISCOUNT_NOT_AUTHORIZED');
@@ -260,8 +294,11 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
       item: {
         id: 'sync-p4-discount-denied',
         type: 'order_transaction',
-        idempotencyKey: 'idem-p4-cashier-discount-denied',
-        payload: { idempotencyKey: 'idem-p4-cashier-discount-denied', registerId: ids.register, items: [], payments: [], totals: {}, orderDiscountBps: 1000 },
+        idempotencyKey: cashierDiscountPayload.idempotencyKey,
+        payload: cashierDiscountPayload,
+        createdAt: new Date().toISOString(),
+        attempts: 0,
+        syncState: 'queued',
       },
     }),
   });
