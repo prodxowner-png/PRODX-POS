@@ -258,7 +258,7 @@ export default {
   },
 
   async queue(batch: MessageBatch<unknown>, env: Env): Promise<void> {
-    if (batch.queue === "prodx-pos-ingest-dlq") {
+    if (batch.queue === env.POS_INGEST_DLQ_QUEUE) {
       for (const message of batch.messages) {
         const failed = message.body as QueueSale & { failure_code?: string };
         try {
