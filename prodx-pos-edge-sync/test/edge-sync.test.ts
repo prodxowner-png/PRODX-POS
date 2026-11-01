@@ -10,7 +10,7 @@ const TERMINAL = "22222222-2222-4222-8222-222222222222";
 const SECRET = "test-only-signing-secret-at-least-32-characters";
 const runInDO = runInDurableObject as unknown as (
   stub: unknown,
-  callback: (instance: any, state: any) => void | Promise<void>
+  callback: (instance: any, state: DurableObjectState) => void | Promise<void>
 ) => Promise<void>;
 
 
