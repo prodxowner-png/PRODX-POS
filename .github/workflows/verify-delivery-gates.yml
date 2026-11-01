@@ -64,6 +64,19 @@ jobs:
           npm install --global npm@10.9.4
           npm --version
 
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Prepare verification logs
+        run: mkdir -p artifacts/logs
+
+      # ─────────────────────────────────────────────────────────────
+      # Gate 3 — Build & Edge Unit Verification (real workerd runtime)
+      # ─────────────────────────────────────────────────────────────
+      - name: Gate 3.1 — Install dependencies
+        id: install
+        run: npm install --no-audit --no-fund --legacy-peer-deps --verbose 2>&1 | tee artifacts/logs/npm-install.log
+
       - name: Commit CI-resolved npm lockfile
         if: github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.ref_name)
         run: |
@@ -78,18 +91,6 @@ jobs:
             echo "package-lock.json already committed and unchanged"
           fi
 
-      - name: Install PostgreSQL client
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client
-
-      - name: Prepare verification logs
-        run: mkdir -p artifacts/logs
-
-      # ─────────────────────────────────────────────────────────────
-      # Gate 3 — Build & Edge Unit Verification (real workerd runtime)
-      # ─────────────────────────────────────────────────────────────
-      - name: Gate 3.1 — Install dependencies
-        id: install
-        run: npm install --no-audit --no-fund --legacy-peer-deps --verbose 2>&1 | tee artifacts/logs/npm-install.log
 
       - name: Gate 3.2 — Generate Wrangler bindings
         id: wrangler_types
