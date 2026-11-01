@@ -83,7 +83,7 @@ ensure_hyperdrive() {
   local name="$1" caching="$2" id
   id="$(hyperdrive_id "$name")"
   if [[ -n "$id" ]]; then
-    printf 'Hyperdrive exists: %s (%s)\n' "$name" "$id"
+    printf 'Hyperdrive exists: %s (%s)\n' "$name" "$id" >&2
     printf '%s' "$id"
     return
   fi
