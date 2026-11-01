@@ -122,11 +122,12 @@ WITH
           $10,l.signed_unit_price_minor,true
      FROM sales_insert s
      CROSS JOIN input_lines l
-   RETURNING product_id,quantity
+   RETURNING 1 AS inserted
  ),
  inventory_totals AS MATERIALIZED (
    SELECT product_id,SUM(quantity)::bigint AS quantity
-     FROM sale_lines_insert
+     FROM input_lines
+    WHERE EXISTS (SELECT 1 FROM sale_lines_insert)
     GROUP BY product_id
  ),
  inventory_insert AS (
@@ -134,7 +135,7 @@ WITH
      (tenant_id,product_id,sale_id,terminal_id,reference_id,quantity_delta,reason,created_at)
    SELECT $1,i.product_id,$6,$2,$6,(-i.quantity)::integer,'POS_SALE',now()
      FROM inventory_totals i
-   RETURNING product_id
+   RETURNING 1 AS inserted
  ),
  audit_insert AS (
    INSERT INTO audit_logs
@@ -143,7 +144,7 @@ WITH
    SELECT $1,'POS_TERMINAL',$2,'POS_SALE_COMMITTED','SALE',$6,$5,$10,$16::jsonb,now()
      FROM sales_insert
     WHERE EXISTS (SELECT 1 FROM inventory_insert)
-   RETURNING id
+   RETURNING 1 AS inserted
  ),
  checkpoint_update AS (
    INSERT INTO terminal_sync_state
