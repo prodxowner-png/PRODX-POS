@@ -22,7 +22,8 @@ GRANT USAGE ON SCHEMA public TO prodx_pos_worker,prodx_catalog_writer,prodx_devi
 GRANT SELECT ON products,tenant_catalog_versions,terminal_devices TO prodx_pos_worker;
 GRANT SELECT,INSERT,UPDATE ON pos_idempotency,terminal_sync_state TO prodx_pos_worker;
 GRANT SELECT ON inventory_balances TO prodx_pos_worker;
-GRANT INSERT ON sales,sale_lines,inventory_ledger,audit_logs TO prodx_pos_worker;
+GRANT SELECT,INSERT ON sales TO prodx_pos_worker;
+GRANT INSERT ON sale_lines,inventory_ledger,audit_logs TO prodx_pos_worker;
 GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO prodx_pos_worker;
 -- Re-run the sequence GRANT after any later migration that adds a serial/bigserial column.
 
