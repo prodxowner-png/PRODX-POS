@@ -20,21 +20,6 @@ jobs:
       run:
         shell: bash
         working-directory: prodx-pos-edge-sync
-    env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      STAGING_DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
-      STAGING_RECONCILIATION_DATABASE_URL: ${{ secrets.STAGING_RECONCILIATION_DATABASE_URL }}
-      POS_STAGING_ACCESS_AUD: ${{ secrets.POS_STAGING_ACCESS_AUD }}
-      POS_STAGING_SYNC_URL: ${{ secrets.POS_STAGING_SYNC_URL }}
-      POS_STAGING_ACCESS_JWT: ${{ secrets.POS_STAGING_ACCESS_JWT }}
-      POS_STAGING_OPS_JWT: ${{ secrets.POS_STAGING_OPS_JWT }}
-      POS_STAGING_MTLS_CERT_PEM: ${{ secrets.POS_STAGING_MTLS_CERT_PEM }}
-      POS_STAGING_MTLS_KEY_PEM: ${{ secrets.POS_STAGING_MTLS_KEY_PEM }}
-      POS_STAGING_E2E_PAYLOAD_B64: ${{ secrets.POS_STAGING_E2E_PAYLOAD_B64 }}
-      POS_STAGING_TERMINAL_IDS_JSON: ${{ secrets.POS_STAGING_TERMINAL_IDS_JSON }}
-      CATALOG_SIGNING_KEY: ${{ secrets.CATALOG_SIGNING_KEY }}
-
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -47,6 +32,20 @@ jobs:
           cache-dependency-path: prodx-pos-edge-sync/package-lock.json
 
       - name: Preflight — require isolated Staging credentials and E2E fixture
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          STAGING_DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          STAGING_RECONCILIATION_DATABASE_URL: ${{ secrets.STAGING_RECONCILIATION_DATABASE_URL }}
+          POS_STAGING_ACCESS_AUD: ${{ secrets.POS_STAGING_ACCESS_AUD }}
+          POS_STAGING_SYNC_URL: ${{ secrets.POS_STAGING_SYNC_URL }}
+          POS_STAGING_ACCESS_JWT: ${{ secrets.POS_STAGING_ACCESS_JWT }}
+          POS_STAGING_OPS_JWT: ${{ secrets.POS_STAGING_OPS_JWT }}
+          POS_STAGING_MTLS_CERT_PEM: ${{ secrets.POS_STAGING_MTLS_CERT_PEM }}
+          POS_STAGING_MTLS_KEY_PEM: ${{ secrets.POS_STAGING_MTLS_KEY_PEM }}
+          POS_STAGING_E2E_PAYLOAD_B64: ${{ secrets.POS_STAGING_E2E_PAYLOAD_B64 }}
+          POS_STAGING_TERMINAL_IDS_JSON: ${{ secrets.POS_STAGING_TERMINAL_IDS_JSON }}
+          CATALOG_SIGNING_KEY: ${{ secrets.CATALOG_SIGNING_KEY }}
         run: |
           set -euo pipefail
           required=(CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID STAGING_DATABASE_URL
@@ -72,6 +71,11 @@ jobs:
         run: npm ci --no-audit --no-fund --legacy-peer-deps
 
       - name: Provision isolated Staging Queues and Hyperdrive
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          STAGING_DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          POS_STAGING_ACCESS_AUD: ${{ secrets.POS_STAGING_ACCESS_AUD }}
         run: |
           chmod +x scripts/provision-staging.sh
           ./scripts/provision-staging.sh provision
@@ -80,18 +84,31 @@ jobs:
         run: npx wrangler types
 
       - name: Deploy Worker to Cloudflare Staging only
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: npx wrangler deploy --env staging
 
       - name: Set Staging-only catalog signing secret
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CATALOG_SIGNING_KEY: ${{ secrets.CATALOG_SIGNING_KEY }}
         run: ./scripts/provision-staging.sh set-secret
 
       - name: Prepare mTLS client certificate
+        env:
+          POS_STAGING_MTLS_CERT_PEM: ${{ secrets.POS_STAGING_MTLS_CERT_PEM }}
+          POS_STAGING_MTLS_KEY_PEM: ${{ secrets.POS_STAGING_MTLS_KEY_PEM }}
         run: |
           printf '%s\n' "$POS_STAGING_MTLS_CERT_PEM" > /tmp/prodx-staging-client.crt
           printf '%s\n' "$POS_STAGING_MTLS_KEY_PEM" > /tmp/prodx-staging-client.key
           chmod 600 /tmp/prodx-staging-client.crt /tmp/prodx-staging-client.key
 
       - name: Gate 6.1 — Edge to DO to Queue to Hyperdrive E2E
+        env:
+          POS_STAGING_SYNC_URL: ${{ secrets.POS_STAGING_SYNC_URL }}
+          POS_STAGING_ACCESS_JWT: ${{ secrets.POS_STAGING_ACCESS_JWT }}
+          POS_STAGING_E2E_PAYLOAD_B64: ${{ secrets.POS_STAGING_E2E_PAYLOAD_B64 }}
         run: |
           set -euo pipefail
           printf '%s' "$POS_STAGING_E2E_PAYLOAD_B64" | base64 --decode > /tmp/prodx-staging-e2e.json
