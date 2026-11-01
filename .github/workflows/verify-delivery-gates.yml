@@ -20,6 +20,7 @@ jobs:
     timeout-minutes: 60
     defaults:
       run:
+        shell: bash
         working-directory: prodx-pos-edge-sync
 
     services:
@@ -58,6 +59,11 @@ jobs:
         with:
           node-version: 22
 
+      - name: Pin npm resolver for reproducible CI installs
+        run: |
+          npm install --global npm@10.9.4
+          npm --version
+
       - name: Install PostgreSQL client
         run: sudo apt-get update && sudo apt-get install -y postgresql-client
 
@@ -69,7 +75,7 @@ jobs:
       # ─────────────────────────────────────────────────────────────
       - name: Gate 3.1 — Install dependencies
         id: install
-        run: npm install --no-audit --no-fund 2>&1 | tee artifacts/logs/npm-install.log
+        run: npm install --no-audit --no-fund --legacy-peer-deps --verbose 2>&1 | tee artifacts/logs/npm-install.log
 
       - name: Gate 3.2 — Generate Wrangler bindings
         id: wrangler_types
