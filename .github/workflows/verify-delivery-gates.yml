@@ -1,0 +1,168 @@
+name: PRODX POS — Verify Delivery Gates
+
+"on":
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prodx-pos-delivery-gates-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Build, Edge, PostgreSQL, Chaos & Reconciliation
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: prodx-pos-edge-sync
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: prodx_pos_ci
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d prodx_pos_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      # Disposable CI database only. Never reuse these credentials in production.
+      ADMIN_DATABASE_URL: postgres://postgres:postgres@localhost:5432/prodx_pos_ci
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/prodx_pos_ci
+      RUNTIME_DATABASE_URL: postgres://prodx_pos_worker:prodx-ci-only-password@localhost:5432/prodx_pos_ci
+      RLS_AUDIT_DATABASE_URL: postgres://prodx_rls_auditor:prodx-ci-only-password@localhost:5432/prodx_pos_ci
+      RECONCILIATION_DATABASE_URL: postgres://prodx_reconciliation_admin:prodx-ci-only-password@localhost:5432/prodx_pos_ci
+      CI_ROLE_PASSWORD: prodx-ci-only-password
+      CATALOG_SIGNING_KEY: ci-only-prodx-catalog-signing-key-never-use-in-production-0123456789
+      POS_CI_MODE: "true"
+      NODE_ENV: test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Prepare verification logs
+        run: mkdir -p artifacts/logs
+
+      # ─────────────────────────────────────────────────────────────
+      # Gate 3 — Build & Edge Unit Verification (real workerd runtime)
+      # ─────────────────────────────────────────────────────────────
+      - name: Gate 3.1 — Install dependencies
+        id: install
+        run: npm install --no-audit --no-fund 2>&1 | tee artifacts/logs/npm-install.log
+
+      - name: Gate 3.2 — Generate Wrangler bindings
+        id: wrangler_types
+        run: npx wrangler types 2>&1 | tee artifacts/logs/wrangler-types.log
+
+      - name: Gate 3.3 — Full TypeScript typecheck
+        id: typecheck
+        run: npm run typecheck 2>&1 | tee artifacts/logs/typecheck.log
+
+      - name: Gate 3.4 — Cloudflare workerd Edge tests
+        id: edge_tests
+        run: npm run test:edge 2>&1 | tee artifacts/logs/edge-tests.log
+
+      # ─────────────────────────────────────────────────────────────
+      # Gate 4 — PostgreSQL 16 CTE, RLS, Signed Price & Ledger Tests
+      # ─────────────────────────────────────────────────────────────
+      - name: Gate 4.1 — Apply PostgreSQL migration
+        id: migration
+        run: psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/001_pos_ledger.sql 2>&1 | tee artifacts/logs/migration.log
+
+      - name: Gate 4.2 — Create isolated CI database roles
+        id: create_roles
+        run: psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 -v ci_role_password="$CI_ROLE_PASSWORD" -f scripts/create-ci-roles.sql 2>&1 | tee artifacts/logs/create-ci-roles.log
+
+      - name: Gate 4.3 — Grant least-privilege runtime permissions
+        id: grants
+        run: psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/grant-runtime-role.sql 2>&1 | tee artifacts/logs/grant-runtime-role.log
+
+      - name: Gate 4.4 — Verify RLS with NOBYPASSRLS auditor
+        id: rls
+        run: psql "$RLS_AUDIT_DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/rls-smoke.sql 2>&1 | tee artifacts/logs/rls-smoke.log
+
+      - name: Gate 4.5 — PostgreSQL 16 signed offline price & CTE integration
+        id: postgres_integration
+        run: npm run integration:postgres 2>&1 | tee artifacts/logs/postgres-integration.log
+
+      # No opening-stock seed is needed here: the CI chaos harness creates a
+      # disposable tenant/product and records its opening quantity through the
+      # immutable inventory_ledger path before testing POS sale deltas.
+
+      # ─────────────────────────────────────────────────────────────
+      # Gate 5 — Concurrent CTE Load, Duplicate Storm & Reconciliation
+      # ─────────────────────────────────────────────────────────────
+      - name: Gate 5.1 — 300-terminal PostgreSQL CI chaos load
+        id: chaos
+        run: npm run chaos 2>&1 | tee artifacts/logs/chaos-load.log
+
+      - name: Gate 5.2 — Prepare empty DO export (CI has no deployed DO namespace)
+        run: cp scripts/empty-do-outbox-export.csv do-outbox-export.csv
+
+      - name: Gate 5.3 — Strict SQL reconciliation (non-zero anomalies fail CI)
+        id: reconcile
+        run: psql "$RECONCILIATION_DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/reconcile.sql 2>&1 | tee artifacts/logs/reconcile.log
+
+      # ─────────────────────────────────────────────────────────────
+      # Delivery report and evidence
+      # ─────────────────────────────────────────────────────────────
+      - name: Write 6-Stage Delivery Gate Summary
+        if: always()
+        env:
+          INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          TYPES_OUTCOME: ${{ steps.wrangler_types.outcome }}
+          TYPECHECK_OUTCOME: ${{ steps.typecheck.outcome }}
+          EDGE_OUTCOME: ${{ steps.edge_tests.outcome }}
+          MIGRATION_OUTCOME: ${{ steps.migration.outcome }}
+          ROLES_OUTCOME: ${{ steps.create_roles.outcome }}
+          GRANTS_OUTCOME: ${{ steps.grants.outcome }}
+          RLS_OUTCOME: ${{ steps.rls.outcome }}
+          INTEGRATION_OUTCOME: ${{ steps.postgres_integration.outcome }}
+          CHAOS_OUTCOME: ${{ steps.chaos.outcome }}
+          RECONCILE_OUTCOME: ${{ steps.reconcile.outcome }}
+        run: |
+          result() { if [ "$1" = "success" ]; then echo "PASS"; elif [ "$1" = "skipped" ]; then echo "NOT RUN"; else echo "FAIL / $1"; fi; }
+          {
+            echo "## PRODX POS — 6-Stage Delivery Gates"
+            echo ""
+            echo "| Stage | Evidence | Result |"
+            echo "|---|---|---|"
+            echo "| 1. Architecture Approved | Reviewed architecture baseline; not re-evaluated by this workflow | BASELINE |"
+            echo "| 2. Implementation Complete | Versioned source package checked out | BASELINE |"
+            echo "| 3. Build Verified | npm install: $(result "$INSTALL_OUTCOME"); Wrangler types: $(result "$TYPES_OUTCOME"); TypeScript: $(result "$TYPECHECK_OUTCOME"); workerd: $(result "$EDGE_OUTCOME") | $( [ "$INSTALL_OUTCOME" = success ] && [ "$TYPES_OUTCOME" = success ] && [ "$TYPECHECK_OUTCOME" = success ] && [ "$EDGE_OUTCOME" = success ] && echo PASS || echo FAIL ) |"
+            echo "| 4. Integration Verified | Migration: $(result "$MIGRATION_OUTCOME"); roles/grants: $(result "$ROLES_OUTCOME")/$(result "$GRANTS_OUTCOME"); RLS: $(result "$RLS_OUTCOME"); PostgreSQL CTE: $(result "$INTEGRATION_OUTCOME") | $( [ "$MIGRATION_OUTCOME" = success ] && [ "$ROLES_OUTCOME" = success ] && [ "$GRANTS_OUTCOME" = success ] && [ "$RLS_OUTCOME" = success ] && [ "$INTEGRATION_OUTCOME" = success ] && echo PASS || echo FAIL ) |"
+            echo "| 5. Load & Recovery Verified | 300 terminal CI-scale PostgreSQL load: $(result "$CHAOS_OUTCOME"); SQL reconciliation: $(result "$RECONCILE_OUTCOME") | $( [ "$CHAOS_OUTCOME" = success ] && [ "$RECONCILE_OUTCOME" = success ] && echo PASS || echo FAIL ) |"
+            echo "| 6. Production Ready | Requires deployed Cloudflare staging, real DO/Queue crash recovery, mTLS/WAF validation and production-like load evidence | HOLD |"
+            echo ""
+            echo "> CI uses a disposable PostgreSQL 16 service and dummy signing key. A successful run does not by itself certify Cloudflare staging or Production Ready."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload verification logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prodx-pos-delivery-gates-${{ github.run_number }}
+          path: prodx-pos-edge-sync/artifacts/logs/
+          if-no-files-found: warn
+          retention-days: 14
