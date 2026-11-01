@@ -7,7 +7,7 @@ name: PRODX POS — Verify Delivery Gates
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: prodx-pos-delivery-gates-${{ github.ref }}
@@ -75,21 +75,7 @@ jobs:
       # ─────────────────────────────────────────────────────────────
       - name: Gate 3.1 — Install dependencies
         id: install
-        run: npm install --no-audit --no-fund --legacy-peer-deps --verbose 2>&1 | tee artifacts/logs/npm-install.log
-
-      - name: Commit CI-resolved npm lockfile
-        if: github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.ref_name)
-        run: |
-          test -s package-lock.json
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add package-lock.json
-          if ! git diff --cached --quiet; then
-            git commit -m "build: lock CI-resolved edge sync dependencies"
-            git push origin "HEAD:${GITHUB_REF_NAME}"
-          else
-            echo "package-lock.json already committed and unchanged"
-          fi
+        run: npm ci --no-audit --no-fund --legacy-peer-deps --verbose 2>&1 | tee artifacts/logs/npm-ci.log
 
 
       - name: Gate 3.2 — Generate Wrangler bindings
@@ -171,7 +157,7 @@ jobs:
             echo "|---|---|---|"
             echo "| 1. Architecture Approved | Reviewed architecture baseline; not re-evaluated by this workflow | BASELINE |"
             echo "| 2. Implementation Complete | Versioned source package checked out | BASELINE |"
-            echo "| 3. Build Verified | npm install: $(result "$INSTALL_OUTCOME"); Wrangler types: $(result "$TYPES_OUTCOME"); TypeScript: $(result "$TYPECHECK_OUTCOME"); workerd: $(result "$EDGE_OUTCOME") | $( [ "$INSTALL_OUTCOME" = success ] && [ "$TYPES_OUTCOME" = success ] && [ "$TYPECHECK_OUTCOME" = success ] && [ "$EDGE_OUTCOME" = success ] && echo PASS || echo FAIL ) |"
+            echo "| 3. Build Verified | npm ci: $(result "$INSTALL_OUTCOME"); Wrangler types: $(result "$TYPES_OUTCOME"); TypeScript: $(result "$TYPECHECK_OUTCOME"); workerd: $(result "$EDGE_OUTCOME") | $( [ "$INSTALL_OUTCOME" = success ] && [ "$TYPES_OUTCOME" = success ] && [ "$TYPECHECK_OUTCOME" = success ] && [ "$EDGE_OUTCOME" = success ] && echo PASS || echo FAIL ) |"
             echo "| 4. Integration Verified | Migration: $(result "$MIGRATION_OUTCOME"); roles/grants: $(result "$ROLES_OUTCOME")/$(result "$GRANTS_OUTCOME"); RLS: $(result "$RLS_OUTCOME"); PostgreSQL CTE: $(result "$INTEGRATION_OUTCOME") | $( [ "$MIGRATION_OUTCOME" = success ] && [ "$ROLES_OUTCOME" = success ] && [ "$GRANTS_OUTCOME" = success ] && [ "$RLS_OUTCOME" = success ] && [ "$INTEGRATION_OUTCOME" = success ] && echo PASS || echo FAIL ) |"
             echo "| 5. Load & Recovery Verified | 300 terminal CI-scale PostgreSQL load: $(result "$CHAOS_OUTCOME"); SQL reconciliation: $(result "$RECONCILE_OUTCOME") | $( [ "$CHAOS_OUTCOME" = success ] && [ "$RECONCILE_OUTCOME" = success ] && echo PASS || echo FAIL ) |"
             echo "| 6. Production Ready | Requires deployed Cloudflare staging, real DO/Queue crash recovery, mTLS/WAF validation and production-like load evidence | HOLD |"
