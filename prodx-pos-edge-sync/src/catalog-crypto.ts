@@ -5,6 +5,12 @@ function fromBase64Url(value: string): Uint8Array {
   const padded = value.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(value.length / 4) * 4, "=");
   return Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
 }
+function toArrayBuffer(value: Uint8Array): ArrayBuffer {
+  const copy = new Uint8Array(value.byteLength);
+  copy.set(value);
+  return copy.buffer;
+}
+
 function toBase64Url(value: ArrayBuffer): string {
   return btoa(String.fromCharCode(...new Uint8Array(value)))
     .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
@@ -66,7 +72,7 @@ export async function verifyCatalogSnapshot(
   if (!Number.isFinite(now) || issued > now + 60_000 || expires <= now || expires <= issued || expires - issued > 7 * 86400_000) return false;
   try {
     const key = await hmacKey(secret);
-    return await crypto.subtle.verify("HMAC", key, fromBase64Url(snapshot.signature),
+    return await crypto.subtle.verify("HMAC", key, toArrayBuffer(fromBase64Url(snapshot.signature)),
       new TextEncoder().encode(unsignedSnapshot(snapshot)));
   } catch { return false; }
 }
@@ -132,7 +138,7 @@ export async function verifySalePrices(
       if (issued > verifiedAt + 60_000 || expires <= verifiedAt || expires <= issued ||
           expires - issued > 7 * 86400_000) return false;
       const { signature, ...unsigned } = proof;
-      const valid = await crypto.subtle.verify("HMAC", key, fromBase64Url(signature),
+      const valid = await crypto.subtle.verify("HMAC", key, toArrayBuffer(fromBase64Url(signature)),
         new TextEncoder().encode(unsignedPriceProof(unsigned)));
       if (!valid) return false;
       const prior = signed.get(proof.product_id);

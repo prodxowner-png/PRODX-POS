@@ -346,7 +346,12 @@ export class IdempotencyGate extends DurableObject<Env> {
           });
         }
       }
-      return { results:output,sequence_gaps:openGaps,last_contiguous_seq_no:contiguous };
+      return {
+        results:output,
+        sequence_gaps:openGaps,
+        last_contiguous_seq_no:contiguous,
+        last_hlc:{physical_ms:lastPhysical,logical:lastLogical}
+      };
     });
 
     await this.flushPending();

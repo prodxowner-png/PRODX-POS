@@ -89,7 +89,7 @@ describe("PRODX Edge sync Durable Object", () => {
     const item=prepared("queued-retry-idempotency-key","9".repeat(64),1);
     await stub.submitBatch(submission([item]));
     let resent=0;
-    await runInDurableObject(stub,(instance:any)=>{
+    await runInDurableObject(stub as any,(instance:any)=>{
       const queue=instance.env.POS_INGEST_QUEUE;
       const original=queue.sendBatch.bind(queue);
       Object.defineProperty(queue,"sendBatch",{configurable:true,value:async(messages:any[])=>{

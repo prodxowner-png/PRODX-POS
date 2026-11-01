@@ -154,7 +154,7 @@ async function handleCatalog(request: Request, env: Env, ctx: ExecutionContext):
     cacheUrl.pathname = `/__prodx_cache/catalog/${auth.tenantId}/${catalogVersion}`;
     cacheUrl.search = `?cursor=${encodeURIComponent(cursor ?? "")}&limit=${limit}`;
     const cacheKey = new Request(cacheUrl.toString(), { method: "GET" });
-    const cache = caches.default;
+    const cache = await caches.open("prodx-pos-catalog");
     const cachedResponse = await cache.match(cacheKey).catch(() => undefined);
     if (cachedResponse) {
       const cachedData = await cachedResponse.clone().json().catch(() => null) as { catalog_version?: number } | null;
@@ -255,7 +255,7 @@ export default {
     }
   },
 
-  async queue(batch: MessageBatch<QueueSale>, env: Env): Promise<void> {
+  async queue(batch: MessageBatch<unknown>, env: Env): Promise<void> {
     if (batch.queue === "prodx-pos-ingest-dlq") {
       for (const message of batch.messages) {
         const failed = message.body as QueueSale & { failure_code?: string };
@@ -273,11 +273,12 @@ export default {
       return;
     }
     for (const message of batch.messages) {
+      const saleMessage = message.body as QueueSale;
       try {
-        await commitSale(env, message.body);
-        const id = env.IDEMPOTENCY.idFromName(message.body.do_name);
+        await commitSale(env, saleMessage);
+        const id = env.IDEMPOTENCY.idFromName(saleMessage.do_name);
         const stub = env.IDEMPOTENCY.get(id);
-        await stub.markCommitted(message.body.tenant_id, message.body.terminal_id, message.body.idempotency_key);
+        await stub.markCommitted(saleMessage.tenant_id, saleMessage.terminal_id, saleMessage.idempotency_key);
         message.ack();
       } catch (error) {
         const reason = error instanceof Error ? error.message : "UNKNOWN";
@@ -287,20 +288,20 @@ export default {
           // DLQ consumers deduplicate by tenant_id + idempotency_key.
           try {
             await env.POS_INGEST_DLQ.send({
-              ...message.body,
+              ...saleMessage,
               failure_code: reason,
               failed_at: new Date().toISOString()
             });
-            const doName = getDoName(message.body.tenant_id,message.body.terminal_id);
+            const doName = getDoName(saleMessage.tenant_id,saleMessage.terminal_id);
             const stub = env.IDEMPOTENCY.get(env.IDEMPOTENCY.idFromName(doName));
-            await stub.markFailed(message.body.tenant_id,message.body.terminal_id,message.body.idempotency_key,reason);
+            await stub.markFailed(saleMessage.tenant_id,saleMessage.terminal_id,saleMessage.idempotency_key,reason);
             message.ack();
           } catch (dlqError) {
             console.error("dead_letter_enqueue_or_finalize_failed", dlqError);
             message.retry({ delaySeconds: 60 });
           }
         } else {
-          console.error("sale_commit_retry", { receipt_id:message.body.receipt_id,error:reason });
+          console.error("sale_commit_retry", { receipt_id:saleMessage.receipt_id,error:reason });
           // Missing earlier terminal sequence numbers are recoverable when the
           // POS replays its missing outbox entries; retry with a longer delay.
           message.retry({ delaySeconds: reason.startsWith("TERMINAL_SEQUENCE_GAP") ? 60 : 15 });
