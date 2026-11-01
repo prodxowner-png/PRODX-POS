@@ -143,23 +143,18 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
   );
 
   for (const permKey of requiredPermissions) {
-    await pool.query(
-      `INSERT INTO prodx_permissions (id, permission_key, description)
-       VALUES ($1, $2, $2)
-       ON CONFLICT (permission_key) DO NOTHING`,
-      [crypto.randomUUID(), permKey],
-    );
     const permRow = await pool.query<{ id: string }>(
       'SELECT id FROM prodx_permissions WHERE permission_key = $1 LIMIT 1',
       [permKey],
     );
+    assert.equal(permRow.rowCount, 1, `Canonical permission ${permKey} must be seeded by migrations.`);
     await pool.query(
       `INSERT INTO prodx_role_permissions (organization_id, role_id, permission_id)
        VALUES ($1, $2, $3)
        ON CONFLICT DO NOTHING`,
       [ids.org, ids.adminRole, permRow.rows[0].id],
     );
-    if (permKey.startsWith('pos.') || permKey.startsWith('cash.shift.') || permKey === 'inventory.read') {
+    if (['pos.sell', 'cash.shift.open', 'cash.shift.close', 'inventory.read', 'customer.read', 'customer.write'].includes(permKey)) {
       await pool.query(
         `INSERT INTO prodx_role_permissions (organization_id, role_id, permission_id)
          VALUES ($1, $2, $3)
@@ -230,6 +225,48 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
     'Content-Type': 'application/json',
     Authorization: `Bearer ${adminSession.token}`,
   };
+
+  // Cashier has pos.sell but no pos.discount; both online checkout and offline replay must fail closed.
+  const cashierLogin = await fetch(`${baseUrl}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      organizationSlug: 'phase4-org',
+      storeCode: 'store-p4',
+      emailOrPin: 'p4-cashier',
+      passwordOrPin: 'Phase4-Pass!99',
+      registerId: 'REG-P4',
+    }),
+  });
+  assert.equal(cashierLogin.status, 200);
+  const cashierSession = (await cashierLogin.json()) as { token: string; currentUser: { permissions: string[] } };
+  assert.equal(cashierSession.currentUser.permissions.includes('pos:checkout'), true);
+  assert.equal(cashierSession.currentUser.permissions.includes('pos:discount'), false);
+  const cashierHeaders = {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${cashierSession.token}`,
+  };
+  const cashierDiscountDenied = await fetch(`${baseUrl}/api/v1/orders/checkout`, {
+    method: 'POST',
+    headers: cashierHeaders,
+    body: JSON.stringify({ storeId: ids.store, cashierId: ids.cashierUser, orderDiscountBps: 1000, items: [] }),
+  });
+  assert.equal(cashierDiscountDenied.status, 403);
+  assert.equal(((await cashierDiscountDenied.json()) as { error: { code: string } }).error.code, 'DISCOUNT_NOT_AUTHORIZED');
+  const cashierSyncDiscountDenied = await fetch(`${baseUrl}/api/v1/sync/commands`, {
+    method: 'POST',
+    headers: cashierHeaders,
+    body: JSON.stringify({
+      item: {
+        id: 'sync-p4-discount-denied',
+        type: 'order_transaction',
+        idempotencyKey: 'idem-p4-cashier-discount-denied',
+        payload: { idempotencyKey: 'idem-p4-cashier-discount-denied', registerId: ids.register, items: [], payments: [], totals: {}, orderDiscountBps: 1000 },
+      },
+    }),
+  });
+  assert.equal(cashierSyncDiscountDenied.status, 403);
+  assert.equal(((await cashierSyncDiscountDenied.json()) as { error: { code: string } }).error.code, 'DISCOUNT_NOT_AUTHORIZED');
 
   // 3. Phase 3 Gate: Bulk Catalog Import with exact BigInt decimal money + idempotency
   const importRes1 = await fetch(`${baseUrl}/api/v1/catalog/import`, {
@@ -514,15 +551,66 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
   });
   assert.equal(voidRes.status, 201);
 
-  // 10. Shift Close + Idempotent Replay
-  // Expected cash in drawer: 100000 (start) + 4398 (order 1) - 2199 (refund 1) + 2199 (order 2) - 2199 (void 2) = 102199 cents
+  // 10. Production RBAC discount authorization through the real PostgreSQL permission catalog.
+  const discountedCheckoutRes = await fetch(`${baseUrl}/api/v1/orders/checkout`, {
+    method: 'POST',
+    headers: authHeaders,
+    body: JSON.stringify({
+      idempotencyKey: 'idem-p4-checkout-discount',
+      storeId: ids.store,
+      registerId: ids.register,
+      cashierId: ids.adminUser,
+      orderDiscountBps: 1000,
+      items: [{
+        lineId: 'line-discount-1',
+        product: {
+          id: productId, storeId: ids.store, sku: 'P4-COFFEE-01', barcode: '8859999000011',
+          name: 'Phase 4 Signature Roast', categoryId: ids.category,
+          price: { amountInCents: 2199, currency: 'THB' },
+          costPrice: { amountInCents: 850, currency: 'THB' }, taxRateBps: 700,
+          currentStock: 25, reorderPoint: 5, unitOfMeasure: 'cup',
+        },
+        quantity: 1,
+        unitPrice: { amountInCents: 2199, currency: 'THB' },
+        discountBps: 0,
+        lineSubtotal: { amountInCents: 2055, currency: 'THB' },
+        lineTax: { amountInCents: 144, currency: 'THB' },
+        lineTotal: { amountInCents: 2199, currency: 'THB' },
+      }],
+      totals: {
+        grossSubtotal: { amountInCents: 2199, currency: 'THB' },
+        itemDiscounts: { amountInCents: 0, currency: 'THB' },
+        orderDiscount: { amountInCents: 220, currency: 'THB' },
+        netSubtotal: { amountInCents: 1849, currency: 'THB' },
+        totalTax: { amountInCents: 130, currency: 'THB' },
+        grandTotal: { amountInCents: 1979, currency: 'THB' },
+        totalItemsCount: 1,
+      },
+      payments: [{
+        id: crypto.randomUUID(), method: 'cash',
+        amount: { amountInCents: 1979, currency: 'THB' },
+        tenderedCash: { amountInCents: 2000, currency: 'THB' },
+        changeGiven: { amountInCents: 21, currency: 'THB' },
+        timestamp: new Date().toISOString(),
+      }],
+    }),
+  });
+  assert.equal(discountedCheckoutRes.status, 201, await discountedCheckoutRes.text());
+  const discountedCheckoutBody = (await discountedCheckoutRes.json()) as {
+    order: { totals: { orderDiscount: { amountInCents: number }; grandTotal: { amountInCents: number } } };
+  };
+  assert.equal(discountedCheckoutBody.order.totals.orderDiscount.amountInCents, 220);
+  assert.equal(discountedCheckoutBody.order.totals.grandTotal.amountInCents, 1979);
+
+  // 11. Shift Close + Idempotent Replay
+  // Expected cash in drawer: 100000 (start) + 4398 (order 1) - 2199 (refund 1) + 2199 (order 2) - 2199 (void 2) + 1979 (discounted order 3) = 104178 cents
   const shiftClose1Res = await fetch(`${baseUrl}/api/v1/shifts/${shiftId}/close`, {
     method: 'POST',
     headers: authHeaders,
     body: JSON.stringify({
       idempotencyKey: 'idem-p4-shift-close',
       shiftId,
-      actualCountedCash: { amountInCents: 102199, currency: 'THB' },
+      actualCountedCash: { amountInCents: 104178, currency: 'THB' },
       notes: 'Exact drawer count',
     }),
   });
@@ -540,7 +628,7 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
     body: JSON.stringify({
       idempotencyKey: 'idem-p4-shift-close',
       shiftId,
-      actualCountedCash: { amountInCents: 102199, currency: 'THB' },
+      actualCountedCash: { amountInCents: 104178, currency: 'THB' },
       notes: 'Exact drawer count',
     }),
   });
