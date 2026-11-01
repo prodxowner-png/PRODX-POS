@@ -9,6 +9,7 @@ These agent skills turn PRODX-POS production principles into repeatable review p
 - [prodx-financial-integrity](prodx-financial-integrity/SKILL.md) — exact money, tax/rounding, payment, refund, void, and reconciliation.
 - [prodx-inventory-integrity](prodx-inventory-integrity/SKILL.md) — stock ledger, concurrent mutations, reversals, and reconciliation.
 - [prodx-idempotency](prodx-idempotency/SKILL.md) — durable duplicate suppression and exactly-once effect.
+- [prodx-distributed-systems](prodx-distributed-systems/SKILL.md) — consistency, outbox/inbox, delivery semantics, ordering, failure recovery, and cross-service workflows.
 - [prodx-offline-sync](prodx-offline-sync/SKILL.md) — durable outbox, replay, retry, ordering, and conflict recovery.
 - [prodx-testing](prodx-testing/SKILL.md) — risk-based tests and exact-head evidence.
 - [prodx-observability](prodx-observability/SKILL.md) — safe diagnostics, correlation, metrics, alerts, and audit boundaries.
