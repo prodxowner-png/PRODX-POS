@@ -8,6 +8,11 @@ import type { PreparedSale, IdempotencySubmission, OfflineSale } from "../src/co
 const TENANT = "11111111-1111-4111-8111-111111111111";
 const TERMINAL = "22222222-2222-4222-8222-222222222222";
 const SECRET = "test-only-signing-secret-at-least-32-characters";
+const runInDO = runInDurableObject as unknown as (
+  stub: unknown,
+  callback: (instance: any, state: any) => void | Promise<void>
+) => Promise<void>;
+
 
 function prepared(key: string, hash: string, seq: number): PreparedSale {
   const sale: OfflineSale = {
@@ -37,7 +42,7 @@ function getStub(label: string) {
 describe("PRODX Edge sync Durable Object", () => {
   it("rejects an existing-key hash mismatch atomically across a 50-sale batch", async () => {
     const stub = getStub("atomicity");
-    await runInDurableObject(stub, async (instance: IdempotencyGate, state) => {
+    await runInDO(stub, async (instance: IdempotencyGate, state) => {
       const queue=(instance as any).env.POS_INGEST_QUEUE;
       Object.defineProperty(queue,"sendBatch",{configurable:true,value:async()=>{throw new Error("QUEUE_MUST_NOT_BE_CALLED");}});
       state.storage.sql.exec(
@@ -53,7 +58,7 @@ describe("PRODX Edge sync Durable Object", () => {
       i===0 ? "b".repeat(64) : String(i).padStart(64,"0"), i+1
     ));
     await expect(stub.submitBatch(submission(batch))).rejects.toThrow("IDEMPOTENCY_PAYLOAD_MISMATCH");
-    await runInDurableObject(stub, async (_instance, state) => {
+    await runInDO(stub, async (_instance, state) => {
       const count=state.storage.sql.exec<{count:number}>("SELECT COUNT(*) AS count FROM idempotency").toArray()[0]!.count;
       expect(count).toBe(1);
       expect(state.storage.sql.exec("SELECT idempotency_key FROM idempotency WHERE idempotency_key LIKE 'new-%'").toArray()).toHaveLength(0);
@@ -65,7 +70,7 @@ describe("PRODX Edge sync Durable Object", () => {
   it("recovers ENQUEUE_PENDING through a real DO alarm after Queue.sendBatch fails", async () => {
     const stub = getStub("alarm-recovery");
     let recoveredQueueCalls=0;
-    await runInDurableObject(stub, async (instance, state) => {
+    await runInDO(stub, async (instance, state) => {
       const queue=(instance as any).env.POS_INGEST_QUEUE;
       Object.defineProperty(queue,"sendBatch",{ configurable:true, value:async()=>{ throw new Error("injected queue outage"); } });
       const item=prepared("alarm-idempotency-key-0001","c".repeat(64),1);
@@ -78,7 +83,7 @@ describe("PRODX Edge sync Durable Object", () => {
     });
     expect(await runDurableObjectAlarm(stub)).toBe(true);
     expect(recoveredQueueCalls).toBe(1);
-    await runInDurableObject(stub, async (instance, state) => {
+    await runInDO(stub, async (instance, state) => {
       const queued=state.storage.sql.exec<{count:number}>("SELECT COUNT(*) AS count FROM idempotency WHERE state='QUEUED'").toArray()[0]!.count;
       expect(queued).toBe(1);
     });
@@ -89,7 +94,7 @@ describe("PRODX Edge sync Durable Object", () => {
     const item=prepared("queued-retry-idempotency-key","9".repeat(64),1);
     await stub.submitBatch(submission([item]));
     let resent=0;
-    await runInDurableObject(stub as any,(instance:any)=>{
+    await runInDO(stub as any,(instance:any)=>{
       const queue=instance.env.POS_INGEST_QUEUE;
       const original=queue.sendBatch.bind(queue);
       Object.defineProperty(queue,"sendBatch",{configurable:true,value:async(messages:any[])=>{
@@ -125,7 +130,7 @@ describe("PRODX Edge sync Durable Object", () => {
 
   it("reconciles a restored DO checkpoint forward from PostgreSQL before accepting the next sequence", async () => {
     const stub=getStub("origin-checkpoint-recovery");
-    await runInDurableObject(stub,(_instance:any,state:any)=>{
+    await runInDO(stub,(_instance:any,state:any)=>{
       state.storage.sql.exec(
         `UPDATE terminal_sequence_state SET last_contiguous_seq_no=8,last_hlc_physical_ms=1000,last_hlc_logical=2 WHERE singleton=1`
       );

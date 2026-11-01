@@ -160,9 +160,11 @@ async function handleCatalog(request: Request, env: Env, ctx: ExecutionContext):
       const cachedData = await cachedResponse.clone().json().catch(() => null) as { catalog_version?: number } | null;
       if (cachedData?.catalog_version === catalogVersion) {
         await direct.query("COMMIT");
+        const cachedHeaders = new Headers(cachedResponse.headers);
+        cachedHeaders.set("cache-control", "private, no-store");
         return new Response(cachedResponse.body, {
           status: cachedResponse.status, statusText: cachedResponse.statusText,
-          headers: { ...Object.fromEntries(cachedResponse.headers), "cache-control": "private, no-store" }
+          headers: cachedHeaders
         });
       }
     }
