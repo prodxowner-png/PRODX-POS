@@ -77,6 +77,12 @@ jobs:
         id: install
         run: npm ci --no-audit --no-fund --legacy-peer-deps --verbose 2>&1 | tee artifacts/logs/npm-ci.log
 
+      - name: Gate 3.1a — Validate manual Cloudflare Staging automation syntax
+        run: |
+          bash -n scripts/provision-staging.sh
+          ruby -e 'require "yaml"; YAML.parse_file("../.github/workflows/verify-gate6-staging.yml"); puts "Gate 6 workflow YAML syntax: PASS"'
+          echo "Staging provisioning shell syntax: PASS"
+
 
       - name: Gate 3.2 — Generate Wrangler bindings
         id: wrangler_types
