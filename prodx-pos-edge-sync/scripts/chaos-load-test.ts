@@ -24,13 +24,16 @@ let activeDbWrites = 0;
 const dbWriteWaiters: Array<() => void> = [];
 async function withDbWritePermit<T>(operation: () => Promise<T>): Promise<T> {
   if (activeDbWrites >= DB_WRITE_CONCURRENCY) {
+    // The current permit is handed directly to this waiter by the releasing
+    // operation. Do not increment again after waking, or the semaphore leaks.
     await new Promise<void>((resolve) => dbWriteWaiters.push(resolve));
+  } else {
+    activeDbWrites++;
   }
-  activeDbWrites++;
   try { return await operation(); }
   finally {
     const next = dbWriteWaiters.shift();
-    if (next) next(); // hand the permit directly to the next waiter
+    if (next) next(); // transfer the existing permit without changing the count
     else activeDbWrites--;
   }
 }
