@@ -42,6 +42,10 @@ function getStub(label: string) {
 describe("PRODX Edge sync Durable Object", () => {
   it("rejects an existing-key hash mismatch atomically across a 50-sale batch", async () => {
     const stub = getStub("atomicity");
+    const batch = Array.from({length:50},(_,i)=>prepared(
+      i===0 ? "existing-idempotency-key-0001" : `new-idempotency-key-${String(i).padStart(4,"0")}`,
+      i===0 ? "b".repeat(64) : String(i).padStart(64,"0"), i+1
+    ));
     await runInDO(stub, async (instance: IdempotencyGate, state) => {
       const queue=(instance as any).env.POS_INGEST_QUEUE;
       Object.defineProperty(queue,"sendBatch",{configurable:true,value:async()=>{throw new Error("QUEUE_MUST_NOT_BE_CALLED");}});
@@ -52,18 +56,19 @@ describe("PRODX Edge sync Durable Object", () => {
         "existing-idempotency-key-0001", TENANT, TERMINAL, "a".repeat(64), "{}",
         "receipt-seed", "{}", "QUEUED", new Date().toISOString(), new Date().toISOString()
       );
-    });
-    const batch = Array.from({length:50},(_,i)=>prepared(
-      i===0 ? "existing-idempotency-key-0001" : `new-idempotency-key-${String(i).padStart(4,"0")}`,
-      i===0 ? "b".repeat(64) : String(i).padStart(64,"0"), i+1
-    ));
-    await expect(stub.submitBatch(submission(batch))).rejects.toThrow("IDEMPOTENCY_PAYLOAD_MISMATCH");
-    await runInDO(stub, async (_instance, state) => {
+      let mismatch: unknown;
+      try {
+        await instance.submitBatch(submission(batch));
+      } catch (error) {
+        mismatch = error;
+      }
+      expect(mismatch).toBeInstanceOf(Error);
+      expect((mismatch as Error).message).toContain("IDEMPOTENCY_PAYLOAD_MISMATCH");
       const count=state.storage.sql.exec<{count:number}>("SELECT COUNT(*) AS count FROM idempotency").toArray()[0]!.count;
       expect(count).toBe(1);
       expect(state.storage.sql.exec("SELECT idempotency_key FROM idempotency WHERE idempotency_key LIKE 'new-%'").toArray()).toHaveLength(0);
       expect(state.storage.sql.exec("SELECT seq_no FROM terminal_sequence_seen").toArray()).toHaveLength(0);
-      expect(state.storage.sql.exec("SELECT gap_id FROM terminal_sequence_gaps").toArray()).toHaveLength(0);
+      expect(state.storage.sql.exec("SELECT gap_from_seq_no FROM terminal_sequence_gaps").toArray()).toHaveLength(0);
     });
   });
 

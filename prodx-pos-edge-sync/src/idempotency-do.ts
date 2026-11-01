@@ -483,7 +483,7 @@ export class IdempotencyGate extends DurableObject<Env> {
   }
   markFailed(tenantId:string,terminalId:string,idempotencyKey:string,failureCode:string):void{
     this.ctx.storage.sql.exec(
-      `UPDATE idempotency SET state='FAILED',failure_code=?,next_retry_at=NULL,updated_at=?
+      `UPDATE idempotency SET failure_code=?,next_retry_at=NULL,updated_at=?
        WHERE tenant_id=? AND terminal_id=? AND idempotency_key=? AND state<>'COMMITTED'`,
       failureCode.slice(0,200),new Date().toISOString(),tenantId,terminalId,idempotencyKey
     );
