@@ -141,6 +141,7 @@ export class DevelopmentMockAuthApi implements IAuthApi {
           code: storeCode,
           name: scope?.branchName ?? storeCode,
           address: scope?.branchAddress ?? '',
+          phone: '',
           currency: 'THB', timezone: 'Asia/Bangkok', defaultTaxRateBps: 700,
         };
 
@@ -226,7 +227,7 @@ export class DevelopmentMockAuthApi implements IAuthApi {
       : stored.organizationContext ? {
           id: stored.organizationContext.branchId, organizationId: stored.organizationId,
           code: stored.storeCode, name: stored.organizationContext.branchName,
-          address: stored.organizationContext.branchAddress, currency: 'THB', timezone: 'Asia/Bangkok', defaultTaxRateBps: 700,
+          address: stored.organizationContext.branchAddress, phone: '', currency: 'THB', timezone: 'Asia/Bangkok', defaultTaxRateBps: 700,
         } : undefined;
     if (!user || user.isActive === false || !currentStore || !stored.registerId.trim()) {
       clearStoredSession(token);
