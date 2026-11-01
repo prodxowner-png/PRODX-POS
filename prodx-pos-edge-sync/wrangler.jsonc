@@ -69,7 +69,8 @@
   },
   "vars": {
     "ACCESS_TEAM_DOMAIN": "prodx-pos.cloudflareaccess.com",
-    "ACCESS_AUD": "REPLACE_WITH_DEDICATED_POS_ACCESS_AUD"
+    "ACCESS_AUD": "REPLACE_WITH_DEDICATED_POS_ACCESS_AUD",
+    "POS_INGEST_DLQ_QUEUE": "prodx-pos-ingest-dlq"
   },
   "account_id": "3c0c1c843f861164db9de3fb31f062f5",
   "env": {
@@ -140,7 +141,8 @@
       },
       "vars": {
         "ACCESS_TEAM_DOMAIN": "prodx-pos.cloudflareaccess.com",
-        "ACCESS_AUD": "REPLACE_WITH_STAGING_POS_ACCESS_AUD"
+        "ACCESS_AUD": "REPLACE_WITH_STAGING_POS_ACCESS_AUD",
+        "POS_INGEST_DLQ_QUEUE": "prodx-pos-ingest-dlq-staging"
       }
     }
   }
