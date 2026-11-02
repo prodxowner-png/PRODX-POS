@@ -159,7 +159,8 @@ jobs:
             --header "content-type: application/json" \
             --cert /tmp/prodx-staging-client.crt --key /tmp/prodx-staging-client.key \
             --data-binary @/tmp/prodx-staging-e2e.json)"
-          cat /tmp/prodx-staging-accepted.json | jq '{batch_id,accepted_count,duplicate_count,committed_count,has_sequence_gaps}'
+          jq -e 'type == "object" and (.accepted_count | type == "number") and (.has_sequence_gaps | type == "boolean")' /tmp/prodx-staging-accepted.json >/dev/null
+          jq '{accepted_count,duplicate_count,committed_count,has_sequence_gaps}' /tmp/prodx-staging-accepted.json
           [[ "$http_code" == "202" ]] || { echo "Expected HTTP 202 from Edge, got $http_code"; exit 1; }
           expected="$(jq '.sales | length' /tmp/prodx-staging-e2e.json)"
           accepted="$(jq '.accepted_count' /tmp/prodx-staging-accepted.json)"
@@ -180,8 +181,8 @@ jobs:
               status="$(jq -r '.status // "unknown"' /tmp/prodx-staging-status.json)"
               if [[ "$status_code" == "200" && "$status" == "committed" ]]; then committed=true; break; fi
               if [[ "$status_code" == "409" || "$status" == "failed" ]]; then
-                cat /tmp/prodx-staging-status.json
-                echo "Staging sale reached FAILED state"; exit 1
+                echo "Staging sale reached FAILED state (HTTP $status_code)"
+                exit 1
               fi
               sleep 5
             done
@@ -215,7 +216,13 @@ jobs:
           path: |
             prodx-pos-edge-sync/artifacts/logs/
             prodx-pos-edge-sync/do-outbox-export.csv
-            /tmp/prodx-staging-accepted.json
-            /tmp/prodx-staging-status.json
           if-no-files-found: warn
           retention-days: 14
+
+      - name: Remove temporary credentials and raw E2E payloads
+        if: always()
+        run: |
+          set -euo pipefail
+          rm -f /tmp/prodx-staging-client.crt /tmp/prodx-staging-client.key
+          rm -f /tmp/prodx-staging-e2e.json /tmp/prodx-staging-accepted.json
+          rm -f /tmp/prodx-staging-status.json /tmp/prodx-staging-keys.txt
