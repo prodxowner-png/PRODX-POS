@@ -32,6 +32,7 @@ jobs:
         working-directory: prodx-pos-edge-sync
     steps:
       - name: Validate requested target
+        working-directory: .
         env:
           TARGET_REF: ${{ inputs.target_ref }}
           EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
