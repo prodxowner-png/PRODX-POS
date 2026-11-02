@@ -7,16 +7,27 @@ import { createProductionApp } from './entrypoint';
 
 const databaseUrl = resolveConfiguredDatabaseUrl(process.env.DATABASE_URL);
 
+const fixtureSuffix = crypto.randomUUID().replaceAll('-', '').slice(0, 12);
+const fixture = {
+  organizationCode: 'phase4-org-' + fixtureSuffix,
+  storeCode: 'store-p4-' + fixtureSuffix,
+  registerCode: 'REG-P4-' + fixtureSuffix,
+  adminUsername: 'p4-admin-' + fixtureSuffix,
+  cashierUsername: 'p4-cashier-' + fixtureSuffix,
+  sku: 'P4-COFFEE-' + fixtureSuffix,
+  barcode: crypto.randomInt(1_000_000_000, 10_000_000_000).toString(),
+};
+
 const ids = {
-  org: '00000000-0000-4000-8000-000000009401',
-  store: '00000000-0000-4000-8000-000000009402',
-  register: '00000000-0000-4000-8000-000000009403',
-  device: '00000000-0000-4000-8000-000000009404',
-  adminUser: '00000000-0000-4000-8000-000000009405',
-  cashierUser: '00000000-0000-4000-8000-000000009406',
-  adminRole: '00000000-0000-4000-8000-000000009407',
-  cashierRole: '00000000-0000-4000-8000-000000009408',
-  category: '00000000-0000-4000-8000-000000009409',
+  org: crypto.randomUUID(),
+  store: crypto.randomUUID(),
+  register: crypto.randomUUID(),
+  device: crypto.randomUUID(),
+  adminUser: crypto.randomUUID(),
+  cashierUser: crypto.randomUUID(),
+  adminRole: crypto.randomUUID(),
+  cashierRole: crypto.randomUUID(),
+  category: crypto.randomUUID(),
 };
 
 const requiredPermissions = [
@@ -48,82 +59,39 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
   });
   const passwordHash = await hashPassword('Phase4-Pass!99');
 
-  const cleanup = async () => {
-    await pool.query('ALTER TABLE prodx_audit_log DISABLE TRIGGER prodx_audit_log_immutable_guard');
-    await pool.query('ALTER TABLE prodx_refunds DISABLE TRIGGER prodx_refund_immutable_guard');
-    await pool.query('ALTER TABLE prodx_refund_items DISABLE TRIGGER prodx_refund_item_immutable_guard');
-    await pool.query('ALTER TABLE prodx_voids DISABLE TRIGGER prodx_void_immutable_guard');
-    try {
-      await pool.query('DELETE FROM prodx_supervisor_authorizations WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_cash_movements WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_inventory_ledger WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_refund_items WHERE store_id = $1', [ids.store]);
-      await pool.query('DELETE FROM prodx_refunds WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_voids WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_payment_attempts WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_payments WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_order_items WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_orders WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_inventory_adjustments WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_catalog_import_operations WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_catalog_pricing_operations WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_products WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_categories WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_shift_operations WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_shifts WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_security_audit_events WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_audit_log WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_sessions WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_user_roles WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_role_permissions WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_roles WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_user_credentials WHERE user_id IN ($1, $2)', [ids.adminUser, ids.cashierUser]);
-      await pool.query('DELETE FROM prodx_store_memberships WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_devices WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_registers WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_users WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_stores WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_organizations WHERE id = $1', [ids.org]);
-    } finally {
-      await pool.query('ALTER TABLE prodx_voids ENABLE TRIGGER prodx_void_immutable_guard');
-      await pool.query('ALTER TABLE prodx_refund_items ENABLE TRIGGER prodx_refund_item_immutable_guard');
-      await pool.query('ALTER TABLE prodx_refunds ENABLE TRIGGER prodx_refund_immutable_guard');
-      await pool.query('ALTER TABLE prodx_audit_log ENABLE TRIGGER prodx_audit_log_immutable_guard');
-    }
-  };
-
-  await cleanup();
+  // This test intentionally leaves its fixture rows in the disposable PostgreSQL test database.
+  // Audit, refund, void, and inventory ledgers are immutable; never disable their triggers or delete
+  // their history as test cleanup. Unique per-run identifiers make repeated executions isolated.
   t.after(async () => {
-    await cleanup();
     await pool.end();
   });
 
   // Seed organization, store, register, device, users, roles, and permissions
   await pool.query('INSERT INTO prodx_organizations (id, code, name) VALUES ($1, $2, $3)', [
     ids.org,
-    'phase4-org',
+    fixture.organizationCode,
     'Phase 4 Verification Org',
   ]);
   await pool.query(
     `INSERT INTO prodx_stores (id, organization_id, code, name, business_timezone)
-     VALUES ($1, $2, 'store-p4', 'Phase 4 Store', 'Asia/Bangkok')`,
-    [ids.store, ids.org],
+     VALUES ($1, $2, $3, 'Phase 4 Store', 'Asia/Bangkok')`,
+    [ids.store, ids.org, fixture.storeCode],
   );
   await pool.query(
     `INSERT INTO prodx_registers (id, organization_id, store_id, code, name, status)
-     VALUES ($1, $2, $3, 'REG-P4', 'Phase 4 Register', 'active')`,
-    [ids.register, ids.org, ids.store],
+     VALUES ($1, $2, $3, $4, 'Phase 4 Register', 'active')`,
+    [ids.register, ids.org, ids.store, fixture.registerCode],
   );
   await pool.query(
     `INSERT INTO prodx_devices (id, organization_id, store_id, device_key, name, status)
-     VALUES ($1, $2, $3, 'REG-P4', 'Phase 4 Device', 'active')`,
-    [ids.device, ids.org, ids.store],
+     VALUES ($1, $2, $3, $4, 'Phase 4 Device', 'active')`,
+    [ids.device, ids.org, ids.store, fixture.registerCode],
   );
   await pool.query(
     `INSERT INTO prodx_users (id, organization_id, username, display_name, status)
-     VALUES ($1, $3, 'p4-admin', 'Phase 4 Admin', 'active'),
-            ($2, $3, 'p4-cashier', 'Phase 4 Cashier', 'active')`,
-    [ids.adminUser, ids.cashierUser, ids.org],
+     VALUES ($1, $3, $4, 'Phase 4 Admin', 'active'),
+            ($2, $3, $5, 'Phase 4 Cashier', 'active')`,
+    [ids.adminUser, ids.cashierUser, ids.org, fixture.adminUsername, fixture.cashierUsername],
   );
   await pool.query(
     `INSERT INTO prodx_user_credentials (user_id, credential_type, secret_hash)
@@ -199,11 +167,11 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-request-id': 'req-p4-admin-deny' },
     body: JSON.stringify({
-      organizationSlug: 'phase4-org',
-      storeCode: 'store-p4',
-      emailOrPin: 'p4-cashier',
+      organizationSlug: fixture.organizationCode,
+      storeCode: fixture.storeCode,
+      emailOrPin: fixture.cashierUsername,
       passwordOrPin: 'Phase4-Pass!99',
-      registerId: 'REG-P4',
+      registerId: fixture.registerCode,
     }),
   });
   assert.equal(cashierAdminLogin.status, 403);
@@ -216,11 +184,11 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-request-id': 'req-p4-admin-ok' },
     body: JSON.stringify({
-      organizationSlug: 'phase4-org',
-      storeCode: 'store-p4',
-      emailOrPin: 'p4-admin',
+      organizationSlug: fixture.organizationCode,
+      storeCode: fixture.storeCode,
+      emailOrPin: fixture.adminUsername,
       passwordOrPin: 'Phase4-Pass!99',
-      registerId: 'REG-P4',
+      registerId: fixture.registerCode,
     }),
   });
   assert.equal(adminLogin.status, 200);
@@ -240,8 +208,8 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
       mode: 'upsert',
       items: [
         {
-          sku: 'P4-COFFEE-01',
-          barcode: '8859999000011',
+          sku: fixture.sku,
+          barcode: fixture.barcode,
           name: 'Phase 4 Signature Roast',
           categoryId: ids.category,
           priceAmountInCents: 1999, // ฿19.99 (classic IEEE-754 trap: 19.99 * 100)
@@ -273,8 +241,8 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
       mode: 'upsert',
       items: [
         {
-          sku: 'P4-COFFEE-01',
-          barcode: '8859999000011',
+          sku: fixture.sku,
+          barcode: fixture.barcode,
           name: 'Phase 4 Signature Roast',
           categoryId: ids.category,
           priceAmountInCents: 1999,
@@ -358,8 +326,8 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
           product: {
             id: productId,
             storeId: ids.store,
-            sku: 'P4-COFFEE-01',
-            barcode: '8859999000011',
+            sku: fixture.sku,
+            barcode: fixture.barcode,
             name: 'Phase 4 Signature Roast',
             categoryId: ids.category,
             price: { amountInCents: 2199, currency: 'THB' },
@@ -407,7 +375,7 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
     method: 'POST',
     headers: authHeaders,
     body: JSON.stringify({
-      supervisorUsername: 'p4-admin',
+      supervisorUsername: fixture.adminUsername,
       supervisorSecret: 'Phase4-Pass!99',
       action: 'refund',
       orderId: order1Id,
@@ -446,8 +414,8 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
           product: {
             id: productId,
             storeId: ids.store,
-            sku: 'P4-COFFEE-01',
-            barcode: '8859999000011',
+            sku: fixture.sku,
+            barcode: fixture.barcode,
             name: 'Phase 4 Signature Roast',
             categoryId: ids.category,
             price: { amountInCents: 2199, currency: 'THB' },
@@ -493,7 +461,7 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
     method: 'POST',
     headers: authHeaders,
     body: JSON.stringify({
-      supervisorUsername: 'p4-admin',
+      supervisorUsername: fixture.adminUsername,
       supervisorSecret: 'Phase4-Pass!99',
       action: 'void',
       orderId: order2Id,
