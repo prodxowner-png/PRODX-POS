@@ -28,7 +28,8 @@ test("void route is permissioned and uses server-authorized supervisor plus atom
     if (sql.includes("INSERT INTO prodx_cash_movements")) return { rows: [] as unknown as T[] };
     if (sql.startsWith("UPDATE prodx_orders")) return { rows: [] as unknown as T[] };
     if (sql.includes("INSERT INTO prodx_audit_log")) return { rows: [] as unknown as T[] };
-    throw new Error(`Unexpected SQL in void route test: ${sql}`);
+        if (sql.includes("prodx_record_security_audit_event")) return { rows: [] as unknown as T[] };
+throw new Error(`Unexpected SQL in void route test: ${sql}`);
   };
   const db: TransactionalSqlExecutor = { query, transaction: async (work) => work({ query }) };
   const app = createApp({ authenticateRequest: () => principal, authorizeRequest: (_context, permission) => permission === "pos.void", configureRoutes: (configuredApp) => registerVoidRoute(configuredApp, db) });
@@ -75,7 +76,8 @@ test("card and QR voids fail closed before recording void or inventory/cash reve
       sideEffectStatements.push(sql);
       return { rows: [] as unknown as T[] };
     }
-    throw new Error(`Unexpected SQL in unsupported void-provider test: ${sql}`);
+        if (sql.includes("prodx_record_security_audit_event")) return { rows: [] as unknown as T[] };
+throw new Error(`Unexpected SQL in unsupported void-provider test: ${sql}`);
   };
   const db: TransactionalSqlExecutor = {
     query,

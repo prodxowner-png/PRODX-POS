@@ -78,6 +78,8 @@ test("refund route derives the authorizing user from the authenticated principal
       return { rows: [] as unknown as T[] };
     if (sql.startsWith("UPDATE prodx_orders"))
       return { rows: [] as unknown as T[] };
+    if (sql.includes("prodx_record_security_audit_event"))
+      return { rows: [] as unknown as T[] };
     if (sql.includes("INSERT INTO prodx_audit_log"))
       return { rows: [] as unknown as T[] };
     throw new Error(`Unexpected SQL in refund route test: ${sql}`);

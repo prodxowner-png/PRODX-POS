@@ -5,7 +5,7 @@ import { hashPassword } from './auth/password';
 import { resolveConfiguredDatabaseUrl } from './db/postgres';
 import { createProductionApp } from './entrypoint';
 
-const databaseUrl = resolveConfiguredDatabaseUrl(process.env.DATABASE_URL);
+const databaseUrl = resolveConfiguredDatabaseUrl(process.env.DATABASE_URL, false);
 
 const ids = {
   org: '00000000-0000-4000-8000-000000009401',

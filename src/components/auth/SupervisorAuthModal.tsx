@@ -19,6 +19,8 @@ import {
   Loader2,
 } from 'lucide-react';
 import { authenticatePasskey } from '../../services/webauthnService';
+import { hasProductionUrl } from '../../adapters/env';
+import { authenticateSupervisorWithSupabase } from '../../lib/supabaseSupervisorAuth';
 
 export interface SupervisorAuthModalProps {
   isOpen: boolean;
@@ -26,7 +28,7 @@ export interface SupervisorAuthModalProps {
   title?: string;
   actionDescription: string;
   requiredRole?: Role; // default 'manager' (allows manager and admin)
-  onAuthorized: (supervisor: User, notes?: string, secret?: string) => void;
+  onAuthorized: (supervisor: User, notes?: string, proof?: string) => void | Promise<void>;
 }
 
 export const SupervisorAuthModal: React.FC<SupervisorAuthModalProps> = ({
@@ -38,7 +40,7 @@ export const SupervisorAuthModal: React.FC<SupervisorAuthModalProps> = ({
   onAuthorized,
 }) => {
   const { language } = useLanguage();
-  const { staffUsers, getStaffPin } = useAuth();
+  const { staffUsers, getStaffPin, session } = useAuth();
   const [pin, setPin] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [selectedSupervisor, setSelectedSupervisor] = useState<User | null>(null);
@@ -46,9 +48,11 @@ export const SupervisorAuthModal: React.FC<SupervisorAuthModalProps> = ({
   const [isVerifyingPasskey, setIsVerifyingPasskey] = useState(false);
 
   // Eligible supervisors from system users
-  const eligibleSupervisors = (staffUsers ?? []).filter((u) =>
-    requiredRole === 'admin' ? u.role === 'admin' : u.role === 'admin' || u.role === 'manager'
-  );
+  const eligibleSupervisors = (() => {
+    const candidates = (staffUsers ?? []).filter((user) => user.id !== session?.currentUser?.id);
+    if (session?.currentUser) candidates.push(session.currentUser);
+    return candidates.filter((user) => requiredRole === 'admin' ? user.role === 'admin' : user.role === 'admin' || user.role === 'manager');
+  })();
 
   useEffect(() => {
     if (isOpen) {
@@ -64,6 +68,10 @@ export const SupervisorAuthModal: React.FC<SupervisorAuthModalProps> = ({
     if (!isOpen) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (hasProductionUrl()) {
+        if (e.key === 'Enter') { e.preventDefault(); handleVerifyPin(); }
+        return;
+      }
       if (e.key >= '0' && e.key <= '9') {
         e.preventDefault();
         setPin((prev) => (prev.length < 6 ? prev + e.key : prev));
@@ -104,7 +112,26 @@ export const SupervisorAuthModal: React.FC<SupervisorAuthModalProps> = ({
     setErrorMsg(null);
   };
 
-  const handleVerifyPin = () => {
+  const handleVerifyPin = async () => {
+    if (hasProductionUrl()) {
+      if (!selectedSupervisor || pin.trim().length < 4) {
+        setErrorMsg(language === 'th' ? 'กรุณาเลือกผู้จัดการและกรอกรหัสผ่านบัญชี' : 'Select a supervisor and enter their account password.');
+        return;
+      }
+      setIsVerifyingPasskey(true);
+      setErrorMsg(null);
+      try {
+        const proof = await authenticateSupervisorWithSupabase(selectedSupervisor.email, pin);
+        await onAuthorized(selectedSupervisor, overrideReason || actionDescription, proof.accessToken);
+        onClose();
+      } catch (error) {
+        setErrorMsg(error instanceof Error ? error.message : 'Supervisor reauthentication failed.');
+        setPin('');
+      } finally {
+        setIsVerifyingPasskey(false);
+      }
+      return;
+    }
     // Check known PINs: custom supervisor pin, admin '1234', manager '5678'
     let matchedSupervisor: User | undefined;
 
@@ -175,8 +202,8 @@ export const SupervisorAuthModal: React.FC<SupervisorAuthModalProps> = ({
       }
       description={
         language === 'th'
-          ? 'รายการนี้จำเป็นต้องได้รับการยืนยันรหัส PIN จากหัวหน้างานหรือผู้จัดการ'
-          : 'This operational action requires supervisor approval with valid security PIN.'
+          ? (hasProductionUrl() ? 'รายการนี้ต้องได้รับการยืนยันด้วยรหัสผ่านบัญชีผู้จัดการ' : 'รายการนี้จำเป็นต้องได้รับการยืนยันรหัส PIN จากหัวหน้างานหรือผู้จัดการ')
+          : (hasProductionUrl() ? 'This action requires the supervisor account password.' : 'This operational action requires supervisor approval with a valid security PIN.')
       }
       maxWidth="md"
       footer={
@@ -187,8 +214,8 @@ export const SupervisorAuthModal: React.FC<SupervisorAuthModalProps> = ({
           <Button
             variant="primary"
             size="sm"
-            disabled={pin.length < 4}
-            onClick={handleVerifyPin}
+            disabled={pin.length < 4 || isVerifyingPasskey}
+            onClick={() => void handleVerifyPin()}
             leftIcon={<ShieldCheck className="h-4 w-4" />}
           >
             {language === 'th' ? 'ยืนยันอนุมัติ' : 'Authorize Action'}
@@ -247,79 +274,58 @@ export const SupervisorAuthModal: React.FC<SupervisorAuthModalProps> = ({
           </div>
         </div>
 
-        {/* PIN Input Indicator */}
-        <div className="text-center py-2 space-y-2">
-          <div className="flex justify-center items-center gap-2">
-            <Lock className="h-4 w-4 text-text/50" />
-            <span className="text-xs font-semibold text-text/80">
-              {language === 'th' ? 'ใส่รหัส PIN 4-6 หลัก' : 'Enter 4-6 Digit Security PIN'}
-            </span>
+        {hasProductionUrl() ? (
+          <div className="space-y-2">
+            <label htmlFor="supervisor-account-password" className="text-xs font-semibold text-text/80 block">
+              {language === 'th' ? 'รหัสผ่านบัญชีผู้จัดการ (Supabase Auth)' : 'Supervisor Account Password (Supabase Auth)'}
+            </label>
+            <input
+              id="supervisor-account-password"
+              type="password"
+              value={pin}
+              onChange={(event) => { setPin(event.target.value); setErrorMsg(null); }}
+              autoComplete="off"
+              autoCapitalize="none"
+              spellCheck={false}
+              className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm text-text focus:outline-none focus:ring-2 focus:ring-primary"
+              placeholder={language === 'th' ? 'กรอกรหัสผ่านผู้จัดการ' : 'Enter supervisor account password'}
+            />
+            {errorMsg && <div className="text-xs font-semibold text-rose-600 dark:text-rose-400 flex items-center gap-1"><AlertCircle className="h-3.5 w-3.5" /><span>{errorMsg}</span></div>}
+            <p className="text-[11px] text-text/50">{language === 'th' ? 'เซิร์ฟเวอร์จะตรวจสอบรหัสผ่านและสิทธิ์อนุมัติทุกครั้ง' : 'The server verifies the password and approval permission for every request.'}</p>
           </div>
-
-          <div className="flex justify-center items-center gap-3">
-            {[0, 1, 2, 3, 4, 5].map((index) => {
-              const isFilled = pin.length > index;
-              return (
-                <div
-                  key={index}
-                  className={`w-3.5 h-3.5 rounded-full border transition-all duration-150 ${
-                    isFilled
-                      ? 'bg-primary border-primary scale-110 shadow-xs'
-                      : 'border-border border-crisp bg-background'
-                  }`}
-                />
-              );
-            })}
-          </div>
-
-          {errorMsg ? (
-            <div className="text-xs font-semibold text-rose-600 dark:text-rose-400 flex items-center justify-center gap-1">
-              <AlertCircle className="h-3.5 w-3.5" />
-              <span>{errorMsg}</span>
+        ) : (
+          <>
+            {/* PIN Input Indicator */}
+            <div className="text-center py-2 space-y-2">
+              <div className="flex justify-center items-center gap-2">
+                <Lock className="h-4 w-4 text-text/50" />
+                <span className="text-xs font-semibold text-text/80">
+                  {language === 'th' ? 'ใส่รหัส PIN 4-6 หลัก' : 'Enter 4-6 Digit Security PIN'}
+                </span>
+              </div>
+              <div className="flex justify-center items-center gap-3">
+                {[0, 1, 2, 3, 4, 5].map((index) => {
+                  const isFilled = pin.length > index;
+                  return <div key={index} className={`w-3.5 h-3.5 rounded-full border transition-all duration-150 ${isFilled ? 'bg-primary border-primary scale-110 shadow-xs' : 'border-border border-crisp bg-background'}`} />;
+                })}
+              </div>
+              {errorMsg ? (
+                <div className="text-xs font-semibold text-rose-600 dark:text-rose-400 flex items-center justify-center gap-1"><AlertCircle className="h-3.5 w-3.5" /><span>{errorMsg}</span></div>
+              ) : (
+                <div className="text-[11px] text-text/50">{language === 'th' ? (import.meta.env.DEV ? 'คำใบ้ทดสอบ: Admin = 1234, Manager = 5678' : 'การอนุมัติจะตรวจสอบกับเซิร์ฟเวอร์') : (import.meta.env.DEV ? 'Demo Hint: Admin = 1234, Manager = 5678' : 'Supervisor authorization is verified by the server')}</div>
+              )}
             </div>
-          ) : (
-            <div className="text-[11px] text-text/50">
-              {language === 'th'
-                ? (import.meta.env.DEV ? 'คำใบ้ทดสอบ: Admin = 1234, Manager = 5678' : 'การอนุมัติจะตรวจสอบกับเซิร์ฟเวอร์')
-                : (import.meta.env.DEV ? 'Demo Hint: Admin = 1234, Manager = 5678' : 'Supervisor authorization is verified by the server')}
+            {/* Numeric Keypad */}
+            <div className="grid grid-cols-3 gap-2 max-w-xs mx-auto">
+              {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((digit) => (
+                <button key={digit} type="button" onClick={() => handleKeyPress(digit)} className="h-11 rounded-lg bg-background hover:bg-background dark:hover:bg-slate-700 active:bg-primary active:text-white font-mono font-semibold text-sm text-text border border-border border-crisp transition-all cursor-pointer shadow-2xs">{digit}</button>
+              ))}
+              <button type="button" onClick={handleClear} className="h-11 rounded-lg bg-background hover:bg-background dark:hover:bg-slate-700 text-xs font-semibold text-text/70 border border-border border-crisp transition-all cursor-pointer">{language === 'th' ? 'ล้าง' : 'Clear'}</button>
+              <button type="button" onClick={() => handleKeyPress('0')} className="h-11 rounded-lg bg-background hover:bg-background dark:hover:bg-slate-700 active:bg-primary active:text-white font-mono font-semibold text-sm text-text border border-border border-crisp transition-all cursor-pointer shadow-2xs">0</button>
+              <button type="button" onClick={handleDelete} className="h-11 rounded-lg bg-background hover:bg-background dark:hover:bg-slate-700 flex items-center justify-center text-text/70 border border-border border-crisp transition-all cursor-pointer"><Delete className="h-4 w-4" /></button>
             </div>
-          )}
-        </div>
-
-        {/* Numeric Keypad */}
-        <div className="grid grid-cols-3 gap-2 max-w-xs mx-auto">
-          {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((digit) => (
-            <button
-              key={digit}
-              type="button"
-              onClick={() => handleKeyPress(digit)}
-              className="h-11 rounded-lg bg-background hover:bg-background dark:hover:bg-slate-700 active:bg-primary active:text-white font-mono font-semibold text-sm text-text border border-border border-crisp transition-all cursor-pointer shadow-2xs"
-            >
-              {digit}
-            </button>
-          ))}
-          <button
-            type="button"
-            onClick={handleClear}
-            className="h-11 rounded-lg bg-background hover:bg-background dark:hover:bg-slate-700 text-xs font-semibold text-text/70 border border-border border-crisp transition-all cursor-pointer"
-          >
-            {language === 'th' ? 'ล้าง' : 'Clear'}
-          </button>
-          <button
-            type="button"
-            onClick={() => handleKeyPress('0')}
-            className="h-11 rounded-lg bg-background hover:bg-background dark:hover:bg-slate-700 active:bg-primary active:text-white font-mono font-semibold text-sm text-text border border-border border-crisp transition-all cursor-pointer shadow-2xs"
-          >
-            0
-          </button>
-          <button
-            type="button"
-            onClick={handleDelete}
-            className="h-11 rounded-lg bg-background hover:bg-background dark:hover:bg-slate-700 flex items-center justify-center text-text/70 border border-border border-crisp transition-all cursor-pointer"
-          >
-            <Delete className="h-4 w-4" />
-          </button>
-        </div>
+          </>
+        )}
 
         {/* Biometric passkey is available only in the local mock flow; production
             authorization must submit the supervisor secret to the server. */}

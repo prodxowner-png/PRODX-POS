@@ -9,7 +9,7 @@ import {
   TimeclockLockedError,
 } from './timeclock-service';
 
-const databaseUrl = resolveConfiguredDatabaseUrl(process.env.DATABASE_URL);
+const databaseUrl = resolveConfiguredDatabaseUrl(process.env.DATABASE_URL, false);
 const pepper = 'integration-test-pepper';
 
 const ids = {

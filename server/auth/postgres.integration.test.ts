@@ -6,7 +6,7 @@ import { createPostgresAuthenticationRepository } from './postgres-repository';
 import { hashPassword } from './password';
 import { hashSessionToken } from './session';
 
-const databaseUrl = resolveConfiguredDatabaseUrl(process.env.DATABASE_URL);
+const databaseUrl = resolveConfiguredDatabaseUrl(process.env.DATABASE_URL, false);
 
 const ids = {
   organizationA: '00000000-0000-4000-8000-000000000201',

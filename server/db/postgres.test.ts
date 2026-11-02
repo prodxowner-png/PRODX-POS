@@ -247,3 +247,15 @@ test('resolveConfiguredDatabaseUrl preserves valid URLs and rejects placeholder 
   );
 });
 
+
+test("resolveConfiguredDatabaseUrl can disable local fallback for integration tests", async () => {
+  await withEnvironment({ VERCEL: undefined, NODE_ENV: "test" }, async () => {
+    assert.equal(resolveConfiguredDatabaseUrl(undefined, false), undefined);
+    assert.equal(resolveConfiguredDatabaseUrl("postgresql://...", false), undefined);
+    assert.equal(resolveConfiguredDatabaseUrl("postgres://...", false), undefined);
+    assert.equal(
+      resolveConfiguredDatabaseUrl(undefined),
+      "postgresql://postgres@127.0.0.1:5432/prodx_pos",
+    );
+  });
+});

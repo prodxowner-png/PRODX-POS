@@ -17,10 +17,11 @@ const shouldResolveProductionDatabaseUrl = (): boolean =>
 
 export const resolveConfiguredDatabaseUrl = (
   rawUrl: string | undefined = process.env.DATABASE_URL,
+  allowLocalFallback = true,
 ): string | undefined => {
   const trimmed = rawUrl?.trim();
   if (!trimmed || trimmed === 'postgresql://...' || trimmed === 'postgres://...') {
-    if (process.env.VERCEL !== '1' && process.env.NODE_ENV !== 'production') {
+    if (allowLocalFallback && process.env.VERCEL !== '1' && process.env.NODE_ENV !== 'production') {
       return LOCAL_FALLBACK_DATABASE_URL;
     }
     return undefined;

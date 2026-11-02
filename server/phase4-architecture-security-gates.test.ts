@@ -77,7 +77,7 @@ test('Security Gate 3: Refund and Returns UI modules contain zero hardcoded supe
 });
 
 test('Database & Security Gate 4: PostgreSQL append-only audit trigger, RLS, and least-privilege prodx_app role are enforced', async (t) => {
-  const databaseUrl = resolveConfiguredDatabaseUrl(process.env.DATABASE_URL);
+  const databaseUrl = resolveConfiguredDatabaseUrl(process.env.DATABASE_URL, false);
   if (!databaseUrl) {
     t.skip('DATABASE_URL not configured');
     return;

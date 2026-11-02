@@ -25,6 +25,7 @@ import { registerCatalogPricingRoute } from './http/catalog-pricing-route.ts';
 import { registerPaymentLifecycleRoute } from './http/payment-lifecycle-route.ts';
 import { registerSyncRoute } from './http/sync-route.ts';
 import { registerSupervisorAuthorizationRoute } from './http/supervisor-authorization-route.ts';
+import { registerDiscountPolicyRoute } from './http/discount-policy-route.ts';
 import { registerOrderReadRoute } from './http/order-read-route.ts';
 import { registerVoidRoute } from './http/void-route.ts';
 import { registerInventoryAdjustmentRoute } from './http/inventory-adjustment-route.ts';
@@ -87,6 +88,7 @@ export const createProductionApp = async (options: ProductionAppOptions = {}) =>
       registerPaymentLifecycleRoute(configuredApp, transactions);
       registerSyncRoute(configuredApp, transactions);
       registerSupervisorAuthorizationRoute(configuredApp, transactions);
+      registerDiscountPolicyRoute(configuredApp, transactions);
       registerOrderReadRoute(configuredApp, transactions);
       registerVoidRoute(configuredApp, transactions);
       registerInventoryAdjustmentRoute(configuredApp, transactions);

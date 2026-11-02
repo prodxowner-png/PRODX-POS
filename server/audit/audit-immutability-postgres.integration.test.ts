@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createPostgresPool, resolveConfiguredDatabaseUrl } from '../db/postgres';
 
-const url = resolveConfiguredDatabaseUrl(process.env.DATABASE_URL);
+const url = resolveConfiguredDatabaseUrl(process.env.DATABASE_URL, false);
 const pool = url ? createPostgresPool({ connectionString: url, max: 4 }) : null;
 
 const id = {

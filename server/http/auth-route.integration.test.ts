@@ -5,7 +5,7 @@ import { hashPassword } from '../auth/password';
 import { resolveConfiguredDatabaseUrl } from '../db/postgres';
 import { createProductionApp } from '../entrypoint';
 
-const databaseUrl = resolveConfiguredDatabaseUrl(process.env.DATABASE_URL);
+const databaseUrl = resolveConfiguredDatabaseUrl(process.env.DATABASE_URL, false);
 const localClientFingerprints = ['127.0.0.1', '::ffff:127.0.0.1', '::1'].map((address) =>
   createHash('sha256').update(address).digest('hex'),
 );

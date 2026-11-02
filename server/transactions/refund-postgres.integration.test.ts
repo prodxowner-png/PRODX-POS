@@ -6,7 +6,7 @@ import { createCheckoutService } from './checkout-service';
 import { createRefundService } from './refund-service';
 import type { CheckoutRequest } from '../../src/adapters/types';
 
-const url = resolveConfiguredDatabaseUrl(process.env.DATABASE_URL);
+const url = resolveConfiguredDatabaseUrl(process.env.DATABASE_URL, false);
 const pool = url ? createPostgresPool({ connectionString: url, max: 8 }) : null;
 const db = pool ? createTransactionalPostgresExecutor(pool) : null;
 
