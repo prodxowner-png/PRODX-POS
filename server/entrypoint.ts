@@ -3,6 +3,8 @@ import { fileURLToPath } from 'node:url';
 import express from 'express';
 import type { QueryResultRow } from 'pg';
 import { createPostgresAuthentication } from './auth/composition.ts';
+import { createPostgresFirstTenantBootstrapRepository } from './auth/postgres-repository.ts';
+import { readFirstTenantBootstrapConfig } from './auth/first-tenant-bootstrap.ts';
 import type { PasswordCompromiseCheck } from './auth/password-compromise.ts';
 import { createPostgresAuthorization } from './auth/production-authorization.ts';
 import { asSqlExecutor, createProductionPostgresPool } from './db/postgres.ts';
@@ -58,7 +60,12 @@ export const createProductionApp = async (options: ProductionAppOptions = {}) =>
       await assertPostgresReady(pool);
     },
     configurePublicRoutes: (configuredApp) => {
-      registerAuthRoutes(configuredApp, requestScopedSql, sessions);
+      registerAuthRoutes(configuredApp, requestScopedSql, sessions, {
+        firstTenantBootstrap: {
+          repository: createPostgresFirstTenantBootstrapRepository(requestScopedSql),
+          config: readFirstTenantBootstrapConfig(process.env),
+        },
+      });
       registerPublicInfrastructureRoutes(configuredApp, pool);
     },
     authenticateRequest: async (request) => {

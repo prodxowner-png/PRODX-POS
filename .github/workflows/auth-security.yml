@@ -60,6 +60,12 @@ jobs:
       - name: M2 PostgreSQL authentication integration
         run: npm run server:test:integration
 
+      - name: First-tenant bootstrap PostgreSQL integration
+        env:
+          PRODX_RUN_BOOTSTRAP_POSTGRES_INTEGRATION: '1'
+          PRODX_BOOTSTRAP_TEST_DATABASE_URL: ${{ env.DATABASE_URL }}
+        run: node --import tsx --test server/auth/first-tenant-bootstrap.integration.test.ts
+
       - name: Reject direct mock auth wiring
         shell: bash
         run: |
