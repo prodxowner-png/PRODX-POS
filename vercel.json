@@ -5,6 +5,10 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
+      "source": "/__staging/edge/:path*",
+      "destination": "/api/staging-edge?path=:path*"
+    },
+    {
       "source": "/api/:path*",
       "destination": "/api/index.ts"
     },

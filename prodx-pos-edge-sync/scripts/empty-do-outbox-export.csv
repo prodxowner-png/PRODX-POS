@@ -1,0 +1,1 @@
+tenant_id,terminal_id,idempotency_key,state,failure_code,terminal_seq_no,last_hlc_physical_ms,last_hlc_logical,gap_from_seq_no,gap_to_seq_no,updated_at
