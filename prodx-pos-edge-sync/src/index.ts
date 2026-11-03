@@ -52,7 +52,7 @@ async function handleSync(request: Request, env: Env, ctx: ExecutionContext): Pr
   const originCheckpoint = await verifyTerminalCertificate(request,env,auth);
   const contentLengthHeader = request.headers.get("content-length");
   if (contentLengthHeader !== null) {
-    if (!/^\\d+$/.test(contentLengthHeader)) return json({ error: "INVALID_CONTENT_LENGTH" }, 400);
+    if (!/^\d+$/.test(contentLengthHeader)) return json({ error: "INVALID_CONTENT_LENGTH" }, 400);
     if (Number(contentLengthHeader) > MAX_BODY_BYTES) return json({ error: "PAYLOAD_TOO_LARGE" }, 413);
   }
 
