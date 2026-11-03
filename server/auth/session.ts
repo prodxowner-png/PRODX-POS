@@ -63,7 +63,7 @@ export const createSupabaseTokenVerifier = (
       const jwksUrl = new URL(supabaseJwksUrl);
       const jwksIsLoopback = ['localhost', '127.0.0.1', '[::1]'].includes(jwksUrl.hostname);
       const jwksUrlIsSecure = jwksUrl.protocol === 'https:' || (jwksUrl.protocol === 'http:' && jwksIsLoopback);
-      // In production, the JWKS endpoint must share the configured POS Auth host.
+      // In production, the JWKS endpoint must share the configured Supabase project host.
       // Loopback JWKS is allowed only when the configured Auth endpoint is also loopback.
       const jwksHostMatches = jwksUrl.hostname === authUrl.hostname || (authIsLoopback && jwksIsLoopback);
       if (authUrlIsSecure && jwksUrlIsSecure && jwksHostMatches) {
@@ -91,9 +91,10 @@ export const createSupabaseTokenVerifier = (
   };
 };
 
+// POS JWT verification uses the canonical PRODX-ORG project. No split-project fallback.
 export const verifySupabaseToken: SupabaseTokenVerifier = createSupabaseTokenVerifier(
-  process.env.SUPABASE_POS_AUTH_URL,
-  process.env.SUPABASE_POS_AUTH_JWKS_URL,
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_JWKS_URL,
 );
 
 export const createSessionIssuer = (
