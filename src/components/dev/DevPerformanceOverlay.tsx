@@ -22,9 +22,11 @@ import {
   Gauge,
   HelpCircle,
   Move,
+  Palette,
 } from 'lucide-react';
 import { devPerformanceTracker, DbOperationLog } from '../../services/devPerformanceTracker';
 import { getZIndexClass } from '../../utils/ZIndexManager';
+import { ThemeInspectorModal } from './ThemeInspectorModal';
 
 export type DevOverlayPosition = 'top-right' | 'bottom-right' | 'bottom-bar' | 'modal' | 'badge';
 
@@ -40,6 +42,7 @@ export const DevPerformanceOverlay: React.FC = () => {
     operationsCount: number;
   } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
 
   // Subscribe to real-time performance tracker updates
   const [, setTick] = useState(0);
@@ -580,6 +583,16 @@ export const DevPerformanceOverlay: React.FC = () => {
                 <Download className="w-3.5 h-3.5 text-cyan-400" />
                 <span className="hidden sm:inline">Export</span>
               </button>
+
+              <button
+                type="button"
+                onClick={() => setIsThemeModalOpen(true)}
+                className="px-2.5 py-1.5 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 text-[11px] font-medium flex items-center gap-1.5 cursor-pointer transition-colors"
+                title="Open CSS Custom Properties & Theme Inspector"
+              >
+                <Palette className="w-3.5 h-3.5 text-blue-400" />
+                <span>Theme CSS</span>
+              </button>
             </div>
 
             <button
@@ -594,6 +607,7 @@ export const DevPerformanceOverlay: React.FC = () => {
           </div>
         </div>
       )}
+      <ThemeInspectorModal isOpen={isThemeModalOpen} onClose={() => setIsThemeModalOpen(false)} />
     </div>
   );
 

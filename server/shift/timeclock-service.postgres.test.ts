@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createPostgresPool } from '../db/postgres';
+import { createPostgresPool, resolveConfiguredDatabaseUrl } from '../db/postgres';
 import { createTransactionalPostgresExecutor } from '../db/transaction';
 import {
   createTimeclockService,
@@ -9,7 +9,7 @@ import {
   TimeclockLockedError,
 } from './timeclock-service';
 
-const databaseUrl = process.env.DATABASE_URL;
+const databaseUrl = resolveConfiguredDatabaseUrl(process.env.DATABASE_URL);
 const pepper = 'integration-test-pepper';
 
 const ids = {

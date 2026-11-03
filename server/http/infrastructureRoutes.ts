@@ -1,9 +1,118 @@
 import type { Express, Request, Response } from 'express';
+import type { Pool } from 'pg';
 import { infrastructureAiService } from '../services/infrastructureAiService';
 import { firmwareRegistryService } from '../services/firmwareRegistryService';
+import { performEndToEndHealthCheck } from '../services/systemHealthCheckService';
+import { requirePermission } from './createApp';
 import { GoogleGenAI } from '@google/genai';
 
-export function registerInfrastructureRoutes(app: Express) {
+export function registerPublicInfrastructureRoutes(app: Express, pool?: Pool) {
+  // End-to-end ping of the production PostgreSQL database and the optional legacy Firestore dependency.
+  app.get('/api/v1/infrastructure/system-health-check', async (req: Request, res: Response) => {
+    try {
+      const requestId = (req.headers['x-request-id'] as string) || req.id || `req-${Date.now()}`;
+      const result = await performEndToEndHealthCheck(pool, requestId);
+      res.status(result.statusCode).json({
+        success: result.statusCode === 200 || result.statusCode === 207,
+        ...result,
+      });
+    } catch (error: any) {
+      res.status(500).json({
+        success: false,
+        statusCode: 500,
+        status: 'DOWN',
+        error: error.message || 'System health check execution failed',
+      });
+    }
+  });
+
+  app.post('/api/v1/infrastructure/system-health-check', async (req: Request, res: Response) => {
+    try {
+      const requestId = (req.headers['x-request-id'] as string) || req.id || `req-${Date.now()}`;
+      const result = await performEndToEndHealthCheck(pool, requestId);
+      res.status(result.statusCode).json({
+        success: result.statusCode === 200 || result.statusCode === 207,
+        ...result,
+      });
+    } catch (error: any) {
+      res.status(500).json({
+        success: false,
+        statusCode: 500,
+        status: 'DOWN',
+        error: error.message || 'System health check execution failed',
+      });
+    }
+  });
+
+  // High-precision real-time latency ping with performance.now() timestamps
+  app.get('/api/v1/infrastructure/latency-ping', async (req: Request, res: Response) => {
+    const serverReceiveTime = performance.now();
+    const clientSentTimestamp = req.query.clientTime ? Number(req.query.clientTime) : undefined;
+
+    // PostgreSQL query ping with server-side performance.now()
+    let sqlQueryDurationMs = 0;
+    let sqlSuccess = false;
+    let sqlError: string | undefined;
+
+    const sqlQueryStart = performance.now();
+    if (pool) {
+      try {
+        await pool.query('SELECT 1 AS ping');
+        sqlQueryDurationMs = Number((performance.now() - sqlQueryStart).toFixed(2));
+        sqlSuccess = true;
+      } catch (err: any) {
+        sqlQueryDurationMs = Number((performance.now() - sqlQueryStart).toFixed(2));
+        sqlError = err?.message || 'PostgreSQL query failed';
+      }
+    } else {
+      sqlError = 'PostgreSQL pool not available';
+    }
+
+    // Firebase/Firestore has been retired. Do not make network calls to the old provider.
+    const firestoreDurationMs = 0;
+    const firestoreSuccess = false;
+
+    const serverProcessTimeMs = Number((performance.now() - serverReceiveTime).toFixed(2));
+
+    res.json({
+      success: sqlSuccess,
+      serverReceiveTimestamp: serverReceiveTime,
+      serverTimestampIso: new Date().toISOString(),
+      clientSentTimestamp,
+      serverProcessTimeMs,
+      cloudSql: {
+        success: sqlSuccess,
+        queryDurationMs: sqlQueryDurationMs,
+        error: sqlError,
+        engine: 'PostgreSQL (Supabase session pooler)',
+        region: 'ap-southeast-1',
+        projectId: 'wcyqyiewbzpmrekoljfw',
+      },
+      firestoreBackend: {
+        success: firestoreSuccess,
+        probeDurationMs: firestoreDurationMs,
+        databaseId: 'retired',
+        region: 'retired',
+        disabled: true,
+      },
+    });
+  });
+}
+
+export function registerInfrastructureRoutes(app: Express, pool?: Pool) {
+  registerPublicInfrastructureRoutes(app, pool);
+
+  // Enforce RBAC permission 'settings.manage' on all hardware/firmware/infrastructure management routes
+  // (excluding public system-health-check and latency-ping probes)
+  const enforceInfraRbac = requirePermission('settings.manage');
+  app.use('/api/v1/infrastructure', (req, res, next) => {
+    if (req.path === '/system-health-check' || req.path === '/latency-ping') {
+      next();
+      return;
+    }
+    void enforceInfraRbac(req, res, next);
+  });
+
   // Get system infrastructure health
   app.get('/api/v1/infrastructure/health', (_req: Request, res: Response) => {
     try {

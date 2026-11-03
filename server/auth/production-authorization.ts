@@ -1,6 +1,6 @@
-import type { RequestContext } from '../http/types';
-import type { SqlExecutor } from './postgres-repository';
-import { hasPermission, type AuthorizationSnapshot } from './authorization';
+import type { RequestContext } from '../http/types.ts';
+import type { SqlExecutor } from './postgres-repository.ts';
+import { hasPermission, type AuthorizationSnapshot } from './authorization.ts';
 
 export const createPostgresAuthorization = (db: SqlExecutor) => async (
   context: RequestContext,

@@ -1,8 +1,198 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    // 1. Global Safety Net
     match /{document=**} {
-      allow read, write: if request.auth != null;
+      allow read, write: if false;
+    }
+
+    // 2. Global Helpers
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        (request.auth.token.email == 'kamkokaewthodsawat@gmail.com' && request.auth.token.email_verified == true)
+      );
+    }
+
+    // 3. Entity Validations
+    function isValidTask(data) {
+      return data.keys().hasAll(['id', 'ownerId', 'title', 'completed', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'ownerId', 'title', 'description', 'completed', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && isValidId(data.ownerId)
+        && data.ownerId == request.auth.uid
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 200
+        && (!('description' in data) || (data.description is string && data.description.size() <= 1000))
+        && data.completed is bool
+        && data.createdAt is number
+        && data.updatedAt is number;
+    }
+
+    function isValidOrganization(data) {
+      return data.keys().hasAll(['id', 'name', 'slug', 'createdAt'])
+        && data.keys().hasOnly(['id', 'name', 'slug', 'taxId', 'phone', 'email', 'currency', 'status', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 120
+        && data.slug is string && data.slug.size() >= 1 && data.slug.size() <= 64 && data.slug.matches('^[a-z0-9-]+$')
+        && (!('taxId' in data) || (data.taxId is string && data.taxId.size() <= 64))
+        && (!('phone' in data) || (data.phone is string && data.phone.size() <= 32))
+        && (!('email' in data) || (data.email is string && data.email.size() <= 120))
+        && (!('currency' in data) || (data.currency is string && data.currency.size() <= 10))
+        && (!('status' in data) || (data.status in ['active', 'inactive']))
+        && data.createdAt is number
+        && (!('updatedAt' in data) || data.updatedAt is number);
+    }
+
+    function isValidBranch(data) {
+      return data.keys().hasAll(['id', 'orgId', 'name', 'address', 'createdAt'])
+        && data.keys().hasOnly(['id', 'orgId', 'name', 'address', 'code', 'phone', 'manager', 'status', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && isValidId(data.orgId)
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 120
+        && data.address is string && data.address.size() <= 300
+        && (!('code' in data) || (data.code is string && data.code.size() <= 64))
+        && (!('phone' in data) || (data.phone is string && data.phone.size() <= 32))
+        && (!('manager' in data) || (data.manager is string && data.manager.size() <= 120))
+        && (!('status' in data) || (data.status in ['active', 'inactive']))
+        && data.createdAt is number
+        && (!('updatedAt' in data) || data.updatedAt is number);
+    }
+
+    function isValidTerminal(data) {
+      return data.keys().hasAll(['id', 'branchId', 'name', 'code', 'createdAt'])
+        && data.keys().hasOnly(['id', 'branchId', 'orgId', 'name', 'code', 'deviceModel', 'ipAddress', 'paperWidth', 'status', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && isValidId(data.branchId)
+        && (!('orgId' in data) || isValidId(data.orgId))
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 120
+        && data.code is string && data.code.size() >= 1 && data.code.size() <= 64 && data.code.matches('^[a-zA-Z0-9_-]+$')
+        && (!('deviceModel' in data) || (data.deviceModel is string && data.deviceModel.size() <= 120))
+        && (!('ipAddress' in data) || (data.ipAddress is string && data.ipAddress.size() <= 64))
+        && (!('paperWidth' in data) || (data.paperWidth in ['58mm', '80mm']))
+        && (!('status' in data) || (data.status in ['active', 'maintenance', 'inactive']))
+        && data.createdAt is number
+        && (!('updatedAt' in data) || data.updatedAt is number);
+    }
+
+    function isValidAuditLog(data) {
+      return data.keys().hasAll(['id', 'entityType', 'entityId', 'action', 'timestamp'])
+        && isValidId(data.id)
+        && data.entityType in ['organization', 'branch', 'terminal']
+        && data.action in ['create', 'update', 'delete', 'cascade_delete']
+        && data.timestamp is number;
+    }
+
+    function isValidDiagnosticLog(data) {
+      return data.keys().hasAll(['id', 'batchId', 'category', 'level', 'event', 'message', 'timestamp', 'flushedAt'])
+        && data.id is string && data.id.size() >= 1 && data.id.size() <= 256
+        && data.batchId is string && data.batchId.size() >= 1 && data.batchId.size() <= 256
+        && data.category is string && data.category.size() >= 1 && data.category.size() <= 128
+        && data.level is string && data.level.size() >= 1 && data.level.size() <= 128
+        && data.event is string && data.event.size() >= 1 && data.event.size() <= 500
+        && data.message is string && data.message.size() >= 1 && data.message.size() <= 10000
+        && data.timestamp is number
+        && data.flushedAt is number
+        && (!('peripheralId' in data) || (data.peripheralId is string && data.peripheralId.size() <= 256))
+        && (!('deviceName' in data) || (data.deviceName is string && data.deviceName.size() <= 256))
+        && (!('port' in data) || (data.port is string && data.port.size() <= 128))
+        && (!('interfaceType' in data) || (data.interfaceType is string && data.interfaceType.size() <= 128))
+        && (!('orgId' in data) || (data.orgId is string && data.orgId.size() <= 256))
+        && (!('branchId' in data) || (data.branchId is string && data.branchId.size() <= 256))
+        && (!('terminalId' in data) || (data.terminalId is string && data.terminalId.size() <= 256))
+        && (!('metadata' in data) || data.metadata is map);
+    }
+
+    function isValidAdminCredential(data) {
+      return data.keys().hasAll(['id', 'email', 'passwordHash', 'isSystemOwner', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'email', 'passwordHash', 'passwordSalt', 'isSystemOwner', 'updatedBy', 'reauthMethod', 'version', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && data.email == 'kamkokaewthodsawat@gmail.com'
+        && data.passwordHash is string && data.passwordHash.size() >= 16 && data.passwordHash.size() <= 256
+        && (!('passwordSalt' in data) || (data.passwordSalt is string && data.passwordSalt.size() >= 8 && data.passwordSalt.size() <= 128))
+        && data.isSystemOwner == true
+        && (!('updatedBy' in data) || (data.updatedBy is string && data.updatedBy.size() <= 120))
+        && (!('reauthMethod' in data) || (data.reauthMethod in ['password', 'webauthn_biometric']))
+        && (!('version' in data) || data.version is number)
+        && (!('createdAt' in data) || data.createdAt is number)
+        && data.updatedAt is number;
+    }
+
+    // 4. Collection Matches
+    match /tasks/{taskId} {
+      allow get: if isVerified() && existing().ownerId == request.auth.uid;
+      allow list: if isVerified() && resource.data.ownerId == request.auth.uid;
+      allow create: if isVerified() && isValidId(taskId) && isValidTask(incoming()) && incoming().id == taskId;
+      allow update: if isVerified() && isValidId(taskId) && isValidTask(incoming()) 
+        && incoming().id == existing().id 
+        && incoming().ownerId == existing().ownerId 
+        && incoming().createdAt == existing().createdAt;
+      allow delete: if isVerified() && existing().ownerId == request.auth.uid;
+    }
+
+    match /organizations/{orgId} {
+      allow get: if isValidId(orgId);
+      allow list: if true;
+      allow create: if isValidId(orgId) && isValidOrganization(incoming()) && incoming().id == orgId;
+      allow update: if isValidId(orgId) && isValidOrganization(incoming()) && incoming().id == existing().id && incoming().createdAt == existing().createdAt;
+      allow delete: if isValidId(orgId);
+    }
+
+    match /branches/{branchId} {
+      allow get: if isValidId(branchId);
+      allow list: if resource.data.orgId is string && isValidId(resource.data.orgId);
+      allow create: if isValidId(branchId) && isValidBranch(incoming()) && incoming().id == branchId;
+      allow update: if isValidId(branchId) && isValidBranch(incoming()) && incoming().id == existing().id && incoming().orgId == existing().orgId && incoming().createdAt == existing().createdAt;
+      allow delete: if isValidId(branchId);
+    }
+
+    match /terminals/{terminalId} {
+      allow get: if isValidId(terminalId);
+      allow list: if resource.data.branchId is string && isValidId(resource.data.branchId);
+      allow create: if isValidId(terminalId) && isValidTerminal(incoming()) && incoming().id == terminalId;
+      allow update: if isValidId(terminalId) && isValidTerminal(incoming()) && incoming().id == existing().id && incoming().branchId == existing().branchId && incoming().createdAt == existing().createdAt;
+      allow delete: if isValidId(terminalId);
+    }
+
+    match /audit_logs/{logId} {
+      allow get, list: if true;
+      allow create: if isValidId(logId) && isValidAuditLog(incoming()) && incoming().id == logId;
+      allow update, delete: if false;
+    }
+
+    match /diagnostic_logs/{logId} {
+      allow read, write: if true;
+    }
+
+    match /AppErrorLog/{logId} {
+      allow read, write: if true;
+    }
+
+    match /admin_credentials/{adminId} {
+      allow get: if adminId == 'usr-admin-kamkokaew';
+      allow list: if false;
+      allow create, update: if adminId == 'usr-admin-kamkokaew' && isValidAdminCredential(incoming()) && incoming().id == adminId;
+      allow delete: if false;
     }
   }
 }

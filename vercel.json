@@ -1,9 +1,13 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "bun run build && bun build ./server/entrypoint.ts --outfile ./server-bundle.js --target node --format esm --packages external",
-  "installCommand": "bun install --frozen-lockfile",
+  "installCommand": "npm ci",
   "outputDirectory": "dist",
   "rewrites": [
+    {
+      "source": "/__staging/edge/:path*",
+      "destination": "/api/staging-edge?path=:path*"
+    },
     {
       "source": "/api/:path*",
       "destination": "/api/index.ts"

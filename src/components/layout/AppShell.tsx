@@ -1,30 +1,42 @@
 import React, { useState, useEffect } from 'react';
+import {
+  ShoppingCart,
+  ReceiptText,
+  Boxes,
+  Banknote,
+  Menu,
+} from 'lucide-react';
 import { TopNav } from './TopNav';
 import { Sidebar, NavRoute } from './Sidebar';
 import { StatusBar } from './StatusBar';
 import { OfflineBanner } from './OfflineBanner';
 import { BackgroundLayer } from './BackgroundLayer';
-import { ToastContainer } from '../common/ToastContainer';
 import { Drawer } from '../common/Drawer';
+import { ToastContainer } from '../common/ToastContainer';
 import { HoldOrdersModal } from '../../modules/pos/HoldOrdersModal';
 import { CommandPalette } from '../common/CommandPalette';
 import { LockScreenModal } from '../auth/LockScreenModal';
 import { GlobalBreadcrumb } from './GlobalBreadcrumb';
 import { SyncActivityPanel } from '../sync/SyncActivityPanel';
 import { useOffline } from '../../context/OfflineContext';
+import { useLanguage } from '../../context/LanguageContext';
 
 export interface AppShellProps {
   currentRoute: NavRoute;
   onNavigate: (route: NavRoute) => void;
+  onOpenAdminConsole?: () => void;
   children: React.ReactNode;
 }
 
 export const AppShell: React.FC<AppShellProps> = ({
   currentRoute,
   onNavigate,
+  onOpenAdminConsole,
   children,
 }) => {
   const { isSyncActivityOpen, closeSyncActivity, toggleSyncActivity } = useOffline();
+  const { language } = useLanguage();
+  const isThai = language === 'th';
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isHoldModalOpen, setIsHoldModalOpen] = useState(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
@@ -79,7 +91,11 @@ export const AppShell: React.FC<AppShellProps> = ({
 
       {/* Desktop Persistent Sidebar */}
       <div className="hidden lg:block h-full shrink-0 relative z-10 w-[280px] border-r border-border bg-card">
-        <Sidebar currentRoute={currentRoute} onNavigate={onNavigate} />
+        <Sidebar
+          currentRoute={currentRoute}
+          onNavigate={onNavigate}
+          onOpenAdminConsole={onOpenAdminConsole}
+        />
       </div>
 
       {/* Mobile Drawer Navigation */}
@@ -95,6 +111,7 @@ export const AppShell: React.FC<AppShellProps> = ({
           <Sidebar
             currentRoute={currentRoute}
             onNavigate={onNavigate}
+            onOpenAdminConsole={onOpenAdminConsole}
             onCloseMobile={() => setIsMobileMenuOpen(false)}
           />
         </div>
@@ -106,6 +123,7 @@ export const AppShell: React.FC<AppShellProps> = ({
         <TopNav
           currentRoute={currentRoute}
           onNavigate={onNavigate}
+          onOpenAdminConsole={onOpenAdminConsole}
           onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
           onOpenHoldModal={() => setIsHoldModalOpen(true)}
           onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
@@ -148,6 +166,69 @@ export const AppShell: React.FC<AppShellProps> = ({
           )}
         </main>
 
+        {/* Mobile & Tablet Touch Quick Navigation Bar (< lg, hidden on POS portrait where PosMobileSwipeDrawer is active) */}
+        <nav
+          aria-label="Mobile Quick Navigation"
+          className={`${
+            currentRoute === 'pos' ? 'hidden md:landscape:flex lg:hidden' : 'flex lg:hidden'
+          } h-14 bg-card/95 backdrop-blur-md border-t border-border px-2 items-center justify-around shrink-0 z-20`}
+        >
+          {(
+            [
+              {
+                id: 'pos' as NavRoute,
+                label: isThai ? 'ขาย (POS)' : 'POS',
+                icon: ShoppingCart,
+              },
+              {
+                id: 'orders' as NavRoute,
+                label: isThai ? 'บิลขาย' : 'Orders',
+                icon: ReceiptText,
+              },
+              {
+                id: 'inventory' as NavRoute,
+                label: isThai ? 'สต็อก' : 'Stock',
+                icon: Boxes,
+              },
+              {
+                id: 'shift' as NavRoute,
+                label: isThai ? 'กะเงินสด' : 'Shift',
+                icon: Banknote,
+              },
+            ] as const
+          ).map((tab) => {
+            const Icon = tab.icon;
+            const active = currentRoute === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => onNavigate(tab.id)}
+                className={`flex-1 min-h-[44px] py-1 rounded-xl flex flex-col items-center justify-center gap-0.5 transition-all cursor-pointer active:scale-95 ${
+                  active
+                    ? 'text-primary font-black bg-primary/10'
+                    : 'text-text/60 hover:text-text font-semibold'
+                }`}
+              >
+                <Icon className="h-4 w-4 shrink-0" />
+                <span className="text-[10px] leading-tight truncate max-w-[70px]">
+                  {tab.label}
+                </span>
+              </button>
+            );
+          })}
+          <button
+            type="button"
+            onClick={() => setIsMobileMenuOpen(true)}
+            className="flex-1 min-h-[44px] py-1 rounded-xl flex flex-col items-center justify-center gap-0.5 text-text/60 hover:text-text font-semibold transition-all cursor-pointer active:scale-95"
+          >
+            <Menu className="h-4 w-4 shrink-0" />
+            <span className="text-[10px] leading-tight">
+              {isThai ? 'เมนูทั้งหมด' : 'More'}
+            </span>
+          </button>
+        </nav>
+
         {/* Bottom Diagnostics Bar */}
         <StatusBar />
       </div>
@@ -176,7 +257,7 @@ export const AppShell: React.FC<AppShellProps> = ({
         onClose={closeSyncActivity}
       />
 
-      {/* Toast Notification Container */}
+      {/* Global Toast Notifications Container */}
       <ToastContainer />
     </div>
   );

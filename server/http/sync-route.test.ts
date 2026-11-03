@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createPostgresPool } from '../db/postgres';
+import { createPostgresPool, resolveConfiguredDatabaseUrl } from '../db/postgres';
 import { createTransactionalPostgresExecutor } from '../db/transaction';
 import { createApp } from './createApp';
 import { registerSyncRoute } from './sync-route';
 import type { CheckoutRequest } from '../../src/adapters/types';
 import type { TransactionalSqlExecutor } from '../db/transaction';
 
-const url = process.env.DATABASE_URL;
+const url = resolveConfiguredDatabaseUrl(process.env.DATABASE_URL);
 const pool = url ? createPostgresPool({ connectionString: url, max: 8 }) : null;
 const db = pool ? createTransactionalPostgresExecutor(pool) : null;
 

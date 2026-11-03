@@ -12,21 +12,23 @@ test('login throttle blocks after twenty failures without blocking the first nin
   const state = { failedAttempts: 0, windowStartedAt: new Date('2026-10-05T00:00:00.000Z'), lockedUntil: null as Date | null };
   const db: SqlExecutor = {
     async query<T extends Record<string, unknown>>(sql: string, parameters: readonly unknown[] = []): Promise<readonly T[]> {
-      if (sql.includes('SELECT locked_until')) {
-        return (state.failedAttempts === 0 ? [] : [{ failed_attempts: state.failedAttempts, window_started_at: state.windowStartedAt, locked_until: state.lockedUntil }] as unknown as T[]);
-      }
-      if (sql.includes('INSERT INTO prodx_auth_login_throttles')) {
+      if (sql.includes('prodx_auth_login_throttle_check')) {
         const now = parameters[1] as Date;
-        state.failedAttempts = state.windowStartedAt.getTime() + 10 * 60 * 1000 <= now.getTime() ? 1 : state.failedAttempts + 1;
-        state.windowStartedAt = state.failedAttempts === 1 ? now : state.windowStartedAt;
-        state.lockedUntil = state.failedAttempts >= 20 ? new Date(now.getTime() + 60_000) : null;
-        return [{ failed_attempts: state.failedAttempts, locked_until: state.lockedUntil }] as unknown as T[];
+        if (state.failedAttempts === 0) return [] as T[];
+        if (state.windowStartedAt.getTime() + 10 * 60 * 1000 <= now.getTime()) {
+          state.failedAttempts = 0;
+          state.lockedUntil = null;
+          state.windowStartedAt = now;
+        }
+        return [{ failed_attempts: state.failedAttempts, window_started_at: state.windowStartedAt, locked_until: state.lockedUntil }] as unknown as T[];
       }
-      if (sql.includes('UPDATE prodx_auth_login_throttles')) {
-        state.failedAttempts = 0;
-        state.lockedUntil = null;
-        state.windowStartedAt = parameters[1] as Date;
-        return [] as T[];
+      if (sql.includes('prodx_auth_login_throttle_record_failure')) {
+        const now = parameters[1] as Date;
+        const expired = state.windowStartedAt.getTime() + 10 * 60 * 1000 <= now.getTime();
+        state.failedAttempts = expired ? 1 : state.failedAttempts + 1;
+        if (expired) state.windowStartedAt = now;
+        state.lockedUntil = !expired && state.failedAttempts >= 20 ? new Date(now.getTime() + 60_000) : null;
+        return [{ failed_attempts: state.failedAttempts, locked_until: state.lockedUntil }] as unknown as T[];
       }
       return [] as T[];
     },

@@ -6,21 +6,34 @@ import { Terminal, Shield, Database, Cpu, Keyboard } from 'lucide-react';
 import { SyncLatencyIndicator } from './SyncLatencyIndicator';
 
 export const StatusBar: React.FC = () => {
-  const { session } = useAuth();
+  const { session, operationalScope } = useAuth();
   const { isOnline, pendingCount, openSyncActivity } = useOffline();
   const { config } = useSettings();
 
   if (!session) return null;
 
+  const activeScope = session.operationalScope ?? operationalScope;
+
   return (
     <footer className="h-8 w-full max-w-full overflow-x-hidden border-t border-border border-crisp bg-card/80 px-3 sm:px-6 flex items-center justify-between text-[10px] text-text/60 font-mono shrink-0 select-none z-20">
       {/* Left items */}
       <div className="flex items-center gap-2.5 sm:gap-4 uppercase tracking-wider font-semibold">
-        <span className="flex items-center gap-1.5">
+        <span
+          className="flex items-center gap-1.5"
+          title={
+            activeScope
+              ? `${activeScope.organizationName} (${activeScope.organizationSlug}) · ${activeScope.branchName} · ${activeScope.terminalName} (${activeScope.terminalCode})`
+              : undefined
+          }
+        >
           <Terminal className="h-3 w-3 text-text/40" />
-          <span className="text-text/60">{session.organization.slug}</span>
+          <span className="text-text/60">
+            {activeScope?.organizationSlug || session.organization.slug}
+          </span>
           <span className="text-text/30">/</span>
-          <span className="text-text font-bold">{session.currentStore.code}</span>
+          <span className="text-text font-bold">
+            {activeScope?.branchName || session.currentStore.code}
+          </span>
         </span>
 
         <span className="hidden sm:inline-flex items-center gap-1.5">
@@ -31,7 +44,9 @@ export const StatusBar: React.FC = () => {
 
         <span className="hidden md:inline-flex items-center gap-1">
           <span className="text-text/60">REG:</span>
-          <span className="text-text/80">{session.registerId}</span>
+          <span className="text-text/80">
+            {activeScope?.terminalCode || session.registerId}
+          </span>
         </span>
       </div>
 

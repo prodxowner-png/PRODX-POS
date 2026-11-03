@@ -1,5 +1,6 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { Product, Category, BulkImportItem, BulkImportMode, BulkImportResult } from '../../domain/catalog';
+import { parseDecimalToCents, parseDecimalToBps } from '../../domain/money';
 import { createCatalogReadApi } from '../../adapters/catalogApiFactory';
 import { Modal } from '../common/Modal';
 import { Button } from '../common/Button';
@@ -742,7 +743,7 @@ export const BulkInventoryUploadModal: React.FC<BulkInventoryUploadModalProps> =
           errors.push(language === 'th' ? 'ราคาขายต้องไม่ติดลบ' : 'Price cannot be negative');
         } else {
           const isExplicitCents = priceField ? (priceField.toLowerCase().includes('cent') || priceField.toLowerCase().includes('satang')) : false;
-          priceAmountInCents = isExplicitCents ? Math.round(num) : Math.round(num * 100);
+          priceAmountInCents = isExplicitCents ? Math.trunc(num) : parseDecimalToCents(String(rawPrice));
         }
       }
 
@@ -756,7 +757,7 @@ export const BulkInventoryUploadModal: React.FC<BulkInventoryUploadModalProps> =
           errors.push(language === 'th' ? 'ราคาทุนต้องไม่ติดลบ' : 'Cost cannot be negative');
         } else {
           const isExplicitCostCents = costField ? (costField.toLowerCase().includes('cent') || costField.toLowerCase().includes('satang')) : false;
-          costPriceAmountInCents = isExplicitCostCents ? Math.round(num) : Math.round(num * 100);
+          costPriceAmountInCents = isExplicitCostCents ? Math.trunc(num) : parseDecimalToCents(String(rawCost));
         }
       }
 
@@ -777,7 +778,7 @@ export const BulkInventoryUploadModal: React.FC<BulkInventoryUploadModalProps> =
         if (num === undefined) {
           errors.push(language === 'th' ? `จำนวนสต็อก "${rawStock}" ไม่ถูกต้อง` : `Invalid stock quantity "${rawStock}"`);
         } else {
-          currentStock = Math.round(num);
+          currentStock = Math.trunc(num);
         }
       }
 
@@ -786,7 +787,7 @@ export const BulkInventoryUploadModal: React.FC<BulkInventoryUploadModalProps> =
       if (rawReorder !== undefined && rawReorder !== '') {
         const num = parseNumeric(rawReorder);
         if (num !== undefined) {
-          reorderPoint = Math.max(0, Math.round(num));
+          reorderPoint = Math.max(0, Math.trunc(num));
         }
       }
 
@@ -795,7 +796,7 @@ export const BulkInventoryUploadModal: React.FC<BulkInventoryUploadModalProps> =
       if (rawTax !== undefined && rawTax !== '') {
         const num = parseNumeric(rawTax);
         if (num !== undefined) {
-          taxRateBps = num <= 100 ? Math.round(num * 100) : Math.round(num);
+          taxRateBps = num <= 100 ? parseDecimalToBps(String(rawTax)) : Math.trunc(num);
         }
       }
 

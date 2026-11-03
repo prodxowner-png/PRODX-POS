@@ -1,7 +1,7 @@
-import { createPostgresAuthenticationRepository, type SqlExecutor } from './postgres-repository';
-import { createSessionIssuer, type SessionIssuer } from './session';
-import { verifyPassword } from './password';
-import { checkPasswordCompromise } from './password-compromise';
+import { createPostgresAuthenticationRepository, type SqlExecutor } from './postgres-repository.ts';
+import { createSessionIssuer, type SessionIssuer } from './session.ts';
+import { verifyPassword } from './password.ts';
+import { checkPasswordCompromise } from './password-compromise.ts';
 
 /**
  * Application composition boundary for M2 authentication.
@@ -10,7 +10,10 @@ import { checkPasswordCompromise } from './password-compromise';
  * adapted to SqlExecutor here. Authentication policy remains independent from
  * the database SDK.
  */
-export const createPostgresAuthentication = (db: SqlExecutor): SessionIssuer => {
+export const createPostgresAuthentication = (
+  db: SqlExecutor,
+  checkCompromisedPassword = checkPasswordCompromise,
+): SessionIssuer => {
   const repository = createPostgresAuthenticationRepository(db);
-  return createSessionIssuer(repository, verifyPassword, () => new Date(), checkPasswordCompromise);
+  return createSessionIssuer(repository, verifyPassword, () => new Date(), checkCompromisedPassword);
 };

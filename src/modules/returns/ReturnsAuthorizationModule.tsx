@@ -4,6 +4,8 @@ import { useLanguage } from '../../context/LanguageContext';
 import { useToast } from '../../context/ToastContext';
 import { Order, CartLineItem } from '../../domain/order';
 import { formatMoney, createMoney } from '../../domain/money';
+import { createRefundApi } from '../../adapters/refundApiFactory';
+import { createProductionSupervisorAuthorizationApi } from '../../adapters/productionSupervisorAuthorizationApi';
 import { Modal } from '../../components/common/Modal';
 import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
@@ -43,6 +45,7 @@ export const ReturnsAuthorizationModule: React.FC<ReturnsAuthorizationModuleProp
   const [stockDisposition, setStockDisposition] = useState<'restock_resellable' | 'scrap_writeoff'>('restock_resellable');
   const [refundMethod, setRefundMethod] = useState<'original_tender' | 'store_credit'>('original_tender');
   const [supervisorPin, setSupervisorPin] = useState('');
+  const [supervisorToken, setSupervisorToken] = useState<string | null>(null);
   const [isPinValidated, setIsPinValidated] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -55,45 +58,111 @@ export const ReturnsAuthorizationModule: React.FC<ReturnsAuthorizationModuleProp
       ...prev,
       [lineId]: clamped,
     }));
+    setIsPinValidated(false);
+    setSupervisorToken(null);
   };
 
+  // Exact BigInt allocation matching server/transactions/refund-service.ts
   const totalReturnCents = order.items.reduce((acc, item) => {
     const qty = selectedItems[item.lineId] || 0;
-    const itemUnitCents = Math.round(item.lineTotal.amountInCents / item.quantity);
-    return acc + itemUnitCents * qty;
+    if (qty <= 0) return acc;
+    const lineCents = BigInt(item.lineTotal.amountInCents);
+    const q = BigInt(qty);
+    const totalQ = BigInt(Math.max(1, item.quantity));
+    const allocatedCents = Number((lineCents * q + totalQ / 2n) / totalQ);
+    return acc + allocatedCents;
   }, 0);
 
   const totalReturnMoney = createMoney(totalReturnCents, order.totals.grandTotal.currency);
 
-  const handleVerifySupervisorPin = (e: React.FormEvent) => {
+  const handleVerifySupervisorPin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (supervisorPin === '1234' || supervisorPin === '9999' || session.currentUser.role === 'admin' || session.currentUser.role === 'manager') {
+    if (!supervisorPin.trim()) {
+      playScannerSound('error');
+      addToast({
+        title: language === 'th' ? 'กรุณาระบุรหัสผู้จัดการ' : 'Supervisor Secret Required',
+        message: language === 'th' ? 'กรุณากรอกรหัส PIN หรือรหัสผ่านผู้จัดการเพื่อยืนยันสิทธิ์บนเซิร์ฟเวอร์' : 'Enter a valid manager credential.',
+        type: 'error',
+      });
+      return;
+    }
+
+    try {
+      const authApi = createProductionSupervisorAuthorizationApi(session.token);
+      const grant = await authApi.authorize({
+        action: 'refund',
+        orderId: order.id,
+        supervisorUserId: session.currentUser.id,
+        supervisorSecret: supervisorPin.trim(),
+      });
+      setSupervisorToken(grant.authorizationToken);
       setIsPinValidated(true);
       playScannerSound('success');
       addToast({
         title: language === 'th' ? 'การอนุมัติผู้จัดการสำเร็จ' : 'Supervisor Authorized',
-        message: language === 'th' ? 'ได้รับการยืนยันสิทธิ์ในการคืนเงินและปรับปรุงสต็อก' : 'Return authorization verified.',
+        message: language === 'th' ? 'ได้รับการยืนยันสิทธิ์จากเซิร์ฟเวอร์ในการคืนเงินและปรับปรุงสต็อก' : 'Server return authorization verified.',
         type: 'success',
       });
-    } else {
+    } catch (err: any) {
       playScannerSound('error');
       addToast({
-        title: language === 'th' ? 'รหัส PIN ไม่ถูกต้อง' : 'Invalid PIN',
-        message: language === 'th' ? 'กรุณากรอกรหัส PIN ผู้จัดการเพื่ออนุมัติรายการคืนเงิน' : 'Enter a valid manager PIN.',
+        title: language === 'th' ? 'การยืนยันสิทธิ์ล้มเหลว' : 'Authorization Failed',
+        message: err?.message || (language === 'th' ? 'รหัสผู้จัดการไม่ถูกต้องหรือไม่มีสิทธิ์อนุมัติ' : 'Invalid supervisor credential or insufficient permissions.'),
         type: 'error',
       });
     }
   };
 
   const handleSubmitReturn = async () => {
-    if (!isPinValidated || totalReturnCents <= 0) return;
+    if (!isPinValidated || !supervisorToken || totalReturnCents <= 0) return;
 
     setIsSubmitting(true);
     triggerHaptic('heavy');
-    playScannerSound('payment_success');
 
-    setTimeout(() => {
-      setIsSubmitting(false);
+    try {
+      const refundApi = createRefundApi(session.token);
+      const restockItemsPayload =
+        stockDisposition === 'restock_resellable'
+          ? order.items
+              .map((item) => ({
+                productId: item.product.id,
+                quantity: selectedItems[item.lineId] || 0,
+              }))
+              .filter((entry) => entry.quantity > 0)
+          : [];
+      const tenderMethod =
+        order.payments[0]?.method === 'card'
+          ? 'card'
+          : order.payments[0]?.method === 'qr_digital'
+          ? 'qr_digital'
+          : 'cash';
+
+      if (refundApi.mode === 'production') {
+        await refundApi.refund({
+          orderId: order.id,
+          refundAmount: totalReturnMoney,
+          refundMethod: tenderMethod,
+          reason: `Return (${returnReason} / ${stockDisposition})`,
+          idempotencyKey: `return:${order.id}:${crypto.randomUUID()}`,
+          supervisorAuthorizationToken: supervisorToken,
+          itemsToRestock: restockItemsPayload,
+        });
+      } else {
+        await refundApi.refundOrder(
+          session.currentStore.id,
+          order.id,
+          totalReturnMoney,
+          `Return (${returnReason} / ${stockDisposition})`,
+          tenderMethod,
+          stockDisposition === 'restock_resellable',
+          session.currentUser.id,
+          session.currentUser.name,
+          restockItemsPayload
+        );
+      }
+
+      playScannerSound('payment_success');
+      window.dispatchEvent(new CustomEvent('prodx:inventory-updated'));
       onClose();
       onReturnCompleted?.();
 
@@ -102,7 +171,16 @@ export const ReturnsAuthorizationModule: React.FC<ReturnsAuthorizationModuleProp
         message: `${language === 'th' ? 'ใบคืนเงินสำหรับออเดอร์' : 'Refund ticket for'} ${order.orderNumber} (${formatMoney(totalReturnMoney)})`,
         type: 'success',
       });
-    }, 800);
+    } catch (err: any) {
+      playScannerSound('error');
+      addToast({
+        title: language === 'th' ? 'ทำรายการคืนเงินไม่สำเร็จ' : 'Return Failed',
+        message: err?.message || (language === 'th' ? 'ไม่สามารถบันทึกการคืนเงินได้' : 'Could not commit return transaction.'),
+        type: 'error',
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (

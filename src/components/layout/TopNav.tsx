@@ -23,11 +23,15 @@ import {
   Cloud,
   RefreshCw,
   ShoppingCart,
-  Eye
+  Eye,
+  Building2,
+  ShieldCheck,
 } from 'lucide-react';
 import { ProdxLogo } from '../common/ProdxLogo';
+import { StaffAvatar } from '../common/StaffAvatar';
 import { NavRoute } from './Sidebar';
 import { SyncStatusIndicator } from './SyncStatusIndicator';
+import { ConnectivityStatusIndicator } from './ConnectivityStatusIndicator';
 import { CustomerDisplayLauncherModal } from '../customerDisplay/CustomerDisplayLauncherModal';
 import { GlobalSearchInput } from './GlobalSearchInput';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
@@ -38,6 +42,7 @@ import { useVisualInspector } from '../../context/VisualInspectorContext';
 export interface TopNavProps {
   currentRoute?: NavRoute;
   onNavigate?: (route: NavRoute) => void;
+  onOpenAdminConsole?: () => void;
   onOpenMobileMenu: () => void;
   onOpenHoldModal: () => void;
   onOpenCommandPalette: () => void;
@@ -46,6 +51,7 @@ export interface TopNavProps {
 export const TopNav: React.FC<TopNavProps> = ({
   currentRoute,
   onNavigate,
+  onOpenAdminConsole,
   onOpenMobileMenu,
   onOpenHoldModal,
   onOpenCommandPalette,
@@ -118,7 +124,7 @@ export const TopNav: React.FC<TopNavProps> = ({
 
           {/* Desktop Brand Logo fallback for very small screens */}
           <div className="flex min-[400px]:hidden items-center shrink-0 pr-1">
-             <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-white font-black text-xs">P.</div>
+            <ProdxLogo variant="mark" size="sm" />
           </div>
 
           {/* Divider on larger screens */}
@@ -318,13 +324,14 @@ export const TopNav: React.FC<TopNavProps> = ({
             type="button"
             onClick={toggleTheme}
             className="hidden lg:flex min-w-[44px] min-h-[44px] items-center justify-center p-2 rounded-xl border border-border border-crisp hover:bg-background text-text/70 transition-all duration-150 cursor-pointer active:scale-95"
+            aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
           >
             {theme === 'dark' ? <Sun className="h-4 w-4 text-amber-400" /> : <Moon className="h-4 w-4 text-primary" />}
           </button>
 
-          {/* Offline-First Sync Status Indicator */}
+          {/* OfflineProvider Real-Time Connectivity Status Indicator (Online/Offline) */}
           <div className="flex items-center shrink-0">
-            <SyncStatusIndicator />
+            <ConnectivityStatusIndicator />
           </div>
 
           {/* Cashier / User Profile & Comprehensive Account Menu (Far Right) */}
@@ -343,15 +350,12 @@ export const TopNav: React.FC<TopNavProps> = ({
                 <span className="text-[10px] font-bold text-text/50 uppercase leading-tight">{session.currentUser.role}</span>
               </div>
               {/* User Profile Avatar with Online Status Indicator Dot */}
-              <div className="relative shrink-0">
-                <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-[11px] font-bold text-white shadow-xs">
-                  {session.currentUser.name.split(' ').map((n) => n[0]).join('').slice(0, 2)}
-                </div>
-                <span className="absolute -bottom-0.5 -right-0.5 flex h-2.5 w-2.5">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500 border-2 border-card" />
-                </span>
-              </div>
+              <StaffAvatar
+                name={session.currentUser.name}
+                size="sm"
+                showStatusIndicator
+                isOnline={isOnline}
+              />
             </button>
 
             {isUserMenuOpen && (
@@ -399,22 +403,67 @@ export const TopNav: React.FC<TopNavProps> = ({
                   </button>
                 </div>
 
-                {/* Quick Navigation to Settings from User Menu */}
-                {onNavigate && (
-                  <div className="py-1 px-2">
+                {/* Quick Navigation to Settings & Organization Admin Console from User Menu */}
+                <div className="py-1 px-2 space-y-1">
+                  {session.currentUser.role === 'cashier' ? (
+                    <div className="w-full px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] font-bold text-amber-600 dark:text-amber-400 flex items-center gap-2">
+                      <Lock className="h-3.5 w-3.5 shrink-0" />
+                      <span>
+                        {language === 'th'
+                          ? 'สิทธิ์ User ทั่วไป: เฉพาะหน้า POS'
+                          : 'General User: POS-Only Access'}
+                      </span>
+                    </div>
+                  ) : (
+                    onNavigate && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsUserMenuOpen(false);
+                          onNavigate('settings');
+                        }}
+                        className="w-full px-3 py-2.5 min-h-[44px] rounded-xl text-left text-xs font-bold text-text/80 hover:bg-background flex items-center justify-between gap-2 cursor-pointer transition-colors active:scale-95"
+                      >
+                        <span className="flex items-center gap-2">
+                          <Settings className="h-4 w-4 text-text/60" />
+                          <span>
+                            {session.currentUser.role === 'admin'
+                              ? language === 'th'
+                                ? 'ตั้งค่าระดับองค์กรและระบบ'
+                                : 'Organization & System Settings'
+                              : language === 'th'
+                              ? 'ตั้งค่าระดับสาขา'
+                              : 'Store Settings'}
+                          </span>
+                        </span>
+                        <span className="font-mono text-[9px] uppercase px-1.5 py-0.5 rounded bg-primary/10 text-primary">
+                          {session.currentUser.role === 'admin' ? 'FULL ORG' : 'STORE'}
+                        </span>
+                      </button>
+                    )
+                  )}
+
+                  {session.currentUser.role === 'admin' && onOpenAdminConsole && (
                     <button
                       type="button"
                       onClick={() => {
                         setIsUserMenuOpen(false);
-                        onNavigate('settings');
+                        onOpenAdminConsole();
                       }}
-                      className="w-full px-3 py-2.5 min-h-[44px] rounded-xl text-left text-xs font-bold text-text/80 hover:bg-background flex items-center gap-2 cursor-pointer transition-colors active:scale-95"
+                      className="w-full px-3 py-2.5 min-h-[44px] rounded-xl text-left text-xs font-bold text-primary bg-primary/10 hover:bg-primary/15 border border-primary/25 flex items-center justify-between gap-2 cursor-pointer transition-colors active:scale-95"
                     >
-                      <Settings className="h-4 w-4 text-text/60" />
-                      <span>{language === 'th' ? 'ตั้งค่าระบบ' : 'Settings'}</span>
+                      <span className="flex items-center gap-2">
+                        <Building2 className="h-4 w-4 shrink-0" />
+                        <span>
+                          {language === 'th'
+                            ? 'จัดการองค์กร สาขา และเครื่อง POS'
+                            : 'Organization Admin Console'}
+                        </span>
+                      </span>
+                      <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
                     </button>
-                  </div>
-                )}
+                  )}
+                </div>
 
                 {/* Lock Terminal Option */}
                 <div className="py-1 px-2">

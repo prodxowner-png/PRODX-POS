@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createPostgresPool } from '../db/postgres';
+import { createPostgresPool, resolveConfiguredDatabaseUrl } from '../db/postgres';
 import { createTransactionalPostgresExecutor } from '../db/transaction';
 import type { CheckoutRequest } from '../../src/adapters/types';
 import { createCheckoutService } from './checkout-service';
 
-const url=process.env.DATABASE_URL;const pool=url?createPostgresPool({connectionString:url,max:8}):null;const db=pool?createTransactionalPostgresExecutor(pool):null;
+const url=resolveConfiguredDatabaseUrl(process.env.DATABASE_URL);const pool=url?createPostgresPool({connectionString:url,max:8}):null;const db=pool?createTransactionalPostgresExecutor(pool):null;
 const id={org:'00000000-0000-4000-8000-000000001001',store:'00000000-0000-4000-8000-000000001002',store2:'00000000-0000-4000-8000-000000001003',user:'00000000-0000-4000-8000-000000001004',reg:'00000000-0000-4000-8000-000000001005',shift:'00000000-0000-4000-8000-000000001006',cat:'00000000-0000-4000-8000-000000001007',product:'00000000-0000-4000-8000-000000001008'};
 const req=(key:string,overrides:Partial<CheckoutRequest>={}):CheckoutRequest=>({idempotencyKey:key,storeId:id.store,registerId:id.reg,cashierId:id.user,items:[{lineId:'line',product:{id:id.product,storeId:id.store,sku:'PG-1',barcode:'PG-1',name:'PG Product',categoryId:id.cat,price:{amountInCents:1000,currency:'THB'},costPrice:{amountInCents:500,currency:'THB'},taxRateBps:0,currentStock:20,reorderPoint:1,unitOfMeasure:'each'},quantity:2,unitPrice:{amountInCents:1000,currency:'THB'},discountBps:0,lineSubtotal:{amountInCents:2000,currency:'THB'},lineTax:{amountInCents:0,currency:'THB'},lineTotal:{amountInCents:2000,currency:'THB'}}],totals:{grossSubtotal:{amountInCents:2000,currency:'THB'},itemDiscounts:{amountInCents:0,currency:'THB'},orderDiscount:{amountInCents:0,currency:'THB'},netSubtotal:{amountInCents:2000,currency:'THB'},totalTax:{amountInCents:0,currency:'THB'},grandTotal:{amountInCents:2000,currency:'THB'},totalItemsCount:2},payments:[{id:'00000000-0000-4000-8000-000000001009',method:'cash',amount:{amountInCents:2000,currency:'THB'},tenderedCash:{amountInCents:2000,currency:'THB'},changeGiven:{amountInCents:0,currency:'THB'},timestamp:'2026-09-14T00:00:00.000Z'}],...overrides});
 async function clean() {

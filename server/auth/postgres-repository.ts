@@ -1,85 +1,114 @@
 import crypto from 'node:crypto';
-import type { AuthenticationRepository, CredentialRecord, DeviceRecord, SessionRecord } from './session';
+import type { AuthenticationRepository, CredentialRecord, DeviceRecord, SessionRecord, SupabasePrincipalRecord } from './session';
 
 export type SqlExecutor = {
   query<T extends Record<string, unknown>>(sql: string, parameters?: readonly unknown[]): Promise<readonly T[]>;
 };
 
+export type FirstTenantBootstrapInput = {
+  supabaseUserId: string;
+  organizationCode: string;
+  organizationName: string;
+  storeCode: string;
+  storeName: string;
+  businessTimezone: string;
+  ownerUsername: string;
+  ownerDisplayName: string;
+  deviceKey: string;
+  deviceName: string;
+};
+
+export type FirstTenantBootstrapResult = {
+  organizationId: string;
+  storeId: string;
+  userId: string;
+  roleId: string;
+  deviceId: string;
+};
+
+export type FirstTenantBootstrapRepository = {
+  bootstrapFirstTenant(input: FirstTenantBootstrapInput): Promise<FirstTenantBootstrapResult | null>;
+};
+
+export const createPostgresFirstTenantBootstrapRepository = (db: SqlExecutor): FirstTenantBootstrapRepository => ({
+  async bootstrapFirstTenant(input) {
+    const rows = await db.query<{
+      organization_id: string;
+      store_id: string;
+      user_id: string;
+      role_id: string;
+      device_id: string;
+    }>(
+      `SELECT * FROM public.prodx_auth_bootstrap_first_tenant(
+        $1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10
+      )`,
+      [
+        input.supabaseUserId,
+        input.organizationCode,
+        input.organizationName,
+        input.storeCode,
+        input.storeName,
+        input.businessTimezone,
+        input.ownerUsername,
+        input.ownerDisplayName,
+        input.deviceKey,
+        input.deviceName,
+      ],
+    );
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      organizationId: row.organization_id,
+      storeId: row.store_id,
+      userId: row.user_id,
+      roleId: row.role_id,
+      deviceId: row.device_id,
+    };
+  },
+});
+
 export const createPostgresAuthenticationRepository = (db: SqlExecutor): AuthenticationRepository => ({
-  async findCredentialByUsername(username, organizationId) {
+  async findCredentialByUsername(username, deviceId) {
     const rows = await db.query<CredentialRecord & { credential_type: 'password'; secret_hash: string; failed_attempts: number; locked_until: Date | null; }>(
-      `SELECT u.id AS "userId", u.organization_id AS "organizationId", u.username,
-              u.status, c.credential_type, c.secret_hash, c.failed_attempts, c.locked_until
-         FROM prodx_users u JOIN prodx_user_credentials c ON c.user_id = u.id
-        WHERE lower(u.username) = lower($1)
-          AND ($2::uuid IS NULL OR u.organization_id = $2::uuid)
-        ORDER BY u.organization_id
-        LIMIT 1`, [username, organizationId ?? null],
+      `SELECT * FROM public.prodx_auth_find_credential_by_username($1, $2::uuid)`,
+      [username, deviceId],
     );
     const row = rows[0];
     if (!row) return null;
     return { userId: row.userId, organizationId: row.organizationId, username: row.username, status: row.status,
       credentialType: row.credential_type, secretHash: row.secret_hash, failedAttempts: row.failed_attempts, lockedUntil: row.locked_until };
   },
-  async recordFailedAttempt(userId) {
+  async findUserBySupabaseUserId(supabaseUserId, deviceId) {
+    const rows = await db.query<SupabasePrincipalRecord>(
+      `SELECT * FROM public.prodx_auth_find_user_by_supabase_user_id($1::uuid, $2::uuid)`,
+      [supabaseUserId, deviceId],
+    );
+    const row = rows[0];
+    if (!row) return null;
+    return { userId: row.userId, organizationId: row.organizationId, username: row.username, status: row.status };
+  },
+  async recordFailedAttempt(userId, organizationId) {
     await db.query(
-      `WITH updated AS (
-         UPDATE prodx_user_credentials
-            SET failed_attempts = LEAST(failed_attempts + 1, 5),
-                locked_until = CASE WHEN failed_attempts + 1 >= 5 THEN CURRENT_TIMESTAMP + INTERVAL '15 minutes' ELSE locked_until END,
-                updated_at = CURRENT_TIMESTAMP
-          WHERE user_id = $1
-            AND (locked_until IS NULL OR locked_until <= CURRENT_TIMESTAMP)
-          RETURNING user_id, failed_attempts, locked_until
-       )
-       INSERT INTO prodx_security_audit_events
-         (id, organization_id, user_id, event_type, metadata)
-       SELECT $2::uuid, u.organization_id, updated.user_id, 'AUTH_LOCKOUT',
-              jsonb_build_object('failed_attempts', updated.failed_attempts, 'locked_until', updated.locked_until)
-         FROM updated
-         JOIN prodx_users u ON u.id = updated.user_id
-        WHERE updated.failed_attempts = 5 AND updated.locked_until IS NOT NULL`,
-      [userId, crypto.randomUUID()],
+      `SELECT public.prodx_auth_record_failed_attempt($1::uuid, $2::uuid, $3::uuid)`,
+      [userId, organizationId, crypto.randomUUID()],
     );
   },
-  async resetFailedAttempts(userId) {
+  async resetFailedAttempts(userId, organizationId) {
     await db.query(
-      `WITH previous AS (
-         SELECT user_id, failed_attempts, locked_until
-           FROM prodx_user_credentials
-          WHERE user_id = $1
-          FOR UPDATE
-       ), updated AS (
-         UPDATE prodx_user_credentials c
-            SET failed_attempts = 0, locked_until = NULL,
-                last_authenticated_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-           FROM previous
-          WHERE c.user_id = previous.user_id
-          RETURNING c.user_id
-       )
-       INSERT INTO prodx_security_audit_events
-         (id, organization_id, user_id, event_type, metadata)
-       SELECT $2::uuid, u.organization_id, previous.user_id, 'AUTH_LOCKOUT_RESET',
-              jsonb_build_object('previous_failed_attempts', previous.failed_attempts,
-                                 'previous_locked_until', previous.locked_until)
-         FROM previous
-         JOIN prodx_users u ON u.id = previous.user_id
-        WHERE previous.failed_attempts > 0 OR previous.locked_until IS NOT NULL`,
-      [userId, crypto.randomUUID()],
+      `SELECT public.prodx_auth_reset_failed_attempts($1::uuid, $2::uuid, $3::uuid)`,
+      [userId, organizationId, crypto.randomUUID()],
     );
   },
   async createSession(input) {
-    await db.query(`INSERT INTO prodx_sessions
-        (id, organization_id, user_id, device_id, token_hash, expires_at) VALUES ($1, $2, $3, $4, $5, $6)`,
-      [input.id, input.organizationId, input.userId, input.deviceId, input.tokenHash, input.expiresAt]);
+    await db.query(
+      `SELECT public.prodx_auth_create_session($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6::timestamptz)`,
+      [input.id, input.organizationId, input.userId, input.deviceId, input.tokenHash, input.expiresAt],
+    );
   },
   async findSessionByTokenHash(tokenHash) {
     const rows = await db.query<{ id: string; organization_id: string; user_id: string; device_id: string;
       token_hash: string; expires_at: Date; revoked_at: Date | null; user_status: 'active' | 'disabled' }>(
-      `SELECT s.id, s.organization_id, s.user_id, s.device_id, s.token_hash, s.expires_at, s.revoked_at,
-              u.status AS user_status FROM prodx_sessions s
-         JOIN prodx_users u ON u.id = s.user_id AND u.organization_id = s.organization_id
-        WHERE s.token_hash = $1 LIMIT 1`, [tokenHash]);
+      `SELECT * FROM public.prodx_auth_find_session_by_token_hash($1)`, [tokenHash]);
     const row = rows[0];
     if (!row) return null;
     return { id: row.id, organizationId: row.organization_id, userId: row.user_id, deviceId: row.device_id,
@@ -87,17 +116,21 @@ export const createPostgresAuthenticationRepository = (db: SqlExecutor): Authent
   },
   async findDevice(deviceId) {
     const rows = await db.query<{ id: string; organization_id: string; store_id: string; status: 'active' | 'disabled' }>(
-      `SELECT id, organization_id, store_id, status FROM prodx_devices WHERE id = $1 LIMIT 1`, [deviceId]);
+      `SELECT * FROM public.prodx_auth_find_device($1::uuid)`, [deviceId]);
     const row = rows[0];
     if (!row) return null;
     return { id: row.id, organizationId: row.organization_id, storeId: row.store_id, status: row.status } satisfies DeviceRecord;
   },
-  async revokeSession(sessionId, at) {
-    await db.query(`UPDATE prodx_sessions SET revoked_at = $2
-        WHERE id = $1 AND revoked_at IS NULL`, [sessionId, at]);
+  async revokeSession(sessionId, tokenHash, at) {
+    await db.query(
+      `SELECT public.prodx_auth_revoke_session($1::uuid, $2, $3::timestamptz)`,
+      [sessionId, tokenHash, at],
+    );
   },
-  async touchSession(sessionId, at) {
-    await db.query(`UPDATE prodx_sessions SET last_seen_at = $2
-        WHERE id = $1 AND revoked_at IS NULL AND expires_at > $2`, [sessionId, at]);
+  async touchSession(sessionId, tokenHash, at) {
+    await db.query(
+      `SELECT public.prodx_auth_touch_session($1::uuid, $2, $3::timestamptz)`,
+      [sessionId, tokenHash, at],
+    );
   },
 });

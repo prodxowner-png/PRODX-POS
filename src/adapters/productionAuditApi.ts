@@ -1,14 +1,22 @@
 import type { IAuditApi } from './types';
 import type { AuditAction, AuditLogEntry, AuditSeverity } from '../domain/audit';
-import { auditApi as mockAuditApi } from './mockAdapter';
 
-const API_BASE_URL = import.meta.env.VITE_AUTH_API_BASE_URL;
-const base = () => {
-  if (!API_BASE_URL) return '';
-  return API_BASE_URL.replace(/\/$/, '');
+const configuredBaseUrl = (): string | undefined => import.meta.env?.VITE_AUTH_API_BASE_URL;
+
+const requireBaseUrl = (baseUrl?: string): string => {
+  const resolved = (baseUrl ?? configuredBaseUrl())?.trim();
+  if (!resolved) {
+    throw new Error('Production audit API is not configured: VITE_AUTH_API_BASE_URL is missing.');
+  }
+  return resolved.replace(/\/$/, '');
 };
-const requireToken = (token: string) => {
-  return (token || '').trim();
+
+const requireToken = (token: string): string => {
+  const normalized = (token || '').trim();
+  if (!normalized) {
+    throw new Error('Authenticated session token is required for audit operations.');
+  }
+  return normalized;
 };
 
 const mapAuditLog = (value: unknown): AuditLogEntry => {
@@ -23,52 +31,46 @@ const mapAuditLog = (value: unknown): AuditLogEntry => {
     action: String(row.action) as AuditAction,
     severity: String(row.severity) as AuditSeverity,
     details: (row.details && typeof row.details === 'object' ? row.details : {}) as Record<string, unknown>,
-    timestamp: String(row.timestamp)
+    timestamp: String(row.timestamp),
   };
 };
 
-export const createProductionAuditApi = (token: string): IAuditApi => ({
-  async getLogs(storeId, limit = 50) {
-    const host = base();
-    if (host) {
-      try {
-        const params = new URLSearchParams({ limit: String(limit) });
-        const response = await fetch(`${host}/api/v1/audit/logs?${params.toString()}`, {
-          headers: { Authorization: `Bearer ${requireToken(token)}` },
-          credentials: 'include'
-        });
-        if (response.ok) {
-          const contentType = response.headers.get('content-type') || '';
-          if (contentType.includes('application/json')) {
-            const data: unknown = await response.json().catch(() => null);
-            if (Array.isArray(data)) return data.map(mapAuditLog);
-          }
-        }
-      } catch {
-        // Fallback to mock
-      }
+export const createProductionAuditApi = (token: string, baseUrl?: string): IAuditApi => ({
+  async getLogs(_storeId, limit = 50) {
+    const authHeader = `Bearer ${requireToken(token)}`;
+    const host = requireBaseUrl(baseUrl);
+    const params = new URLSearchParams({ limit: String(limit) });
+    const response = await fetch(`${host}/api/v1/audit/logs?${params.toString()}`, {
+      headers: { Accept: 'application/json', Authorization: authHeader },
+      credentials: 'include',
+    });
+    const data: unknown = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(`Audit log fetch failed (${response.status}).`);
     }
-    return mockAuditApi.getLogs(storeId || 'store-flagship-downtown', limit);
+    if (!Array.isArray(data)) {
+      throw new Error('Audit log API returned an invalid response.');
+    }
+    return data.map(mapAuditLog);
   },
   async recordEvent(storeId, registerId, userId, userName, action, severity, details) {
-    const host = base();
-    if (host) {
-      try {
-        const response = await fetch(`${host}/api/v1/audit/logs`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${requireToken(token)}` },
-          credentials: 'include',
-          body: JSON.stringify({ storeId, registerId, userId, userName, action, severity, details })
-        });
-        if (response.ok) {
-          const contentType = response.headers.get('content-type') || '';
-          if (contentType.includes('application/json')) {
-            const data = await response.json().catch(() => null);
-            if (data) return mapAuditLog(data);
-          }
-        }
-      } catch {}
+    const authHeader = `Bearer ${requireToken(token)}`;
+    const host = requireBaseUrl(baseUrl);
+    const response = await fetch(`${host}/api/v1/audit/logs`, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        Authorization: authHeader,
+      },
+      credentials: 'include',
+      body: JSON.stringify({ storeId, registerId, userId, userName, action, severity, details }),
+    });
+    const data: unknown = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(`Audit event recording failed (${response.status}).`);
     }
-    return mockAuditApi.recordEvent(storeId, registerId, userId, userName, action, severity, details);
-  }
+    return mapAuditLog(data);
+  },
 });
+

@@ -45,3 +45,36 @@ test('production auth client rejects empty bearer tokens before network access',
   assert.throws(() => api.logout('   '), /session token is required/i);
   assert.equal(called, false);
 });
+
+test('production auth client routes requireAdminRole logins to /auth/admin/login and surfaces 403 error message', async () => {
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  const api = createProductionAuthApi('https://auth.example.test', async (input, init) => {
+    calls.push({ url: String(input), init });
+    return jsonResponse(
+      {
+        error: {
+          code: 'ADMIN_ROLE_REQUIRED',
+          message: 'Access Denied: Only accounts with the "admin" role can authenticate into the Administrator Console.',
+        },
+      },
+      403,
+    );
+  });
+
+  await assert.rejects(
+    () =>
+      api.login({
+        organizationSlug: 'prodx',
+        storeCode: 'STR-01',
+        registerId: 'ADMIN-CONSOLE',
+        emailOrPin: 'cashier@prodx.co.th',
+        passwordOrPin: '1111',
+        requireAdminRole: true,
+      }),
+    /Only accounts with the "admin" role/i,
+  );
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, 'https://auth.example.test/auth/admin/login');
+});
+

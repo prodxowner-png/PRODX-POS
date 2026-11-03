@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none">
+  <defs>
+    <linearGradient id="prodxBg" x1="0" y1="0" x2="128" y2="128" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0F172A" />
+      <stop offset="55%" stop-color="#090D16" />
+      <stop offset="100%" stop-color="#050811" />
+    </linearGradient>
+    <linearGradient id="prodxAccent" x1="28" y1="24" x2="104" y2="104" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FF7A2E" />
+      <stop offset="100%" stop-color="#EA580C" />
+    </linearGradient>
+    <linearGradient id="prodxBlue" x1="64" y1="20" x2="108" y2="96" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#60A5FA" />
+      <stop offset="100%" stop-color="#2563EB" />
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="120" height="120" rx="28" fill="url(#prodxBg)" stroke="#1E293B" stroke-width="2.5" />
+  <rect x="12" y="12" width="104" height="104" rx="21" stroke="#334155" stroke-width="1" stroke-dasharray="3 3" opacity="0.45" />
+  <path d="M40 12 L44 16 L48 12 L52 16 L56 12 L60 16 L64 12 L68 16 L72 12 L76 16 L80 12 L84 16 L88 12" stroke="#475569" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.7" />
+  <path d="M66 56 L96 96" stroke="url(#prodxBlue)" stroke-width="12" stroke-linecap="round" />
+  <path d="M34 32 H64 C77.2548 32 88 41.8497 88 54 C88 66.1503 77.2548 76 64 76 H48 V96 H34 V32 Z" fill="#F8FAFC" />
+  <path d="M48 45 V63 H63 C69.0751 63 74 58.9706 74 54 C74 49.0294 69.0751 45 63 45 H48 Z" fill="#090D16" />
+  <path d="M96 32 L58 84" stroke="url(#prodxAccent)" stroke-width="12" stroke-linecap="round" />
+  <circle cx="96" cy="96" r="6" fill="#FF6B1A" />
+  <circle cx="96" cy="96" r="2.5" fill="#FFF7ED" />
+</svg>

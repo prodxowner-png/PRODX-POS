@@ -28,6 +28,12 @@
     ]
   },
   "exclude": [
-    "supabase/functions"
+    // Cloudflare Worker has its own tsconfig, Wrangler-generated bindings and CI typecheck.
+    "prodx-pos-edge-sync",
+    "supabase/functions",
+    "infra/db-broker/index.ts",
+    "build",
+    "dist",
+    ".private-build"
   ]
 }

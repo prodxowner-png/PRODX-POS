@@ -3,17 +3,17 @@ import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'path';
-import { createProductionApp } from './server/entrypoint';
+import { createProductionApp } from './server/entrypoint.ts';
+import { privateBuildArtifactGuard } from './server/http/private-build-artifact-guard.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 async function startServer() {
   const isProd = process.env.NODE_ENV === 'production';
-  const port = 3000;
+  const port = Number.parseInt(process.env.PORT ?? '3000', 10);
 
   // Create the production Express app (the backend)
-  // We pass undefined for vercelOidcToken for local dev
   const { app: backendApp } = await createProductionApp();
 
   const app = express();
@@ -21,18 +21,13 @@ async function startServer() {
   if (!isProd) {
     // Create Vite server in middleware mode
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: { middlewareMode: true, hmr: false },
       appType: 'custom',
     });
 
-    // Mount the backend API routes on the same express app
-    // The backendApp already has /api routes configured
     app.use(backendApp);
-
-    // Use vite's connect instance as middleware
     app.use(vite.middlewares);
 
-    // Serve index.html for all non-API routes (SPA fallback)
     app.use('*', async (req, res, next) => {
       const url = req.originalUrl;
       try {
@@ -46,16 +41,44 @@ async function startServer() {
       }
     });
   } else {
-    // Production mode
+    // Production mode: Resolve static assets path dynamically
+    // Handle both dist and build directories
+    const fs = await import('node:fs');
+    let distPath = resolve(__dirname, 'dist');
+    
+    if (!fs.existsSync(distPath)) {
+      distPath = resolve(__dirname, 'build');
+    }
+    
+    if (!fs.existsSync(distPath)) {
+      if (fs.existsSync(resolve(__dirname, 'index.html'))) {
+        distPath = __dirname;
+      }
+    }
+
     app.use(backendApp);
-    app.use(express.static(resolve(__dirname, 'dist')));
+    // Must run before express.static: distPath may fall back to build/ or the repository root.
+    app.use(privateBuildArtifactGuard);
+    app.use(express.static(distPath));
     app.get('*', (req, res) => {
-      res.sendFile(resolve(__dirname, 'dist/index.html'));
+      res.sendFile(resolve(distPath, 'index.html'));
     });
   }
 
-  app.listen(port, () => {
-    console.log(`PRODX POS (Full-Stack) running at http://localhost:${port}`);
+  const server = app.listen(port, '0.0.0.0', () => {
+    console.log(`PRODX POS (Full-Stack) running at http://0.0.0.0:${port}`);
+  });
+
+  server.on('error', (err: any) => {
+    if (err.code === 'EADDRINUSE') {
+      console.warn(`Port ${port} is busy (EADDRINUSE). Retrying connection in 1 second...`);
+      setTimeout(() => {
+        server.close();
+        server.listen(port, '0.0.0.0');
+      }, 1000);
+    } else {
+      console.error('Server error:', err);
+    }
   });
 }
 

@@ -39,6 +39,11 @@ export const HIGH_RISK_PERMISSIONS: Record<Permission, { risk: PermissionRiskLev
   'reports:read': { risk: 'medium', warningTh: 'ดูข้อมูลยอดขาย กำไร และสถิติทางการเงิน', warningEn: 'Financial analytics & sales data' },
   'audit:read': { risk: 'high', warningTh: 'เข้าถึงประวัติการเข้าใช้งานและบันทึกความปลอดภัยทั้งหมด', warningEn: 'Security audit trail logs' },
   'settings:manage': { risk: 'critical', warningTh: 'แก้ไขการตั้งค่าร้านค้า ภาษี และนโยบายระบบ', warningEn: 'Master system configuration' },
+  'org:read': { risk: 'medium', warningTh: 'ดูโครงสร้างองค์กร สาขา และเครื่องขาย POS', warningEn: 'Read organization hierarchy & terminals' },
+  'org:manage': { risk: 'critical', warningTh: 'สร้าง แก้ไข หรือลบข้อมูลระดับองค์กร (Admin เท่านั้น)', warningEn: 'Full organization-level governance (Admin only)' },
+  'branch:manage': { risk: 'critical', warningTh: 'สร้าง แก้ไข หรือลบสาขาภายใต้เครือข่ายองค์กร', warningEn: 'Create, update, or delete store branches' },
+  'terminal:manage': { risk: 'high', warningTh: 'ลงทะเบียน แก้ไข หรือลบเครื่องขาย POS (Terminal)', warningEn: 'Register, configure, or remove POS terminals' },
+  'rbac:manage': { risk: 'critical', warningTh: 'แก้ไขตารางสิทธิ์ RBAC และกำหนดบทบาทพนักงาน', warningEn: 'Modify RBAC permission matrix & role assignments' },
 };
 
 export function getPermissionRisk(perm: Permission): PermissionRiskLevel {

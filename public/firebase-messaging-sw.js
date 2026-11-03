@@ -1,25 +1,17 @@
-// Firebase Cloud Messaging Service Worker
-importScripts('https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js');
-importScripts('https://www.gstatic.com/firebasejs/10.8.0/firebase-messaging-compat.js');
+// One-release cleanup shim for browsers that previously installed the retired
+// Firebase Messaging worker. This worker intentionally loads no third-party SDK.
+self.addEventListener('install', (event) => {
+  event.waitUntil(self.skipWaiting());
+});
 
-// Background message handler stub
-try {
-  firebase.initializeApp({
-    apiKey: "AIzaSyC-aX_ni6Fr2_ZLe05vpm0wsH-Ql7C4mFM",
-    projectId: "modified-bit-mct7q",
-    messagingSenderId: "763690681010",
-    appId: "1:763690681010:web:875621933f363383aebfab"
-  });
-  const messaging = firebase.messaging();
-  messaging.onBackgroundMessage((payload) => {
-    console.log('[firebase-messaging-sw.js] Received background message ', payload);
-    const notificationTitle = payload.notification?.title || 'PRODX POS Notification';
-    const notificationOptions = {
-      body: payload.notification?.body || 'New alert from PRODX POS',
-      icon: '/favicon.svg'
-    };
-    self.registration.showNotification(notificationTitle, notificationOptions);
-  });
-} catch (err) {
-  console.error('Service worker initialization error:', err);
-}
+self.addEventListener('activate', (event) => {
+  event.waitUntil((async () => {
+    const registrations = await self.registration.unregister();
+    const cacheNames = await caches.keys();
+    await Promise.all(cacheNames
+      .filter((name) => /firebase|fcm/i.test(name))
+      .map((name) => caches.delete(name)));
+    await self.clients.claim();
+    return registrations;
+  })());
+});

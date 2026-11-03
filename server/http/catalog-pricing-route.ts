@@ -6,10 +6,18 @@ import type { TransactionalSqlExecutor } from '../db/transaction';
 type PriceChangeType = 'set_amount' | 'percent_markup' | 'percent_discount';
 type ProductRow = { id: string; store_id: string; sku: string; barcode: string; name: string; category_id: string; price_amount: string; cost_price_amount: string; currency: string; tax_rate_bps: number; current_stock: number; reorder_point: number; unit_of_measure: string; };
 
+const dbCents = (value: unknown): number => {
+  const match = /^(\d+)(?:\.(\d{1,2}))?$/.exec(String(value ?? '').trim());
+  if (!match) throw new Error(`Invalid database monetary value: ${String(value)}`);
+  const cents = BigInt(match[1]) * 100n + BigInt((match[2] ?? '').padEnd(2, '0'));
+  if (cents > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error('Database monetary value exceeds safe integer range');
+  return Number(cents);
+};
+
 const productDto = (row: ProductRow) => ({
   id: row.id, storeId: row.store_id, sku: row.sku, barcode: row.barcode, name: row.name, categoryId: row.category_id,
-  price: { amountInCents: Math.round(Number(row.price_amount) * 100), currency: row.currency },
-  costPrice: { amountInCents: Math.round(Number(row.cost_price_amount) * 100), currency: row.currency },
+  price: { amountInCents: dbCents(row.price_amount), currency: row.currency },
+  costPrice: { amountInCents: dbCents(row.cost_price_amount), currency: row.currency },
   taxRateBps: row.tax_rate_bps, currentStock: row.current_stock, reorderPoint: row.reorder_point, unitOfMeasure: row.unit_of_measure,
 });
 const hashPayload = (value: unknown) => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');

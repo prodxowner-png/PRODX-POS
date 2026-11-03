@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createPostgresPool, asSqlExecutor } from '../db/postgres';
+import { createPostgresPool, asSqlExecutor, resolveConfiguredDatabaseUrl } from '../db/postgres';
 import { createPostgresAuthentication } from './composition';
+import { createPostgresAuthenticationRepository } from './postgres-repository';
 import { hashPassword } from './password';
 import { hashSessionToken } from './session';
 
-const databaseUrl = process.env.DATABASE_URL;
+const databaseUrl = resolveConfiguredDatabaseUrl(process.env.DATABASE_URL);
 
 const ids = {
   organizationA: '00000000-0000-4000-8000-000000000201',
@@ -16,16 +17,21 @@ const ids = {
   userB: '00000000-0000-4000-8000-000000000222',
   deviceA: '00000000-0000-4000-8000-000000000231',
   deviceB: '00000000-0000-4000-8000-000000000232',
+  supabaseUserA: '00000000-0000-4000-8000-000000000241',
+  supabaseUserB: '00000000-0000-4000-8000-000000000242',
 };
 
 const pool = databaseUrl ? createPostgresPool({ connectionString: databaseUrl, max: 2 }) : null;
-const authentication = pool ? createPostgresAuthentication(asSqlExecutor(pool)) : null;
+const authentication = pool
+  ? createPostgresAuthentication(asSqlExecutor(pool), async () => ({ compromised: false, count: 0 }))
+  : null;
 
 const seed = async (): Promise<void> => {
   if (!pool) throw new Error('DATABASE_URL is required for PostgreSQL integration tests.');
   const passwordHash = await hashPassword('correct-password');
   await pool.query('DELETE FROM prodx_security_audit_events WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
   await pool.query('DELETE FROM prodx_sessions WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
+  await pool.query('DELETE FROM prodx_store_memberships WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
   await pool.query('DELETE FROM prodx_user_credentials WHERE user_id IN ($1, $2)', [ids.userA, ids.userB]);
   await pool.query('DELETE FROM prodx_devices WHERE id IN ($1, $2)', [ids.deviceA, ids.deviceB]);
   await pool.query('DELETE FROM prodx_users WHERE id IN ($1, $2)', [ids.userA, ids.userB]);
@@ -44,10 +50,10 @@ const seed = async (): Promise<void> => {
     [ids.storeA, ids.storeB, ids.organizationA, ids.organizationB],
   );
   await pool.query(
-    `INSERT INTO prodx_users (id, organization_id, username, display_name) VALUES
-      ($1, $3, 'm2-user-a', 'M2 User A'),
-      ($2, $4, 'm2-user-b', 'M2 User B')`,
-    [ids.userA, ids.userB, ids.organizationA, ids.organizationB],
+    `INSERT INTO prodx_users (id, organization_id, username, display_name, supabase_auth_user_id) VALUES
+      ($1, $3, 'm2-user-a', 'M2 User A', $5),
+      ($2, $4, 'm2-user-b', 'M2 User B', $6)`,
+    [ids.userA, ids.userB, ids.organizationA, ids.organizationB, ids.supabaseUserA, ids.supabaseUserB],
   );
   await pool.query(
     `INSERT INTO prodx_user_credentials (user_id, credential_type, secret_hash)
@@ -60,12 +66,17 @@ const seed = async (): Promise<void> => {
       ($2, $4, $6, 'm2-device-b', 'M2 Device B')`,
     [ids.deviceA, ids.deviceB, ids.organizationA, ids.organizationB, ids.storeA, ids.storeB],
   );
+  await pool.query(
+    `INSERT INTO prodx_store_memberships (organization_id, store_id, user_id) VALUES ($1, $2, $3)`,
+    [ids.organizationA, ids.storeA, ids.userA],
+  );
 };
 
 const cleanup = async (): Promise<void> => {
   if (!pool) return;
   await pool.query('DELETE FROM prodx_security_audit_events WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
   await pool.query('DELETE FROM prodx_sessions WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
+  await pool.query('DELETE FROM prodx_store_memberships WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
   await pool.query('DELETE FROM prodx_user_credentials WHERE user_id IN ($1, $2)', [ids.userA, ids.userB]);
   await pool.query('DELETE FROM prodx_devices WHERE id IN ($1, $2)', [ids.deviceA, ids.deviceB]);
   await pool.query('DELETE FROM prodx_users WHERE id IN ($1, $2)', [ids.userA, ids.userB]);
@@ -84,6 +95,42 @@ test('M2 PostgreSQL authentication enforces credential, tenant, session, token-h
     await cleanup();
     await pool.end();
   });
+
+  const identityRepository = createPostgresAuthenticationRepository(asSqlExecutor(pool));
+  const linkedIdentity = await identityRepository.findUserBySupabaseUserId(ids.supabaseUserA, ids.deviceA);
+  assert.equal(linkedIdentity?.userId, ids.userA);
+
+  // Supabase verifies the password; the POS identity mapping must not depend on
+  // a synthetic local password credential being present.
+  const savedCredential = await pool.query<{ secret_hash: string }>(
+    'SELECT secret_hash FROM prodx_user_credentials WHERE user_id = $1', [ids.userA],
+  );
+  assert.equal(savedCredential.rows.length, 1);
+  await pool.query('DELETE FROM prodx_user_credentials WHERE user_id = $1', [ids.userA]);
+  try {
+    assert.deepEqual(await identityRepository.findUserBySupabaseUserId(ids.supabaseUserA, ids.deviceA), {
+      userId: ids.userA,
+      organizationId: ids.organizationA,
+      username: 'm2-user-a',
+      status: 'active',
+    });
+  } finally {
+    await pool.query(
+      `INSERT INTO prodx_user_credentials (user_id, credential_type, secret_hash)
+       VALUES ($1, 'password', $2)
+       ON CONFLICT (user_id) DO UPDATE SET credential_type = EXCLUDED.credential_type, secret_hash = EXCLUDED.secret_hash`,
+      [ids.userA, savedCredential.rows[0].secret_hash],
+    );
+  }
+
+  assert.equal(await identityRepository.findUserBySupabaseUserId(ids.supabaseUserB, ids.deviceA), null,
+    'a valid identity linked to another organization must not resolve on this device');
+  assert.equal(await identityRepository.findUserBySupabaseUserId(ids.supabaseUserA, ids.deviceB), null,
+    'a linked identity must not cross into another organization through a different device');
+  await pool.query('UPDATE prodx_users SET supabase_auth_user_id = NULL WHERE id = $1', [ids.userA]);
+  assert.equal(await identityRepository.findUserBySupabaseUserId(ids.supabaseUserA, ids.deviceA), null,
+    'an unlinked Supabase subject must fail closed');
+  await pool.query('UPDATE prodx_users SET supabase_auth_user_id = $2 WHERE id = $1', [ids.userA, ids.supabaseUserA]);
 
   const result = await authentication.authenticateCredentials({
     username: 'm2-user-a',

@@ -1,8 +1,11 @@
 import React from 'react';
-import { SyncStatusIndicator, SyncStatusIndicatorProps } from './SyncStatusIndicator';
+import { ConnectivityStatusIndicator, ConnectivityStatusIndicatorProps } from './ConnectivityStatusIndicator';
 
-export const ConnectivityBadge: React.FC<SyncStatusIndicatorProps> = (props) => {
-  return <SyncStatusIndicator {...props} />;
+export type ConnectivityBadgeProps = ConnectivityStatusIndicatorProps;
+
+export const ConnectivityBadge: React.FC<ConnectivityBadgeProps> = (props) => {
+  return <ConnectivityStatusIndicator {...props} />;
 };
 
+export { ConnectivityStatusIndicator };
 export default ConnectivityBadge;

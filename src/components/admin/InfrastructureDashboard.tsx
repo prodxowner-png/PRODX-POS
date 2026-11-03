@@ -12,6 +12,7 @@ import {
   DownloadCloud,
   Zap,
   Wifi,
+  WifiOff,
   ShieldAlert,
   Bluetooth,
   Printer,
@@ -56,12 +57,21 @@ import {
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 import { useTheme } from '../../context/ThemeContext';
+import { useOffline } from '../../context/OfflineContext';
 import { HardwareTestSuite } from './HardwareTestSuite';
 import { NetworkTopologyMap } from './NetworkTopologyMap';
 import { NewDeviceSetupModal } from './NewDeviceSetupModal';
 import { HardwareHealthChart } from './HardwareHealthChart';
 import { NetworkHealthGauge } from './NetworkHealthGauge';
 import { FloorPlanView } from './FloorPlanView';
+import { SystemAlertNotificationCenter } from './SystemAlertNotificationCenter';
+import { SystemNotificationToastCorner } from './SystemNotificationToastCorner';
+import { DiagnosticBatchBufferMonitor } from './DiagnosticBatchBufferMonitor';
+import { OfflineBufferSyncMonitor } from './OfflineBufferSyncMonitor';
+import { SystemHealthCheckCard } from './SystemHealthCheckCard';
+import { RealtimeLatencyDiagnosticPanel } from './RealtimeLatencyDiagnosticPanel';
+import { systemNotificationService } from '../../services/systemNotificationService';
+import { auditService, DiagnosticLogLevel } from '../../services/auditService';
 import { HardwarePeripheralStatus } from '../../types/hardware';
 
 
@@ -140,6 +150,7 @@ import { arrayMove, SortableContext, verticalListSortingStrategy } from '@dnd-ki
 export function InfrastructureDashboard() {
   const { addToast } = useToast();
   const { theme } = useTheme();
+  const { isOnline, isSimulatedOffline, pendingCount, syncLatencyMs, syncLatencyQuality } = useOffline();
   
   // Drag and drop state
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -1352,12 +1363,97 @@ export function InfrastructureDashboard() {
       delete next[peripheralId];
       return next;
     });
+    setPeripherals((prev) =>
+      prev.map((p) =>
+        p.id === peripheralId
+          ? {
+              ...p,
+              connectivity: { ...p.connectivity, state: 'online' },
+              driverHealth: { ...p.driverHealth, status: 'healthy' },
+              telemetryData: { ...p.telemetryData, errorCountToday: 0 },
+            }
+          : p,
+      ),
+    );
     addToast({
-      type: 'info',
-      title: 'รีเซ็ตสถานะฮาร์ดแวร์',
-      message: 'อุปกรณ์กลับคืนสู่สถานะ IDLE / สแตนด์บายพร้อมใช้งาน',
+      type: 'success',
+      title: 'เคลียร์สถานะ Error สำเร็จ',
+      message: 'อุปกรณ์กลับคืนสู่สถานะ IDLE / พร้อมใช้งานปกติเรียบร้อยแล้ว',
       durationMs: 3000,
     });
+  };
+
+  const handleSimulateDeviceError = (targetPeripheralId?: string) => {
+    const target =
+      (targetPeripheralId && peripherals.find((p) => p.id === targetPeripheralId)) ||
+      peripherals.find((p) => getPeripheralPulseState(p) !== 'error' && !p.isMaintenanceMode) ||
+      peripherals[0];
+
+    if (!target) return;
+
+    setPulseOverrides((prev) => ({ ...prev, [target.id]: 'error' }));
+    setFailedPeripheralIds((prev) => new Set(prev).add(target.id));
+    setActivePeripheralIds((prev) => {
+      const next = new Set(prev);
+      next.delete(target.id);
+      return next;
+    });
+    setPeripherals((prev) =>
+      prev.map((p) =>
+        p.id === target.id
+          ? {
+              ...p,
+              driverHealth: { ...p.driverHealth, status: 'degraded' },
+              telemetryData: {
+                ...p.telemetryData,
+                errorCountToday: Math.max(1, p.telemetryData.errorCountToday + 1),
+              },
+            }
+          : p,
+      ),
+    );
+    setActionMessage(
+      `[System Alert Triggered] ตรวจพบสถานะ ERROR บนอุปกรณ์ "${target.name}" (พอร์ต ${target.port}) — ระบบส่งเสียงเตือนไซเรนและแสดง Framer-Motion Toast Notification มุมจอแล้ว`,
+    );
+  };
+
+  const handleSimulateDeviceOffline = (targetPeripheralId?: string) => {
+    const target =
+      (targetPeripheralId && peripherals.find((p) => p.id === targetPeripheralId)) ||
+      peripherals.find(
+        (p) => p.connectivity.state !== 'disconnected' && !p.isMaintenanceMode,
+      ) ||
+      peripherals[0];
+
+    if (!target) return;
+
+    setPulseOverrides((prev) => {
+      const next = { ...prev };
+      delete next[target.id];
+      return next;
+    });
+    setActivePeripheralIds((prev) => {
+      const next = new Set(prev);
+      next.delete(target.id);
+      return next;
+    });
+    setPeripherals((prev) =>
+      prev.map((p) =>
+        p.id === target.id
+          ? {
+              ...p,
+              connectivity: {
+                ...p.connectivity,
+                state: 'disconnected',
+                latencyMs: 0,
+              },
+            }
+          : p,
+      ),
+    );
+    setActionMessage(
+      `[System Notification Service] อุปกรณ์ "${target.name}" (พอร์ต ${target.port}) เปลี่ยนสถานะเป็น OFFLINE — แสดง Framer-Motion Toast Notification มุมจอแล้ว`,
+    );
   };
 
   const handleSimulatePulseWave = () => {
@@ -1403,6 +1499,16 @@ export function InfrastructureDashboard() {
     }
     return 'idle';
   };
+
+  // Global System Notification Service watcher: triggers framer-motion corner toasts
+  // whenever any peripheral's connectivity status transitions to 'Error' or 'Offline'
+  useEffect(() => {
+    if (peripherals.length === 0) return;
+    systemNotificationService.evaluatePeripherals(peripherals, getPeripheralPulseState, {
+      notifyOnInitialFault: true,
+      notifyOnRecovery: true,
+    });
+  }, [peripherals, pulseOverrides, failedPeripheralIds]);
 
   const getCategoryPulseDetails = (peripheral: HardwarePeripheralStatus, state: PeripheralHealthPulseState) => {
     switch (peripheral.category) {
@@ -1483,47 +1589,92 @@ export function InfrastructureDashboard() {
 
   return (
     <DndContext collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-       <div className="space-y-6 max-w-7xl mx-auto p-4 sm:p-6">
+      <div className="space-y-6 max-w-7xl mx-auto p-4 sm:p-6">
         {/* Header & Antigravity Banner */}
         <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white rounded-3xl p-6 sm:p-8 shadow-xl border border-indigo-900/50 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-        {/* ... rest of the dashboard ... */}
-       </div>
-        <div>
-          <div className="flex items-center gap-2 text-indigo-400 font-semibold text-xs uppercase tracking-wider mb-2">
-            <Zap className="w-4 h-4 text-amber-400 animate-bounce" />
-            Antigravity AI™ Infrastructure Supervisor (24/7 Active Autonomous)
+          <div>
+            <div className="flex items-center gap-2 text-indigo-400 font-semibold text-xs uppercase tracking-wider mb-2">
+              <Zap className="w-4 h-4 text-amber-400 animate-bounce" />
+              Antigravity AI™ Infrastructure Supervisor (24/7 Active Autonomous)
+            </div>
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Backend Infrastructure & Plug & Play Center</h1>
+            <p className="text-slate-300 text-sm mt-1">
+              ระบบดูแลโครงสร้างพื้นฐาน เซิร์ฟเวอร์ ฐานข้อมูล และตรวจจับอุปกรณ์ฮาร์ดแวร์ต่อพ่วงแบบอัตโนมัติเรียลไทม์
+            </p>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Backend Infrastructure & Plug & Play Center</h1>
-          <p className="text-slate-300 text-sm mt-1">
-            ระบบดูแลโครงสร้างพื้นฐาน เซิร์ฟเวอร์ ฐานข้อมูล และตรวจจับอุปกรณ์ฮาร์ดแวร์ต่อพ่วงแบบอัตโนมัติเรียลไทม์
-          </p>
-        </div>
-        <div className="flex items-center gap-4">
-          <NetworkHealthGauge 
-            active={peripherals.filter(p => p.connectivity.state === 'online' || p.connectivity.state === 'connected').length}
-            total={peripherals.length}
-            size={64}
-          />
-          <HardwareHealthChart data={pulseCounts} theme={theme} />
-          <div className="flex flex-wrap gap-3">
-            <button
-              onClick={() => setIsNewDeviceSetupOpen(true)}
-              className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold px-4 py-2.5 rounded-xl shadow-lg transition-all active:scale-95 cursor-pointer"
-            >
-              <Plus className="w-4 h-4" />
-              <span>ติดตั้งอุปกรณ์ใหม่ (New Device Setup)</span>
-            </button>
-            <button
-              onClick={handleSelfHeal}
-              disabled={healing}
-              className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-medium px-4 py-2.5 rounded-xl shadow-lg transition-all"
-            >
-              <RefreshCw className={`w-4 h-4 ${healing ? 'animate-spin' : ''}`} />
-              {healing ? 'Antigravity กำลังซ่อมแซม...' : 'สั่งการ Antigravity Self-Heal'}
-            </button>
+          <div className="flex items-center gap-4">
+            <NetworkHealthGauge 
+              active={peripherals.filter(p => p.connectivity.state === 'online' || p.connectivity.state === 'connected').length}
+              total={peripherals.length}
+              size={64}
+            />
+            <HardwareHealthChart data={pulseCounts} theme={theme} />
+            <div className="flex flex-wrap gap-3">
+              <button
+                onClick={() => setIsNewDeviceSetupOpen(true)}
+                className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold px-4 py-2.5 rounded-xl shadow-lg transition-all active:scale-95 cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>ติดตั้งอุปกรณ์ใหม่ (New Device Setup)</span>
+              </button>
+              <button
+                onClick={handleSelfHeal}
+                disabled={healing}
+                className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-medium px-4 py-2.5 rounded-xl shadow-lg transition-all"
+              >
+                <RefreshCw className={`w-4 h-4 ${healing ? 'animate-spin' : ''}`} />
+                {healing ? 'Antigravity กำลังซ่อมแซม...' : 'สั่งการ Antigravity Self-Heal'}
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+
+        {/* Global Framer-Motion Corner Toast Notifications for Peripheral Error / Offline Transitions */}
+        <SystemNotificationToastCorner
+          onAutoReconnect={handleAutoReconnect}
+          onRemoteReboot={(p) => handleExecuteRemoteReboot(p)}
+          onRunDiagnostics={(p) => handleRunDiagnostics(p, false)}
+          onClearError={handleClearPeripheralError}
+          reconnectingPeripheralId={reconnectingPeripheralId}
+          rebootingPeripheralId={rebootingPeripheralId}
+          diagnosingPeripheralId={diagnosingPeripheralId}
+        />
+
+        {/* System Alert Notification Center (Real-time Hardware Error Acoustic Siren & Remediation Hub) */}
+        <SystemAlertNotificationCenter
+          peripherals={peripherals}
+          getPeripheralPulseState={getPeripheralPulseState}
+          onAutoReconnect={handleAutoReconnect}
+          onRemoteReboot={(p) => handleExecuteRemoteReboot(p)}
+          onRunDiagnostics={(p) => handleRunDiagnostics(p, false)}
+          onClearError={handleClearPeripheralError}
+          onSimulateDeviceError={handleSimulateDeviceError}
+          onSimulateDeviceOffline={handleSimulateDeviceOffline}
+          onSelfHealAll={() => {
+            peripherals.forEach((p) => {
+              if (getPeripheralPulseState(p) === 'error') {
+                handleClearPeripheralError(p.id);
+              }
+            });
+            handleSelfHeal();
+          }}
+          reconnectingPeripheralId={reconnectingPeripheralId}
+          rebootingPeripheralId={rebootingPeripheralId}
+          diagnosingPeripheralId={diagnosingPeripheralId}
+          healingAll={healing}
+        />
+
+        {/* End-to-End SystemHealthCheck Utility (Cloud SQL & Firestore Status-Coded JSON Ping) */}
+        <SystemHealthCheckCard />
+
+        {/* Real-time Round-Trip Latency Diagnostic Panel (Cloud SQL & Firestore RTT via performance.now()) */}
+        <RealtimeLatencyDiagnosticPanel />
+
+        {/* Real-time OfflineBuffer Sync Queue & Connectivity Health Monitor */}
+        <OfflineBufferSyncMonitor />
+
+        {/* Background Buffered Diagnostic Log & Firestore Batch Uploader Monitor */}
+        <DiagnosticBatchBufferMonitor />
 
       {/* Comprehensive Hardware Test Suite Component */}
       <HardwareTestSuite />
@@ -1583,11 +1734,33 @@ export function InfrastructureDashboard() {
 
         <div className="bg-card p-5 rounded-2xl border border-border border-crisp shadow-sm">
           <div className="flex items-center justify-between text-text/60 mb-2">
-            <span className="text-xs font-semibold uppercase">Network & Services</span>
-            <Wifi className="w-5 h-5 text-cyan-500" />
+            <span className="text-xs font-semibold uppercase">Network & Offline Buffer</span>
+            {isOnline ? (
+              <Wifi className="w-5 h-5 text-cyan-500" />
+            ) : (
+              <WifiOff className="w-5 h-5 text-rose-500" />
+            )}
           </div>
-          <div className="text-2xl font-bold text-slate-800 dark:text-slate-100">100% Online</div>
-          <p className="text-xs text-cyan-600 dark:text-cyan-400 mt-1">Zero Packet Loss / Cloud Sync</p>
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl font-bold text-slate-800 dark:text-slate-100 font-mono tabular-nums">
+              {isOnline ? (syncLatencyMs !== null ? `${syncLatencyMs} ms` : 'Online') : 'Offline'}
+            </span>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold border ${
+              isOnline
+                ? syncLatencyQuality === 'optimal'
+                  ? 'text-emerald-500 border-emerald-500/20 bg-emerald-500/10'
+                  : 'text-cyan-500 border-cyan-500/20 bg-cyan-500/10'
+                : 'text-rose-500 border-rose-500/20 bg-rose-500/10'
+            }`}>
+              {isOnline ? (isSimulatedOffline ? 'Sim Offline' : syncLatencyQuality.toUpperCase()) : 'Buffer Active'}
+            </span>
+          </div>
+          <p className="text-xs text-text/60 mt-1 flex items-center justify-between font-mono">
+            <span>Buffer Queue: {pendingCount}</span>
+            <span className={pendingCount === 0 ? 'text-emerald-500 font-semibold' : 'text-amber-500 font-semibold'}>
+              {pendingCount === 0 ? 'Zero Pending' : `${pendingCount} In Queue`}
+            </span>
+          </p>
         </div>
       </div>
 
@@ -2172,7 +2345,7 @@ export function InfrastructureDashboard() {
                     <h2 className="text-sm font-bold text-text uppercase tracking-wider">{groupName} ({groupPeripherals.length})</h2>
                   </div>
                 )}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                   {groupPeripherals.map((peripheral) => {
             const isAuditing = auditingPeripheralId === peripheral.id;
             const pulseState = getPeripheralPulseState(peripheral);
@@ -3775,6 +3948,7 @@ export function InfrastructureDashboard() {
           onClose={() => setTerminalPeripheral(null)}
         />
       )}
+      </div>
     </DndContext>
   );
 }
@@ -3865,7 +4039,18 @@ function DiagnosticTerminal({ peripheral, onClose }: DiagnosticTerminalProps) {
     setStream(Array.from({ length: 5 }, generateLiveEvent));
 
     const interval = setInterval(() => {
-      setStream(prev => [...prev.slice(-49), generateLiveEvent()]);
+      const nextEvt = generateLiveEvent();
+      setStream((prev) => [...prev.slice(-49), nextEvt]);
+      auditService.logDiagnosticEvent({
+        peripheralId: peripheral.id,
+        deviceName: peripheral.name,
+        category: peripheral.category,
+        level: nextEvt.level as DiagnosticLogLevel,
+        event: nextEvt.event,
+        message: nextEvt.detail,
+        port: peripheral.port,
+        interfaceType: peripheral.connectivity.interface,
+      });
     }, 1000 + Math.random() * 1500);
 
     return () => clearInterval(interval);

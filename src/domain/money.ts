@@ -17,6 +17,53 @@ export const ZERO_USD: Money = Object.freeze({
   currency: 'THB',
 });
 
+const roundHalfUpDivide = (numerator: bigint, denominator: bigint): bigint => {
+  if (denominator <= 0n) throw new Error('Denominator must be positive');
+  const sign = numerator < 0n ? -1n : 1n;
+  const absNum = numerator < 0n ? -numerator : numerator;
+  return sign * ((absNum + denominator / 2n) / denominator);
+};
+
+/**
+ * Exact decimal string/number to integer cents/satang parser using BigInt arithmetic.
+ * Never uses binary floating-point multiplication or IEEE-754 approximations.
+ */
+export function parseDecimalToCents(input: string | number): number {
+  const clean = String(input ?? '').replace(/[^0-9.-]/g, '').trim();
+  if (!clean || clean === '-' || clean === '.') return 0;
+  const match = /^(-?)(\d*)(?:\.(\d*))?$/.exec(clean);
+  if (!match) return 0;
+  const sign = match[1] === '-' ? -1n : 1n;
+  const wholeStr = match[2] || '0';
+  const fracStr = match[3] || '';
+  const centsTwoDigits = (fracStr + '00').slice(0, 2);
+  const thirdDigit = fracStr.length >= 3 ? Number(fracStr[2]) : 0;
+  let total = BigInt(wholeStr) * 100n + BigInt(centsTwoDigits);
+  if (thirdDigit >= 5) {
+    total += 1n;
+  }
+  return Number(sign * total);
+}
+
+/**
+ * Exact decimal string/number to basis points (1% = 100 bps) parser using BigInt arithmetic.
+ */
+export function parseDecimalToBps(input: string | number): number {
+  return parseDecimalToCents(input);
+}
+
+/**
+ * Formats integer cents into an exact "0.00" decimal string without floating-point division.
+ */
+export function centsToDecimalString(amountInCents: number): string {
+  const truncated = Math.trunc(Number.isFinite(amountInCents) ? amountInCents : 0);
+  const sign = truncated < 0 ? '-' : '';
+  const abs = BigInt(Math.abs(truncated));
+  const major = abs / 100n;
+  const minor = (abs % 100n).toString().padStart(2, '0');
+  return `${sign}${major.toString()}.${minor}`;
+}
+
 /**
  * Creates a validated Money value object.
  * Enforces integer cents to prevent floating point leakages.
@@ -25,8 +72,7 @@ export function createMoney(amountInCents: number, currency = 'THB'): Money {
   if (!Number.isFinite(amountInCents)) {
     throw new TypeError(`[Money] Invalid amount: ${amountInCents}`);
   }
-  // Enforce integer cents
-  const sanitized = Math.round(amountInCents);
+  const sanitized = Number.isInteger(amountInCents) ? amountInCents : Math.trunc(amountInCents);
   return Object.freeze({
     amountInCents: sanitized,
     currency: currency.toUpperCase(),
@@ -34,17 +80,11 @@ export function createMoney(amountInCents: number, currency = 'THB'): Money {
 }
 
 /**
- * Creates Money from a major currency decimal string or number (e.g. "19.99" -> 1999 cents).
+ * Creates Money from a major currency decimal string or number (e.g. "19.99" -> 1999 cents)
+ * using exact string-to-BigInt arithmetic.
  */
 export function fromDecimal(amount: number | string, currency = 'THB'): Money {
-  const str = typeof amount === 'number' ? amount.toFixed(4) : String(amount).trim();
-  const clean = str.replace(/[^0-9.-]/g, '');
-  const parsed = parseFloat(clean);
-  if (isNaN(parsed)) {
-    return createMoney(0, currency);
-  }
-  // Multiply by 100 with rounding to eliminate IEEE 754 precision drift
-  const cents = Math.round(parsed * 100);
+  const cents = parseDecimalToCents(amount);
   return createMoney(cents, currency);
 }
 
@@ -70,73 +110,68 @@ export function subtractMoney(a: Money, b: Money): Money {
 
 /**
  * Multiplies Money by an integer or decimal factor (e.g. quantity or discount ratio).
- * Uses half-up deterministic rounding on minor units.
+ * Uses half-up deterministic BigInt rounding on minor units.
  */
 export function multiplyMoney(m: Money, factor: number): Money {
   if (!Number.isFinite(factor)) {
     throw new TypeError(`[Money] Invalid multiplication factor: ${factor}`);
   }
-  const resultCents = Math.round(m.amountInCents * factor);
+  if (Number.isSafeInteger(factor)) {
+    return createMoney(Number(BigInt(m.amountInCents) * BigInt(factor)), m.currency);
+  }
+  const scaledFactor = BigInt(parseDecimalToCents(factor.toFixed(2)));
+  const resultCents = Number(roundHalfUpDivide(BigInt(m.amountInCents) * scaledFactor, 100n));
   return createMoney(resultCents, m.currency);
 }
 
 /**
  * Calculates percentage discount or tax in basis points (1% = 100 basis points).
- * Example: 8.25% = 825 basis points.
+ * Example: 8.25% = 825 basis points. Uses exact BigInt half-up division.
  */
 export function calculateBasisPoints(m: Money, basisPoints: number): Money {
-  const cents = Math.round((m.amountInCents * basisPoints) / 10000);
+  const bps = BigInt(Math.trunc(basisPoints));
+  const cents = Number(roundHalfUpDivide(BigInt(m.amountInCents) * bps, 10000n));
   return createMoney(cents, m.currency);
 }
 
 /**
- * Formats Money for human presentation according to locale rules.
+ * Formats Money for human presentation according to locale rules without binary floating-point division.
  */
-export function formatMoney(m: Money, locale = 'en-US'): string {
-  const major = m.amountInCents / 100;
-  
-  // Custom mapping for popular currency locales to get beautiful symbols
-  let resolvedLocale = locale;
-  const upper = (m.currency || 'THB').toUpperCase();
-  if (upper === 'THB') {
-    resolvedLocale = 'th-TH';
-  } else if (upper === 'JPY') {
-    resolvedLocale = 'ja-JP';
-  } else if (upper === 'EUR') {
-    resolvedLocale = 'de-DE';
-  } else if (upper === 'GBP') {
-    resolvedLocale = 'en-GB';
-  } else if (upper === 'AUD') {
-    resolvedLocale = 'en-AU';
-  } else if (upper === 'USD') {
-    resolvedLocale = 'en-US';
-  }
+export function formatMoney(m: Money, _locale = 'en-US'): string {
+  const truncated = Math.trunc(Number.isFinite(m.amountInCents) ? m.amountInCents : 0);
+  const sign = truncated < 0 ? '-' : '';
+  const abs = BigInt(Math.abs(truncated));
+  const major = abs / 100n;
+  const minor = (abs % 100n).toString().padStart(2, '0');
+  const formattedMajor = major.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 
-  return new Intl.NumberFormat(resolvedLocale, {
-    style: 'currency',
-    currency: upper,
-    minimumFractionDigits: upper === 'JPY' ? 0 : 2,
-    maximumFractionDigits: upper === 'JPY' ? 0 : 2,
-  }).format(major);
+  const upper = (m.currency || 'THB').toUpperCase();
+  if (upper === 'JPY') {
+    return `${sign}¥${formattedMajor}`;
+  }
+  const symbols: Record<string, string> = {
+    THB: '฿',
+    USD: '$',
+    EUR: '€',
+    GBP: '£',
+    AUD: 'A$',
+  };
+  const sym = symbols[upper] ?? `${upper} `;
+  return `${sign}${sym}${formattedMajor}.${minor}`;
 }
 
 /**
  * Returns raw decimal representation as string (e.g. "19.99") for form inputs.
  */
 export function toDecimalString(m: Money): string {
-  return (m.amountInCents / 100).toFixed(2);
+  return centsToDecimalString(m.amountInCents);
 }
 
 export type RoundingStrategy = 'exact_cents' | 'round_whole' | 'charm_99' | 'charm_95';
 
 /**
  * Safely applies a percentage increase or decrease to Money.
- * Guarantees pure integer arithmetic and zero IEEE 754 precision drift.
- *
- * Invariants:
- * 1. Percentage (e.g. 7.5% or 12.25%) is converted into integer basis points (750 or 1225 bps).
- * 2. Cents arithmetic is strictly integer-based with deterministic half-up rounding.
- * 3. Never produces negative prices (clamped at 0).
+ * Guarantees pure BigInt integer arithmetic and zero IEEE 754 precision drift.
  */
 export function applyPercentageAdjustment(
   base: Money,
@@ -148,30 +183,23 @@ export function applyPercentageAdjustment(
     throw new TypeError(`[Money] Invalid percentage: ${percentage}`);
   }
 
-  // Convert percentage into integer basis points (1% = 100 bps, 0.01% = 1 bp)
-  // Math.round removes any input floating-point fuzz (e.g. 7.55 * 100 = 754.9999999999999 -> 755)
-  const basisPoints = Math.round(percentage * 100);
-
-  // Integer delta cents calculation: (amountInCents * basisPoints) / 10000
-  const deltaCents = Math.round((base.amountInCents * basisPoints) / 10000);
+  const basisPoints = BigInt(parseDecimalToBps(percentage));
+  const deltaCents = Number(roundHalfUpDivide(BigInt(base.amountInCents) * basisPoints, 10000n));
 
   let resultCents = direction === 'increase'
     ? base.amountInCents + deltaCents
     : Math.max(0, base.amountInCents - deltaCents);
 
   if (rounding === 'round_whole') {
-    // Round to nearest whole currency unit (e.g. 100 cents = ฿1.00)
-    resultCents = Math.round(resultCents / 100) * 100;
+    resultCents = Number(roundHalfUpDivide(BigInt(resultCents), 100n) * 100n);
   } else if (rounding === 'charm_99') {
-    // Psychological pricing ending in .99 (e.g. ฿99, ฿199, ฿1,299)
     if (resultCents > 0) {
-      const wholeMajor = Math.floor(resultCents / 100);
+      const wholeMajor = Number(BigInt(resultCents) / 100n);
       resultCents = Math.max(99, wholeMajor * 100 + 99);
     }
   } else if (rounding === 'charm_95') {
-    // Psychological pricing ending in .95
     if (resultCents > 0) {
-      const wholeMajor = Math.floor(resultCents / 100);
+      const wholeMajor = Number(BigInt(resultCents) / 100n);
       resultCents = Math.max(95, wholeMajor * 100 + 95);
     }
   }

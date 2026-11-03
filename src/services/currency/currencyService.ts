@@ -3,7 +3,7 @@
  * Manages currency conversion, locale-specific formatting, symbols, and offline exchange rates.
  */
 
-import { Money, createMoney } from '../../domain/money';
+import { Money, createMoney, formatMoney } from '../../domain/money';
 
 export interface CurrencyConfig {
   code: string;
@@ -95,21 +95,11 @@ export class CurrencyService {
    * Formats a Money structure based on its currency rules and locale standards
    */
   public static format(m: Money, forceLocale?: string): string {
-    const currencyCode = (m.currency || 'THB').toUpperCase();
-    const config = SUPPORTED_CURRENCIES.find((c) => c.code === currencyCode) || SUPPORTED_CURRENCIES[0];
-    const locale = forceLocale || config.locale;
-    const major = m.amountInCents / 100;
-
-    return new Intl.NumberFormat(locale, {
-      style: 'currency',
-      currency: currencyCode,
-      minimumFractionDigits: currencyCode === 'JPY' ? 0 : 2,
-      maximumFractionDigits: currencyCode === 'JPY' ? 0 : 2,
-    }).format(major);
+    return formatMoney(m, forceLocale);
   }
 
   /**
-   * Converts a Money amount from one currency to another using the provided rates configuration
+   * Converts a Money amount from one currency to another using scaled BigInt arithmetic
    */
   public static convert(m: Money, targetCurrency: string, rates: ExchangeRates): Money {
     const fromCode = (m.currency || 'THB').toUpperCase();
@@ -117,14 +107,14 @@ export class CurrencyService {
 
     if (fromCode === toCode) return m;
 
-    // We convert via rates relative to the active base
-    // If the rate is direct: Target amount = Source amount * rate
     const rateToTarget = rates[toCode] || 1.0;
     const rateFromSource = rates[fromCode] || 1.0;
 
-    // Convert from source to base, then base to target
-    const amountInBase = m.amountInCents / rateFromSource;
-    const convertedCents = Math.round(amountInBase * rateToTarget);
+    const scaledTarget = BigInt(Math.max(1, Math.trunc(rateToTarget * 100000)));
+    const scaledSource = BigInt(Math.max(1, Math.trunc(rateFromSource * 100000)));
+    const convertedCents = Number(
+      (BigInt(m.amountInCents) * scaledTarget + scaledSource / 2n) / scaledSource
+    );
 
     return createMoney(convertedCents, toCode);
   }

@@ -21,6 +21,7 @@ export const createProductionAuthApi = (): IAuthApi => ({
         registerId: request.registerId,
         emailOrPin: request.emailOrPin,
         passwordOrPin: request.passwordOrPin ?? '',
+        organizationContext: request.organizationContext,
       }),
     });
     const body = await response.json().catch(() => null);
@@ -65,5 +66,14 @@ export const createProductionAuthApi = (): IAuthApi => ({
     });
     if (!response.ok) throw new Error(`Authentication API request failed (${response.status}).`);
     return response.json() as Promise<readonly Store[]>;
+  },
+  async forgotPin(organizationSlug: string, storeCode: string, emailOrPin: string, registerId: string): Promise<void> {
+    const response = await fetch(`${baseUrl()}/auth/forgot-pin`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ organizationSlug, storeCode, emailOrPin, registerId }),
+    });
+    if (!response.ok) throw new Error('Failed to request PIN reset.');
   },
 });

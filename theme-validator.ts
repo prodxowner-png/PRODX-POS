@@ -416,5 +416,9 @@ const isDirectExecution =
 if (isDirectExecution) {
   const isFix = !process.argv.includes('--check');
   const isVerbose = process.argv.includes('--verbose') || process.argv.includes('-v');
-  runThemeValidator({ fix: isFix, verbose: isVerbose });
+  const summary = runThemeValidator({ fix: isFix, verbose: isVerbose });
+  if (!isFix && summary.totalViolations > 0) {
+    process.exitCode = 1;
+  }
 }
+

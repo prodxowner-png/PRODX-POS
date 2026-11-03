@@ -17,6 +17,7 @@ import {
   BadgePercent,
   CheckCircle,
   Sliders,
+  LogOut,
 } from 'lucide-react';
 import { Card, CardHeader, CardBody } from '../../../components/common/Card';
 import { Badge } from '../../../components/common/Badge';
@@ -30,6 +31,7 @@ import { StaffManagementSection } from './StaffManagementSection';
 import { PermissionMatrixSection } from './PermissionMatrixSection';
 import { PermissionSetsManagement } from './PermissionSetsManagement';
 import { UserToRoleAssignmentTable } from './UserToRoleAssignmentTable';
+import { ManageRegisteredDevicesSection } from './ManageRegisteredDevicesSection';
 
 export interface SecurityRolesSettingsTabProps {
   policies: SecurityPoliciesState;
@@ -38,17 +40,25 @@ export interface SecurityRolesSettingsTabProps {
     value: SecurityPoliciesState[K]
   ) => void;
   defaultSubTab?: SubTab;
+  onOpenAdminPasswordReset?: () => void;
 }
 
-type SubTab = 'role_assignment' | 'staff' | 'matrix' | 'permission_sets' | 'governance';
+type SubTab =
+  | 'role_assignment'
+  | 'staff'
+  | 'matrix'
+  | 'permission_sets'
+  | 'governance'
+  | 'registered_devices';
 
 export const SecurityRolesSettingsTab: React.FC<SecurityRolesSettingsTabProps> = ({
   policies,
   onChangePolicy,
   defaultSubTab = 'role_assignment',
+  onOpenAdminPasswordReset,
 }) => {
   const { language } = useLanguage();
-  const { session, inactivityTimeoutMinutes, setInactivityTimeoutMinutes, lockSystem } = useAuth();
+  const { session, inactivityTimeoutMinutes, setInactivityTimeoutMinutes, autoLogoutTimeoutMinutes, setAutoLogoutTimeoutMinutes, lockSystem } = useAuth();
   const { addToast } = useToast();
 
   const [activeSubTab, setActiveSubTab] = useState<SubTab>(defaultSubTab);
@@ -100,6 +110,14 @@ export const SecurityRolesSettingsTab: React.FC<SecurityRolesSettingsTabProps> =
             descTh: 'พักหน้าจออัตโนมัติ, ผู้จัดการอนุมัติคำสั่ง',
             descEn: 'Auto-lock & supervisor PIN',
             icon: Lock,
+          },
+          {
+            id: 'registered_devices' as SubTab,
+            labelTh: 'จัดการอุปกรณ์ที่ลงทะเบียน (WebAuthn)',
+            labelEn: 'Manage Registered Devices',
+            descTh: 'เปลี่ยนชื่อหรือเพิกถอนคีย์ WebAuthn เมื่ออุปกรณ์สูญหาย',
+            descEn: 'Rename or revoke WebAuthn biometric keys',
+            icon: Fingerprint,
           },
         ].map((tab) => {
           const isSelected = activeSubTab === tab.id;
@@ -175,16 +193,32 @@ export const SecurityRolesSettingsTab: React.FC<SecurityRolesSettingsTabProps> =
                   </p>
                 </div>
               </div>
-              <Button
-                type="button"
-                variant="primary"
-                size="sm"
-                onClick={() => setIsPinModalOpen(true)}
-                className="rounded-lg font-bold text-xs"
-                leftIcon={<KeyRound className="h-3.5 w-3.5" />}
-              >
-                {language === 'th' ? 'เปลี่ยนรหัส PIN ส่วนตัว' : 'Change Personal PIN'}
-              </Button>
+              <div className="flex flex-wrap items-center gap-2">
+                {session.currentUser.role === 'admin' && onOpenAdminPasswordReset && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={onOpenAdminPasswordReset}
+                    className="rounded-lg font-bold text-xs border-primary/40 text-primary hover:bg-primary/10"
+                    leftIcon={<ShieldCheck className="h-3.5 w-3.5 text-primary" />}
+                  >
+                    {language === 'th'
+                      ? 'รีเซ็ตรหัสผ่าน Admin (System Owner)'
+                      : 'Reset Admin Password'}
+                  </Button>
+                )}
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="sm"
+                  onClick={() => setIsPinModalOpen(true)}
+                  className="rounded-lg font-bold text-xs"
+                  leftIcon={<KeyRound className="h-3.5 w-3.5" />}
+                >
+                  {language === 'th' ? 'เปลี่ยนรหัส PIN ส่วนตัว' : 'Change Personal PIN'}
+                </Button>
+              </div>
             </CardHeader>
 
             <CardBody className="p-5 space-y-4">
@@ -296,6 +330,81 @@ export const SecurityRolesSettingsTab: React.FC<SecurityRolesSettingsTabProps> =
                                 ? 'ปิดการพักหน้าจออัตโนมัติ'
                                 : 'Auto-lock disabled'
                               : `Auto-lock set to ${item.mins} minutes.`,
+                          type: 'success',
+                        });
+                      }}
+                      className={`p-3 rounded-lg border text-center cursor-pointer transition-all ${
+                        isSelected
+                          ? 'border-primary bg-primary/10 text-primary font-bold shadow-2xs'
+                          : 'border-border bg-card text-text/80 hover:bg-background'
+                      }`}
+                    >
+                      <div className="text-xs font-bold font-mono">
+                        {item.mins === 0 ? 'OFF' : `${item.mins}m`}
+                      </div>
+                      <div className="text-[10px] text-text/50 truncate mt-0.5">
+                        {language === 'th' ? item.labelTh : item.labelEn}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </CardBody>
+          </Card>
+
+          {/* Inactivity Auto-Logout Timeout Policy Card */}
+          <Card className="border border-border border-crisp shadow-xs rounded-xl overflow-hidden">
+            <CardHeader className="bg-card border-b border-border py-3.5 px-5 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="p-1.5 rounded-lg bg-primary/10 text-primary">
+                  <LogOut className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-text">
+                    {language === 'th'
+                      ? 'การออกจากระบบอัตโนมัติ (Inactivity Auto-Logout Timeout)'
+                      : 'Inactivity Auto-Logout Timeout'}
+                  </h3>
+                  <p className="text-[11px] text-text/50">
+                    {language === 'th'
+                      ? 'ออกจากระบบและคืนหน้าจอ Login อัตโนมัติเมื่อไม่มีการใช้งานตามเวลาที่กำหนด'
+                      : 'Terminates active cashier session and returns to login screen after extended idle time.'}
+                  </p>
+                </div>
+              </div>
+              <Badge variant={autoLogoutTimeoutMinutes === 0 ? 'warning' : 'success'} size="sm" className="font-bold">
+                {autoLogoutTimeoutMinutes === 0
+                  ? language === 'th'
+                    ? 'ปิดใช้งาน'
+                    : 'Disabled'
+                  : `${autoLogoutTimeoutMinutes} ${language === 'th' ? 'นาที' : 'Min'}`}
+              </Badge>
+            </CardHeader>
+
+            <CardBody className="p-5 space-y-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+                {[
+                  { mins: 0, labelTh: 'ปิดการตั้งค่า', labelEn: 'Disabled' },
+                  { mins: 5, labelTh: '5 นาที', labelEn: '5 Min' },
+                  { mins: 15, labelTh: '15 นาที', labelEn: '15 Min' },
+                  { mins: 30, labelTh: '30 นาที (แนะนำ)', labelEn: '30 Min (Default)' },
+                  { mins: 60, labelTh: '60 นาที', labelEn: '60 Min' },
+                ].map((item) => {
+                  const isSelected = autoLogoutTimeoutMinutes === item.mins;
+                  return (
+                    <button
+                      key={item.mins}
+                      type="button"
+                      onClick={() => {
+                        setAutoLogoutTimeoutMinutes(item.mins);
+                        addToast({
+                          title: language === 'th' ? 'ตั้งเวลา Auto-Logout แล้ว' : 'Auto-Logout Timeout Updated',
+                          message:
+                            item.mins === 0
+                              ? language === 'th'
+                                ? 'ปิดการออกจากระบบอัตโนมัติ'
+                                : 'Auto-logout disabled'
+                              : `Auto-logout set to ${item.mins} minutes.`,
                           type: 'success',
                         });
                       }}
@@ -484,8 +593,14 @@ export const SecurityRolesSettingsTab: React.FC<SecurityRolesSettingsTabProps> =
               </div>
             </CardBody>
           </Card>
+
+          {/* Manage Registered Devices (WebAuthn / Passkeys) */}
+          <ManageRegisteredDevicesSection />
         </div>
       )}
+
+      {/* SubTab 5: Dedicated Manage Registered Devices View */}
+      {activeSubTab === 'registered_devices' && <ManageRegisteredDevicesSection />}
 
       {/* Change PIN Modal */}
       {isPinModalOpen && (
@@ -494,3 +609,4 @@ export const SecurityRolesSettingsTab: React.FC<SecurityRolesSettingsTabProps> =
     </div>
   );
 };
+

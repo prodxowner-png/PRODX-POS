@@ -121,9 +121,9 @@ export function formatThaiBahtText(cents: number): string {
   if (cents === 0) return 'ศูนย์บาทถ้วน';
 
   const isNegative = cents < 0;
-  const absCents = Math.abs(cents);
-  const baht = Math.floor(absCents / 100);
-  const satang = absCents % 100;
+  const absCents = BigInt(Math.trunc(Math.abs(cents)));
+  const baht = Number(absCents / 100n);
+  const satang = Number(absCents % 100n);
 
   let text = isNegative ? 'ลบ' : '';
 
@@ -161,7 +161,7 @@ export function generateFullTaxInvoice(
     quantity: it.quantity,
     unitPrice: it.unitPrice,
     discount: createMoney(
-      Math.round((it.unitPrice.amountInCents * it.quantity * it.discountBps) / 10000),
+      Number((BigInt(it.unitPrice.amountInCents) * BigInt(it.quantity) * BigInt(it.discountBps) + 5000n) / 10000n),
       it.unitPrice.currency
     ),
     amount: it.lineTotal,

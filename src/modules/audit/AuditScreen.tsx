@@ -9,7 +9,9 @@ import { Button } from '../../components/common/Button';
 import { SearchInput } from '../../components/common/SearchInput';
 import { Tabs } from '../../components/common/Tabs';
 import { Modal } from '../../components/common/Modal';
-import { Shield, RefreshCw, AlertTriangle, AlertOctagon, CheckCircle, Terminal, Copy, Check } from 'lucide-react';
+import { Shield, RefreshCw, AlertTriangle, AlertOctagon, CheckCircle, Terminal, Copy, Check, Building2, Layers } from 'lucide-react';
+import { OrganizationAuditLogTab } from '../admin/OrganizationAuditLogTab';
+import { AdminActivityHeatmap } from './AdminActivityHeatmap';
 
 export const AuditScreen: React.FC = () => {
   const { session } = useAuth();
@@ -21,6 +23,7 @@ export const AuditScreen: React.FC = () => {
   const [selectedLog, setSelectedLog] = useState<AuditLogEntry | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [auditSourceView, setAuditSourceView] = useState<'organization_crud' | 'store_operations'>('organization_crud');
 
   const fetchLogs = async () => {
     if (!session) return;
@@ -88,15 +91,58 @@ export const AuditScreen: React.FC = () => {
         </Button>
       </div>
 
-      {/* Audit KPI Overview Strip */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        <div className="p-4 rounded-xl border border-border border-crisp bg-card shadow-2xs flex flex-col justify-between">
-          <div className="flex items-center justify-between text-xs font-semibold text-text/60 uppercase tracking-wider">
-            <span>{language === 'th' ? 'บันทึกเหตุการณ์ทั้งหมด' : 'Total Audit Logs'}</span>
-            <div className="p-1.5 rounded-lg bg-primary/10 text-primary">
-              <Shield className="h-4 w-4" />
-            </div>
-          </div>
+      {/* 30-Day Admin Activity Heatmap (Recharts) */}
+      <AdminActivityHeatmap
+        storeLogs={logs}
+        orgId={session?.organization?.id}
+      />
+
+      {/* Audit Domain Source Switcher */}
+      <div className="flex items-center gap-2 border-b border-border/60 pb-3 flex-wrap">
+        <button
+          type="button"
+          onClick={() => setAuditSourceView('organization_crud')}
+          className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 ${
+            auditSourceView === 'organization_crud'
+              ? 'bg-purple-600 text-white shadow-xs'
+              : 'bg-card border border-border text-text/70 hover:bg-card/80'
+          }`}
+        >
+          <Building2 className="h-4 w-4" />
+          <span>{language === 'th' ? 'ประวัติ CRUD องค์กร/สาขา/เครื่องขาย (Firestore)' : 'Organization & Multi-Store CRUD'}</span>
+          <span className="flex h-2 w-2 relative">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setAuditSourceView('store_operations')}
+          className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 ${
+            auditSourceView === 'store_operations'
+              ? 'bg-primary text-white shadow-xs'
+              : 'bg-card border border-border text-text/70 hover:bg-card/80'
+          }`}
+        >
+          <Shield className="h-4 w-4" />
+          <span>{language === 'th' ? 'ประวัติความปลอดภัยและการขายหน้าร้าน (Store Ops)' : 'Store Operations & Security'}</span>
+        </button>
+      </div>
+
+      {auditSourceView === 'organization_crud' ? (
+        <OrganizationAuditLogTab />
+      ) : (
+        <>
+          {/* Audit KPI Overview Strip */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+            <div className="p-4 rounded-xl border border-border border-crisp bg-card shadow-2xs flex flex-col justify-between">
+              <div className="flex items-center justify-between text-xs font-semibold text-text/60 uppercase tracking-wider">
+                <span>{language === 'th' ? 'บันทึกเหตุการณ์ทั้งหมด' : 'Total Audit Logs'}</span>
+                <div className="p-1.5 rounded-lg bg-primary/10 text-primary">
+                  <Shield className="h-4 w-4" />
+                </div>
+              </div>
           <div className="mt-2 text-2xl font-black font-mono tracking-tight text-text">
             {logs.length} <span className="text-xs font-sans font-medium text-text/60">{language === 'th' ? 'รายการ' : 'events'}</span>
           </div>
@@ -385,6 +431,8 @@ export const AuditScreen: React.FC = () => {
             </div>
           </Modal>
         </div>
+      )}
+        </>
       )}
     </div>
   );

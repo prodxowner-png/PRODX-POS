@@ -1,66 +1,72 @@
 import 'dotenv/config';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
-import { createPostgresAuthentication } from './auth/composition';
-import { createPostgresAuthorization } from './auth/production-authorization';
-import { asSqlExecutor, createProductionPostgresPool } from './db/postgres';
-import { createTransactionalPostgresExecutor } from './db/transaction';
-import { createAIGatewayService } from './ai/production-composition';
-import { registerCheckoutRoute } from './http/checkout-route';
-import { registerAuthRoutes } from './http/auth-route';
-import { createApp } from './http/createApp';
-import { registerRefundRoute } from './http/refund-route';
-import { registerAuditRoute } from './http/audit-route';
-import { registerShiftRoute } from './http/shift-route';
-import { registerTimeclockRoute } from './http/timeclock-route';
-import { registerCatalogRoute } from './http/catalog-route';
-import { registerCatalogImportRoute } from './http/catalog-import-route';
-import { registerCatalogPricingRoute } from './http/catalog-pricing-route';
-import { registerPaymentLifecycleRoute } from './http/payment-lifecycle-route';
-import { registerSyncRoute } from './http/sync-route';
-import { registerSupervisorAuthorizationRoute } from './http/supervisor-authorization-route';
-import { registerOrderReadRoute } from './http/order-read-route';
-import { registerVoidRoute } from './http/void-route';
-import { registerInventoryAdjustmentRoute } from './http/inventory-adjustment-route';
-import { registerInfrastructureRoutes } from './http/infrastructureRoutes';
-import { installAIHttpRoute } from './ai/http-route';
+import type { QueryResultRow } from 'pg';
+import { createPostgresAuthentication } from './auth/composition.ts';
+import { createPostgresFirstTenantBootstrapRepository } from './auth/postgres-repository.ts';
+import { readFirstTenantBootstrapConfig } from './auth/first-tenant-bootstrap.ts';
+import type { PasswordCompromiseCheck } from './auth/password-compromise.ts';
+import { createPostgresAuthorization } from './auth/production-authorization.ts';
+import { asSqlExecutor, createProductionPostgresPool } from './db/postgres.ts';
+import { assertPostgresReady } from './db/postgres-readiness.ts';
+import { createTransactionalPostgresExecutor } from './db/transaction.ts';
+import { createAIGatewayService } from './ai/production-composition.ts';
+import { registerCheckoutRoute } from './http/checkout-route.ts';
+import { registerAuthRoutes } from './http/auth-route.ts';
+import { createApp } from './http/createApp.ts';
+import { registerRefundRoute } from './http/refund-route.ts';
+import { registerAuditRoute } from './http/audit-route.ts';
+import { registerTasksRoute } from './http/tasks-route.ts';
+import { registerShiftRoute } from './http/shift-route.ts';
+import { registerTimeclockRoute } from './http/timeclock-route.ts';
+import { registerCatalogRoute } from './http/catalog-route.ts';
+import { registerCatalogImportRoute } from './http/catalog-import-route.ts';
+import { registerCatalogPricingRoute } from './http/catalog-pricing-route.ts';
+import { registerPaymentLifecycleRoute } from './http/payment-lifecycle-route.ts';
+import { registerSyncRoute } from './http/sync-route.ts';
+import { registerSupervisorAuthorizationRoute } from './http/supervisor-authorization-route.ts';
+import { registerOrderReadRoute } from './http/order-read-route.ts';
+import { registerVoidRoute } from './http/void-route.ts';
+import { registerInventoryAdjustmentRoute } from './http/inventory-adjustment-route.ts';
+import { registerInfrastructureRoutes, registerPublicInfrastructureRoutes } from './http/infrastructureRoutes.ts';
+import { installAIHttpRoute } from './ai/http-route.ts';
+export { createRetryableInitialization } from './http/retryable-initialization.ts';
 
 export type ProductionAppOptions = {
   vercelOidcToken?: string;
+  checkCompromisedPassword?: (password: string) => Promise<PasswordCompromiseCheck>;
 };
 
 export const createProductionApp = async (options: ProductionAppOptions = {}) => {
   const pool = await createProductionPostgresPool({}, options.vercelOidcToken);
   const sql = asSqlExecutor(pool);
   const transactions = createTransactionalPostgresExecutor(pool);
-  const sessions = createPostgresAuthentication(sql);
-  const authorize = createPostgresAuthorization(sql);
-  const aiGateway = createAIGatewayService(sql, authorize);
+  // Authentication bootstrap remains a separate pre-principal boundary. All
+  // post-auth authorization and AI data queries use the request-scoped executor.
+  const requestScopedSql = {
+    async query<T extends Record<string, unknown>>(statement: string, parameters: readonly unknown[] = []): Promise<readonly T[]> {
+      const result = await transactions.query<T & QueryResultRow>(statement, parameters);
+      return result.rows;
+    },
+  };
+  const sessions = createPostgresAuthentication(sql, options.checkCompromisedPassword);
+  const authorize = createPostgresAuthorization(requestScopedSql);
+  const aiGateway = createAIGatewayService(requestScopedSql, authorize);
 
   const app = createApp({
     readinessCheck: async () => {
-      try {
-        await sql.query<{ ok: number }>('SELECT 1 AS ok');
-      } catch (error: unknown) {
-        const candidate = error && typeof error === 'object'
-          ? error as { code?: unknown; syscall?: unknown; port?: unknown }
-          : {};
-        throw Object.assign(new Error('Database readiness query failed.'), {
-          stage: 'database_query',
-          ...(typeof candidate.code === 'string' ? { code: candidate.code } : {}),
-          ...(candidate.syscall === 'getaddrinfo' || candidate.syscall === 'connect' ||
-              candidate.syscall === 'read' || candidate.syscall === 'write'
-            ? { syscall: candidate.syscall }
-            : {}),
-          ...(typeof candidate.port === 'number' && Number.isInteger(candidate.port) &&
-              candidate.port >= 1 && candidate.port <= 65535
-            ? { port: candidate.port }
-            : {}),
-        });
-      }
+      // PostgreSQL is the authoritative transactional store for POS readiness.
+      // A secondary service must never make the POS ready when PostgreSQL is unavailable.
+      await assertPostgresReady(pool);
     },
     configurePublicRoutes: (configuredApp) => {
-      registerAuthRoutes(configuredApp, sql, sessions);
+      registerAuthRoutes(configuredApp, requestScopedSql, sessions, {
+        firstTenantBootstrap: {
+          repository: createPostgresFirstTenantBootstrapRepository(requestScopedSql),
+          config: readFirstTenantBootstrapConfig(process.env),
+        },
+      });
+      registerPublicInfrastructureRoutes(configuredApp, pool);
     },
     authenticateRequest: async (request) => {
       const header = request.header('authorization');
@@ -70,6 +76,7 @@ export const createProductionApp = async (options: ProductionAppOptions = {}) =>
     authorizeRequest: authorize,
     configureRoutes: (configuredApp) => {
       registerAuditRoute(configuredApp, transactions);
+      registerTasksRoute(configuredApp, transactions);
       registerShiftRoute(configuredApp, transactions);
       registerTimeclockRoute(configuredApp, transactions);
       registerCheckoutRoute(configuredApp, transactions);
@@ -83,7 +90,7 @@ export const createProductionApp = async (options: ProductionAppOptions = {}) =>
       registerOrderReadRoute(configuredApp, transactions);
       registerVoidRoute(configuredApp, transactions);
       registerInventoryAdjustmentRoute(configuredApp, transactions);
-      registerInfrastructureRoutes(configuredApp);
+      registerInfrastructureRoutes(configuredApp, pool);
       const aiRouter = express.Router();
       installAIHttpRoute(aiRouter, { gateway: aiGateway });
       configuredApp.use('/api/v1/ai', aiRouter);

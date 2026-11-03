@@ -20,7 +20,19 @@ export function createProductionAuthApi(
       credentials: 'include',
       headers: { Accept: 'application/json', 'Content-Type': 'application/json', ...init.headers },
     });
-    if (!response.ok) throw new Error(`Authentication API request failed (${response.status}).`);
+    if (!response.ok) {
+      let serverMessage: string | undefined;
+      const errContentType = response.headers.get('content-type') ?? '';
+      if (errContentType.includes('application/json')) {
+        try {
+          const payload = (await response.json()) as { error?: { message?: string }; message?: string };
+          serverMessage = payload?.error?.message || payload?.message;
+        } catch {
+          // ignore JSON parse errors on error body
+        }
+      }
+      throw new Error(serverMessage || `Authentication API request failed (${response.status}).`);
+    }
     if (response.status === 204) return undefined as T;
     const contentType = response.headers.get('content-type') ?? '';
     if (!contentType.includes('application/json')) {
@@ -39,9 +51,14 @@ export function createProductionAuthApi(
   };
 
   return {
-    login: (req: LoginRequest) => request<SessionContext>('/auth/login', { method: 'POST', body: JSON.stringify(req) }),
+    login: (req: LoginRequest) =>
+      request<SessionContext>(req.requireAdminRole ? '/auth/admin/login' : '/auth/login', {
+        method: 'POST',
+        body: JSON.stringify(req),
+      }),
     logout: (token: string) => requestWithBearer<void>('/auth/logout', token, { method: 'POST' }),
     verifySession: (token: string) => requestWithBearer<SessionContext | null>('/auth/session', token),
     getStores: (orgSlug: string, token: string) => requestWithBearer<readonly Store[]>(`/organizations/${encodeURIComponent(orgSlug)}/stores`, token),
+    forgotPin: (org: string, store: string, identity: string, reg: string) => request<void>('/auth/forgot-pin', { method: 'POST', body: JSON.stringify({ organizationSlug: org, storeCode: store, emailOrPin: identity, registerId: reg }) }),
   };
 }

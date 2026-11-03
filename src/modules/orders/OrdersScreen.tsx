@@ -149,7 +149,7 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({ onNavigate }) => {
       if (!session) return;
       setIsLoading(true);
       try {
-        const list = await orderReadApi.getOrders(session.currentStore.id, 200);
+        const list = await orderReadApi.getOrders(session.currentStore.id, 200, session.registerId);
         setOrders(list);
 
         // Auto-select order if navigated from Command Palette or external link

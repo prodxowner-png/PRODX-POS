@@ -5,6 +5,7 @@ import { useCart } from '../../context/CartContext';
 import { useToast } from '../../context/ToastContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { useBreadcrumb, BreadcrumbLevel } from '../../context/BreadcrumbContext';
+import { useSound } from '../../context/SoundContext';
 import { useSettings } from '../../context/SettingsContext';
 import { createCatalogReadApi } from '../../adapters/catalogApiFactory';
 import { Product, Category } from '../../domain/catalog';
@@ -24,6 +25,7 @@ import { BarcodeScannerTesterModal } from './BarcodeScannerTesterModal';
 import { QuickPayDrawer } from './QuickPayDrawer';
 import { PaymentConfirmationModal } from './PaymentConfirmationModal';
 import { PosAiAssistantModal } from './PosAiAssistantModal';
+import { PosMobileSwipeDrawer } from './PosMobileSwipeDrawer';
 import {
   Barcode,
   Search,
@@ -47,6 +49,7 @@ export const PosScreen: React.FC = () => {
   const { addToast } = useToast();
   const { t, language } = useLanguage();
   const { setSubLevels } = useBreadcrumb();
+  const { playClick, playSuccess, playWarning, playCriticalAlert } = useSound();
 
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -231,6 +234,7 @@ export const PosScreen: React.FC = () => {
 
     if (codes.length === 0) {
       setIsBulkAdding(false);
+      playWarning();
       addToast({
         title: language === 'th' ? 'ไม่มีข้อมูลบาร์โค้ด' : 'No Barcodes Found',
         message: language === 'th' ? 'กรุณาระบุรหัสบาร์โค้ดอย่างน้อย 1 รายการ' : 'Please provide at least one valid barcode entry.',
@@ -406,53 +410,60 @@ export const PosScreen: React.FC = () => {
   }, [filteredProducts, focusedProductIndex, addItem, isBulkAddModalOpen, isScannerModalOpen, isMobileCartOpen, isKeyboardNavEnabled]);
 
   return (
-    <div className="flex-1 flex flex-col lg:flex-row h-full overflow-hidden bg-background">
-      {/* Left Workspace: Top 40% (Controls & Filters) + Body 60% (Catalog & Summary) */}
-      <div
-        className={`flex-1 flex flex-col h-full min-h-0 min-w-0 overflow-hidden bg-background ${
-          mobileTab === 'cart' ? 'hidden lg:flex' : 'flex'
-        }`}
+    <div
+      data-layout-mode="pos-adaptive-grid"
+      className="flex-1 grid grid-cols-1 grid-rows-[auto_minmax(0,1fr)] md:landscape:grid-cols-[minmax(0,1fr)_340px] lg:grid-cols-[minmax(0,60%)_minmax(360px,40%)] xl:grid-cols-[minmax(0,62%)_minmax(380px,38%)] h-full w-full min-h-0 min-w-0 overflow-hidden bg-background"
+    >
+      {/* ========================================================================= */}
+      {/* GRID AREA 1: POS Controls, Barcode Scanner & Category Toolbar             */}
+      {/* (Row 1, Col 1 in both Portrait and Landscape POS Modes)                   */}
+      {/* ========================================================================= */}
+      <section
+        aria-label="POS Controls and Category Filters"
+        className="col-start-1 row-start-1 h-auto flex flex-col shrink-0 border-b border-crisp border-border bg-card shadow-2xs z-20 overflow-hidden min-w-0"
       >
-        {/* ========================================================================= */}
-        {/* TOP SECTION (40% Proportion on Mobile/Tablet, Compact Toolbar on Desktop) */}
-        {/* ========================================================================= */}
-        <div className="h-[40%] sm:h-[38%] min-h-[220px] max-h-[320px] lg:h-auto flex flex-col shrink-0 border-b border-crisp border-border bg-card shadow-2xs z-20 overflow-hidden">
-          {/* Mobile Tab Switcher */}
-          <div className="lg:hidden px-3 pt-2.5 pb-2 bg-card border-b border-border/60 flex items-center gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={() => setMobileTab('catalog')}
-              className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
-                mobileTab === 'catalog'
-                  ? 'bg-primary text-white shadow-2xs'
-                  : 'bg-background text-text/70 hover:text-text border border-border'
-              }`}
-            >
-              <Layers className="h-3.5 w-3.5" />
-              <span>{language === 'th' ? 'รายการสินค้า (Catalog)' : 'Products'}</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setMobileTab('cart')}
-              className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 relative ${
-                mobileTab === 'cart'
-                  ? 'bg-primary text-white shadow-2xs'
-                  : 'bg-background text-text/70 hover:text-text border border-border'
-              }`}
-            >
-              <ShoppingCart className="h-3.5 w-3.5" />
-              <span>{language === 'th' ? 'ตะกร้า (Cart)' : 'Cart'}</span>
-              {totals.totalItemsCount > 0 && (
-                <span className="bg-rose-500 text-white text-[10px] font-black h-4 min-w-[16px] px-1 rounded-full flex items-center justify-center shadow-xs">
-                  {totals.totalItemsCount}
-                </span>
-              )}
-            </button>
-          </div>
+        {/* Portrait Mode Switcher (Catalog vs Cart) - 44px+ touch targets */}
+        <div className="md:landscape:hidden lg:hidden px-3 pt-2.5 pb-2 bg-card border-b border-border/60 grid grid-cols-2 gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={() => setMobileTab('catalog')}
+            className={`min-h-[44px] px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap ${
+              mobileTab === 'catalog'
+                ? 'bg-primary text-white shadow-2xs'
+                : 'bg-background text-text/70 hover:text-text border border-border'
+            }`}
+          >
+            <Layers className="h-4 w-4 shrink-0" />
+            <span className="truncate">{language === 'th' ? 'สินค้า (Products)' : 'Products'}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setMobileTab('cart')}
+            className={`min-h-[44px] px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 relative cursor-pointer whitespace-nowrap ${
+              mobileTab === 'cart'
+                ? 'bg-primary text-white shadow-2xs'
+                : 'bg-background text-text/70 hover:text-text border border-border'
+            }`}
+          >
+            <ShoppingCart className="h-4 w-4 shrink-0" />
+            <span className="truncate">{language === 'th' ? 'ตะกร้า (Cart)' : 'Cart'}</span>
+            {totals.totalItemsCount > 0 && (
+              <span className="bg-rose-500 text-white text-[10px] font-black h-4 min-w-[16px] px-1 rounded-full flex items-center justify-center shadow-xs shrink-0">
+                {totals.totalItemsCount}
+              </span>
+            )}
+          </button>
+        </div>
 
+        {/* Search, Hardware Scanner & Category Controls (Collapsed only when viewing Cart tab in Portrait) */}
+        <div
+          className={`flex-col shrink-0 overflow-hidden ${
+            mobileTab === 'cart' ? 'hidden md:landscape:flex lg:flex' : 'flex'
+          }`}
+        >
           {/* Unified Search & Barcode Quick Actions Row */}
-          <div className="p-2.5 sm:p-3 pb-2 flex flex-col gap-2 shrink-0 overflow-hidden">
-            <div className="flex items-center gap-2">
+          <div className="p-2.5 sm:p-3 pb-2 grid grid-cols-1 gap-2 shrink-0 overflow-hidden">
+            <div className="flex items-center gap-2 min-w-0">
               <div className="flex-1 min-w-0">
                 <SearchInput
                   id="pos-search-input"
@@ -463,7 +474,7 @@ export const PosScreen: React.FC = () => {
                 />
               </div>
 
-              {/* AI Cashier Assistant Button */}
+              {/* AI Cashier Assistant Button (44px+ touch target) */}
               <button
                 type="button"
                 id="pos-header-ai-assistant-btn"
@@ -472,33 +483,36 @@ export const PosScreen: React.FC = () => {
                   setIsAiModalOpen(true);
                 }}
                 title={language === 'th' ? 'ผู้ช่วย AI แคชเชียร์ (แนะนำสินค้า & อัพเซลล์)' : 'AI Cashier Assistant & Upselling'}
-                className="h-10 px-3 rounded-lg bg-[var(--chart-purple)] hover:brightness-110 text-white font-bold text-xs transition-all shrink-0 active:scale-95 shadow-2xs flex items-center gap-1.5 cursor-pointer"
+                className="min-h-[44px] min-w-[44px] px-3 rounded-xl bg-[var(--chart-purple)] hover:brightness-110 text-white font-bold text-xs transition-all shrink-0 active:scale-95 shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
               >
-                <Sparkles className="h-4 w-4 text-yellow-300 animate-pulse" />
+                <Sparkles className="h-4 w-4 text-yellow-300 animate-pulse shrink-0" />
                 <span className="hidden sm:inline font-bold whitespace-nowrap">
                   {language === 'th' ? 'AI ผู้ช่วย' : 'AI Assistant'}
                 </span>
               </button>
 
-              {/* Quick-Pay Action Trigger for Store Managers */}
+              {/* Quick-Pay Action Trigger for Store Managers (44px+ touch target) */}
               <button
                 type="button"
                 id="pos-header-quickpay-btn"
                 disabled={totals.totalItemsCount === 0}
                 onClick={() => {
-                  if (totals.totalItemsCount === 0) return;
-                  playScannerSound('click');
+                  if (totals.totalItemsCount === 0) {
+                    playWarning();
+                    return;
+                  }
+                  playClick();
                   triggerHaptic('medium');
                   setIsQuickPayOpen(true);
                 }}
                 title={language === 'th' ? 'ชำระด่วนสำหรับผู้จัดการ (แตะครั้งเดียว)' : 'Manager Quick-Pay (1-Tap Checkout)'}
-                className={`h-10 px-3 rounded-lg border-crisp border flex items-center gap-1.5 font-bold text-xs transition-all shrink-0 active:scale-95 shadow-2xs ${
+                className={`min-h-[44px] min-w-[44px] px-3 rounded-xl border-crisp border flex items-center justify-center gap-1.5 font-bold text-xs transition-all shrink-0 active:scale-95 shadow-2xs whitespace-nowrap ${
                   totals.totalItemsCount > 0
                     ? 'bg-amber-500 hover:bg-amber-400 text-black border-amber-400/90 ring-1 ring-amber-400/40 cursor-pointer'
                     : 'bg-card text-text/30 border-border/40 cursor-not-allowed opacity-50'
                 }`}
               >
-                <Zap className="h-4 w-4 fill-current text-black" />
+                <Zap className="h-4 w-4 fill-current text-black shrink-0" />
                 <span className="hidden md:inline font-black whitespace-nowrap">
                   {language === 'th' ? 'จ่ายด่วน' : 'Quick-Pay'}
                 </span>
@@ -509,7 +523,7 @@ export const PosScreen: React.FC = () => {
                 )}
               </button>
 
-              {/* Bulk Barcode Import Trigger */}
+              {/* Bulk Barcode Import Trigger (44px+ touch target) */}
               <button
                 type="button"
                 onClick={() => {
@@ -517,12 +531,12 @@ export const PosScreen: React.FC = () => {
                   setIsBulkAddModalOpen(true);
                 }}
                 title={language === 'th' ? 'นำเข้าบาร์โค้ดแบบกลุ่ม' : 'Bulk Barcode Import'}
-                className="h-10 min-w-[40px] px-2.5 rounded-lg bg-card hover:bg-background border-crisp border border-border text-text/70 hover:text-text transition-colors cursor-pointer flex items-center justify-center shrink-0 active:scale-95 shadow-2xs"
+                className="min-h-[44px] min-w-[44px] px-2.5 rounded-xl bg-card hover:bg-background border-crisp border border-border text-text/70 hover:text-text transition-colors cursor-pointer flex items-center justify-center shrink-0 active:scale-95 shadow-2xs"
               >
                 <Clipboard className="h-4 w-4" />
               </button>
 
-              {/* Keyboard Nav Toggle */}
+              {/* Keyboard Nav Toggle (44px+ touch target) */}
               <button
                 type="button"
                 onClick={() => {
@@ -530,7 +544,7 @@ export const PosScreen: React.FC = () => {
                   updateConfig({ hardware: { ...config.hardware, keyboardFocusCapture: !isKeyboardNavEnabled } });
                 }}
                 title={language === 'th' ? 'สลับเปิด-ปิดระบบควบคุมด้วยคีย์บอร์ด' : 'Toggle Keyboard Navigation'}
-                className={`h-10 min-w-[40px] px-2.5 rounded-lg border-crisp border transition-colors cursor-pointer flex items-center justify-center shrink-0 active:scale-95 shadow-2xs ${
+                className={`min-h-[44px] min-w-[44px] px-2.5 rounded-xl border-crisp border transition-colors cursor-pointer flex items-center justify-center shrink-0 active:scale-95 shadow-2xs ${
                   isKeyboardNavEnabled 
                     ? 'bg-primary/10 border-primary/30 text-primary' 
                     : 'bg-card hover:bg-background border-border text-text/40 hover:text-text/70'
@@ -539,13 +553,13 @@ export const PosScreen: React.FC = () => {
                 <Keyboard className="h-4 w-4" />
               </button>
 
-              {/* Hardware Scanner Status & Simulator Launcher */}
-              <div className="flex items-center gap-1 bg-card border-crisp border border-border rounded-lg px-2 h-10 shrink-0 shadow-2xs">
+              {/* Hardware Scanner Status & Simulator Launcher (44px+ touch targets) */}
+              <div className="flex items-center gap-1 bg-card border-crisp border border-border rounded-xl px-1.5 min-h-[44px] shrink-0 shadow-2xs">
                 <button
                   type="button"
                   onClick={() => setIsScannerModalOpen(true)}
                   title={language === 'th' ? 'เครื่องสแกนบาร์โค้ดฮาร์ดแวร์ & ตัวจำลอง' : 'Hardware Barcode Scanner & Simulator'}
-                  className="py-1 hover:bg-background text-text/70 hover:text-text flex items-center gap-1.5 text-xs font-semibold cursor-pointer rounded-lg transition-all"
+                  className="min-h-[40px] min-w-[44px] px-2 hover:bg-background text-text/70 hover:text-text flex items-center justify-center gap-1.5 text-xs font-semibold cursor-pointer rounded-lg transition-all"
                 >
                   <div className="relative flex items-center justify-center">
                     <span
@@ -577,7 +591,7 @@ export const PosScreen: React.FC = () => {
                   </div>
                 </button>
 
-                <div className="h-3.5 w-px bg-border border-crisp mx-0.5" />
+                <div className="h-4 w-px bg-border border-crisp mx-0.5" />
 
                 <button
                   type="button"
@@ -605,16 +619,16 @@ export const PosScreen: React.FC = () => {
                       ? 'คลิกเพื่อเปิดสแกนเนอร์'
                       : 'Activate scanner listener'
                   }
-                  className="p-1 flex items-center justify-center text-text/50 hover:text-text transition-colors cursor-pointer rounded hover:bg-background"
+                  className="min-h-[40px] min-w-[44px] px-1.5 flex items-center justify-center text-text/50 hover:text-text transition-colors cursor-pointer rounded-lg hover:bg-background"
                 >
                   <div
-                    className={`w-6 h-3.5 rounded-full p-0.5 transition-colors duration-200 ease-in-out ${
+                    className={`w-7 h-4 rounded-full p-0.5 transition-colors duration-200 ease-in-out ${
                       isScannerEnabled ? 'bg-emerald-500' : 'bg-border dark:bg-background'
                     }`}
                   >
                     <div
-                      className={`w-2.5 h-2.5 rounded-full bg-white shadow-xs transform duration-200 ease-in-out ${
-                        isScannerEnabled ? 'translate-x-2.5' : 'translate-x-0'
+                      className={`w-3 h-3 rounded-full bg-white shadow-xs transform duration-200 ease-in-out ${
+                        isScannerEnabled ? 'translate-x-3' : 'translate-x-0'
                       }`}
                     />
                   </div>
@@ -622,30 +636,30 @@ export const PosScreen: React.FC = () => {
               </div>
             </div>
 
-            {/* Direct Barcode Quick Scan Input Row */}
-            <form onSubmit={handleBarcodeSubmit} className="flex items-center gap-2 w-full">
-              <div className="relative flex-1">
+            {/* Direct Barcode Quick Scan Input Row (44px+ touch targets) */}
+            <form onSubmit={handleBarcodeSubmit} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 w-full">
+              <div className="relative min-w-0">
                 <input
                   type="text"
                   value={barcodeInput}
                   onChange={(e) => setBarcodeInput(e.target.value)}
                   placeholder={language === 'th' ? 'สแกน / กรอกรหัสบาร์โค้ดสินค้า...' : 'Scan / Enter Product Barcode...'}
-                  className="w-full h-9 rounded-lg border-crisp border border-border bg-card text-xs pl-8 pr-3 py-1 font-mono text-text placeholder-text/40 focus:outline-none focus:ring-2 focus:ring-primary transition-colors"
+                  className="w-full min-h-[44px] rounded-xl border-crisp border border-border bg-card text-xs pl-9 pr-3 py-1 font-mono text-text placeholder-text/40 focus:outline-none focus:ring-2 focus:ring-primary transition-colors"
                 />
-                <Barcode className="h-3.5 w-3.5 text-text/40 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <Barcode className="h-4 w-4 text-text/40 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
               </div>
               <button
                 type="submit"
                 disabled={!barcodeInput.trim()}
-                className="h-9 px-3.5 rounded-lg bg-primary hover:bg-primary/90 text-white text-xs font-bold tracking-wide disabled:opacity-40 cursor-pointer transition-all shrink-0 flex items-center justify-center shadow-2xs active:scale-95"
+                className="min-h-[44px] min-w-[64px] px-4 rounded-xl bg-primary hover:bg-primary/90 text-white text-xs font-bold tracking-wide disabled:opacity-40 cursor-pointer transition-all shrink-0 flex items-center justify-center shadow-2xs active:scale-95 whitespace-nowrap"
               >
                 {language === 'th' ? 'สแกน' : 'Scan'}
               </button>
             </form>
           </div>
 
-          {/* Categories Carousel Pill Bar (Anchored at base of Top 40%) */}
-          <div className="px-2.5 sm:px-3 py-2 border-t border-border/70 bg-card/90 flex items-center gap-1.5 overflow-x-auto no-scrollbar shrink-0 mt-auto">
+          {/* Categories Carousel Bar (44px+ touch targets) */}
+          <div className="px-2.5 sm:px-3 py-2 border-t border-border/70 bg-card/90 flex items-center gap-1.5 overflow-x-auto no-scrollbar shrink-0">
             {categories.map((cat) => {
               const isSelected = selectedCategory === cat.id;
               const categoryLabel = cat.id === 'cat-all' ? t.pos.allCategories : cat.name;
@@ -657,7 +671,7 @@ export const PosScreen: React.FC = () => {
                     playScannerSound('click');
                     setSelectedCategory(cat.id);
                   }}
-                  className={`h-8 flex items-center gap-1.5 px-3 rounded-lg text-xs font-bold whitespace-nowrap transition-all cursor-pointer shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
+                  className={`min-h-[44px] min-w-[44px] flex items-center justify-center gap-1.5 px-3.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all cursor-pointer shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
                     isSelected
                       ? 'bg-primary text-white border-crisp border border-primary'
                       : 'bg-card text-text/70 border-crisp border border-border hover:text-text hover:bg-background active:scale-95'
@@ -675,125 +689,103 @@ export const PosScreen: React.FC = () => {
             })}
           </div>
         </div>
+      </section>
 
-        {/* ========================================================================= */}
-        {/* BODY + BOTTOM SECTION (60% Proportion on Mobile, Full Height on Desktop) */}
-        {/* ========================================================================= */}
-        <div className="flex-1 h-[60%] sm:h-[62%] lg:h-full min-h-0 flex flex-col relative bg-background overflow-hidden">
-          {/* Product Catalog Grid Scroll Area */}
-          <div className="flex-1 overflow-y-auto p-2.5 sm:p-3.5 lg:p-4 pb-24 lg:pb-4 no-scrollbar">
-            {isLoading ? (
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5 sm:gap-3">
-                {Array.from({ length: 8 }).map((_, i) => (
-                  <div
-                    key={i}
-                    className="rounded-lg border-crisp border border-border bg-card p-3 space-y-2 shadow-2xs"
-                  >
-                    <Skeleton className="h-3 w-14" />
-                    <Skeleton className="h-4 w-3/4" />
-                    <Skeleton className="h-3 w-1/2" />
-                    <div className="pt-2 border-t border-crisp border-border flex justify-between items-center">
-                      <Skeleton className="h-4 w-12" />
-                      <Skeleton className="h-6 w-6 rounded-lg" />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : filteredProducts.length === 0 ? (
-              <EmptyState
-                icon={<Search className="h-6 w-6 text-text/40" />}
-                title={language === 'th' ? 'ไม่พบสินค้า' : 'No Products Found'}
-                description={
-                  searchQuery
-                    ? language === 'th'
-                      ? `ไม่มีสินค้าตรงกับคำค้นหา "${searchQuery}"`
-                      : `No items match the search query "${searchQuery}".`
-                    : language === 'th'
-                    ? 'ไม่มีสินค้าในหมวดหมู่นี้'
-                    : 'No products found in this category.'
-                }
-                actionLabel={language === 'th' ? 'ล้างตัวกรอง' : 'Clear Filter'}
-                onAction={() => {
-                  setSearchQuery('');
-                  setSelectedCategory('cat-all');
-                }}
-                className="my-8 max-w-md mx-auto"
-              />
-            ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-2.5 sm:gap-3 content-start">
-                {filteredProducts.map((product, index) => (
-                  <ProductCard
-                    key={product.id}
-                    id={`product-card-${index}`}
-                    product={product}
-                    isFocused={index === focusedProductIndex}
-                    onAddToCart={(p) => {
-                      playScannerSound('click');
-                      addItem(p, 1);
-                    }}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Bottom Floating Quick Cart Summary Bar */}
-          <AnimatePresence>
-            {totals.totalItemsCount > 0 && (
-              <motion.div
-                initial={{ y: 120, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                exit={{ y: 120, opacity: 0 }}
-                className="lg:hidden absolute bottom-3 left-3 right-3 p-2.5 border border-crisp border-primary/20 bg-card/95 backdrop-blur-md flex items-center justify-between shadow-xl rounded-xl z-40 gap-2"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="text-[10px] text-text/70 font-semibold truncate">
-                    {t.pos.cartTitle} (<span className="font-mono">{totals.totalItemsCount}</span> {t.pos.itemCount})
-                  </div>
-                  <div className="text-base font-black font-mono text-primary truncate">
-                    {formatMoney(totals.grandTotal)}
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-1.5 shrink-0">
-                  {/* Quick-Pay CTA on Mobile */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      triggerHaptic('medium');
-                      playScannerSound('click');
-                      setIsQuickPayOpen(true);
-                    }}
-                    className="min-h-[42px] h-10 flex items-center gap-1 px-3 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-black text-xs shadow-2xs cursor-pointer transition-colors active:scale-95 border border-amber-400"
-                  >
-                    <Zap className="h-4 w-4 fill-current text-black" />
-                    <span>{language === 'th' ? 'จ่ายด่วน' : 'Quick-Pay'}</span>
-                  </button>
-
-                  {/* Open Cart Drawer CTA */}
-                  <button
-                    type="button"
-                    onClick={() => setIsMobileCartOpen(true)}
-                    className="min-h-[42px] h-10 flex items-center gap-1.5 px-3 rounded-lg bg-primary hover:bg-primary/90 text-white font-bold text-xs shadow-2xs cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 active:scale-95"
-                  >
-                    <ShoppingCart className="h-4 w-4" />
-                    <span className="hidden sm:inline">{t.pos.checkoutBtn}</span>
-                  </button>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-      </div>
-
-      {/* Right Side Workspace: Cart Panel (40% width on Desktop) / Mobile Cart View */}
-      <div
-        className={`w-full lg:w-[40%] xl:w-[38%] h-full min-h-0 shrink-0 border-l border-crisp border-border bg-card ${
-          mobileTab === 'cart' ? 'flex flex-col flex-1 lg:flex-initial' : 'hidden lg:block'
+      {/* ========================================================================= */}
+      {/* GRID AREA 2: Product Catalog Grid & Portrait Floating Summary             */}
+      {/* (Row 2, Col 1 in both Portrait and Landscape POS Modes)                   */}
+      {/* ========================================================================= */}
+      <section
+        aria-label="Product Catalog"
+        className={`col-start-1 row-start-2 min-h-0 min-w-0 flex-col relative bg-background overflow-hidden ${
+          mobileTab === 'cart' ? 'hidden md:landscape:flex lg:flex' : 'flex'
         }`}
       >
+        {/* Product Catalog Grid Scroll Area */}
+        <div className="flex-1 overflow-y-auto p-2.5 sm:p-3.5 lg:p-4 pb-28 md:landscape:pb-4 lg:pb-4 no-scrollbar">
+          {isLoading ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 md:landscape:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-2.5 sm:gap-3">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="rounded-lg border-crisp border border-border bg-card p-3 space-y-2 shadow-2xs"
+                >
+                  <Skeleton className="h-3 w-14" />
+                  <Skeleton className="h-4 w-3/4" />
+                  <Skeleton className="h-3 w-1/2" />
+                  <div className="pt-2 border-t border-crisp border-border flex justify-between items-center">
+                    <Skeleton className="h-4 w-12" />
+                    <Skeleton className="h-6 w-6 rounded-lg" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : filteredProducts.length === 0 ? (
+            <EmptyState
+              icon={<Search className="h-6 w-6 text-text/40" />}
+              title={language === 'th' ? 'ไม่พบสินค้า' : 'No Products Found'}
+              description={
+                searchQuery
+                  ? language === 'th'
+                    ? `ไม่มีสินค้าตรงกับคำค้นหา "${searchQuery}"`
+                    : `No items match the search query "${searchQuery}".`
+                  : language === 'th'
+                  ? 'ไม่มีสินค้าในหมวดหมู่นี้'
+                  : 'No products found in this category.'
+              }
+              actionLabel={language === 'th' ? 'ล้างตัวกรอง' : 'Clear Filter'}
+              onAction={() => {
+                setSearchQuery('');
+                setSelectedCategory('cat-all');
+              }}
+              className="my-8 max-w-md mx-auto"
+            />
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 md:landscape:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-2.5 sm:gap-3 content-start">
+              {filteredProducts.map((product, index) => (
+                <ProductCard
+                  key={product.id}
+                  id={`product-card-${index}`}
+                  product={product}
+                  isFocused={index === focusedProductIndex}
+                  onAddToCart={(p) => {
+                    playScannerSound('click');
+                    addItem(p, 1);
+                  }}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* ========================================================================= */}
+      {/* GRID AREA 3: Cart & Checkout Panel                                        */}
+      {/* (Row 2, Col 1 in Portrait Cart Tab | Col 2, Row-Span 2 in POS Landscape)  */}
+      {/* ========================================================================= */}
+      <aside
+        aria-label="Order Cart and Checkout Panel"
+        className={`w-full h-full min-h-0 min-w-0 border-l border-crisp border-border bg-card overflow-hidden pb-24 md:landscape:pb-0 lg:pb-0 ${
+          mobileTab === 'cart'
+            ? 'col-start-1 row-start-2 flex flex-col'
+            : 'hidden'
+        } md:landscape:flex md:landscape:flex-col md:landscape:col-start-2 md:landscape:row-start-1 md:landscape:row-span-2 lg:flex lg:flex-col lg:col-start-2 lg:row-start-1 lg:row-span-2`}
+      >
         <CartPanel onOpenQuickPay={() => setIsQuickPayOpen(true)} />
-      </div>
+      </aside>
+
+      {/* Persistent, Swipeable Mobile-Optimized Bottom Navigation Drawer (Products, Cart, Payment, Shift) */}
+      <PosMobileSwipeDrawer
+        activeView={mobileTab}
+        onChangeView={setMobileTab}
+        categories={categories}
+        selectedCategory={selectedCategory}
+        onSelectCategory={setSelectedCategory}
+        onOpenQuickPay={() => setIsQuickPayOpen(true)}
+        onOpenFullPayment={() => setIsFullPaymentModalOpen(true)}
+        onOpenScanner={() => setIsScannerModalOpen(true)}
+        onOpenAiAssistant={() => setIsAiModalOpen(true)}
+      />
 
       {/* Mobile Cart Drawer */}
       <Drawer
@@ -822,12 +814,18 @@ export const PosScreen: React.FC = () => {
           setIsQuickPayOpen(false);
           setIsFullPaymentModalOpen(true);
         }}
+        onOrderCompleted={() => {
+          playSuccess();
+        }}
       />
 
       {/* Full Payment Modal fallback for split/complex payment */}
       <PaymentConfirmationModal
         isOpen={isFullPaymentModalOpen}
         onClose={() => setIsFullPaymentModalOpen(false)}
+        onOrderCompleted={() => {
+          playSuccess();
+        }}
       />
 
       {/* Barcode Scanner Simulator & Testing Modal */}

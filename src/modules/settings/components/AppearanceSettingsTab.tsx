@@ -39,11 +39,13 @@ export interface AppearanceSettingsTabProps {
     field: K,
     value: CustomerDisplayConfigState[K]
   ) => void;
+  onClearThemeLocalStorageAndReset?: () => void;
 }
 
 export const AppearanceSettingsTab: React.FC<AppearanceSettingsTabProps> = ({
   cfdConfig,
   onChangeCfdField,
+  onClearThemeLocalStorageAndReset,
 }) => {
   const { language } = useLanguage();
   const {
@@ -246,10 +248,30 @@ export const AppearanceSettingsTab: React.FC<AppearanceSettingsTabProps> = ({
               </div>
             </div>
 
-            <div className="flex items-center gap-2 self-start sm:self-auto">
-              <span className="text-xs text-text/60 font-medium">
+            <div className="flex items-center gap-3 self-start sm:self-auto">
+              <span className="text-xs text-text/60 font-medium hidden md:inline">
                 {currentPreset.tagline[language]}
               </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  if (onClearThemeLocalStorageAndReset) {
+                    onClearThemeLocalStorageAndReset();
+                  } else {
+                    resetAllThemeSettings();
+                  }
+                  addToast({
+                    title: language === 'th' ? 'รีเซ็ตธีมเป็นค่าเริ่มต้น' : 'Theme Reset to Default',
+                    message: language === 'th' ? 'ล้างค่า localStorage และคืนค่าธีม Enterprise Obsidian สำเร็จ' : 'Cleared localStorage keys and reverted to Enterprise Obsidian.',
+                    type: 'success',
+                  });
+                }}
+                className="h-9 px-3 text-xs font-bold gap-1.5 border-border hover:bg-card"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                {language === 'th' ? 'รีเซ็ตเป็นค่าเริ่มต้น' : 'Reset to Default'}
+              </Button>
             </div>
           </div>
 

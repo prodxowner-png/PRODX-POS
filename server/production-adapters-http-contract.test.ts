@@ -3,6 +3,9 @@ import test from 'node:test';
 import { createProductionOrderTransactionApi } from '../src/adapters/productionOrderTransactionApi';
 import { createProductionRefundApi } from '../src/adapters/productionRefundApi';
 import { createProductionSyncApi } from '../src/adapters/productionSyncApi';
+import { createProductionAuditApi } from '../src/adapters/productionAuditApi';
+import { createProductionOrderReadApi } from '../src/adapters/productionOrderReadApi';
+import { createProductionInventoryAdjustmentApi } from '../src/adapters/productionInventoryAdjustmentApi';
 
 const BASE_URL = 'https://pos.example.test';
 const originalFetch = globalThis.fetch;
@@ -78,3 +81,21 @@ test('production refund adapter forwards idempotency and supervisor authorizatio
   assert.equal(body.idempotencyKey, 'refund-1');
   assert.equal(body.supervisorAuthorizationToken, 'grant-1');
 });
+
+test('production audit, order-read, and inventory-adjustment adapters fail closed without token', async () => {
+  const calls = mockFetch([]);
+  await assert.rejects(
+    createProductionAuditApi('   ', BASE_URL).getLogs('store-1'),
+    /Authenticated session token is required/,
+  );
+  await assert.rejects(
+    createProductionOrderReadApi('', BASE_URL).getOrders('store-1'),
+    /Authenticated session token is required/,
+  );
+  await assert.rejects(
+    createProductionInventoryAdjustmentApi('', BASE_URL).adjustStock('store-1', 'prod-1', 5, 'audit_count_adjustment', 'user-1'),
+    /Authenticated session token is required/,
+  );
+  assert.equal(calls.length, 0);
+});
+

@@ -486,7 +486,14 @@ export class ThermalReceiptService {
       text-align: center;
       font-weight: 900;
       font-size: ${is58mm ? '14px' : '16px'};
-      margin-bottom: 4px;
+      margin-bottom: 6px;
+      display: flex;
+      justify-content: center;
+    }
+    .header-logo svg {
+      height: ${is58mm ? '36px' : '44px'};
+      width: auto;
+      max-width: ${is58mm ? '150px' : '185px'};
     }
     .divider {
       border-top: 1px dashed #666;
@@ -520,6 +527,24 @@ export class ThermalReceiptService {
 </head>
 <body>
   <div class="receipt-container">
+    <div class="header-logo">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 96" fill="none">
+        <rect x="6" y="8" width="80" height="80" rx="16" fill="#000000" />
+        <rect x="11" y="13" width="70" height="70" rx="12" stroke="#FFFFFF" stroke-width="1.5" stroke-dasharray="3 2" />
+        <path d="M26 26 H47 C56.3888 26 64 32.7157 64 41 C64 49.2843 56.3888 56 47 56 H36 V70 H26 V26 Z" fill="#FFFFFF" />
+        <path d="M36 35 V47 H46.5 C50.6421 47 54 44.3137 54 41 C54 37.6863 50.6421 35 46.5 35 H36 Z" fill="#000000" />
+        <path d="M51 46 L68 70" stroke="#FFFFFF" stroke-width="7.5" stroke-linecap="round" />
+        <path d="M68 26 L44 60" stroke="#000000" stroke-width="11" stroke-linecap="round" />
+        <path d="M68 26 L44 60" stroke="#FFFFFF" stroke-width="7" stroke-linecap="round" />
+        <circle cx="68" cy="70" r="4" fill="#FFFFFF" />
+        <text x="100" y="46" fill="#000000" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif" font-size="32" font-weight="900" letter-spacing="-1">PRODX</text>
+        <rect x="218" y="21" width="66" height="30" rx="6" fill="#000000" />
+        <text x="251" y="42" fill="#FFFFFF" font-family="ui-monospace, monospace" font-size="20" font-weight="900" text-anchor="middle" letter-spacing="1">POS</text>
+        <line x1="100" y1="58" x2="310" y2="58" stroke="#000000" stroke-width="2" />
+        <line x1="100" y1="62" x2="310" y2="62" stroke="#000000" stroke-width="1" stroke-dasharray="4 3" />
+        <text x="100" y="77" fill="#000000" font-family="ui-monospace, monospace" font-size="10.5" font-weight="800" letter-spacing="2.2">ENTERPRISE RETAIL TERMINAL</text>
+      </svg>
+    </div>
     <pre style="margin:0; font-family: inherit; font-size: inherit; white-space: pre-wrap;">${this.escapeHtml(textFormatted)}</pre>
   </div>
 </body>

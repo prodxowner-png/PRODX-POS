@@ -21,6 +21,7 @@ import {
   Filter,
   ArrowRight,
   Zap,
+  KeyRound,
 } from 'lucide-react';
 import { SettingsTabId, SettingsTabItem } from '../types';
 import { Badge } from '../../../components/common/Badge';
@@ -103,6 +104,8 @@ export const SettingsMenuSelector: React.FC<SettingsMenuSelectorProps> = ({
         return ReceiptText;
       case 'ShieldCheck':
         return ShieldCheck;
+      case 'KeyRound':
+        return KeyRound;
       case 'UserCheck':
         return UserCheck;
       case 'Layers':

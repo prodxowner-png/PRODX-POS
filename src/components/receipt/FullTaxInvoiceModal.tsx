@@ -15,6 +15,7 @@ import { useToast } from '../../context/ToastContext';
 import { Modal } from '../common/Modal';
 import { Button } from '../common/Button';
 import { Badge } from '../common/Badge';
+import { ProdxReceiptLogo } from '../common/ProdxLogo';
 import {
   FileText,
   Printer,
@@ -318,17 +319,20 @@ export const FullTaxInvoiceModal: React.FC<FullTaxInvoiceModalProps> = ({
           >
             {/* Header Title */}
             <div className="border-b pb-4 flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-              <div>
-                <div className="text-lg font-black tracking-tight text-zinc-950 uppercase">
-                  {taxInvoiceDoc.seller.companyName}
-                </div>
-                <div className="text-text/70 mt-1 space-y-0.5 text-[11px]">
-                  <div>{taxInvoiceDoc.seller.address}</div>
-                  <div>
-                    เลขประจำตัวผู้เสียภาษีอากร:{' '}
-                    <span className="font-mono font-bold">{taxInvoiceDoc.seller.taxId}</span> (สำนักงานใหญ่)
+              <div className="space-y-2">
+                <ProdxReceiptLogo paperWidth="80mm" className="items-start justify-start" />
+                <div>
+                  <div className="text-lg font-black tracking-tight text-zinc-950 uppercase">
+                    {taxInvoiceDoc.seller.companyName}
                   </div>
-                  <div>โทร: {taxInvoiceDoc.seller.phone}</div>
+                  <div className="text-text/70 mt-1 space-y-0.5 text-[11px]">
+                    <div>{taxInvoiceDoc.seller.address}</div>
+                    <div>
+                      เลขประจำตัวผู้เสียภาษีอากร:{' '}
+                      <span className="font-mono font-bold">{taxInvoiceDoc.seller.taxId}</span> (สำนักงานใหญ่)
+                    </div>
+                    <div>โทร: {taxInvoiceDoc.seller.phone}</div>
+                  </div>
                 </div>
               </div>
 
@@ -464,6 +468,9 @@ export const FullTaxInvoiceModal: React.FC<FullTaxInvoiceModalProps> = ({
           /* Thermal Slip Full Tax Format */
           <div className="max-w-xs mx-auto p-4 rounded-xl bg-white text-zinc-950 font-mono text-[11px] shadow-sm border border-border space-y-2">
             <div className="text-center font-bold">
+              <div className="flex justify-center mb-2">
+                <ProdxReceiptLogo paperWidth="80mm" />
+              </div>
               <div>{taxInvoiceDoc.seller.companyName}</div>
               <div className="text-[10px]">TAX ID: {taxInvoiceDoc.seller.taxId} (HQ)</div>
               <div className="text-xs border-y border-dashed my-1 py-0.5">

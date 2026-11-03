@@ -6,6 +6,7 @@
  */
 
 import { User, SessionContext, Store } from '../domain/auth';
+import type { WebAuthnAssertionPayload } from '../services/webauthnService';
 import {
   Product,
   Category,
@@ -21,12 +22,38 @@ import { AuditLogEntry, AuditAction, AuditSeverity } from '../domain/audit';
 import { OutboxItem } from '../domain/sync';
 import { Money } from '../domain/money';
 
+export interface OrganizationLoginContext {
+  organizationId: string;
+  organizationName: string;
+  organizationSlug: string;
+  branchId: string;
+  branchName: string;
+  branchCode: string;
+  branchAddress: string;
+  terminalId: string;
+  terminalName: string;
+  terminalCode: string;
+}
+
 export interface LoginRequest {
   organizationSlug: string;
   storeCode: string;
   emailOrPin: string;
   passwordOrPin?: string;
   registerId: string;
+  organizationContext?: OrganizationLoginContext;
+  requireAdminRole?: boolean;
+  webAuthnAssertion?: WebAuthnAssertionPayload;
+  biometricVerified?: boolean;
+}
+
+export interface BiometricLoginRequest {
+  organizationSlug: string;
+  storeCode: string;
+  registerId: string;
+  organizationContext?: OrganizationLoginContext;
+  targetUser?: { id: string; email: string; name: string };
+  requireAdminRole?: boolean;
 }
 
 export interface CheckoutRequest {
@@ -55,6 +82,7 @@ export interface IAuthApi {
   logout(token: string): Promise<void>;
   verifySession(token: string): Promise<SessionContext | null>;
   getStores(orgSlug: string, token: string): Promise<readonly Store[]>;
+  forgotPin(organizationSlug: string, storeCode: string, emailOrPin: string, registerId: string): Promise<void>;
 }
 
 export interface ICatalogApi {
@@ -101,7 +129,7 @@ export interface RefundItemRestock {
 
 export interface IOrderApi {
   createOrder(req: CheckoutRequest): Promise<CheckoutResponse>;
-  getOrders(storeId: string, limit?: number): Promise<readonly Order[]>;
+  getOrders(storeId: string, limit?: number, registerId?: string): Promise<readonly Order[]>;
   getOrderById(storeId: string, orderId: string): Promise<Order | null>;
   voidOrder(storeId: string, orderId: string, reason: string, authorizedByUserId: string): Promise<Order>;
   refundOrder(

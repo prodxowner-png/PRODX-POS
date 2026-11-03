@@ -17,6 +17,7 @@ import React, {
   Component,
   ErrorInfo,
 } from 'react';
+import { AUTH_SESSION_STORAGE_KEY } from './authSessionStorage';
 
 export type CriticalFailureType =
   | 'API_TIMEOUT'
@@ -451,6 +452,43 @@ export const GlobalErrorRecoveryProvider: React.FC<{ children: ReactNode }> = ({
       };
 
       console.warn(`[GlobalErrorRecovery] Critical failure intercepted [${input.type} in ${newFailure.module}]:`, input.message);
+
+      // Persist diagnostics through the authenticated PostgreSQL-backed audit API.
+      // Never write browser diagnostics directly to a retired Firebase project.
+      void (async () => {
+        try {
+          if (typeof window === 'undefined') return;
+          const rawSession = window.localStorage.getItem(AUTH_SESSION_STORAGE_KEY);
+          const session = rawSession ? JSON.parse(rawSession) as { token?: unknown } : null;
+          const token = typeof session?.token === 'string' ? session.token.trim() : '';
+          if (!token) return; // Unauthenticated startup failures remain local-only.
+          const response = await fetch('/api/v1/audit/logs', {
+            method: 'POST',
+            headers: {
+              Accept: 'application/json',
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              action: `SYSTEM_ERROR:${input.type}`,
+              severity: 'critical',
+              details: {
+                id,
+                title: input.title,
+                message: input.message,
+                module: newFailure.module,
+                errorStack: errorStack || null,
+                timestamp: newFailure.timestamp,
+              },
+            }),
+          });
+          if (!response.ok) {
+            console.warn('[GlobalErrorRecovery] PostgreSQL audit API rejected diagnostic log:', response.status);
+          }
+        } catch (error) {
+          console.warn('[GlobalErrorRecovery] Failed to persist diagnostic log to PostgreSQL audit API:', error);
+        }
+      })();
 
       setActiveFailures((prev) => {
         // Prevent duplicate failure of same type and module within 5s

@@ -1,26 +1,18 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { createProductionApp } from '../server-bundle.js';
+import { getVercelOidcToken } from '@vercel/oidc';
+import { createProductionApp, createRetryableInitialization } from '../server-bundle.js';
 
-type VercelRequest = IncomingMessage & {
-  headers: IncomingMessage['headers'];
-};
+// Use Vercel's supported helper so the runtime request-context token is retrieved safely and
+// refreshed according to the platform lifecycle. Never read or cache the raw OIDC token directly.
+const initializeProductionApp = createRetryableInitialization(async () =>
+  createProductionApp({
+    vercelOidcToken: await getVercelOidcToken(),
+  }),
+);
 
-let appPromise: ReturnType<typeof createProductionApp> | undefined;
-
-const getVercelOidcToken = (request: VercelRequest): string | undefined => {
-  const value = request.headers['x-vercel-oidc-token'];
-  return Array.isArray(value) ? value[0] : value;
-};
-
-export default async function handler(request: VercelRequest, response: ServerResponse): Promise<void> {
+export default async function handler(request: IncomingMessage, response: ServerResponse): Promise<void> {
   try {
-    if (!appPromise) {
-      appPromise = createProductionApp({
-        vercelOidcToken: getVercelOidcToken(request),
-      });
-    }
-
-    const { app } = await appPromise;
+    const { app } = await initializeProductionApp();
     app(request as never, response as never);
   } catch {
     response.statusCode = 503;

@@ -62,6 +62,49 @@
     --chart-blue: #3B82F6;
     --chart-purple: #8B5CF6;
     --chart-emerald: #10B981;
+
+    /* WCAG 2.2 AA Accessibility & Non-Text Contrast Tokens */
+    /* Light mode: #ea580c gives 3.57:1 on white (#ffffff) and 4.9:1 on dark, strictly exceeding 3:1 non-text contrast */
+    --focus-ring: #ea580c;
+    --focus-ring-offset: 2px;
+    --contrast-border-interactive: #475569;
+    --contrast-border-interactive-dark: #64748b;
+    --contrast-text-subtle: #475569;
+    --contrast-text-subtle-dark: #cbd5e1;
+    --contrast-primary-text-light: #1d4ed8;
+    --contrast-primary-text-dark: #60a5fa;
+    --wcag-min-touch-target: 44px;
+    --wcag-border-contrast: #475569;
+  }
+
+  :root.dark,
+  .dark {
+    /* Dark mode: #ff782e gives 6.8:1 on dark surfaces (#090D16, #0F172A), strictly exceeding 3:1 non-text contrast */
+    --focus-ring: #ff782e;
+    --focus-ring-offset: 2px;
+  }
+
+  /* ========================================================================= */
+  /* WCAG 2.2 AA Universal Focus Appearance (SC 2.4.11 / 2.4.12 / 1.4.11)      */
+  /* Consistent 2px solid outline using --focus-ring across interactive nodes  */
+  /* ========================================================================= */
+  :focus-visible,
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible,
+  [role="button"]:focus-visible,
+  [role="tab"]:focus-visible,
+  [role="checkbox"]:focus-visible,
+  [role="radio"]:focus-visible,
+  [role="switch"]:focus-visible,
+  [role="menuitem"]:focus-visible,
+  [role="link"]:focus-visible,
+  [role="searchbox"]:focus-visible,
+  [tabindex]:not([tabindex="-1"]):focus-visible {
+    outline: 2px solid var(--focus-ring, #ea580c) !important;
+    outline-offset: var(--focus-ring-offset, 2px) !important;
   }
 
   body {
@@ -303,6 +346,15 @@
 /* Crisp 1px border styling */
 .border-crisp {
   border-width: 1px;
+}
+
+/* WCAG 2.2 AA Focus Visibility Utility */
+.focus-ring-wcag {
+  outline: none;
+}
+.focus-ring-wcag:focus-visible {
+  outline: 2px solid var(--focus-ring, #ff6b1a);
+  outline-offset: var(--focus-ring-offset, 2px);
 }
 
 /* Dynamic theme button and card radii */
@@ -690,6 +742,15 @@
   }
 }
 
+@keyframes shimmer-slide {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
 .animate-card-entrance {
   animation: card-entrance 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
@@ -702,6 +763,10 @@
   background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.12) 50%, rgba(255,255,255,0) 100%);
   background-size: 200% 100%;
   animation: shimmer-sweep 2.5s infinite;
+}
+
+.animate-shimmer-slide {
+  animation: shimmer-slide 1.6s infinite ease-in-out;
 }
 
 @keyframes topology-dash-flow {

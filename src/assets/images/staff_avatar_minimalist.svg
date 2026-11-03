@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <!-- Background Gradient -->
+    <radialGradient id="bgGlow" cx="50%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="#1e293b" />
+      <stop offset="60%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#020617" />
+    </radialGradient>
+    
+    <!-- Accent Rim Light -->
+    <radialGradient id="rimGlow" cx="50%" cy="0%" r="50%">
+      <stop offset="0%" stop-color="#ff6b1a" stop-opacity="0.35" />
+      <stop offset="100%" stop-color="#ff6b1a" stop-opacity="0" />
+    </radialGradient>
+
+    <!-- Face Gradient -->
+    <linearGradient id="skinGrad" x1="30%" y1="0%" x2="70%" y2="100%">
+      <stop offset="0%" stop-color="#fed7aa" />
+      <stop offset="70%" stop-color="#fdba74" />
+      <stop offset="100%" stop-color="#fb923c" />
+    </linearGradient>
+
+    <!-- Hair Gradient -->
+    <linearGradient id="hairGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#334155" />
+      <stop offset="100%" stop-color="#0f172a" />
+    </linearGradient>
+
+    <!-- Shirt Gradient -->
+    <linearGradient id="shirtGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e293b" />
+      <stop offset="50%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#020617" />
+    </linearGradient>
+
+    <!-- Collar Accent Gradient -->
+    <linearGradient id="collarAccent" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#ff6b1a" />
+      <stop offset="100%" stop-color="#ff8c42" />
+    </linearGradient>
+
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000000" flood-opacity="0.3" />
+    </filter>
+  </defs>
+
+  <!-- Background Base -->
+  <rect width="512" height="512" rx="256" fill="url(#bgGlow)" />
+  <circle cx="256" cy="180" r="220" fill="url(#rimGlow)" />
+
+  <g filter="url(#softShadow)">
+    <!-- Shoulders & Torso (Minimalist Polo Shirt) -->
+    <path d="M120 490 C120 400 170 340 256 340 C342 340 392 400 392 490 Z" fill="url(#shirtGrad)" />
+    
+    <!-- Polo Inner Collar Line -->
+    <path d="M210 340 L256 395 L302 340 Z" fill="#090d16" />
+    
+    <!-- Accent Collar Trim -->
+    <path d="M256 395 L256 460" stroke="url(#collarAccent)" stroke-width="4" stroke-linecap="round" />
+    <circle cx="256" cy="415" r="4" fill="#ff6b1a" />
+    <circle cx="256" cy="440" r="4" fill="#ff6b1a" />
+
+    <!-- Staff Lapel Badge / POS Pin -->
+    <rect x="180" y="415" width="34" height="20" rx="6" fill="#1e293b" stroke="#ff6b1a" stroke-width="2" />
+    <line x1="188" y1="425" x2="206" y2="425" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" />
+
+    <!-- Neck -->
+    <path d="M226 270 L226 350 C236 360 276 360 286 350 L286 270 Z" fill="#fb923c" />
+
+    <!-- Head / Face -->
+    <ellipse cx="256" cy="230" rx="76" ry="92" fill="url(#skinGrad)" />
+
+    <!-- Minimalist Hair -->
+    <path d="M180 210 C180 140 215 110 256 110 C300 110 332 140 332 210 C332 215 320 185 300 180 C270 172 230 185 180 210 Z" fill="url(#hairGrad)" />
+
+    <!-- Subtle Minimalist Facial Features -->
+    <!-- Eyes -->
+    <circle cx="226" cy="225" r="5" fill="#1e293b" />
+    <circle cx="286" cy="225" r="5" fill="#1e293b" />
+    
+    <!-- Eyebrows -->
+    <path d="M216 212 C222 208 232 208 238 212" stroke="#475569" stroke-width="3" stroke-linecap="round" fill="none" />
+    <path d="M274 212 C280 208 290 208 296 212" stroke="#475569" stroke-width="3" stroke-linecap="round" fill="none" />
+
+    <!-- Nose (Minimalist shadow arc) -->
+    <path d="M256 232 C254 242 250 248 258 250" stroke="#f97316" stroke-width="3" stroke-linecap="round" fill="none" />
+
+    <!-- Friendly Smile -->
+    <path d="M238 270 Q256 284 274 270" stroke="#c2410c" stroke-width="4" stroke-linecap="round" fill="none" />
+
+    <!-- Modern POS Headset / Microphone (Stylized minimal) -->
+    <path d="M336 210 C345 210 348 230 336 250" stroke="#94a3b8" stroke-width="4" stroke-linecap="round" fill="none" />
+    <path d="M340 235 C320 280 290 295 275 290" stroke="#94a3b8" stroke-width="3" stroke-linecap="round" fill="none" />
+    <circle cx="272" cy="290" r="5" fill="#ff6b1a" />
+  </g>
+</svg>

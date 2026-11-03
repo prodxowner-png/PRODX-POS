@@ -45,6 +45,7 @@ import {
 import { Order, CartLineItem, CartTotals, TenderPayment } from '../domain/order';
 import { Shift, CashMovement, CashMovementType, computeExpectedDrawerCash, TimeclockRecord } from '../domain/shift';
 import { AuditLogEntry, AuditAction, AuditSeverity } from '../domain/audit';
+import { developmentAuditLogs } from './developmentMockAuditSink';
 import { OutboxItem } from '../domain/sync';
 import { Money, createMoney, ZERO_USD, addMoney, subtractMoney } from '../domain/money';
 import {
@@ -96,9 +97,9 @@ const SEED_ORG: Organization = {
 // Seed Users with distinct RBAC roles
 export const SEED_USERS: User[] = [
   {
-    id: 'usr-admin-alex',
-    name: 'Alex Vance',
-    email: 'alex.vance@prodx.io',
+    id: 'usr-admin-kamkokaew',
+    name: 'Kamkokaew Thodsawat',
+    email: 'kamkokaewthodsawat@gmail.com',
     role: 'admin',
     employeeCode: 'EMP-001',
     permissions: ROLE_PERMISSIONS.admin,
@@ -262,7 +263,7 @@ class MockPosState {
   inventoryLedger: InventoryLedgerEntry[] = [];
   orders: Order[] = [];
   shifts: Shift[] = [];
-  auditLogs: AuditLogEntry[] = [];
+  auditLogs: AuditLogEntry[] = developmentAuditLogs;
   timeclockRecords: TimeclockRecord[] = [];
   idempotencyCache: Map<string, CheckoutResponse> = new Map();
   simulatedLatencyMs = 120;
@@ -605,7 +606,7 @@ class MockPosState {
     this.inventoryLedger = [];
     this.orders = [];
     this.shifts = [];
-    this.auditLogs = [];
+    this.auditLogs.length = 0;
     this.idempotencyCache.clear();
     this.seedInitialShift();
     this.seedInitialOrders();
@@ -627,23 +628,124 @@ async function delay(ms = mockState.simulatedLatencyMs): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+const ORG_CONTEXT_STORAGE_KEY = 'prodx.terminal.organization_context';
+
+function resolveSessionOrganizationAndStore(req: {
+  organizationSlug?: string;
+  storeCode?: string;
+  registerId?: string;
+  organizationContext?: {
+    organizationId: string;
+    organizationName: string;
+    organizationSlug: string;
+    branchId: string;
+    branchName: string;
+    branchCode: string;
+    branchAddress: string;
+    terminalId: string;
+    terminalName: string;
+    terminalCode: string;
+  };
+}): { organization: Organization; currentStore: Store; registerId: string } {
+  const ctx = req.organizationContext;
+  const effectiveOrgSlug = (ctx?.organizationSlug || req.organizationSlug || SEED_ORG.slug).trim();
+  const effectiveStoreCode = (ctx?.branchCode || ctx?.branchName || req.storeCode || SEED_STORES[0].code).trim();
+  const effectiveRegisterId = (ctx?.terminalCode || req.registerId || 'Terminal-001').trim();
+
+  console.info(`${LOG_PREFIX} [RESOLVE_SCOPE] Mapping details:`, {
+    input: {
+      ctxOrgSlug: ctx?.organizationSlug,
+      reqOrgSlug: req.organizationSlug,
+      ctxBranchCode: ctx?.branchCode,
+      ctxBranchName: ctx?.branchName,
+      reqStoreCode: req.storeCode,
+    },
+    effective: {
+      orgSlug: effectiveOrgSlug,
+      storeCode: effectiveStoreCode,
+      registerId: effectiveRegisterId,
+    }
+  });
+
+  const matchedSeedStore =
+    SEED_STORES.find((s) => s.code.toLowerCase() === effectiveStoreCode.toLowerCase()) ||
+    SEED_STORES[0];
+
+  const resolvedOrgId = ctx?.organizationId || SEED_ORG.id;
+  const resolvedOrgName =
+    ctx?.organizationName ||
+    (effectiveOrgSlug.toLowerCase() === SEED_ORG.slug.toLowerCase()
+      ? SEED_ORG.name
+      : effectiveOrgSlug.toUpperCase());
+
+  const currentStore: Store = {
+    ...matchedSeedStore,
+    id: matchedSeedStore.id,
+    organizationId: resolvedOrgId,
+    code: effectiveStoreCode,
+    name: ctx?.branchAddress
+      ? `${effectiveStoreCode} — ${ctx.branchAddress}`
+      : matchedSeedStore.code.toLowerCase() === effectiveStoreCode.toLowerCase()
+      ? matchedSeedStore.name
+      : effectiveStoreCode,
+    address: ctx?.branchAddress || matchedSeedStore.address,
+  };
+
+  const storesList: Store[] = SEED_STORES.some(
+    (s) => s.code.toLowerCase() === currentStore.code.toLowerCase(),
+  )
+    ? SEED_STORES.map((s) =>
+        s.code.toLowerCase() === currentStore.code.toLowerCase() ? currentStore : s,
+      )
+    : [currentStore, ...SEED_STORES];
+
+  const organization: Organization = {
+    id: resolvedOrgId,
+    name: resolvedOrgName,
+    slug: effectiveOrgSlug,
+    stores: storesList,
+  };
+
+  return {
+    organization,
+    currentStore,
+    registerId: effectiveRegisterId,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Mock Auth API
 // ---------------------------------------------------------------------------
 export class MockAuthApi implements IAuthApi {
   async login(req: LoginRequest): Promise<SessionContext> {
     await delay();
-    console.info(`${LOG_PREFIX} Login attempt:`, { org: req.organizationSlug, store: req.storeCode });
+    const term = (req.emailOrPin || '').trim();
+    const passOrPin = (req.passwordOrPin || '').trim();
 
-    const store = SEED_STORES.find((s) => s.code.toLowerCase() === req.storeCode.toLowerCase()) || SEED_STORES[0];
+    const { organization, currentStore: store, registerId } = resolveSessionOrganizationAndStore(req);
+
+    // Never log credentials or direct identifiers (email, PIN, password) - metadata only.
+    console.info(`${LOG_PREFIX} [AUTH_DEBUG] Login attempt details:`, {
+      input: {
+        orgSlug: req.organizationSlug,
+        storeCode: req.storeCode,
+        registerId: req.registerId,
+        identityPresent: term.length > 0,
+        identityType: term.includes('@') ? 'email' : 'staff-identifier',
+        secretPresent: passOrPin.length > 0,
+      },
+      resolved: {
+        org: organization.slug,
+        store: store.code,
+        registerId,
+      }
+    });
+
     const staffList = typeof window !== 'undefined' ? getStoredStaffDirectory() : DEFAULT_STAFF_DIRECTORY;
     const staffPins = typeof window !== 'undefined' ? getStoredStaffPins() : {};
     const staffPasswords = typeof window !== 'undefined' ? getStoredStaffPasswords() : {};
     const rolePerms = typeof window !== 'undefined' ? getStoredRolePermissions() : ROLE_PERMISSIONS;
 
-    const term = (req.emailOrPin || '').trim();
-    const passOrPin = (req.passwordOrPin || '').trim();
-    
     // Find user by email or pin match, or construct Guest user
     let user: User;
     if (term.toLowerCase() === 'guest' || term === 'GUEST-POS') {
@@ -693,11 +795,13 @@ export class MockAuthApi implements IAuthApi {
         }
       }
 
-      // Validate credentials if authenticating via password
+      // Validate credentials if authenticating via password or WebAuthn assertion
       if (matched && passOrPin && !term.match(/^\d{4}$/)) {
         const correctPassword = staffPasswords[matched.id];
         const correctPin = staffPins[matched.id];
+        const isWebAuthnAssertion = passOrPin.startsWith('WEBAUTHN_VERIFIED:');
         const isValid =
+          isWebAuthnAssertion ||
           (typeof correctPassword === 'string' && correctPassword.length > 0 && passOrPin === correctPassword) ||
           (typeof correctPin === 'string' && correctPin.length > 0 && passOrPin === correctPin);
         if (!isValid) {
@@ -705,7 +809,18 @@ export class MockAuthApi implements IAuthApi {
         }
       }
 
+      if (req.requireAdminRole && !matched) {
+        throw new Error('Invalid administrator credentials. Please enter a valid admin email or PIN.');
+      }
+
       user = matched || staffList[0] || SEED_USERS[0];
+    }
+
+    // Enforce strict RBAC on dedicated Admin Login path
+    if (req.requireAdminRole && user.role !== 'admin') {
+      throw new Error(
+        `RBAC Access Denied: Account "${user.email}" has role "${user.role}". Administrator role ("admin") is required for Admin Console access.`,
+      );
     }
 
     // Ensure permissions are synchronized with current role permissions matrix
@@ -716,13 +831,30 @@ export class MockAuthApi implements IAuthApi {
     };
 
     const session: SessionContext = {
-      organization: SEED_ORG,
+      organization,
       currentStore: store,
-      registerId: req.registerId || 'REG-01',
+      registerId,
       currentUser: resolvedUser,
       token: `mock-jwt-${resolvedUser.id}-${Date.now()}`,
       expiresAt: new Date(Date.now() + 8 * 3600 * 1000).toISOString(),
+      operationalScope: req.organizationContext,
     };
+
+    if (typeof window !== 'undefined') {
+      try {
+        window.localStorage.setItem(
+          ORG_CONTEXT_STORAGE_KEY,
+          JSON.stringify({
+            organizationSlug: req.organizationSlug,
+            storeCode: req.storeCode,
+            registerId: req.registerId,
+            organizationContext: req.organizationContext,
+          }),
+        );
+      } catch {
+        // Ignore storage write errors
+      }
+    }
 
     // Log audit event
     mockState.auditLogs.unshift({
@@ -733,7 +865,13 @@ export class MockAuthApi implements IAuthApi {
       userName: resolvedUser.name,
       action: 'user_login',
       severity: 'info',
-      details: { role: resolvedUser.role, employeeCode: resolvedUser.employeeCode },
+      details: {
+        role: resolvedUser.role,
+        employeeCode: resolvedUser.employeeCode,
+        organizationSlug: organization.slug,
+        storeCode: store.code,
+        registerId: session.registerId,
+      },
       timestamp: new Date().toISOString(),
     });
 
@@ -766,22 +904,60 @@ export class MockAuthApi implements IAuthApi {
     const effectiveUser = foundUser || staffList[0] || SEED_USERS[0];
     const currentPermissions = rolePerms[effectiveUser.role] || effectiveUser.permissions || ROLE_PERMISSIONS[effectiveUser.role];
 
+    let savedReq: {
+      organizationSlug?: string;
+      storeCode?: string;
+      registerId?: string;
+      organizationContext?: any;
+    } = {};
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = window.localStorage.getItem(ORG_CONTEXT_STORAGE_KEY);
+        if (raw) {
+          savedReq = JSON.parse(raw);
+        } else {
+          savedReq = {
+            organizationSlug: window.localStorage.getItem('prodx.terminal.organization') || undefined,
+            storeCode: window.localStorage.getItem('prodx.terminal.store') || undefined,
+            registerId: window.localStorage.getItem('prodx.terminal.register') || undefined,
+          };
+        }
+      } catch {
+        // Ignore parse errors
+      }
+    }
+
+    const { organization, currentStore, registerId } = resolveSessionOrganizationAndStore(savedReq);
+
     return {
-      organization: SEED_ORG,
-      currentStore: SEED_STORES[0],
-      registerId: 'REG-01',
+      organization,
+      currentStore,
+      registerId,
       currentUser: {
         ...effectiveUser,
         permissions: currentPermissions,
       },
       token,
       expiresAt: new Date(Date.now() + 8 * 3600 * 1000).toISOString(),
+      operationalScope: savedReq.organizationContext,
     };
   }
 
   async getStores(_orgSlug: string, _token: string): Promise<readonly Store[]> {
     await delay(40);
     return SEED_STORES;
+  }
+
+  async forgotPin(organizationSlug: string, storeCode: string, emailOrPin: string, registerId: string): Promise<void> {
+    await delay(500);
+    // Do not log the submitted identifier (email or PIN); record scope and presence only.
+    console.info(`${LOG_PREFIX} Forgot PIN requested for:`, {
+      organizationSlug,
+      storeCode,
+      registerId,
+      identityPresent: Boolean(emailOrPin),
+    });
+    // In mock, just log it.
   }
 }
 
@@ -797,6 +973,9 @@ export class MockCatalogApi implements ICatalogApi {
   async getProducts(storeId: string, categoryId?: string, search?: string): Promise<readonly Product[]> {
     await delay(50);
     let list = mockState.products.filter((p) => p.storeId === storeId || !p.storeId);
+    if (list.length === 0) {
+      list = [...mockState.products];
+    }
 
     if (categoryId && categoryId !== 'cat-all') {
       list = list.filter((p) => p.categoryId === categoryId);
@@ -1440,9 +1619,11 @@ export class MockOrderApi implements IOrderApi {
     return response;
   }
 
-  async getOrders(storeId: string, limit = 50): Promise<readonly Order[]> {
+  async getOrders(storeId: string, limit = 50, registerId?: string): Promise<readonly Order[]> {
     await delay(50);
-    return mockState.orders.filter((o) => o.storeId === storeId).slice(0, limit);
+    return mockState.orders
+      .filter((o) => o.storeId === storeId && (!registerId || o.registerId === registerId))
+      .slice(0, limit);
   }
 
   async getOrderById(storeId: string, orderId: string): Promise<Order | null> {

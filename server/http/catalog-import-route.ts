@@ -14,10 +14,22 @@ type LedgerRow = {
   resulting_stock: number; reason: string; reference_id: string; performed_by_user_id: string; created_at: string;
 };
 
+const dbCents = (value: unknown): number => {
+  const match = /^(\d+)(?:\.(\d{1,2}))?$/.exec(String(value ?? '').trim());
+  if (!match) throw new Error(`Invalid database monetary value: ${String(value)}`);
+  const cents = BigInt(match[1]) * 100n + BigInt((match[2] ?? '').padEnd(2, '0'));
+  if (cents > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error('Database monetary value exceeds safe integer range');
+  return Number(cents);
+};
+const toDecimal = (cents: number): string => {
+  const abs = BigInt(Math.trunc(Math.abs(cents)));
+  const sign = cents < 0 ? '-' : '';
+  return `${sign}${abs / 100n}.${(abs % 100n).toString().padStart(2, '0')}`;
+};
 const productDto = (row: ProductRow) => ({
   id: row.id, storeId: row.store_id, sku: row.sku, barcode: row.barcode, name: row.name, categoryId: row.category_id,
-  price: { amountInCents: Math.round(Number(row.price_amount) * 100), currency: row.currency },
-  costPrice: { amountInCents: Math.round(Number(row.cost_price_amount) * 100), currency: row.currency },
+  price: { amountInCents: dbCents(row.price_amount), currency: row.currency },
+  costPrice: { amountInCents: dbCents(row.cost_price_amount), currency: row.currency },
   taxRateBps: row.tax_rate_bps, currentStock: row.current_stock, reorderPoint: row.reorder_point, unitOfMeasure: row.unit_of_measure,
 });
 const ledgerDto = (row: LedgerRow) => ({
@@ -155,11 +167,11 @@ export const registerCatalogImportRoute = (app: Express, db: TransactionalSqlExe
             await tx.query(
               `UPDATE prodx_products SET
                  name=COALESCE($3,name), barcode=CASE WHEN $4 <> '' THEN $4 ELSE barcode END, category_id=$5,
-                 price_amount=COALESCE($6::numeric/100,price_amount), cost_price_amount=COALESCE($7::numeric/100,cost_price_amount),
+                 price_amount=COALESCE($6::numeric,price_amount), cost_price_amount=COALESCE($7::numeric,cost_price_amount),
                  tax_rate_bps=COALESCE($8,tax_rate_bps), current_stock=$9, reorder_point=COALESCE($10,reorder_point),
                  unit_of_measure=COALESCE($11,unit_of_measure), updated_at=CURRENT_TIMESTAMP
                WHERE id=$1 AND store_id=$2`,
-              [existing.id, context.principal.storeId, requestedName ?? null, barcode, categoryId, requestedPriceCents, requestedCostCents, requestedTax, nextStock, requestedReorder, requestedUnit],
+              [existing.id, context.principal.storeId, requestedName ?? null, barcode, categoryId, requestedPriceCents !== undefined ? toDecimal(requestedPriceCents) : null, requestedCostCents !== undefined ? toDecimal(requestedCostCents) : null, requestedTax, nextStock, requestedReorder, requestedUnit],
             );
             const updated = (await tx.query<ProductRow>(
               `SELECT id,store_id,sku,barcode,name,category_id,price_amount::text,cost_price_amount::text,currency,tax_rate_bps,current_stock,reorder_point,unit_of_measure
@@ -180,14 +192,14 @@ export const registerCatalogImportRoute = (app: Express, db: TransactionalSqlExe
             if (!categoryId) { errors.push({ sku, rowNumber, reason: 'A category is required for new products.' }); continue; }
             const initialStock = mode === 'stock_replenish' ? Math.max(0, requestedDelta ?? 0) : Math.max(0, requestedStock ?? requestedDelta ?? 0);
             const priceCents = requestedPriceCents ?? 1000;
-            const costCents = requestedCostCents ?? Math.round(priceCents * 0.4);
+            const costCents = requestedCostCents ?? Number((BigInt(priceCents) * 4000n + 5000n) / 10000n);
             const newId = crypto.randomUUID();
             const finalBarcode = barcode || `IMPORT-${operationId.slice(0, 8)}-${index + 1}`;
             await tx.query(
               `INSERT INTO prodx_products
                  (id,organization_id,store_id,category_id,sku,barcode,name,price_amount,cost_price_amount,currency,tax_rate_bps,current_stock,reorder_point,unit_of_measure)
-               VALUES($1,$2,$3,$4,$5,$6,$7,$8::numeric/100,$9::numeric/100,'THB',$10,$11,$12,$13)`,
-              [newId, context.principal.organizationId, context.principal.storeId, categoryId, sku, finalBarcode, requestedName ?? `Item ${sku}`, priceCents, costCents, requestedTax ?? 700, initialStock, requestedReorder ?? 10, requestedUnit ?? 'piece'],
+               VALUES($1,$2,$3,$4,$5,$6,$7,$8::numeric,$9::numeric,'THB',$10,$11,$12,$13)`,
+              [newId, context.principal.organizationId, context.principal.storeId, categoryId, sku, finalBarcode, requestedName ?? `Item ${sku}`, toDecimal(priceCents), toDecimal(costCents), requestedTax ?? 700, initialStock, requestedReorder ?? 10, requestedUnit ?? 'piece'],
             );
             const created = (await tx.query<ProductRow>(
               `SELECT id,store_id,sku,barcode,name,category_id,price_amount::text,cost_price_amount::text,currency,tax_rate_bps,current_stock,reorder_point,unit_of_measure

@@ -1,13 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowRight, Eye, EyeOff, Lock, LogOut, ShieldAlert } from 'lucide-react';
+import { ArrowRight, Eye, EyeOff, Fingerprint, Lock, LogOut, ShieldAlert } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { ProdxLogo } from '../common/ProdxLogo';
 import { getZIndexClass } from '../../utils/ZIndexManager';
 
 export const LockScreenModal: React.FC = () => {
-  const { session, unlockSystem, logout, isLocked } = useAuth();
+  const { session, unlockSystem, unlockWithBiometrics, logout, isLocked } = useAuth();
   const { language } = useLanguage();
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -53,6 +53,24 @@ export const LockScreenModal: React.FC = () => {
     }
   };
 
+  const handleBiometricUnlock = async () => {
+    if (isUnlocking) return;
+    setIsUnlocking(true);
+    setErrorMsg('');
+    try {
+      const ok = await unlockWithBiometrics();
+      if (!ok) {
+        setErrorMsg(
+          language === 'th'
+            ? 'ยืนยันตัวตนชีวมิติไม่สำเร็จ กรุณาลองอีกครั้งหรือใช้รหัสผ่าน'
+            : 'Biometric verification failed. Please retry or use your password.',
+        );
+      }
+    } finally {
+      setIsUnlocking(false);
+    }
+  };
+
   return createPortal(
     <div className={`fixed inset-0 ${getZIndexClass('modal')} flex select-none items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm`}>
       <div className="relative z-10 flex w-full max-w-md flex-col items-center rounded-lg border border-border bg-card p-6 text-center shadow-xl sm:p-7">
@@ -66,8 +84,8 @@ export const LockScreenModal: React.FC = () => {
         </h2>
         <p className="mt-1 max-w-xs text-xs leading-relaxed text-text/60">
           {language === 'th'
-            ? 'กรอกรหัสผ่านของบัญชีปัจจุบันเพื่อยืนยันตัวตนกับเซิร์ฟเวอร์อีกครั้ง'
-            : 'Enter the current account password to reauthenticate with the server.'}
+            ? 'กรอกรหัสผ่านของบัญชีปัจจุบันหรือสแกนชีวมิติเพื่อยืนยันตัวตนอีกครั้ง'
+            : 'Enter the current account password or use biometrics to reauthenticate.'}
         </p>
 
         <div className="my-4 flex w-full items-center gap-3 rounded-lg border border-border bg-slate-50/80 p-3 dark:bg-slate-900/60">
@@ -123,6 +141,20 @@ export const LockScreenModal: React.FC = () => {
           >
             <span>{isUnlocking ? (language === 'th' ? 'กำลังตรวจสอบ…' : 'Verifying…') : (language === 'th' ? 'ปลดล็อกหน้าจอ' : 'Unlock terminal')}</span>
             <ArrowRight className="h-4 w-4" />
+          </button>
+
+          <button
+            type="button"
+            disabled={isUnlocking}
+            onClick={() => void handleBiometricUnlock()}
+            className="mt-2 flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 text-xs font-bold text-emerald-700 transition-colors hover:bg-emerald-500/20 dark:text-emerald-300 disabled:pointer-events-none disabled:opacity-50 cursor-pointer"
+          >
+            <Fingerprint className="h-4 w-4 shrink-0" />
+            <span>
+              {language === 'th'
+                ? 'ปลดล็อกด้วยลายนิ้วมือ / ใบหน้า (WebAuthn)'
+                : 'Unlock with Biometrics (WebAuthn)'}
+            </span>
           </button>
         </form>
 

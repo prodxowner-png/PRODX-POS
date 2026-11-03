@@ -11,6 +11,7 @@ import { Order } from '../../domain/order';
 import { ThermalReceiptService } from '../../services/receipt/thermalReceiptService';
 import { Badge } from '../common/Badge';
 import { Button } from '../common/Button';
+import { ProdxReceiptLogo } from '../common/ProdxLogo';
 import { useTheme } from '../../context/ThemeContext';
 import {
   FileText,
@@ -146,16 +147,12 @@ export const ReceiptPaperPreview: React.FC<ReceiptPaperPreviewProps> = ({
             </div>
 
             {/* Receipt Content */}
-            {customLogo && (
-              <div className="flex justify-center mb-3 pt-2">
-                <img
-                  src={customLogo}
-                  alt="Store Logo"
-                  className="max-h-10 max-w-[100px] object-contain filter grayscale contrast-125"
-                  referrerPolicy="no-referrer"
-                />
-              </div>
-            )}
+            <div className="flex justify-center mb-3 pt-2">
+              <ProdxReceiptLogo
+                customLogoUrl={customLogo}
+                paperWidth={template.paperWidth}
+              />
+            </div>
             <pre className="font-mono text-inherit whitespace-pre overflow-x-auto text-zinc-900 leading-snug text-[10px] sm:text-[11.5px] no-scrollbar">
               {formatted.text}
             </pre>

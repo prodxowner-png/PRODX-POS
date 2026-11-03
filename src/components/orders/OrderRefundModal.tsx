@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Order, CartLineItem } from '../../domain/order';
-import { Money, createMoney, formatMoney, addMoney, subtractMoney } from '../../domain/money';
+import { Money, createMoney, formatMoney, addMoney, subtractMoney, parseDecimalToCents, centsToDecimalString } from '../../domain/money';
 import { User } from '../../domain/auth';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
@@ -50,6 +50,7 @@ interface ItemReturnState {
   returnQty: number;
   isSelected: boolean;
   unitPriceCents: number;
+  lineTotalCents: number;
   currentStock: number;
 }
 
@@ -94,7 +95,8 @@ export const OrderRefundModal: React.FC<OrderRefundModalProps> = ({
       originalQty: item.quantity,
       returnQty: item.quantity,
       isSelected: true,
-      unitPriceCents: Math.round(item.lineTotal.amountInCents / item.quantity),
+      unitPriceCents: Number((BigInt(item.lineTotal.amountInCents) + BigInt(Math.max(1, item.quantity)) / 2n) / BigInt(Math.max(1, item.quantity))),
+      lineTotalCents: item.lineTotal.amountInCents,
       currentStock: item.product.currentStock,
     }));
   });
@@ -160,10 +162,15 @@ export const OrderRefundModal: React.FC<OrderRefundModalProps> = ({
       const clamped = Math.max(0, Math.min(order.totals.grandTotal.amountInCents, customAmountCents));
       return createMoney(clamped, order.totals.grandTotal.currency);
     }
-    // Itemized mode
+    // Itemized mode using exact BigInt allocation matching server/transactions/refund-service.ts
     const totalCents = itemReturns
-      .filter((it) => it.isSelected)
-      .reduce((sum, it) => sum + it.returnQty * it.unitPriceCents, 0);
+      .filter((it) => it.isSelected && it.returnQty > 0)
+      .reduce((sum, it) => {
+        const lineCents = BigInt(it.lineTotalCents);
+        const q = BigInt(it.returnQty);
+        const origQ = BigInt(Math.max(1, it.originalQty));
+        return sum + Number((lineCents * q + origQ / 2n) / origQ);
+      }, 0);
     const clampedCents = Math.min(order.totals.grandTotal.amountInCents, totalCents);
     return createMoney(clampedCents, order.totals.grandTotal.currency);
   }, [refundMode, order.totals.grandTotal, customAmountCents, itemReturns]);
@@ -523,11 +530,10 @@ export const OrderRefundModal: React.FC<OrderRefundModalProps> = ({
                   type="number"
                   step="0.01"
                   min="0"
-                  max={(order.totals.grandTotal.amountInCents / 100).toFixed(2)}
-                  value={(customAmountCents / 100).toFixed(2)}
+                  max={centsToDecimalString(order.totals.grandTotal.amountInCents)}
+                  value={centsToDecimalString(customAmountCents)}
                   onChange={(e) => {
-                    const parsed = parseFloat(e.target.value) || 0;
-                    setCustomAmountCents(Math.round(parsed * 100));
+                    setCustomAmountCents(Math.max(0, parseDecimalToCents(e.target.value)));
                   }}
                   className="w-full h-10 px-3 font-mono font-bold text-base rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary"
                 />

@@ -85,6 +85,21 @@ const ROUTE_META: Record<NavRoute, RouteMeta> = {
     label: { th: 'ระบบ AI และอุปกรณ์', en: 'Antigravity AI & PnP' },
     icon: Zap,
   },
+  tasks: {
+    id: 'tasks',
+    label: { th: 'รายการงาน (Tasks)', en: 'Task Manager' },
+    icon: LayoutGrid,
+  },
+  kitchen: {
+    id: 'kitchen',
+    label: { th: 'ระบบครัว (Kitchen)', en: 'Kitchen System' },
+    icon: ChefHat,
+  },
+  admin: {
+    id: 'admin',
+    label: { th: 'ผู้ดูแลระบบ (Admin)', en: 'Administrator Console' },
+    icon: ShieldCheck,
+  },
 };
 
 export const GlobalBreadcrumb: React.FC<GlobalBreadcrumbProps> = ({

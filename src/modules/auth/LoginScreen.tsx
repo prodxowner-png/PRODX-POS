@@ -1,124 +1,410 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowRight,
-  Building2,
-  Check,
-  CheckCircle2,
+  AlertCircle,
+  AlertTriangle,
   Clock3,
-  Eye,
-  EyeOff,
   Globe2,
-  Loader2,
   Lock,
-  Monitor,
-  ShieldCheck,
-  Store,
-  UserRound,
-  Wifi,
-  X,
-  QrCode,
-  Camera,
   RefreshCw,
+  ShieldCheck,
+  WifiOff,
+  X,
 } from 'lucide-react';
+import { auditService } from '../../services/auditService';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { useToast } from '../../context/ToastContext';
-import { Scanner } from '@yudiel/react-qr-scanner';
+import {
+  getOrganizations,
+  getBranches,
+  getTerminals,
+} from '../../services/organizationService';
+import { Organization, Branch, Terminal } from '../settings/types';
+import { OperationalScope } from '../../domain/auth';
+import { OrganizationLoginContext } from '../../adapters/types';
+import { TERMINAL_SCOPE_STORAGE_KEYS } from './OrganizationSelection';
+import { ProdxVectorMark } from '../../components/common/ProdxLogo';
+import {
+  checkWebAuthnCapability,
+  getRegisteredPasskeys,
+  PasskeyCredentialRecord,
+  WebAuthnCapability,
+} from '../../services/webauthnService';
+import { PasskeyEnrollModal } from '../../components/auth/PasskeyEnrollModal';
 
-const STORAGE = {
-  organization: 'prodx.terminal.organization',
-  store: 'prodx.terminal.store',
-  register: 'prodx.terminal.register',
-} as const;
+import { TerminalScopeBar } from './TerminalScopeBar';
+import { OperatorPinPad } from './OperatorPinPad';
+import { BiometricAuthPanel } from './BiometricAuthPanel';
+import { QrBadgeScannerPanel } from './QrBadgeScannerPanel';
+import { EmailPasswordForm } from './EmailPasswordForm';
+
+const BIOMETRIC_REMEMBER_STORAGE_KEY = 'prodx.auth.remember_biometrics';
+const BIOMETRIC_REMEMBER_PASSKEY_ID_KEY = 'prodx.auth.remembered_passkey_id';
 
 const readTerminalValue = (key: string, env?: string) => {
   if (typeof window === 'undefined') return env?.trim() ?? '';
-  try { return window.localStorage.getItem(key)?.trim() || env?.trim() || ''; } catch { return env?.trim() ?? ''; }
+  try {
+    return window.localStorage.getItem(key)?.trim() || env?.trim() || '';
+  } catch {
+    return env?.trim() ?? '';
+  }
 };
 
-export const LoginScreen: React.FC = () => {
-  const { login, isLoading } = useAuth();
+const readRememberBiometricsPreference = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.localStorage.getItem(BIOMETRIC_REMEMBER_STORAGE_KEY) === 'true';
+  } catch {
+    return false;
+  }
+};
+
+export interface LoginScreenProps {
+  onOpenAdminLogin?: () => void;
+}
+
+export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) => {
+  const { login, loginWithBiometrics, forgotPin, isLoading, operationalScope, setOperationalScope } =
+    useAuth();
   const { language, setLanguage } = useLanguage();
   const { addToast } = useToast();
   const isThai = language === 'th';
 
-  const [organizationSlug, setOrganizationSlug] = useState(() =>
-    readTerminalValue(STORAGE.organization, import.meta.env.VITE_PRODX_ORGANIZATION_SLUG),
+  const [selectedOrgId, setSelectedOrgId] = useState<string>(
+    () => operationalScope?.organizationId || readTerminalValue(TERMINAL_SCOPE_STORAGE_KEYS.organization),
   );
-  const [storeCode, setStoreCode] = useState(() =>
-    readTerminalValue(STORAGE.store, import.meta.env.VITE_PRODX_STORE_CODE),
+  const [selectedBranchId, setSelectedBranchId] = useState<string>(
+    () => operationalScope?.branchId || readTerminalValue(TERMINAL_SCOPE_STORAGE_KEYS.store),
   );
-  const [registerId, setRegisterId] = useState(() =>
-    readTerminalValue(STORAGE.register, import.meta.env.VITE_PRODX_REGISTER_ID),
+  const [selectedTerminalId, setSelectedTerminalId] = useState<string>(
+    () => operationalScope?.terminalId || readTerminalValue(TERMINAL_SCOPE_STORAGE_KEYS.register),
   );
-  const [identity, setIdentity] = useState('');
-  const [secret, setSecret] = useState('');
-  const [showSecret, setShowSecret] = useState(false);
-  const [terminalOpen, setTerminalOpen] = useState(
-    !organizationSlug || !storeCode || !registerId,
+
+  const [orgs, setOrgs] = useState<Organization[]>([]);
+  const [branches, setBranches] = useState<Branch[]>([]);
+  const [terminals, setTerminals] = useState<Terminal[]>([]);
+  const [isFetching, setIsFetching] = useState<boolean>(true);
+  const [isInitialLoading, setIsInitialLoading] = useState<boolean>(true);
+  const [isFetchingBranches, setIsFetchingBranches] = useState<boolean>(false);
+  const [isFetchingTerminals, setIsFetchingTerminals] = useState<boolean>(false);
+
+  const [pin, setPin] = useState('');
+  const [loginMode, setLoginMode] = useState<'pin' | 'biometric' | 'email' | 'qr'>(() =>
+    readRememberBiometricsPreference() ? 'biometric' : 'pin',
   );
   const [clock, setClock] = useState('');
+  const [isScopeBarExpanded, setIsScopeBarExpanded] = useState<boolean>(false);
+
+  const [webauthnCapability, setWebauthnCapability] = useState<WebAuthnCapability | null>(null);
+  const [enrolledPasskeys, setEnrolledPasskeys] = useState<PasskeyCredentialRecord[]>(() =>
+    getRegisteredPasskeys(),
+  );
+  const [selectedPasskeyId, setSelectedPasskeyId] = useState<string>(() => {
+    const keys = getRegisteredPasskeys();
+    const rememberedId = readTerminalValue(BIOMETRIC_REMEMBER_PASSKEY_ID_KEY);
+    if (rememberedId && keys.some((k) => k.id === rememberedId)) {
+      return rememberedId;
+    }
+    return keys[0]?.id || '';
+  });
+  const [isBiometricVerifying, setIsBiometricVerifying] = useState<boolean>(false);
+  const [isEnrollModalOpen, setIsEnrollModalOpen] = useState<boolean>(false);
+  const hasAutoInitiatedBiometricRef = useRef<boolean>(false);
+
+  type LoginErrorType = 'network' | 'credentials' | 'mapping' | null;
+
+  interface LoginErrorInfo {
+    type: LoginErrorType;
+    title: string;
+    message: string;
+  }
+
+  const [loginError, setLoginError] = useState<LoginErrorInfo | null>(null);
+
+  const navigateToAdminLogin = () => {
+    if (onOpenAdminLogin) {
+      onOpenAdminLogin();
+      return;
+    }
+    if (typeof window !== 'undefined') {
+      window.history.pushState({}, '', '/admin/login');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    }
+  };
 
   const copy = useMemo(
     () =>
       isThai
         ? {
             eyebrow: 'PRODX POS · OPERATOR CONSOLE',
-            title: 'พร้อมเริ่มกะ',
-            subtitle: 'เข้าสู่ระบบเพื่อเปิดเครื่องขายและเริ่มงานของคุณ',
-            password: 'รหัสผ่าน',
-            identity: 'อีเมลบัญชี',
-            identityPlaceholder: 'เช่น cashier@prodx.co',
-            secretPassword: 'รหัสผ่าน',
-            signIn: 'เข้าสู่ระบบ',
-            signingIn: 'กำลังตรวจสอบสิทธิ์…',
-            terminal: 'เครื่องขาย',
-            ready: 'ข้อมูลครบถ้วน',
-            setup: 'ต้องตั้งค่า',
+            title: 'พร้อมเริ่มกะการขาย',
+            subtitle: 'ยืนยันตัวตนพนักงานแคชเชียร์เพื่อเปิดใช้งานเครื่อง POS',
+            signIn: 'เข้าสู่ระบบพนักงาน POS',
             organization: 'องค์กร',
             store: 'สาขา',
-            register: 'Register',
-            edit: 'แก้ไข',
-            done: 'เสร็จสิ้น',
-            security: 'ต้องยืนยันสิทธิ์กับเซิร์ฟเวอร์',
-            verified: 'Secure sign-in',
-            serverNote: 'บัญชี · สาขา · เครื่องขาย จะถูกตรวจสอบก่อนเปิดเซสชัน',
-            failed: 'เข้าสู่ระบบไม่สำเร็จ กรุณาตรวจสอบข้อมูลแล้วลองอีกครั้ง',
-            required: 'กรุณากรอกข้อมูลให้ครบ',
+            register: 'เครื่องขาย POS',
+            verified: 'Secure Enterprise Login',
             language: 'English',
+            adminLoginBtn: 'Admin Login',
           }
         : {
             eyebrow: 'PRODX POS · OPERATOR CONSOLE',
             title: 'Ready for your shift',
-            subtitle: 'Sign in to open this register and start operating.',
-            password: 'Password',
-            identity: 'Account email',
-            identityPlaceholder: 'e.g. cashier@prodx.co',
-            secretPassword: 'Password',
-            signIn: 'Sign in',
-            signingIn: 'Verifying access…',
-            terminal: 'Terminal',
-            ready: 'Details complete',
-            setup: 'Setup required',
+            subtitle: 'Authenticate cashier operator to access POS terminal.',
+            signIn: 'Sign in to POS Terminal',
             organization: 'Organization',
-            store: 'Store',
-            register: 'Register',
-            edit: 'Edit',
-            done: 'Done',
-            security: 'Server verification required',
-            verified: 'Secure sign-in',
-            serverNote: 'Account · store · terminal are checked before a session opens.',
-            failed: 'Sign-in failed. Check your details and try again.',
-            required: 'Complete the required fields.',
+            store: 'Store Branch',
+            register: 'POS Terminal',
+            verified: 'Secure Enterprise Login',
             language: 'ไทย',
+            adminLoginBtn: 'Admin Login',
           },
     [isThai],
   );
 
-  const terminalReady = Boolean(
-    organizationSlug.trim() && storeCode.trim() && registerId.trim(),
+  const selectedOrganization = useMemo(
+    () => orgs.find((o) => o.id === selectedOrgId || o.slug === selectedOrgId) ?? null,
+    [orgs, selectedOrgId],
   );
-  const canSubmit = terminalReady && Boolean(identity.trim()) && Boolean(secret);
+
+  const selectedBranch = useMemo(
+    () => branches.find((b) => b.id === selectedBranchId || b.name === selectedBranchId) ?? null,
+    [branches, selectedBranchId],
+  );
+
+  const selectedTerminal = useMemo(
+    () => terminals.find((t) => t.id === selectedTerminalId || t.code === selectedTerminalId) ?? null,
+    [terminals, selectedTerminalId],
+  );
+
+  const organizationContext = useMemo<OrganizationLoginContext | null>(() => {
+    if (!selectedOrganization || !selectedBranch || !selectedTerminal) return null;
+    return {
+      organizationId: selectedOrganization.id,
+      organizationName: selectedOrganization.name,
+      organizationSlug: selectedOrganization.slug,
+      branchId: selectedBranch.id,
+      branchName: selectedBranch.name,
+      branchCode: selectedBranch.code || '',
+      branchAddress: selectedBranch.address || '',
+      terminalId: selectedTerminal.id,
+      terminalName: selectedTerminal.name,
+      terminalCode: selectedTerminal.code,
+    };
+  }, [selectedOrganization, selectedBranch, selectedTerminal]);
+
+  const isOrgValid = Boolean(selectedOrgId && selectedOrganization);
+  const isBranchValid = Boolean(isOrgValid && selectedBranchId && selectedBranch);
+  const isTerminalValid = Boolean(isBranchValid && selectedTerminalId && selectedTerminal);
+  const terminalReady = isOrgValid && isBranchValid && isTerminalValid && Boolean(organizationContext);
+
+  const loadFirestoreCatalog = useCallback(async () => {
+    setIsFetching(true);
+    setIsInitialLoading(true);
+    try {
+      const fetchedOrgs = await getOrganizations();
+      setOrgs(fetchedOrgs);
+
+      const activeOrgId = selectedOrgId || operationalScope?.organizationId;
+      const targetOrg =
+        (activeOrgId && fetchedOrgs.find((o) => o.id === activeOrgId || o.slug === activeOrgId)) ||
+        fetchedOrgs[0];
+
+      if (targetOrg) {
+        setSelectedOrgId(targetOrg.id);
+        const fetchedBranches = await getBranches(targetOrg.id);
+        setBranches(fetchedBranches);
+
+        const activeBranchId = selectedBranchId || operationalScope?.branchId;
+        const targetBranch =
+          (activeBranchId &&
+            fetchedBranches.find(
+              (b) => b.id === activeBranchId || b.name === activeBranchId || b.code === activeBranchId,
+            )) ||
+          fetchedBranches[0];
+
+        if (targetBranch) {
+          setSelectedBranchId(targetBranch.id);
+          const fetchedTerminals = await getTerminals(targetBranch.id, targetOrg.id);
+          setTerminals(fetchedTerminals);
+
+          const activeTerminalId = selectedTerminalId || operationalScope?.terminalId;
+          const targetTerminal =
+            (activeTerminalId &&
+              fetchedTerminals.find(
+                (t) => t.id === activeTerminalId || t.code === activeTerminalId,
+              )) ||
+            fetchedTerminals[0];
+
+          if (targetTerminal) {
+            setSelectedTerminalId(targetTerminal.id);
+            const scope: OperationalScope = {
+              organizationId: targetOrg.id,
+              organizationName: targetOrg.name,
+              organizationSlug: targetOrg.slug,
+              branchId: targetBranch.id,
+              branchName: targetBranch.name,
+              branchCode: targetBranch.code || targetBranch.name,
+              branchAddress: targetBranch.address || '',
+              terminalId: targetTerminal.id,
+              terminalName: targetTerminal.name,
+              terminalCode: targetTerminal.code,
+            };
+            setOperationalScope(scope);
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load Firestore catalog:', err);
+    } finally {
+      setIsFetching(false);
+      setIsInitialLoading(false);
+    }
+  }, [selectedOrgId, selectedBranchId, selectedTerminalId, operationalScope, setOperationalScope]);
+
+  const initialMountFetchRef = useRef(false);
+  useEffect(() => {
+    if (initialMountFetchRef.current) return;
+    initialMountFetchRef.current = true;
+    void loadFirestoreCatalog();
+  }, [loadFirestoreCatalog]);
+
+  useEffect(() => {
+    if (isFetching) return;
+    if (terminalReady && organizationContext) {
+      setOperationalScope(organizationContext);
+    } else {
+      setOperationalScope(null);
+      setPin('');
+    }
+  }, [isFetching, terminalReady, organizationContext, setOperationalScope]);
+
+  const handleOrganizationChange = async (nextOrgId: string) => {
+    setSelectedOrgId(nextOrgId);
+    setSelectedBranchId('');
+    setSelectedTerminalId('');
+    setBranches([]);
+    setTerminals([]);
+    setOperationalScope(null);
+    if (!nextOrgId) return;
+    const nextOrg = orgs.find((o) => o.id === nextOrgId || o.slug === nextOrgId);
+    if (!nextOrg) return;
+    setIsFetching(true);
+    try {
+      const freshBranches = await getBranches(nextOrg.id);
+      setBranches(freshBranches);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsFetching(false);
+    }
+  };
+
+  const handleBranchChange = async (nextBranchId: string) => {
+    setSelectedBranchId(nextBranchId);
+    setSelectedTerminalId('');
+    setTerminals([]);
+    setOperationalScope(null);
+    if (!nextBranchId || !selectedOrganization) return;
+    const nextBranch = branches.find((b) => b.id === nextBranchId || b.name === nextBranchId);
+    if (!nextBranch) return;
+    setIsFetching(true);
+    try {
+      const freshTerminals = await getTerminals(nextBranch.id, selectedOrganization.id);
+      setTerminals(freshTerminals);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsFetching(false);
+    }
+  };
+
+  const handleTerminalChange = (nextTerminalId: string) => {
+    setSelectedTerminalId(nextTerminalId);
+    if (!nextTerminalId) {
+      setOperationalScope(null);
+      return;
+    }
+    const nextTerminal = terminals.find((t) => t.id === nextTerminalId || t.code === nextTerminalId);
+    if (nextTerminal && selectedOrganization && selectedBranch) {
+      const scope: OperationalScope = {
+        organizationId: selectedOrganization.id,
+        organizationName: selectedOrganization.name,
+        organizationSlug: selectedOrganization.slug,
+        branchId: selectedBranch.id,
+        branchName: selectedBranch.name,
+        branchCode: selectedBranch.code || '',
+        branchAddress: selectedBranch.address || '',
+        terminalId: nextTerminal.id,
+        terminalName: nextTerminal.name,
+        terminalCode: nextTerminal.code,
+      };
+      setOperationalScope(scope);
+      setIsScopeBarExpanded(false);
+    }
+  };
+
+  const persistTerminal = () => {
+    if (!organizationContext) return;
+    setOperationalScope(organizationContext);
+    try {
+      window.localStorage.setItem(TERMINAL_SCOPE_STORAGE_KEYS.organization, organizationContext.organizationId);
+      window.localStorage.setItem(TERMINAL_SCOPE_STORAGE_KEYS.store, organizationContext.branchId);
+      window.localStorage.setItem(TERMINAL_SCOPE_STORAGE_KEYS.register, organizationContext.terminalId);
+    } catch {}
+  };
+
+  const performLogin = async (identity: string, secret: string) => {
+    if (!terminalReady || !organizationContext) {
+      addToast({ title: 'Scope Required', message: 'Please select POS terminal scope first.', type: 'error' });
+      return;
+    }
+    try {
+      persistTerminal();
+      await login({
+        organizationSlug: organizationContext.organizationSlug,
+        storeCode: organizationContext.branchName,
+        registerId: organizationContext.terminalCode,
+        emailOrPin: identity,
+        passwordOrPin: secret,
+        organizationContext,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setLoginError({ type: 'credentials', title: 'Login Failed', message: msg });
+      addToast({ title: 'Authentication Failed', message: msg, type: 'error' });
+      setPin('');
+    }
+  };
+
+  const handlePinInput = (digit: string) => {
+    if (!terminalReady) {
+      addToast({ title: 'Scope Required', message: 'Please select POS terminal scope first.', type: 'warning' });
+      return;
+    }
+    if (pin.length < 6) {
+      const nextPin = pin + digit;
+      setPin(nextPin);
+      if (nextPin.length >= 4) {
+        void performLogin(nextPin, nextPin);
+      }
+    }
+  };
+
+  const handlePinClear = () => setPin('');
+  const handlePinDelete = () => setPin((prev) => prev.slice(0, -1));
+
+  const refreshPasskeysAndCapability = useCallback(async () => {
+    const keys = getRegisteredPasskeys();
+    setEnrolledPasskeys(keys);
+    setSelectedPasskeyId((prev) => (keys.some((k) => k.id === prev) ? prev : keys[0]?.id || ''));
+    const cap = await checkWebAuthnCapability();
+    setWebauthnCapability(cap);
+  }, []);
+
+  useEffect(() => {
+    void refreshPasskeysAndCapability();
+  }, [refreshPasskeysAndCapability]);
 
   useEffect(() => {
     const update = () =>
@@ -133,435 +419,272 @@ export const LoginScreen: React.FC = () => {
     return () => window.clearInterval(timer);
   }, [isThai]);
 
-  const persistTerminal = () => {
-    try {
-      window.localStorage.setItem(STORAGE.organization, organizationSlug.trim());
-      window.localStorage.setItem(STORAGE.store, storeCode.trim());
-      window.localStorage.setItem(STORAGE.register, registerId.trim());
-    } catch {
-      // Terminal identifiers are a convenience only; authentication must still work.
-    }
-  };
+  const handleBiometricLogin = useCallback(
+    async (targetRecord?: PasskeyCredentialRecord) => {
+      if (isLoading || isBiometricVerifying) return;
+      if (!terminalReady || !organizationContext) {
+        setIsScopeBarExpanded(true);
+        addToast({
+          title: isThai ? 'กรุณาเลือกเครื่องขาย' : 'Scope Required',
+          message: isThai ? 'กรุณาเลือกสาขาและเครื่องขาย POS ก่อนเริ่มเข้ากะ' : 'Please select POS terminal scope first.',
+          type: 'warning',
+        });
+        return;
+      }
 
-  const [loginMode, setLoginMode] = useState<'pin' | 'email' | 'qr'>('pin');
-  const [pin, setPin] = useState('');
+      const chosenPasskey =
+        targetRecord ||
+        enrolledPasskeys.find((k) => k.id === selectedPasskeyId) ||
+        enrolledPasskeys[0];
 
-  // QR Scanning Logic
-  const handleScan = async (result: any) => {
-    if (!result || isLoading) return;
-    const decodedText = result[0].rawValue;
-    try {
-        let credentials: { identity: string; secret: string };
-        
-        try {
-          const parsed = JSON.parse(decodedText);
-          if (parsed.id && parsed.key) {
-            credentials = { identity: parsed.id, secret: parsed.key };
-          } else {
-            throw new Error('Invalid badge format');
-          }
-        } catch {
-          if (decodedText.includes('@') || decodedText.length > 4) {
-            credentials = { identity: decodedText, secret: decodedText };
-          } else {
-            addToast({ title: 'QR Scan', message: 'Unknown badge format', type: 'error' });
-            return;
-          }
+      setIsBiometricVerifying(true);
+      setLoginError(null);
+
+      try {
+        persistTerminal();
+        const verification = await loginWithBiometrics({
+          organizationSlug: organizationContext.organizationSlug,
+          storeCode: organizationContext.branchName,
+          registerId: organizationContext.terminalCode,
+          organizationContext,
+          targetUser: chosenPasskey
+            ? {
+                id: chosenPasskey.userId,
+                email: chosenPasskey.userEmail,
+                name: chosenPasskey.userName,
+              }
+            : undefined,
+        });
+
+        if (!verification.verified || !verification.credential) {
+          throw new Error(verification.error || 'Biometric verification failed.');
         }
 
-        addToast({ title: 'Badge Scanned', message: `Verifying identity for ${credentials.identity}...`, type: 'success' });
-        
-        await login({
-          organizationSlug: organizationSlug.trim(),
-          storeCode: storeCode.trim(),
-          registerId: registerId.trim(),
-          emailOrPin: credentials.identity,
-          passwordOrPin: credentials.secret,
+        addToast({
+          title: isThai ? 'ยืนยันตัวตนชีวมิติสำเร็จ' : 'Biometric Verified',
+          message: `Signed in as ${verification.credential.userName}`,
+          type: 'success',
         });
-        persistTerminal();
       } catch (err) {
-        console.error('QR Login Error:', err);
-        addToast({ title: 'Sign-in failed', message: 'Badge could not be verified.', type: 'error' });
+        const msg = err instanceof Error ? err.message : String(err);
+        setLoginError({ type: 'credentials', title: 'Biometric Error', message: msg });
+        addToast({ title: 'Biometric Error', message: msg, type: 'error' });
+      } finally {
+        setIsBiometricVerifying(false);
       }
-  };
-
-  const handlePinInput = (digit: string) => {
-    if (pin.length < 6) setPin(prev => prev + digit);
-  };
-
-  const handlePinClear = () => setPin('');
-  const handlePinDelete = () => setPin(prev => prev.slice(0, -1));
-
-  const submit = async (event?: React.FormEvent) => {
-    event?.preventDefault();
-    if (isLoading) return;
-
-    const finalIdentity = loginMode === 'pin' ? pin : identity.trim();
-    const finalSecret = loginMode === 'pin' ? pin : secret;
-
-    if (!terminalReady || !finalIdentity || !finalSecret) {
-      if (loginMode === 'email') {
-        setTerminalOpen(true);
-        addToast({ title: copy.setup, message: copy.required, type: 'error' });
-      }
-      return;
-    }
-    try {
-      await login({
-        organizationSlug: organizationSlug.trim(),
-        storeCode: storeCode.trim(),
-        registerId: registerId.trim(),
-        emailOrPin: finalIdentity,
-        passwordOrPin: finalSecret,
-      });
-      persistTerminal();
-    } catch {
-      setSecret('');
-      setPin('');
-      addToast({ title: copy.title, message: copy.failed, type: 'error' });
-    }
-  };
+    },
+    [isLoading, isBiometricVerifying, terminalReady, organizationContext, enrolledPasskeys, selectedPasskeyId, isThai, addToast, loginWithBiometrics],
+  );
 
   return (
-    <main className="min-h-[100svh] bg-white text-slate-950">
-      <div className="grid min-h-[100svh] lg:grid-cols-[57%_43%]">
-        <section className="relative hidden overflow-hidden bg-[#07111f] text-white lg:flex">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_22%_20%,rgba(255,107,26,.16),transparent_22%),radial-gradient(circle_at_76%_78%,rgba(16,91,145,.28),transparent_38%),linear-gradient(135deg,#06101c,#091a2b_52%,#030913)]" />
-          <div className="absolute inset-0 opacity-[0.055]" style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,.8) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.8) 1px,transparent 1px)', backgroundSize: '48px 48px' }} />
-          <div className="absolute -left-24 top-1/2 h-72 w-72 rounded-full bg-cyan-500/10 blur-[100px]" />
-          <div className="absolute right-0 top-1/3 h-80 w-80 rounded-full bg-primary/10 blur-[110px]" />
-
-          <div className="relative z-10 flex min-h-[100svh] w-full flex-col px-8 py-8 xl:px-14 xl:py-10">
-            <header className="flex items-start justify-between">
-              <div>
-                <div className="flex items-center gap-3">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-[22px] font-black tracking-[-0.08em] text-[#08111d] shadow-[0_12px_30px_rgba(0,0,0,.22)]">
-                    P<span className="text-[#ff6b1a]">.</span>
-                  </div>
-                  <div>
-                    <div className="text-[25px] font-black tracking-[-0.06em]">PRODX<span className="font-medium text-slate-300">POS</span></div>
-                    <div className="mt-0.5 text-[9px] font-bold uppercase tracking-[0.3em] text-slate-500">People · Process · Progress</div>
-                  </div>
-                </div>
-              </div>
-              <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[9px] font-bold uppercase tracking-[0.22em] text-slate-500">
-                Production Terminal
-              </span>
-            </header>
-
-            <div className="my-auto grid items-center gap-10 xl:grid-cols-[minmax(0,1fr)_210px]">
-              <div className="max-w-2xl">
-                <div className="mb-4 text-[10px] font-black uppercase tracking-[0.28em] text-[#ff7a2a]">
-                  {copy.verified}
-                </div>
-                <h1 className="text-[3.4rem] font-black leading-[0.98] tracking-[-0.065em] xl:text-[4.8rem]">
-                  {isThai ? (
-                    <>ยกระดับ<span className="block text-[#ff6b1a]">งานหน้าร้าน.</span></>
-                  ) : (
-                    <>Streamline<span className="block text-[#ff6b1a]">store operations.</span></>
-                  )}
-                </h1>
-                <p className="mt-6 max-w-lg text-[14px] leading-6 text-slate-400">
-                  {isThai
-                    ? 'ศูนย์ควบคุมการขาย สินค้าคงคลัง ลูกค้า และงานประจำวันของสาขา — จากเครื่องเดียว'
-                    : 'A unified workspace for sales, inventory, customers, and everyday store operations.'}
-                </p>
-              </div>
-
-              <div className="space-y-3">
-                {[
-                  { icon: UserRound, title: isThai ? 'People' : 'People', sub: isThai ? 'Operator access' : 'Operator access' },
-                  { icon: Monitor, title: isThai ? 'Store Operations' : 'Store Operations', sub: isThai ? 'Register control' : 'Register control' },
-                  { icon: ShieldCheck, title: isThai ? 'Security' : 'Security', sub: isThai ? 'Server authority' : 'Server authority' },
-                  { icon: Wifi, title: isThai ? 'Live System' : 'Live System', sub: isThai ? 'Connected terminal' : 'Connected terminal' },
-                ].map(({ icon: Icon, title, sub }) => (
-                  <div key={title} className="group flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.045] p-3.5 backdrop-blur-md transition-all duration-300 hover:-translate-y-1 hover:border-white/20 hover:bg-white/[0.07]">
-                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.045] transition-all duration-300 group-hover:border-[#ff6b1a]/40 group-hover:bg-[#ff6b1a]/10">
-                      <Icon className="h-5 w-5 text-[#ff8a45] stroke-[1.6]" />
-                    </div>
-                    <div>
-                      <div className="text-[13px] font-bold text-white">{title}</div>
-                      <div className="mt-0.5 text-[10px] font-medium text-slate-500">{sub}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
+    <main className="h-[100svh] w-screen overflow-hidden bg-white text-slate-950 font-sans flex flex-col lg:grid lg:grid-cols-[40%_60%]">
+      {/* Visual Sidebar */}
+      <section className="relative hidden overflow-hidden bg-[#07111f] text-white lg:flex flex-col justify-between p-10">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(255,107,26,0.15),transparent_40%),radial-gradient(circle_at_80%_80%,rgba(16,91,145,0.2),transparent_40%)]" />
+        <div className="relative z-10 flex items-center gap-4">
+          <ProdxVectorMark size={48} className="shadow-2xl rounded-2xl" />
+          <div>
+            <div className="text-2xl font-black tracking-tighter">
+              PRODX<span className="font-light text-slate-400">POS</span>
             </div>
-
-            <div className="relative mt-3 h-36 overflow-hidden rounded-[26px] border border-white/10 bg-[#050b13] shadow-2xl shadow-black/30">
-              <div className="absolute inset-x-0 bottom-0 h-24 bg-[radial-gradient(ellipse_at_center,rgba(255,107,26,.18),transparent_65%)] blur-2xl" />
-              <div className="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-[#ff6b1a]/80 to-transparent" />
-              <div className="absolute bottom-4 left-7 flex items-end gap-2.5">
-                {[48,66,82,60,92,74].map((height, index) => (
-                  <div key={index} className="relative w-12 rounded-t-lg border border-slate-600/80 bg-gradient-to-b from-slate-700/90 to-slate-950/95 shadow-[0_0_22px_rgba(255,107,26,.08)] xl:w-14" style={{ height }}>
-                    <div className="absolute inset-x-2 top-3 space-y-1.5 opacity-80">
-                      {[0,1,2,3].map((row) => (
-                        <div key={row} className="flex items-center gap-1">
-                          <span className="h-1 w-1 rounded-full bg-[#ff6b1a]" />
-                          <span className="h-1 flex-1 rounded-full bg-slate-600" />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div className="absolute bottom-5 right-8 flex h-20 w-28 items-center justify-center rounded-2xl border border-[#ff6b1a]/30 bg-[#ff6b1a]/10 shadow-[0_0_45px_rgba(255,107,26,.13)]">
-                <div className="h-11 w-16 rounded-xl border border-cyan-300/30 bg-cyan-300/10 shadow-[0_0_25px_rgba(34,211,238,.16)]" />
-              </div>
-              <div className="absolute right-1/3 top-4 h-1.5 w-1.5 rounded-full bg-[#ff6b1a] shadow-[0_0_12px_rgba(255,107,26,.9)]" />
-              <div className="absolute right-1/3 top-5 h-20 w-px bg-gradient-to-b from-[#ff6b1a]/80 to-transparent" />
-            </div>
-
-            <div className="mt-5 grid grid-cols-3 divide-x divide-white/10 rounded-2xl border border-white/10 bg-white/[0.035]">
-              {[
-                { icon: ShieldCheck, title: 'Secure', sub: 'Server verified' },
-                { icon: Monitor, title: 'Touch ready', sub: 'Built for registers' },
-                { icon: CheckCircle2, title: 'Reliable', sub: 'Production flow' },
-              ].map(({ icon: Icon, title, sub }) => (
-                <div key={title} className="flex items-center gap-3 px-4 py-3.5">
-                  <Icon className="h-5 w-5 text-[#ff7a2a] stroke-[1.6]" />
-                  <div>
-                    <div className="text-xs font-bold text-white">{title}</div>
-                    <div className="text-[9px] font-medium text-slate-500">{sub}</div>
-                  </div>
-                </div>
-              ))}
+            <div className="text-[10px] font-bold uppercase tracking-[0.3em] text-slate-400">
+              Enterprise POS Engine
             </div>
           </div>
-        </section>
+        </div>
 
-        <section className="relative min-h-[100svh] bg-white">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_85%_0%,rgba(255,107,26,.055),transparent_25%)]" />
-          <header className="relative z-10 flex items-center justify-between px-6 py-6 sm:px-10 xl:px-14">
-            <div className="lg:hidden">
-              <div className="text-xl font-black tracking-[-0.05em]">PRODX<span className="text-[#ff6b1a]">POS</span></div>
-              <div className="text-[9px] font-bold uppercase tracking-[0.22em] text-slate-400">Production Terminal</div>
-            </div>
-            <div className="ml-auto flex items-center gap-2">
-              <div className="hidden h-9 items-center gap-2 rounded-lg bg-slate-50 px-3 text-[11px] font-bold text-slate-500 sm:flex">
-                <Clock3 className="h-3.5 w-3.5" />
-                {clock}
-              </div>
-              <button type="button" onClick={() => setLanguage(isThai ? 'en' : 'th')} className="flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-[11px] font-bold text-slate-700 transition-all duration-300 hover:border-[#ff6b1a] hover:text-[#e85d0c] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff6b1a]/30">
-                <Globe2 className="h-3.5 w-3.5 stroke-[1.6]" />
-                {copy.language}
-              </button>
-            </div>
-          </header>
-
-          <div className="relative z-10 flex min-h-[calc(100svh-88px)] items-center justify-center px-6 pb-10 sm:px-10 xl:px-16">
-            <div className="w-full max-w-[470px]">
-              <div className="mb-8">
-                <div className="mb-3 text-[10px] font-black uppercase tracking-[0.3em] text-[#e85d0c]">
-                  {isThai ? 'Welcome back' : 'Welcome back'}
-                </div>
-                <h2 className="text-4xl font-black leading-none tracking-[-0.06em] text-[#0b1a2a] sm:text-[3.25rem]">
-                  {isThai ? 'เข้าสู่ระบบ' : 'Operator Access'}
-                </h2>
-                <p className="mt-4 max-w-md text-sm leading-6 text-slate-500">{copy.subtitle}</p>
-              </div>
-
-              <button type="button" onClick={() => setTerminalOpen((value) => !value)} className="group mb-5 flex w-full items-center gap-3 border-b border-slate-200 pb-4 text-left transition-all duration-300 hover:border-slate-300 active:scale-[0.995]">
-                <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${terminalReady ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
-                  {terminalReady ? <Check className="h-4 w-4 stroke-[2]" /> : <Wifi className="h-4 w-4 stroke-[1.6]" />}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-xs font-black text-slate-900">{copy.terminal} <span className={terminalReady ? 'text-emerald-600' : 'text-amber-600'}>· {terminalReady ? copy.ready : copy.setup}</span></div>
-                  <div className="truncate text-[11px] font-medium text-slate-400">{terminalReady ? `${storeCode} · ${registerId}` : copy.serverNote}</div>
-                </div>
-                <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 transition-colors group-hover:text-[#e85d0c]">{terminalOpen ? copy.done : copy.edit}</span>
-              </button>
-
-              {terminalOpen && (
-                <div className="mb-5 grid gap-3 rounded-2xl bg-slate-50 p-4">
-                  {[
-                    { icon: Building2, label: copy.organization, value: organizationSlug, set: setOrganizationSlug },
-                    { icon: Store, label: copy.store, value: storeCode, set: setStoreCode },
-                    { icon: Monitor, label: copy.register, value: registerId, set: setRegisterId },
-                  ].map(({ icon: Icon, label, value, set }) => (
-                    <label key={label} className="block">
-                      <span className="mb-1.5 flex items-center gap-1 text-[9px] font-black uppercase tracking-wide text-slate-500"><Icon className="h-3 w-3" />{label}</span>
-                      <input value={value} onChange={(event) => set(event.target.value)} autoComplete="off" maxLength={256} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-900 outline-none transition-all duration-300 focus:border-[#ff6b1a] focus:ring-4 focus:ring-[#ff6b1a]/10" />
-                    </label>
-                  ))}
-                </div>
-              )}
-
-              <div className="mb-6 flex p-1 bg-slate-100 rounded-xl">
-                <button
-                  type="button"
-                  onClick={() => { setLoginMode('pin'); setPin(''); }}
-                  className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${loginMode === 'pin' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                >
-                  {isThai ? 'รหัส PIN' : 'PIN'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setLoginMode('qr'); setPin(''); }}
-                  className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${loginMode === 'qr' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                >
-                  <div className="flex items-center justify-center gap-1.5">
-                    <QrCode className="w-3.5 h-3.5" />
-                    <span>{isThai ? 'สแกนบัตร' : 'Badge'}</span>
-                  </div>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setLoginMode('email'); setPin(''); }}
-                  className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${loginMode === 'email' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                >
-                  {isThai ? 'อีเมล' : 'Email'}
-                </button>
-              </div>
-
-              {loginMode === 'qr' && (
-                <div className="animate-in fade-in zoom-in-95 duration-300">
-                  <div className="relative rounded-2xl border-2 border-slate-200 bg-slate-50 overflow-hidden mb-4">
-                    <Scanner 
-                        onScan={handleScan}
-                        onError={(error) => console.log(error?.message)}
-                        components={{ finder: true, torch: true }}
-                    />
-                    <div className="absolute inset-0 pointer-events-none border-[30px] border-slate-950/20 flex items-center justify-center">
-                      <div className="w-48 h-48 border-2 border-dashed border-white/60 rounded-2xl flex items-center justify-center">
-                        <div className="w-4 h-4 border-t-4 border-l-4 border-[#ff6b1a] absolute top-0 left-0 rounded-tl-lg" />
-                        <div className="w-4 h-4 border-t-4 border-r-4 border-[#ff6b1a] absolute top-0 right-0 rounded-tr-lg" />
-                        <div className="w-4 h-4 border-b-4 border-l-4 border-[#ff6b1a] absolute bottom-0 left-0 rounded-bl-lg" />
-                        <div className="w-4 h-4 border-b-4 border-r-4 border-[#ff6b1a] absolute bottom-0 right-0 rounded-br-lg" />
-                      </div>
-                    </div>
-                  </div>
-                  <div className="text-center space-y-3">
-                    <div className="flex items-center justify-center gap-2 text-[#e85d0c] font-black text-xs uppercase tracking-widest">
-                      <Camera className="w-4 h-4" />
-                      <span>Ready to scan badge</span>
-                    </div>
-                    <p className="text-[11px] text-slate-500 max-w-[280px] mx-auto">
-                      {isThai 
-                        ? 'ถือบัตรพนักงานหน้ากล้องเพื่อให้ระบบสแกน QR Code โดยอัตโนมัติ' 
-                        : 'Hold your employee ID badge in front of the camera to sign in instantly.'}
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setLoginMode('pin');
-                        setTimeout(() => setLoginMode('qr'), 100);
-                      }}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-[10px] font-bold text-slate-400 hover:text-slate-600 hover:border-slate-300 transition-all cursor-pointer active:scale-95"
-                    >
-                      <RefreshCw className="w-3 h-3" />
-                      <span>{isThai ? 'เริ่มสแกนใหม่' : 'Reset Scanner'}</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {loginMode === 'pin' ? (
-                <div className="space-y-6">
-                  <div className="flex justify-center gap-3">
-                    {[0, 1, 2, 3, 4, 5].map((i) => (
-                      <div
-                        key={i}
-                        className={`w-10 h-14 sm:w-12 sm:h-16 rounded-xl border-2 flex items-center justify-center transition-all duration-200 ${
-                          pin.length > i 
-                            ? 'border-[#ff6b1a] bg-[#ff6b1a]/5 text-[#ff6b1a]' 
-                            : 'border-slate-200 bg-white'
-                        }`}
-                      >
-                        {pin.length > i ? (
-                          <div className="w-2.5 h-2.5 rounded-full bg-current" />
-                        ) : null}
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-3 max-w-[320px] mx-auto">
-                    {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((digit) => (
-                      <button
-                        key={digit}
-                        type="button"
-                        onClick={() => handlePinInput(digit.toString())}
-                        className="h-16 sm:h-20 rounded-2xl bg-slate-50 border border-slate-200 text-xl font-black text-slate-900 hover:bg-slate-100 hover:border-slate-300 active:scale-95 transition-all flex items-center justify-center"
-                      >
-                        {digit}
-                      </button>
-                    ))}
-                    <button
-                      type="button"
-                      onClick={handlePinClear}
-                      className="h-16 sm:h-20 rounded-2xl bg-rose-50 border border-rose-100 text-rose-600 text-xs font-bold hover:bg-rose-100 active:scale-95 transition-all flex items-center justify-center uppercase tracking-wider"
-                    >
-                      {isThai ? 'ล้าง' : 'Clear'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handlePinInput('0')}
-                      className="h-16 sm:h-20 rounded-2xl bg-slate-50 border border-slate-200 text-xl font-black text-slate-900 hover:bg-slate-100 hover:border-slate-300 active:scale-95 transition-all flex items-center justify-center"
-                    >
-                      0
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handlePinDelete}
-                      className="h-16 sm:h-20 rounded-2xl bg-slate-50 border border-slate-200 text-slate-900 hover:bg-slate-100 hover:border-slate-300 active:scale-95 transition-all flex items-center justify-center"
-                    >
-                      <X className="h-6 w-6 stroke-[2.5]" />
-                    </button>
-                  </div>
-
-                  <button 
-                    type="button"
-                    onClick={() => submit()}
-                    disabled={pin.length < 4 || isLoading}
-                    className="group flex h-14 w-full items-center justify-center gap-2 rounded-xl bg-[#ff6b1a] px-5 text-sm font-black text-white shadow-[0_12px_28px_rgba(255,107,26,.22)] transition-all duration-300 hover:-translate-y-0.5 hover:bg-[#eb5b0c] hover:shadow-[0_18px_35px_rgba(255,107,26,.26)] active:scale-[0.98] disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none disabled:cursor-not-allowed mt-4"
-                  >
-                    {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
-                    {isLoading ? copy.signingIn : copy.signIn}
-                  </button>
-                </div>
-              ) : loginMode === 'email' ? (
-                <form onSubmit={submit} className="animate-in fade-in slide-in-from-bottom-2 duration-300">
-                  <label className="block">
-                    <span className="mb-2 block text-xs font-black text-slate-700">{copy.identity}</span>
-                    <span className="relative block">
-                      <UserRound className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 stroke-[1.6]" />
-                      <input value={identity} onChange={(event) => setIdentity(event.target.value)} autoComplete="username" autoCapitalize="none" spellCheck={false} maxLength={256} placeholder={copy.identityPlaceholder} className="h-14 w-full rounded-xl border border-slate-200 bg-white pl-11 pr-4 text-sm font-medium text-slate-900 outline-none transition-all duration-300 placeholder:text-slate-300 hover:border-slate-300 focus:border-[#ff6b1a] focus:ring-4 focus:ring-[#ff6b1a]/10" />
-                    </span>
-                  </label>
-
-                  <label className="mt-5 block">
-                    <span className="mb-2 block text-xs font-black text-slate-700">{copy.secretPassword}</span>
-                    <span className="relative block">
-                      <Lock className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 stroke-[1.6]" />
-                      <input value={secret} onChange={(event) => setSecret(event.target.value)} type={showSecret ? 'text' : 'password'} autoComplete="current-password" maxLength={256} className="h-14 w-full rounded-xl border border-slate-200 bg-white pl-11 pr-12 text-sm font-medium outline-none transition-all duration-300 placeholder:text-slate-300 hover:border-slate-300 focus:border-[#ff6b1a] focus:ring-4 focus:ring-[#ff6b1a]/10" />
-                      <button type="button" onClick={() => setShowSecret((value) => !value)} className="absolute right-1 top-1 flex h-12 w-12 items-center justify-center rounded-lg text-slate-400 transition-all duration-300 hover:bg-slate-50 hover:text-slate-700 active:scale-[0.98]" aria-label={showSecret ? 'Hide password' : 'Show password'}>{showSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button>
-                    </span>
-                  </label>
-
-                  <button type="submit" disabled={!canSubmit || isLoading} className="group mt-6 flex h-14 w-full items-center justify-center gap-2 rounded-xl bg-[#ff6b1a] px-5 text-sm font-black text-white shadow-[0_12px_28px_rgba(255,107,26,.22)] transition-all duration-300 hover:-translate-y-0.5 hover:bg-[#eb5b0c] hover:shadow-[0_18px_35px_rgba(255,107,26,.26)] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#ff6b1a]/20 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none">
-                    {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-1" />}
-                    {isLoading ? copy.signingIn : copy.signIn}
-                  </button>
-                </form>
-              ) : null}
-
-              <div className="mt-6 rounded-2xl bg-slate-50 p-4">
-                <div className="flex items-start gap-3">
-                  <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-[#ff6b1a] stroke-[1.6]" />
-                  <div>
-                    <div className="text-xs font-black text-slate-800">{isThai ? 'Secure. Controlled. Auditable.' : 'Secure. Controlled. Auditable.'}</div>
-                    <div className="mt-1 text-[10px] leading-4 text-slate-500">{copy.serverNote}</div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-5 text-center text-[9px] font-bold uppercase tracking-[0.2em] text-slate-300">
-                PRODX · Production Terminal · {clock}
-              </div>
-            </div>
+        <div className="relative z-10 max-w-md my-auto space-y-4">
+          <div className="inline-flex items-center gap-2 rounded-md bg-sky-500/10 border border-sky-500/30 px-3 py-1">
+            <ShieldCheck className="w-3.5 h-3.5 text-sky-400" />
+            <span className="text-[10px] font-bold uppercase tracking-wider text-sky-300">{copy.verified}</span>
           </div>
-        </section>
-      </div>
+          <h1 className="text-4xl xl:text-5xl font-black tracking-tight leading-tight">
+            {isThai ? 'จุดชำระเงินอัจฉริยะ' : 'High-Performance'} <br />
+            <span className="text-[#ff6b1a]">{isThai ? 'ระดับองค์กร' : 'Retail POS Station'}</span>
+          </h1>
+          <p className="text-sm text-slate-300 leading-relaxed">
+            {isThai
+              ? 'ระบบจัดการหน้าร้านความเร็วสูง รองรับออฟไลน์ซิงค์และบันทึกความปลอดภัยระดับสูงสุด'
+              : 'Empowering enterprise retail with rapid checkout, offline resilience, and secure auditing.'}
+          </p>
+        </div>
+
+        <div className="relative z-10 pt-6 border-t border-white/10 flex items-center justify-between text-xs text-slate-400 font-bold">
+          <span>POS Terminal Operator Authentication</span>
+          <div>© PRODX POS</div>
+        </div>
+      </section>
+
+      {/* Main Zero-Scroll Authentication Panel */}
+      <section className="flex-1 flex flex-col justify-between bg-white overflow-hidden p-4 sm:p-6 lg:p-8">
+        <header className="flex items-center justify-between gap-4 pb-4 border-b border-slate-100 shrink-0">
+          <div className="lg:hidden flex items-center gap-2">
+            <div className="h-8 w-8 rounded-lg bg-slate-950 text-white font-black flex items-center justify-center text-sm">P</div>
+            <span className="font-black text-lg">PRODX<span className="text-primary">POS</span></span>
+          </div>
+          <div className="flex items-center gap-2 ml-auto">
+            <div className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 border border-slate-200 rounded-lg text-xs font-bold text-slate-800">
+              <Clock3 className="w-3.5 h-3.5 text-slate-700" />
+              <span>{clock}</span>
+            </div>
+            <button
+              type="button"
+              onClick={navigateToAdminLogin}
+              className="flex items-center gap-1.5 px-3.5 py-2 min-h-[40px] bg-slate-900 text-white rounded-lg text-xs font-black hover:bg-slate-800 focus-visible:ring-2 focus-visible:ring-[#ff6b1a] focus-visible:ring-offset-2 transition-all shadow-xs cursor-pointer"
+            >
+              <ShieldCheck className="w-3.5 h-3.5 text-[#ff6b1a]" />
+              <span>{copy.adminLoginBtn}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setLanguage(isThai ? 'en' : 'th')}
+              className="flex items-center gap-1.5 px-3.5 py-2 min-h-[40px] border-2 border-slate-300 rounded-lg text-xs font-black text-slate-900 hover:border-slate-900 focus-visible:ring-2 focus-visible:ring-[#ff6b1a] focus-visible:ring-offset-2 cursor-pointer"
+            >
+              <Globe2 className="w-3.5 h-3.5 text-slate-800" />
+              <span>{copy.language}</span>
+            </button>
+          </div>
+        </header>
+
+        {/* Dynamic Body: Zero-Scroll Compact Layout */}
+        <div className="flex-1 flex flex-col justify-center max-w-[440px] mx-auto w-full py-4 space-y-4">
+          <div>
+            <div className="text-[10px] font-black uppercase tracking-[0.2em] text-[#c2410c] dark:text-[#ff8c42] mb-1">
+              {copy.eyebrow}
+            </div>
+            <h2 className="text-2xl font-black text-slate-900 tracking-tight">{copy.title}</h2>
+            <p className="text-xs text-slate-600 font-medium">{copy.subtitle}</p>
+          </div>
+
+          {/* Compact Terminal Scope Bar */}
+          <TerminalScopeBar
+            isThai={isThai}
+            isInitialLoading={isInitialLoading}
+            isFetching={isFetching}
+            terminalReady={terminalReady}
+            organizationContext={organizationContext}
+            selectedOrgId={selectedOrgId}
+            selectedBranchId={selectedBranchId}
+            selectedTerminalId={selectedTerminalId}
+            orgs={orgs}
+            branches={branches}
+            terminals={terminals}
+            isOrgValid={isOrgValid}
+            isBranchValid={isBranchValid}
+            isTerminalValid={isTerminalValid}
+            onOrganizationChange={handleOrganizationChange}
+            onBranchChange={handleBranchChange}
+            onTerminalChange={handleTerminalChange}
+            onSyncCatalog={loadFirestoreCatalog}
+            isExpanded={isScopeBarExpanded}
+            onToggleExpand={() => setIsScopeBarExpanded((prev) => !prev)}
+          />
+
+          {/* Login Error Notification Banner */}
+          {loginError && (
+            <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 flex items-start gap-2.5 text-xs text-rose-900">
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <div className="font-black">{loginError.title}</div>
+                <div>{loginError.message}</div>
+              </div>
+              <button type="button" onClick={() => setLoginError(null)} className="text-rose-400 hover:text-rose-600">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          {/* Operator Authentication Mode Panels */}
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
+            {loginMode === 'pin' && (
+              <OperatorPinPad
+                isThai={isThai}
+                terminalReady={terminalReady}
+                isLoading={isLoading}
+                pin={pin}
+                onPinInput={handlePinInput}
+                onPinClear={handlePinClear}
+                onPinDelete={handlePinDelete}
+                onSubmit={() => void performLogin(pin, pin)}
+                onSwitchMode={(mode) => setLoginMode(mode)}
+                onForgotPin={() => {
+                  setLoginMode('email');
+                }}
+                onTriggerScopeError={() => setIsScopeBarExpanded(true)}
+                hasRegisteredBiometrics={enrolledPasskeys.length > 0}
+                isBiometricVerifying={isBiometricVerifying}
+                activePasskey={
+                  enrolledPasskeys.find((k) => k.id === selectedPasskeyId) ||
+                  enrolledPasskeys[0]
+                }
+                onQuickBiometricSignIn={() => void handleBiometricLogin()}
+              />
+            )}
+
+            {loginMode === 'biometric' && (
+              <BiometricAuthPanel
+                isThai={isThai}
+                terminalReady={terminalReady}
+                isLoading={isLoading}
+                isBiometricVerifying={isBiometricVerifying}
+                enrolledPasskeys={enrolledPasskeys}
+                selectedPasskeyId={selectedPasskeyId}
+                webauthnCapability={webauthnCapability}
+                onSelectPasskey={setSelectedPasskeyId}
+                onScanBiometric={handleBiometricLogin}
+                onOpenEnrollModal={() => setIsEnrollModalOpen(true)}
+                onSwitchMode={(mode) => setLoginMode(mode)}
+              />
+            )}
+
+            {loginMode === 'qr' && (
+              <QrBadgeScannerPanel
+                isThai={isThai}
+                terminalReady={terminalReady}
+                isLoading={isLoading}
+                onScan={(res) => {
+                  if (res?.[0]?.rawValue) {
+                    void performLogin(res[0].rawValue, res[0].rawValue);
+                  }
+                }}
+                onSwitchMode={(mode) => setLoginMode(mode)}
+              />
+            )}
+
+            {loginMode === 'email' && (
+              <EmailPasswordForm
+                isThai={isThai}
+                terminalReady={terminalReady}
+                isLoading={isLoading}
+                onSubmit={(email, pass) => void performLogin(email, pass)}
+                onSwitchMode={(mode) => setLoginMode(mode)}
+                onForgotPin={() => {
+                  addToast({ title: 'Password Reset', message: 'Reset email requested.', type: 'info' });
+                }}
+              />
+            )}
+          </div>
+        </div>
+
+        <footer className="pt-3 border-t border-slate-200 flex items-center justify-between text-[11px] text-slate-600 font-medium shrink-0">
+          <div>PRODX POS v2.5 · Enterprise Edition</div>
+          <div className="flex items-center gap-1.5">
+            <Lock className="w-3 h-3 text-emerald-600" />
+            <span className="text-emerald-700 font-bold">Encrypted Session</span>
+          </div>
+        </footer>
+      </section>
+
+      {/* Passkey Enrollment Modal */}
+      {isEnrollModalOpen && (
+        <PasskeyEnrollModal
+          isOpen={isEnrollModalOpen}
+          onClose={() => {
+            setIsEnrollModalOpen(false);
+            void refreshPasskeysAndCapability();
+          }}
+        />
+      )}
     </main>
   );
 };

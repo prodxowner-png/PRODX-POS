@@ -52,3 +52,50 @@ test('readiness logs only safe dependency diagnostics and the request id', async
     console.error = originalError;
   }
 });
+
+test('unhandled route errors log structured correlation diagnostics without leaking secrets', async () => {
+  const logs: unknown[][] = [];
+  const originalError = console.error;
+  console.error = (...args: unknown[]) => {
+    logs.push(args);
+  };
+
+  const principal = { userId: 'user-1', organizationId: 'org-1', storeId: 'store-1' };
+  const app = createApp({
+    authenticateRequest: () => principal,
+    configureRoutes: (configuredApp) => {
+      configuredApp.get('/api/v1/boom', () => {
+        const err = new Error('Bearer secret-jwt-token-do-not-leak');
+        Object.assign(err, { code: 'ECONNRESET', stage: 'database_query' });
+        throw err;
+      });
+    },
+  });
+  const server = await start(app);
+
+  try {
+    const response = await fetch(server.baseUrl + '/api/v1/boom', {
+      headers: { 'x-request-id': 'corr-err-500' },
+    });
+
+    assert.equal(response.status, 500);
+    assert.equal(response.headers.get('x-request-id'), 'corr-err-500');
+    assert.deepEqual(logs, [[
+      'PRODX unhandled request error',
+      {
+        requestId: 'corr-err-500',
+        method: 'GET',
+        path: '/api/v1/boom',
+        status: 500,
+        name: 'Error',
+        code: 'ECONNRESET',
+        stage: 'database_query',
+      },
+    ]]);
+    assert.equal(JSON.stringify(logs).includes('secret-jwt-token-do-not-leak'), false);
+  } finally {
+    await server.close();
+    console.error = originalError;
+  }
+});
+

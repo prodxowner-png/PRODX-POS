@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createApp, requirePermission } from './createApp';
+import { getCurrentRequestContext } from './request-context-storage.ts';
 
 const principal = {
   userId: 'user-1',
@@ -204,6 +205,30 @@ test('attaches verified principal and correlation id before application routes',
     assert.equal(response.headers.get('x-request-id'), 'owner-test-001');
     assert.deepEqual(await response.json(), {
       requestId: 'owner-test-001',
+      principal,
+    });
+  } finally {
+    await server.close();
+  }
+});
+
+test('authenticated route receives the verified principal in async-local storage', async () => {
+  const app = createApp({
+    authenticateRequest: () => principal,
+    configureRoutes: (configuredApp) => {
+      configuredApp.get('/api/v1/context-storage', async (_request, response) => {
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        response.json(getCurrentRequestContext());
+      });
+    },
+  });
+  const server = await start(app);
+
+  try {
+    const response = await fetch(`${server.baseUrl}/api/v1/context-storage`);
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+      requestId: response.headers.get('x-request-id'),
       principal,
     });
   } finally {

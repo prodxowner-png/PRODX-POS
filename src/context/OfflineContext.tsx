@@ -16,6 +16,7 @@ import { useToast } from './ToastContext';
 import { useLanguage } from './LanguageContext';
 import { useAuth } from './AuthContext';
 import { ConflictResolutionDialog, ConflictData } from '../components/sync/ConflictResolutionDialog';
+import { toastNotificationService } from '../services/toastNotificationService';
 
 export type SyncLatencyQuality = 'optimal' | 'good' | 'moderate' | 'high' | 'poor' | 'offline';
 
@@ -422,38 +423,9 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
     localStorage.setItem(LAST_SYNCED_STORAGE_KEY, timestamp);
   };
 
-  const isFirstRender = useRef(true);
-  useEffect(() => {
-    if (isFirstRender.current) {
-      isFirstRender.current = false;
-      return;
-    }
-
-    if (isEffectiveOnline) {
-      addToast({
-        title: language === 'th' ? 'กลับมาออนไลน์แล้ว' : 'Back Online',
-        message: language === 'th' 
-          ? 'ระบบเชื่อมต่ออินเทอร์เน็ตสำเร็จ ข้อมูลที่ค้างอยู่จะเริ่มซิงค์อัตโนมัติ' 
-          : 'Reconnected successfully. Synchronizing pending transactions...',
-        type: 'success'
-      });
-    } else {
-      addToast({
-        title: language === 'th' ? 'ระบบเข้าสู่โหมดออฟไลน์' : 'Offline Mode',
-        message: language === 'th' 
-          ? 'สัญญาณขัดข้องหรือปิดการเชื่อมต่อชั่วคราว ยอดขายจะเซฟเก็บใน IndexedDB อัตโนมัติ' 
-          : 'Connection lost. Sales will be securely cached in local IndexedDB.',
-        type: 'warning'
-      });
-    }
-  }, [isEffectiveOnline, language, addToast]);
-
-  const toggleSimulatedOffline = () => {
-    setIsSimulatedOffline((prev) => {
-      const next = !prev;
-      return next;
-    });
-  };
+  const toggleSimulatedOffline = useCallback(() => {
+    setIsSimulatedOffline((prev) => !prev);
+  }, []);
 
   const queueOutboxItem = async <T,>(
     type: 'order_transaction' | 'shift_movement' | 'stock_adjustment',
@@ -635,6 +607,76 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const pendingCount = outbox.filter((i) => i.syncState === 'queued' || i.syncState === 'failed').length;
   const syncedCount = outbox.filter((i) => i.syncState === 'synced').length;
   const failedCount = outbox.filter((i) => i.syncState === 'failed').length;
+
+  // Persistent Toast Notification Service integration for Online <-> Offline transitions
+  const prevOnlineRef = useRef<boolean>(isEffectiveOnline);
+  const hasMountedConnectivityRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    // On initial mount, only show persistent toast if the application starts in offline mode
+    if (!hasMountedConnectivityRef.current) {
+      hasMountedConnectivityRef.current = true;
+      prevOnlineRef.current = isEffectiveOnline;
+      if (!isEffectiveOnline) {
+        toastNotificationService.notifyConnectivityTransition({
+          isOnline: false,
+          isSimulatedOffline,
+          pendingCount,
+          isSyncing,
+          language,
+          onTriggerSync: () => {
+            void triggerSync();
+          },
+          onToggleSimulatedOffline: toggleSimulatedOffline,
+          onOpenSyncActivity: openSyncActivity,
+        });
+      }
+      return;
+    }
+
+    const didTransition = prevOnlineRef.current !== isEffectiveOnline;
+    prevOnlineRef.current = isEffectiveOnline;
+
+    if (didTransition) {
+      toastNotificationService.notifyConnectivityTransition({
+        isOnline: isEffectiveOnline,
+        isSimulatedOffline,
+        pendingCount,
+        isSyncing,
+        language,
+        onTriggerSync: () => {
+          void triggerSync();
+        },
+        onToggleSimulatedOffline: toggleSimulatedOffline,
+        onOpenSyncActivity: openSyncActivity,
+        silentUpdate: false,
+      });
+    } else if (!isEffectiveOnline) {
+      // Keep the persistent offline toast updated when pendingCount or language changes while offline
+      toastNotificationService.notifyConnectivityTransition({
+        isOnline: false,
+        isSimulatedOffline,
+        pendingCount,
+        isSyncing,
+        language,
+        onTriggerSync: () => {
+          void triggerSync();
+        },
+        onToggleSimulatedOffline: toggleSimulatedOffline,
+        onOpenSyncActivity: openSyncActivity,
+        silentUpdate: true,
+      });
+    }
+  }, [
+    isEffectiveOnline,
+    isSimulatedOffline,
+    pendingCount,
+    isSyncing,
+    language,
+    triggerSync,
+    toggleSimulatedOffline,
+    openSyncActivity,
+  ]);
 
   // Derived latency statistics
   const successfulLatencies = syncLatencyHistory

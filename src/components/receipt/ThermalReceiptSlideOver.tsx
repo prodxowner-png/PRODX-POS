@@ -38,6 +38,7 @@ import { ThermalReceiptService } from '../../services/receipt/thermalReceiptServ
 import { playScannerSound } from '../../services/soundService';
 import { Button } from '../common/Button';
 import { Badge } from '../common/Badge';
+import { ProdxReceiptLogo } from '../common/ProdxLogo';
 import { getZIndexClass } from '../../utils/ZIndexManager';
 
 export interface ThermalReceiptSlideOverProps {
@@ -573,16 +574,12 @@ export const ThermalReceiptSlideOver: React.FC<ThermalReceiptSlideOverProps> = (
 
                       {/* Store Branding Header */}
                       <div className="text-center space-y-1 mb-3 pt-1">
-                        {customLogo ? (
-                          <div className="flex justify-center mb-2">
-                            <img
-                              src={customLogo}
-                              alt="Store Logo"
-                              className="max-h-12 max-w-[130px] object-contain filter grayscale contrast-150"
-                              referrerPolicy="no-referrer"
-                            />
-                          </div>
-                        ) : null}
+                        <div className="flex justify-center mb-2">
+                          <ProdxReceiptLogo
+                            customLogoUrl={customLogo}
+                            paperWidth={paperWidth}
+                          />
+                        </div>
 
                         <div className="font-extrabold tracking-wider text-sm text-zinc-950 uppercase">
                           {currentStore?.name || 'PRODX POS RETAIL'}

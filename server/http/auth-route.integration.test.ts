@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import test from 'node:test';
 import { hashPassword } from '../auth/password';
+import { resolveConfiguredDatabaseUrl } from '../db/postgres';
 import { createProductionApp } from '../entrypoint';
 
-const databaseUrl = process.env.DATABASE_URL;
+const databaseUrl = resolveConfiguredDatabaseUrl(process.env.DATABASE_URL);
 const localClientFingerprints = ['127.0.0.1', '::ffff:127.0.0.1', '::1'].map((address) =>
   createHash('sha256').update(address).digest('hex'),
 );
@@ -28,11 +29,24 @@ test('production auth HTTP boundary enforces login scope, session revocation, ma
 
   const { app, pool } = await createProductionApp();
   const passwordHash = await hashPassword('correct-password');
+  // Password-compromise screening is covered by its dedicated tests. Keep this
+  // database/HTTP boundary test deterministic and independent of HIBP availability.
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    if (String(input).startsWith('https://api.pwnedpasswords.com/range/')) {
+      return new Response('', { status: 200 });
+    }
+    return originalFetch(input, init);
+  };
 
   const cleanup = async () => {
+    globalThis.fetch = originalFetch;
     await pool.query('DELETE FROM prodx_auth_login_throttles WHERE client_fingerprint = ANY($1::text[])', [localClientFingerprints]);
     await pool.query('DELETE FROM prodx_security_audit_events WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
     await pool.query('DELETE FROM prodx_sessions WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
+    await pool.query('DELETE FROM prodx_user_roles WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
+    await pool.query('DELETE FROM prodx_role_permissions WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
+    await pool.query('DELETE FROM prodx_roles WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
     await pool.query('DELETE FROM prodx_user_credentials WHERE user_id IN ($1, $2)', [ids.userA, ids.userB]);
     await pool.query('DELETE FROM prodx_store_memberships WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
     await pool.query('DELETE FROM prodx_devices WHERE id IN ($1, $2)', [ids.deviceA, ids.deviceB]);
@@ -45,6 +59,9 @@ test('production auth HTTP boundary enforces login scope, session revocation, ma
   await pool.query('DELETE FROM prodx_auth_login_throttles WHERE client_fingerprint = ANY($1::text[])', [localClientFingerprints]);
   await pool.query('DELETE FROM prodx_security_audit_events WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
   await pool.query('DELETE FROM prodx_sessions WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
+  await pool.query('DELETE FROM prodx_user_roles WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
+  await pool.query('DELETE FROM prodx_role_permissions WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
+  await pool.query('DELETE FROM prodx_roles WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
   await pool.query('DELETE FROM prodx_user_credentials WHERE user_id IN ($1, $2)', [ids.userA, ids.userB]);
   await pool.query('DELETE FROM prodx_store_memberships WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
   await pool.query('DELETE FROM prodx_devices WHERE id IN ($1, $2)', [ids.deviceA, ids.deviceB]);
@@ -188,6 +205,72 @@ test('production auth HTTP boundary enforces login scope, session revocation, ma
   assert.equal(activeBeforeDisable.status, 200);
   const activeSession = await activeBeforeDisable.json() as { token: string };
 
+  // Re-enable userA to verify Admin vs POS authentication separation & RBAC role gate
+  await pool.query(`UPDATE prodx_users SET status = 'active' WHERE id = $1`, [ids.userA]);
+
+  // userA currently has 'cashier' role; attempting /auth/admin/login must be rejected with 403 ADMIN_ROLE_REQUIRED
+  const nonAdminConsoleAttempt = await request('/auth/admin/login', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      organizationSlug: 'http-a',
+      storeCode: 'store-a',
+      emailOrPin: 'http-user-a',
+      passwordOrPin: 'correct-password',
+      registerId: 'device-a',
+    }),
+  });
+  assert.equal(nonAdminConsoleAttempt.status, 403);
+  const nonAdminBody = (await nonAdminConsoleAttempt.json()) as { error?: { code?: string } };
+  assert.equal(nonAdminBody.error?.code, 'ADMIN_ROLE_REQUIRED');
+
+  // Grant 'admin' role and 'rbac.manage' permission to userA and verify /auth/admin/login succeeds
+  const adminRoleId = randomUUID();
+  await pool.query(
+    `INSERT INTO prodx_roles (id, organization_id, role_key, name, active)
+     VALUES ($1, $2, 'admin', 'Administrator', TRUE)`,
+    [adminRoleId, ids.organizationA],
+  );
+  await pool.query(
+    `INSERT INTO prodx_permissions (id, permission_key, description)
+     VALUES ($1, 'rbac.manage', 'Manage RBAC')
+     ON CONFLICT (permission_key) DO NOTHING`,
+    [randomUUID()],
+  );
+  const rbacPermRow = await pool.query<{ id: string }>(
+    `SELECT id FROM prodx_permissions WHERE permission_key = 'rbac.manage' LIMIT 1`,
+  );
+  await pool.query(
+    `INSERT INTO prodx_role_permissions (organization_id, role_id, permission_id)
+     VALUES ($1, $2, $3)`,
+    [ids.organizationA, adminRoleId, rbacPermRow.rows[0].id],
+  );
+  await pool.query(
+    `INSERT INTO prodx_user_roles (organization_id, store_id, user_id, role_id, active)
+     VALUES ($1, $2, $3, $4, TRUE)`,
+    [ids.organizationA, ids.storeA, ids.userA, adminRoleId],
+  );
+
+  const adminLoginSuccess = await request('/auth/admin/login', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      organizationSlug: 'http-a',
+      storeCode: 'store-a',
+      emailOrPin: 'http-user-a',
+      passwordOrPin: 'correct-password',
+      registerId: 'device-a',
+      requireAdminRole: true,
+    }),
+  });
+  assert.equal(adminLoginSuccess.status, 200);
+  const adminSession = (await adminLoginSuccess.json()) as {
+    currentUser: { role: string; permissions: string[] };
+  };
+  assert.equal(adminSession.currentUser.role, 'admin');
+  assert.equal(adminSession.currentUser.permissions.includes('org:manage'), true);
+  assert.equal(adminSession.currentUser.permissions.includes('rbac:manage'), true);
+
   await pool.query(`UPDATE prodx_users SET status = 'disabled' WHERE id = $1`, [ids.userA]);
 
   const disabledLogin = await request('/auth/login', {
@@ -200,3 +283,4 @@ test('production auth HTTP boundary enforces login scope, session revocation, ma
   const disabledSession = await request('/auth/session', { headers: { authorization: `Bearer ${activeSession.token}` } });
   assert.equal(disabledSession.status, 401);
 });
+

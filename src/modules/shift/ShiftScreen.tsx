@@ -5,7 +5,7 @@ import { useToast } from '../../context/ToastContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { CashMovementType, Shift } from '../../domain/shift';
 import { Order } from '../../domain/order';
-import { formatMoney, createMoney, subtractMoney } from '../../domain/money';
+import { formatMoney, createMoney, subtractMoney, parseDecimalToCents, centsToDecimalString } from '../../domain/money';
 import { Card, CardHeader, CardBody } from '../../components/common/Card';
 import { Badge } from '../../components/common/Badge';
 import { Button } from '../../components/common/Button';
@@ -67,7 +67,7 @@ export const ShiftScreen: React.FC = () => {
   useEffect(() => {
     if (!session) return;
     const orderReadApi = createOrderReadApi(session.token);
-    orderReadApi.getOrders(session.currentStore.id, 200)
+    orderReadApi.getOrders(session.currentStore.id, 200, session.registerId)
       .then(list => setOrders(list))
       .catch((error) => {
         console.error('[ShiftScreen] Failed to load production orders:', error);
@@ -326,7 +326,7 @@ export const ShiftScreen: React.FC = () => {
 
     setIsSubmitting(true);
     try {
-      const cents = Math.round(parseFloat(openingFloatDollars || '0') * 100);
+      const cents = Math.max(0, parseDecimalToCents(openingFloatDollars || '0'));
       await openShift(createMoney(cents, session.currentStore.currency));
       addToast({
         title: language === 'th' ? 'เปิดกะเรียบร้อยแล้ว' : 'Shift Opened',
@@ -348,7 +348,7 @@ export const ShiftScreen: React.FC = () => {
   const handleCloseShift = async () => {
     setIsSubmitting(true);
     try {
-      const cents = Math.round(parseFloat(countedDollars || '0') * 100);
+      const cents = Math.max(0, parseDecimalToCents(countedDollars || '0'));
       const actualCounted = createMoney(cents, session.currentStore.currency);
       const closed = await closeShift(actualCounted);
       const variance = closed.variance
@@ -384,7 +384,7 @@ export const ShiftScreen: React.FC = () => {
 
     setIsSubmitting(true);
     try {
-      const cents = Math.round(parseFloat(movementAmountDollars || '0') * 100);
+      const cents = Math.max(0, parseDecimalToCents(movementAmountDollars || '0'));
       await recordCashMovement(
         movementType,
         createMoney(cents, session.currentStore.currency),
@@ -694,7 +694,7 @@ export const ShiftScreen: React.FC = () => {
 
             {/* Calculated Variance */}
             {(() => {
-              const countedCents = Math.round(parseFloat(countedDollars || '0') * 100);
+              const countedCents = Math.max(0, parseDecimalToCents(countedDollars || '0'));
               const varianceCents = countedCents - currentShift.expectedCashInDrawer.amountInCents;
               const isOver = varianceCents > 0;
               const isShort = varianceCents < 0;
@@ -714,7 +714,7 @@ export const ShiftScreen: React.FC = () => {
                   <span className="font-mono font-bold text-sm">
                     {varianceCents === 0
                       ? `${t.shift.balanced} ($0.00)`
-                      : `${isOver ? '+' : '-'}$${(Math.abs(varianceCents) / 100).toFixed(2)} (${isOver ? (language === 'th' ? 'เกิน' : 'Over') : (language === 'th' ? 'ขาด' : 'Short')})`}
+                      : `${isOver ? '+' : '-'}$${centsToDecimalString(Math.abs(varianceCents))} (${isOver ? (language === 'th' ? 'เกิน' : 'Over') : (language === 'th' ? 'ขาด' : 'Short')})`}
                   </span>
                 </div>
               );

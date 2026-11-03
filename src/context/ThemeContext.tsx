@@ -83,7 +83,7 @@ export const THEME_PRESETS: ThemePreset[] = [
     card: '#FFFFFF',
     cardHover: '#F1F5F9',
     text: '#0F172A',
-    textMuted: '#64748B',
+    textMuted: '#475569',
     border: '#E2E8F0',
     borderHover: '#CBD5E1',
     buttonRadius: '12px',
@@ -380,7 +380,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         cardColor = '#FFFFFF';
         cardHoverColor = '#F1F5F9';
         textColor = '#0F172A';
-        textMutedColor = '#64748B';
+        textMutedColor = '#475569';
         borderColor = '#E2E8F0';
         borderHoverColor = '#CBD5E1';
         primaryColor = activeAccentColor;
@@ -403,6 +403,11 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     root.style.setProperty('--border-hover', borderHoverColor);
     root.style.setProperty('--button-radius', currentPreset.buttonRadius);
     root.style.setProperty('--card-radius', currentPreset.cardRadius);
+
+    // WCAG 2.2 AA Non-Text Contrast: #ea580c is 3.57:1 on white; #ff782e is 6.8:1 on dark
+    const focusRingColor = isDarkMode ? '#ff782e' : '#ea580c';
+    root.style.setProperty('--focus-ring', focusRingColor);
+    root.style.setProperty('--focus-ring-offset', '2px');
 
     if (isDarkMode) {
       root.classList.add('dark');

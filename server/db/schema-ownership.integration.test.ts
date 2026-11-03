@@ -1,0 +1,194 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { Pool } from 'pg';
+
+const databaseUrl = process.env.DATABASE_URL;
+const shouldRun = Boolean(databaseUrl) && process.env.NODE_ENV !== 'production';
+
+test('PRODX runtime role cannot access foreign public objects or inherit future grants', { skip: !shouldRun }, async () => {
+  const pool = new Pool({ connectionString: databaseUrl, max: 1 });
+  try {
+    const role = await pool.query<{ rolsuper: boolean; rolbypassrls: boolean; rolcreatedb: boolean; rolcreaterole: boolean; rolinherit: boolean }>(
+      `SELECT rolsuper, rolbypassrls, rolcreatedb, rolcreaterole, rolinherit FROM pg_roles WHERE rolname = 'prodx_app'`,
+    );
+    assert.equal(role.rows.length, 1, 'prodx_app role must exist after migrations');
+    assert.equal(role.rows[0].rolsuper, false);
+    assert.equal(role.rows[0].rolbypassrls, false);
+    assert.equal(role.rows[0].rolcreatedb, false);
+    assert.equal(role.rows[0].rolcreaterole, false);
+    assert.equal(role.rows[0].rolinherit, false);
+
+    const foreignTables = await pool.query<{ relname: string }>(
+      `SELECT c.relname
+         FROM pg_class c
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public'
+          AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
+          AND left(c.relname, 6) <> 'prodx_'
+        ORDER BY c.relname`,
+    );
+    const tablePrivileges = await pool.query<{
+      relname: string;
+      can_select: boolean;
+      can_write: boolean;
+    }>(
+      `SELECT foreign_object.relname,
+              has_table_privilege('prodx_app', format('public.%I', foreign_object.relname), 'SELECT') AS can_select,
+              has_table_privilege('prodx_app', format('public.%I', foreign_object.relname), 'INSERT,UPDATE,DELETE') AS can_write
+         FROM unnest($1::text[]) AS foreign_object(relname)
+        ORDER BY foreign_object.relname`,
+      [foreignTables.rows.map((row) => row.relname)],
+    );
+    for (const row of tablePrivileges.rows) {
+      assert.equal(row.can_select, false, `foreign table/view ${row.relname} must not be readable by prodx_app`);
+      assert.equal(row.can_write, false, `foreign table/view ${row.relname} must not be writable by prodx_app`);
+    }
+
+    const foreignSequences = await pool.query<{ relname: string }>(
+      `SELECT c.relname
+         FROM pg_class c
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public'
+          AND c.relkind = 'S'
+          AND left(c.relname, 6) <> 'prodx_'
+        ORDER BY c.relname`,
+    );
+    const sequencePrivileges = await pool.query<{
+      relname: string;
+      can_use: boolean;
+      can_select: boolean;
+    }>(
+      `SELECT foreign_sequence.relname,
+              has_sequence_privilege('prodx_app', format('public.%I', foreign_sequence.relname), 'USAGE') AS can_use,
+              has_sequence_privilege('prodx_app', format('public.%I', foreign_sequence.relname), 'SELECT') AS can_select
+         FROM unnest($1::text[]) AS foreign_sequence(relname)
+        ORDER BY foreign_sequence.relname`,
+      [foreignSequences.rows.map((row) => row.relname)],
+    );
+    for (const row of sequencePrivileges.rows) {
+      assert.equal(row.can_use, false, `foreign sequence ${row.relname} must not be usable by prodx_app`);
+      assert.equal(row.can_select, false, `foreign sequence ${row.relname} must not be readable by prodx_app`);
+    }
+
+    const legacyPolicies = await pool.query<{ tablename: string; policyname: string }>(
+      `SELECT tablename, policyname
+         FROM pg_policies
+        WHERE schemaname = 'public'
+          AND policyname = 'prodx_app_runtime_access'
+          AND 'prodx_app'::name = ANY(roles)`,
+    );
+    assert.deepEqual(legacyPolicies.rows, [], 'legacy unconditional prodx_app policies must be removed');
+
+    const defaultPrivileges = await pool.query<{ object_type: string; privilege_type: string }>(
+      `SELECT d.defaclobjtype::text AS object_type, acl.privilege_type
+         FROM pg_default_acl d
+         CROSS JOIN LATERAL aclexplode(d.defaclacl) AS acl
+         JOIN pg_roles grantee ON grantee.oid = acl.grantee
+        WHERE grantee.rolname = 'prodx_app'
+          AND d.defaclnamespace IN (0::oid, 'public'::regnamespace::oid)
+          AND d.defaclobjtype IN ('r', 'S')
+          AND acl.privilege_type IN ('SELECT', 'INSERT', 'UPDATE', 'DELETE', 'USAGE')
+        ORDER BY d.defaclobjtype, acl.privilege_type`,
+    );
+    assert.deepEqual(defaultPrivileges.rows, [], 'prodx_app must not inherit default grants on future public objects');
+
+    const client = await pool.connect();
+    const probeTable = `zz_foreign_owner_roles_probe_${process.pid}`;
+    let transactionStarted = false;
+    try {
+      await client.query('BEGIN');
+      transactionStarted = true;
+      await client.query(
+        `CREATE TABLE public."${probeTable}" (
+           id bigint GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+           user_id uuid,
+           role text NOT NULL
+         )`,
+      );
+      const futurePrivileges = await client.query<{
+        can_select: boolean;
+        can_write: boolean;
+        sequence_can_use: boolean;
+        sequence_can_select: boolean;
+      }>(
+        `SELECT has_table_privilege('prodx_app', format('public.%I', $1::text), 'SELECT') AS can_select,
+                has_table_privilege('prodx_app', format('public.%I', $1::text), 'INSERT,UPDATE,DELETE') AS can_write,
+                has_sequence_privilege('prodx_app', pg_get_serial_sequence(format('public.%I', $1::text), 'id'), 'USAGE') AS sequence_can_use,
+                has_sequence_privilege('prodx_app', pg_get_serial_sequence(format('public.%I', $1::text), 'id'), 'SELECT') AS sequence_can_select`,
+        [probeTable],
+      );
+      assert.deepEqual(futurePrivileges.rows[0], {
+        can_select: false,
+        can_write: false,
+        sequence_can_use: false,
+        sequence_can_select: false,
+      });
+    } finally {
+      if (transactionStarted) await client.query('ROLLBACK').catch(() => undefined);
+      client.release();
+    }
+  } finally {
+    await pool.end();
+  }
+});
+
+test('PRODX public API roles cannot access POS tables or internal RPC functions', { skip: !shouldRun }, async () => {
+  const pool = new Pool({ connectionString: databaseUrl, max: 1 });
+  try {
+    const apiRoles = await pool.query<{ rolname: string }>(
+      `SELECT rolname FROM pg_roles WHERE rolname = ANY($1::text[])`,
+      [['anon', 'authenticated', 'service_role']],
+    );
+    for (const { rolname } of apiRoles.rows) {
+      const tableAccess = await pool.query<{ exposed_tables: number }>(
+        `SELECT count(*)::int AS exposed_tables
+           FROM information_schema.tables t
+          WHERE t.table_schema = 'public'
+            AND t.table_type = 'BASE TABLE'
+            AND left(t.table_name, 6) = 'prodx_'
+            AND (has_table_privilege($1, format('%I.%I', t.table_schema, t.table_name), 'SELECT')
+              OR has_table_privilege($1, format('%I.%I', t.table_schema, t.table_name), 'INSERT')
+              OR has_table_privilege($1, format('%I.%I', t.table_schema, t.table_name), 'UPDATE')
+              OR has_table_privilege($1, format('%I.%I', t.table_schema, t.table_name), 'DELETE'))`,
+        [rolname],
+      );
+      assert.equal(tableAccess.rows[0].exposed_tables, 0, `${rolname} must not have direct PRODX table access`);
+
+      const functionAccess = await pool.query<{ exposed_functions: number }>(
+        `SELECT count(*)::int AS exposed_functions
+           FROM pg_proc p
+           JOIN pg_namespace n ON n.oid = p.pronamespace
+          WHERE n.nspname = 'public'
+            AND left(p.proname, 6) = 'prodx_'
+            AND has_function_privilege($1, p.oid, 'EXECUTE')`,
+        [rolname],
+      );
+      assert.equal(functionAccess.rows[0].exposed_functions, 0, `${rolname} must not execute internal PRODX RPC functions`);
+    }
+
+    const internalPrivileges = await pool.query<{
+      runtime_reads_ledger: boolean;
+      runtime_reads_lock: boolean;
+      runtime_reads_throttle_table: boolean;
+      runtime_executes_prodx_functions: number;
+      rls_disabled_prodx_tables: number;
+    }>(
+      `SELECT
+         has_table_privilege('prodx_app', 'public.prodx_schema_migrations', 'SELECT') AS runtime_reads_ledger,
+         has_table_privilege('prodx_app', 'public.prodx_migration_lock', 'SELECT') AS runtime_reads_lock,
+         has_table_privilege('prodx_app', 'public.prodx_auth_login_throttles', 'SELECT') AS runtime_reads_throttle_table,
+         (SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+           WHERE n.nspname='public' AND left(p.proname,6)='prodx_'
+             AND has_function_privilege('prodx_app',p.oid,'EXECUTE')) AS runtime_executes_prodx_functions,
+         (SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+           WHERE n.nspname='public' AND c.relkind IN ('r','p') AND left(c.relname,6)='prodx_' AND NOT c.relrowsecurity) AS rls_disabled_prodx_tables`,
+    );
+    assert.equal(internalPrivileges.rows[0].runtime_reads_ledger, false);
+    assert.equal(internalPrivileges.rows[0].runtime_reads_lock, false);
+    assert.equal(internalPrivileges.rows[0].runtime_reads_throttle_table, false);
+    assert.ok(internalPrivileges.rows[0].runtime_executes_prodx_functions > 0);
+    assert.equal(internalPrivileges.rows[0].rls_disabled_prodx_tables, 0);
+  } finally {
+    await pool.end();
+  }
+});

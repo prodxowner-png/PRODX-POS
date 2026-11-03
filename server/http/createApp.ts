@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import express, { type NextFunction, type Request, type Response } from 'express';
+import { runWithRequestContext } from './request-context-storage.ts';
 import type {
   ApiErrorBody,
   AuthenticateRequest,
@@ -112,11 +113,12 @@ const authenticate = (authenticator: AuthenticateRequest) => {
         return;
       }
 
-      request.prodxContext = {
+      const context = {
         requestId: request.id,
         principal,
       };
-      next();
+      request.prodxContext = context;
+      runWithRequestContext(context, next);
     } catch {
       sendError(response, 401, 'UNAUTHENTICATED', 'Authentication could not be verified.', request.id);
     }
@@ -181,6 +183,13 @@ export const createApp = (options: BackendBoundaryOptions) => {
   });
 
   app.use((error: unknown, request: Request, response: Response, _next: NextFunction) => {
+    console.error('PRODX unhandled request error', {
+      requestId: request.id,
+      method: request.method,
+      path: request.path,
+      status: 500,
+      ...safeReadinessDiagnostic(error),
+    });
     const details = process.env.NODE_ENV === 'production'
       ? undefined
       : error instanceof Error ? error.message : error;

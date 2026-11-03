@@ -1,0 +1,191 @@
+{
+  "entities": {
+    "Organization": {
+      "title": "Organization",
+      "description": "An enterprise organization operating PRODX POS",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "slug": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z0-9\\-]+$" },
+        "taxId": { "type": "string", "maxLength": 64 },
+        "phone": { "type": "string", "maxLength": 32 },
+        "email": { "type": "string", "maxLength": 120 },
+        "currency": { "type": "string", "maxLength": 10 },
+        "status": { "type": "string", "enum": ["active", "inactive"] },
+        "createdAt": { "type": "number" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["id", "name", "slug", "createdAt"]
+    },
+    "Branch": {
+      "title": "Branch",
+      "description": "A physical store or branch belonging to an organization",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "orgId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "address": { "type": "string", "maxLength": 300 },
+        "code": { "type": "string", "maxLength": 64 },
+        "phone": { "type": "string", "maxLength": 32 },
+        "manager": { "type": "string", "maxLength": 120 },
+        "status": { "type": "string", "enum": ["active", "inactive"] },
+        "createdAt": { "type": "number" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["id", "orgId", "name", "address", "createdAt"]
+    },
+    "Terminal": {
+      "title": "Terminal",
+      "description": "A POS register terminal assigned to a branch and organization",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "branchId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "orgId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "code": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "deviceModel": { "type": "string", "maxLength": 120 },
+        "ipAddress": { "type": "string", "maxLength": 64 },
+        "paperWidth": { "type": "string", "enum": ["58mm", "80mm"] },
+        "status": { "type": "string", "enum": ["active", "maintenance", "inactive"] },
+        "createdAt": { "type": "number" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["id", "branchId", "name", "code", "createdAt"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Immutable real-time audit record of CRUD operations on organizations, branches, and terminals",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "entityType": { "type": "string", "enum": ["organization", "branch", "terminal"] },
+        "entityId": { "type": "string", "maxLength": 128 },
+        "action": { "type": "string", "enum": ["create", "update", "delete", "cascade_delete"] },
+        "entityName": { "type": "string", "maxLength": 160 },
+        "orgId": { "type": "string", "maxLength": 128 },
+        "branchId": { "type": "string", "maxLength": 128 },
+        "actor": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string", "maxLength": 128 },
+            "name": { "type": "string", "maxLength": 120 },
+            "email": { "type": "string", "maxLength": 120 },
+            "role": { "type": "string", "maxLength": 64 }
+          }
+        },
+        "details": { "type": "object" },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["id", "entityType", "entityId", "action", "timestamp"]
+    },
+    "DiagnosticLog": {
+      "title": "DiagnosticLog",
+      "description": "Buffered hardware and system diagnostic log event batch-uploaded to Firestore",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "batchId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "peripheralId": { "type": "string", "maxLength": 128 },
+        "deviceName": { "type": "string", "maxLength": 160 },
+        "category": { "type": "string", "enum": ["printer", "scanner", "drawer", "edc", "display", "scale", "system", "network"] },
+        "level": { "type": "string", "enum": ["TRACE", "DEBUG", "INFO", "WARN", "ERROR", "CRITICAL"] },
+        "event": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "message": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "port": { "type": "string", "maxLength": 64 },
+        "interfaceType": { "type": "string", "maxLength": 64 },
+        "orgId": { "type": "string", "maxLength": 128 },
+        "branchId": { "type": "string", "maxLength": 128 },
+        "terminalId": { "type": "string", "maxLength": 128 },
+        "metadata": { "type": "object" },
+        "timestamp": { "type": "number" },
+        "flushedAt": { "type": "number" }
+      },
+      "required": ["id", "batchId", "category", "level", "event", "message", "timestamp", "flushedAt"]
+    },
+    "AppErrorLog": {
+      "title": "AppErrorLog",
+      "description": "Client-side catch-all error logs synced for remote diagnosis",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "type": { "type": "string", "maxLength": 64 },
+        "title": { "type": "string", "maxLength": 200 },
+        "message": { "type": "string", "maxLength": 1000 },
+        "module": { "type": "string", "maxLength": 64 },
+        "errorStack": { "type": "string", "maxLength": 2000 },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["id", "type", "message", "timestamp"]
+    },
+    "AdminCredential": {
+      "title": "AdminCredential",
+      "description": "System owner administrator credential record with SHA-256 password digest and audit metadata",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "minLength": 3, "maxLength": 120 },
+        "passwordHash": { "type": "string", "minLength": 16, "maxLength": 256 },
+        "passwordSalt": { "type": "string", "minLength": 8, "maxLength": 128 },
+        "isSystemOwner": { "type": "boolean" },
+        "updatedBy": { "type": "string", "maxLength": 120 },
+        "reauthMethod": { "type": "string", "enum": ["password", "webauthn_biometric"] },
+        "version": { "type": "number" },
+        "createdAt": { "type": "number" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["id", "email", "passwordHash", "isSystemOwner", "updatedAt"]
+    },
+    "Task": {
+      "title": "Task",
+      "description": "A user task in the management app",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "description": { "type": "string", "maxLength": 1000 },
+        "completed": { "type": "boolean" },
+        "createdAt": { "type": "number" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["id", "ownerId", "title", "completed", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/organizations/{orgId}": {
+      "schema": { "$ref": "Organization" },
+      "description": "Enterprise organizations collection"
+    },
+    "/branches/{branchId}": {
+      "schema": { "$ref": "Branch" },
+      "description": "Store branches collection"
+    },
+    "/terminals/{terminalId}": {
+      "schema": { "$ref": "Terminal" },
+      "description": "POS register terminals collection"
+    },
+    "/audit_logs/{logId}": {
+      "schema": { "$ref": "AuditLog" },
+      "description": "Immutable real-time audit logs of administrative and CRUD operations"
+    },
+    "/diagnostic_logs/{logId}": {
+      "schema": { "$ref": "DiagnosticLog" },
+      "description": "Batch-uploaded hardware and infrastructure diagnostic log events"
+    },
+    "/AppErrorLog/{logId}": {
+      "schema": { "$ref": "AppErrorLog" },
+      "description": "Client-side catch-all error logs for remote diagnosis"
+    },
+    "/admin_credentials/{adminId}": {
+      "schema": { "$ref": "AdminCredential" },
+      "description": "System owner administrator credentials collection"
+    },
+    "/tasks/{taskId}": {
+      "schema": { "$ref": "Task" },
+      "description": "User tasks collection"
+    }
+  }
+}

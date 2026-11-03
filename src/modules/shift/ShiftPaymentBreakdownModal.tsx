@@ -241,7 +241,7 @@ export const ShiftPaymentBreakdownModal: React.FC<ShiftPaymentBreakdownModalProp
             <div className="text-xl font-black font-mono text-text mt-1">
               {breakdown.totalCount > 0
                 ? formatMoney({
-                    amountInCents: Math.round(breakdown.totalCents / breakdown.totalCount),
+                    amountInCents: Number((BigInt(breakdown.totalCents) + BigInt(Math.max(1, breakdown.totalCount)) / 2n) / BigInt(Math.max(1, breakdown.totalCount))),
                     currency,
                   })
                 : formatMoney({ amountInCents: 0, currency })}

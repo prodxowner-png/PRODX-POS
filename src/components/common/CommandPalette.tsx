@@ -179,7 +179,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         const [prods, cats, ords] = await Promise.all([
           catalogApi!.getProducts(session.currentStore.id),
           catalogApi!.getCategories(session.currentStore.id),
-          orderReadApi.getOrders(session.currentStore.id, 50),
+          orderReadApi.getOrders(session.currentStore.id, 50, session.registerId),
         ]);
         if (!isMounted) return;
         setProducts(prods as Product[]);
@@ -210,7 +210,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   useEffect(() => {
     const handleOrderCompleted = () => {
       if (session?.currentStore.id) {
-        orderReadApi.getOrders(session.currentStore.id, 50).then((ords) => {
+        orderReadApi.getOrders(session.currentStore.id, 50, session.registerId).then((ords) => {
           setOrders(ords as Order[]);
         });
       }

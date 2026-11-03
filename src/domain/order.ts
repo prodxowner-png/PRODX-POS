@@ -90,8 +90,15 @@ export interface Order {
   readonly offlineOutboxId?: string;
 }
 
+const roundDivide = (numerator: bigint, denominator: bigint): bigint => {
+  if (denominator <= 0n) throw new Error('Denominator must be positive');
+  const sign = numerator < 0n ? -1n : 1n;
+  const absNum = numerator < 0n ? -numerator : numerator;
+  return sign * ((absNum + denominator / 2n) / denominator);
+};
+
 /**
- * Deterministically computes cart line item totals using integer-cents arithmetic.
+ * Deterministically computes cart line item totals using exact BigInt arithmetic.
  */
 export function calculateLineItem(
   product: Product,
@@ -109,9 +116,9 @@ export function calculateLineItem(
   const discountAmount = calculateBasisPoints(rawSubtotal, discountBps);
   const discountedSubtotal = subtractMoney(rawSubtotal, discountAmount); // Inclusive final amount
 
-  const taxBps = product.taxRateBps;
-  const taxCents = taxBps > 0
-    ? Math.round((discountedSubtotal.amountInCents * taxBps) / (10000 + taxBps))
+  const taxBps = BigInt(Math.trunc(product.taxRateBps));
+  const taxCents = taxBps > 0n
+    ? Number(roundDivide(BigInt(discountedSubtotal.amountInCents) * taxBps, 10000n + taxBps))
     : 0;
   const lineTax = createMoney(taxCents, discountedSubtotal.currency);
   const netSubtotal = subtractMoney(discountedSubtotal, lineTax); // Pre-tax taxable base
@@ -129,7 +136,7 @@ export function calculateLineItem(
 }
 
 /**
- * Deterministically aggregates cart totals.
+ * Deterministically aggregates cart totals using exact BigInt arithmetic.
  */
 export function computeCartTotals(
   items: readonly CartLineItem[],
@@ -176,12 +183,15 @@ export function computeCartTotals(
   const orderDiscount = calculateBasisPoints(preOrderDiscountSubtotal, orderDiscountBps);
   const grandTotal = subtractMoney(preOrderDiscountSubtotal, orderDiscount);
 
-  // Proportional scaling for order discounts
-  const discountRatio = preOrderDiscountSubtotal.amountInCents > 0
-    ? grandTotal.amountInCents / preOrderDiscountSubtotal.amountInCents
-    : 1;
-
-  const adjustedNetCents = Math.round(netSubtotal.amountInCents * discountRatio);
+  // Proportional scaling for order discounts using exact BigInt division
+  const adjustedNetCents = preOrderDiscountSubtotal.amountInCents > 0
+    ? Number(
+        roundDivide(
+          BigInt(netSubtotal.amountInCents) * BigInt(grandTotal.amountInCents),
+          BigInt(preOrderDiscountSubtotal.amountInCents)
+        )
+      )
+    : 0;
   // Invariant: netSubtotal + totalTax must exactly equal grandTotal to prevent 1-cent discrepancies
   const adjustedTaxCents = grandTotal.amountInCents - adjustedNetCents;
 
