@@ -238,7 +238,7 @@ export async function commitSale(env: Env, message: QueueSale): Promise<"committ
     // A single parameterized PostgreSQL statement performs the entire sale
     // transaction (including duplicate resolution), RLS context, idempotency,
     // ledger writes, inventory trigger, immutable audit, and checkpoint advance.
-    let result;
+    let result: { rows: unknown[] };
     try {
       result = await client.query(COMMIT_SALE_CTE, [
         message.tenant_id,
