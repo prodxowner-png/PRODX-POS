@@ -77,7 +77,7 @@
     "staging": {
       "name": "prodx-pos-edge-sync-staging",
       "account_id": "3c0c1c843f861164db9de3fb31f062f5",
-      "workers_dev": false,
+      "workers_dev": true,
       "observability": {
         "enabled": true,
         "head_sampling_rate": 1

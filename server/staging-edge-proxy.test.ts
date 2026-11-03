@@ -96,3 +96,14 @@ test('proxy rejects non-staging Worker origins instead of becoming an open proxy
   assert.equal(response.statusCode, 503);
   assert.match(response.body, /STAGING_UPSTREAM_NOT_ALLOWED/);
 });
+
+
+test('diagnostics endpoint is restricted to GET with a valid terminal UUID', async () => {
+  const response = mockResponse();
+  await createStagingEdgeProxy({ ...completeEnv, POS_STAGING_OPS_ACCESS_TOKEN: '' })(
+    mockRequest('/api/staging-edge?path=api%2Fv1%2Fops%2Fterminal-sync-diagnostics&terminal_id=123e4567-e89b-42d3-a456-426614174000', 'GET', 'Bearer test-proxy-token') as never,
+    response as never,
+  );
+  assert.equal(response.statusCode, 503);
+  assert.match(response.body, /STAGING_PROXY_NOT_CONFIGURED/);
+});
