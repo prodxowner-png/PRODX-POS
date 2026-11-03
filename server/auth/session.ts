@@ -45,7 +45,7 @@ export const hashSessionToken = (token: string): string => crypto.createHash('sh
 const newBearerToken = (): string => crypto.randomBytes(32).toString('base64url');
 
 type VerifiedSupabaseIdentity = { userId: string; expiresAt: Date };
-type SupabaseTokenVerifier = (token: string) => Promise<VerifiedSupabaseIdentity | null>;
+export type SupabaseTokenVerifier = (token: string) => Promise<VerifiedSupabaseIdentity | null>;
 
 export const createSupabaseTokenVerifier = (
   configuredSupabaseUrl: string | undefined,
