@@ -223,6 +223,20 @@ export class IdempotencyGate extends DurableObject<Env> {
         last_contiguous_seq_no: number; last_hlc_physical_ms: number; last_hlc_logical: number;
       }>(`SELECT last_contiguous_seq_no,last_hlc_physical_ms,last_hlc_logical
            FROM terminal_sequence_state WHERE singleton=1`).toArray()[0]!;
+      const failedRows = this.ctx.storage.sql.exec<{queue_payload:string}>(
+        `SELECT queue_payload FROM idempotency
+         WHERE failure_code IS NOT NULL`
+      ).toArray();
+      const failedSequences = failedRows.map((row) => {
+        try {
+          const sequence = (JSON.parse(row.queue_payload) as QueueSale).sale.terminal_seq_no;
+          if (!Number.isSafeInteger(sequence) || sequence < 1) throw new Error();
+          return sequence;
+        } catch {
+          throw new Error("TERMINAL_SEQUENCE_BLOCKED_BY_UNPARSEABLE_FAILED_RECEIPT");
+        }
+      });
+      const originCommittedSeq = originCheckpoint?.last_committed_seq_no ?? 0;
       const sorted = [...input.sales].sort((a, b) => a.sale.terminal_seq_no - b.sale.terminal_seq_no);
       const batchKeys = new Map<string, string>();
       const newSequences = new Set<number>();
@@ -239,6 +253,9 @@ export class IdempotencyGate extends DurableObject<Env> {
         ).toArray()[0];
         if (existingKey) continue; // Exact replay: do not re-run sequence/HLC advancement.
         const seq = item.sale.terminal_seq_no;
+        if (failedSequences.some((failedSeq) => failedSeq > originCommittedSeq && failedSeq <= seq)) {
+          throw new Error("TERMINAL_SEQUENCE_BLOCKED_BY_FAILED_RECEIPT");
+        }
         if (newSequences.has(seq)) throw new Error("INVALID_DUPLICATE_TERMINAL_SEQUENCE");
         newSequences.add(seq);
         if (item.sale.hlc.physical_ms > Date.now() + 300_000) throw new Error("INVALID_HLC_FUTURE_CLOCK");
