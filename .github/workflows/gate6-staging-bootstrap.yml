@@ -136,7 +136,7 @@ jobs:
             const url = new URL(raw);
             assert.ok(['postgres:', 'postgresql:'].includes(url.protocol), label + ' must use PostgreSQL');
             assert.equal(url.hostname.toLowerCase(), expectedHost.toLowerCase(), label + ' host is not the approved Staging host');
-            assert.equal(decodeURIComponent(url.pathname.replace(/^\\//, '')), expectedDatabase, label + ' database is not the approved Staging database');
+            assert.equal(decodeURIComponent(url.pathname.slice(1)), expectedDatabase, label + ' database is not the approved Staging database');
           }
           const syncUrl = new URL(process.env.POS_STAGING_SYNC_URL);
           assert.equal(syncUrl.protocol, 'https:', 'Staging sync endpoint must use HTTPS');
