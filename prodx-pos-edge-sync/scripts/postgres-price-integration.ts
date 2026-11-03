@@ -120,6 +120,73 @@ try{
     throw new Error("AUDIT_OR_INVENTORY_INTEGRITY_ASSERTION_FAILED");
   }
 
+  // Two independent terminals race to sell the final unit. The ledger trigger
+  // must serialize on the product row and reject exactly one transaction.
+  const raceProductId=randomUUID();
+  const raceTerminalA=randomUUID();
+  const raceTerminalB=randomUUID();
+  const raceSaleA=randomUUID();
+  const raceSaleB=randomUUID();
+  await admin.query("BEGIN");
+  await admin.query("SELECT set_config('app.current_tenant_id',$1,true)",[tenantId]);
+  await admin.query(
+    `INSERT INTO products(id,tenant_id,sku,name,unit_price_minor,tax_bps,version,active)
+     VALUES($1,$2,$3,'Concurrent stock fixture',10000,700,1,true)`,
+    [raceProductId,tenantId,`RACE-${raceProductId.slice(0,8)}`]
+  );
+  await admin.query(
+    `INSERT INTO inventory_ledger(tenant_id,product_id,reference_id,quantity_delta,reason)
+     VALUES($1,$2,$3,1,'OPENING_BALANCE')`,
+    [tenantId,raceProductId,randomUUID()]
+  );
+  for (const [raceSaleId,raceTerminalId] of [[raceSaleA,raceTerminalA],[raceSaleB,raceTerminalB]]) {
+    await admin.query(
+      `INSERT INTO sales(sale_id,tenant_id,terminal_id,terminal_seq_no,currency,total_minor,
+         catalog_version,hlc_physical_ms,hlc_logical,client_recorded_at,edge_received_at)
+       VALUES($1,$2,$3,1,'THB',0,$4,$5,0,now(),now())`,
+      [raceSaleId,tenantId,raceTerminalId,catalogVersion,Date.now()]
+    );
+  }
+  await admin.query("COMMIT");
+
+  async function attemptFinalUnit(saleId:string,terminalId:string):Promise<"committed"|"rejected"> {
+    const client=new Client({connectionString:runtimeUrl});
+    await client.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT set_config('app.current_tenant_id',$1,true)",[tenantId]);
+      await client.query(
+        `INSERT INTO inventory_ledger(tenant_id,product_id,sale_id,terminal_id,reference_id,quantity_delta,reason)
+         VALUES($1,$2,$3,$4,$5,-1,'POS_SALE')`,
+        [tenantId,raceProductId,saleId,terminalId,randomUUID()]
+      );
+      await client.query("COMMIT");
+      return "committed";
+    } catch (error) {
+      await client.query("ROLLBACK").catch(()=>undefined);
+      if (typeof error==="object"&&error!==null&&"code" in error&&(error as {code?:string}).code==="PZ001") return "rejected";
+      throw error;
+    } finally {
+      await client.end().catch(()=>undefined);
+    }
+  }
+  const raceResults=await Promise.all([
+    attemptFinalUnit(raceSaleA,raceTerminalA),
+    attemptFinalUnit(raceSaleB,raceTerminalB)
+  ]);
+  const raceBalance=await admin.query(
+    `SELECT b.quantity,
+            (SELECT COUNT(*) FROM inventory_ledger l WHERE l.tenant_id=$1 AND l.product_id=$2 AND l.reason='POS_SALE') AS sale_ledger_count
+       FROM inventory_balances b WHERE b.tenant_id=$1 AND b.product_id=$2`,
+    [tenantId,raceProductId]
+  );
+  if(raceResults.filter((value)=>value==="committed").length!==1||
+     raceResults.filter((value)=>value==="rejected").length!==1||
+     Number(raceBalance.rows[0]?.quantity)!==0||
+     Number(raceBalance.rows[0]?.sale_ledger_count)!==1){
+    throw new Error("CONCURRENT_INVENTORY_OVERSALE_GUARD_FAILED");
+  }
+
   const rlsClient=new Client({connectionString:runtimeUrl});
   await rlsClient.connect();
   try{
@@ -136,6 +203,7 @@ try{
     result:"PASS",tenant_id:tenantId,terminal_id:terminalId,sale_id:saleId,
     committed_price_minor:10000,current_database_price_minor:20000,
     total_minor:21400,duplicate_result:duplicate,inventory_balance_after_ledger_trigger:0,
+    concurrent_last_unit_results:raceResults,concurrent_inventory_balance:0,
     audit_catalog_version:catalogVersion,rls_cross_tenant_read:"blocked",mtls_certificate_mapping:"pass"
   },null,2));
 }catch(error){
