@@ -75,6 +75,8 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           STAGING_DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          STAGING_DATABASE_HOST_EXPECTED: ${{ vars.STAGING_DATABASE_HOST }}
+          STAGING_DATABASE_NAME_EXPECTED: ${{ vars.STAGING_DATABASE_NAME }}
           POS_STAGING_ACCESS_AUD: ${{ secrets.POS_STAGING_ACCESS_AUD }}
         run: |
           chmod +x scripts/provision-staging.sh
