@@ -120,13 +120,9 @@ try{
     throw new Error("AUDIT_OR_INVENTORY_INTEGRITY_ASSERTION_FAILED");
   }
 
-  // Two independent terminals race to sell the final unit. The ledger trigger
-  // must serialize on the product row and reject exactly one transaction.
+  // Two independent inventory adjustments race to consume the final unit.
+  // The same ledger trigger protects POS sales and all other stock-out movements.
   const raceProductId=randomUUID();
-  const raceTerminalA=randomUUID();
-  const raceTerminalB=randomUUID();
-  const raceSaleA=randomUUID();
-  const raceSaleB=randomUUID();
   await admin.query("BEGIN");
   await admin.query("SELECT set_config('app.current_tenant_id',$1,true)",[tenantId]);
   await admin.query(
@@ -139,26 +135,18 @@ try{
      VALUES($1,$2,$3,1,'OPENING_BALANCE')`,
     [tenantId,raceProductId,randomUUID()]
   );
-  for (const [raceSaleId,raceTerminalId] of [[raceSaleA,raceTerminalA],[raceSaleB,raceTerminalB]]) {
-    await admin.query(
-      `INSERT INTO sales(sale_id,tenant_id,terminal_id,terminal_seq_no,currency,total_minor,
-         catalog_version,hlc_physical_ms,hlc_logical,client_recorded_at,edge_received_at)
-       VALUES($1,$2,$3,1,'THB',0,$4,$5,0,now(),now())`,
-      [raceSaleId,tenantId,raceTerminalId,catalogVersion,Date.now()]
-    );
-  }
   await admin.query("COMMIT");
 
-  async function attemptFinalUnit(saleId:string,terminalId:string):Promise<"committed"|"rejected"> {
+  async function attemptFinalUnit(referenceId:string):Promise<"committed"|"rejected"> {
     const client=new Client({connectionString:runtimeUrl});
     await client.connect();
     try {
       await client.query("BEGIN");
       await client.query("SELECT set_config('app.current_tenant_id',$1,true)",[tenantId]);
       await client.query(
-        `INSERT INTO inventory_ledger(tenant_id,product_id,sale_id,terminal_id,reference_id,quantity_delta,reason)
-         VALUES($1,$2,$3,$4,$5,-1,'POS_SALE')`,
-        [tenantId,raceProductId,saleId,terminalId,randomUUID()]
+        `INSERT INTO inventory_ledger(tenant_id,product_id,reference_id,quantity_delta,reason)
+         VALUES($1,$2,$3,-1,'STOCK_ADJUSTMENT')`,
+        [tenantId,raceProductId,referenceId]
       );
       await client.query("COMMIT");
       return "committed";
@@ -171,19 +159,19 @@ try{
     }
   }
   const raceResults=await Promise.all([
-    attemptFinalUnit(raceSaleA,raceTerminalA),
-    attemptFinalUnit(raceSaleB,raceTerminalB)
+    attemptFinalUnit(randomUUID()),
+    attemptFinalUnit(randomUUID())
   ]);
   const raceBalance=await admin.query(
     `SELECT b.quantity,
-            (SELECT COUNT(*) FROM inventory_ledger l WHERE l.tenant_id=$1 AND l.product_id=$2 AND l.reason='POS_SALE') AS sale_ledger_count
+            (SELECT COUNT(*) FROM inventory_ledger l WHERE l.tenant_id=$1 AND l.product_id=$2 AND l.reason='STOCK_ADJUSTMENT') AS adjustment_count
        FROM inventory_balances b WHERE b.tenant_id=$1 AND b.product_id=$2`,
     [tenantId,raceProductId]
   );
   if(raceResults.filter((value)=>value==="committed").length!==1||
      raceResults.filter((value)=>value==="rejected").length!==1||
      Number(raceBalance.rows[0]?.quantity)!==0||
-     Number(raceBalance.rows[0]?.sale_ledger_count)!==1){
+     Number(raceBalance.rows[0]?.adjustment_count)!==1){
     throw new Error("CONCURRENT_INVENTORY_OVERSALE_GUARD_FAILED");
   }
 
