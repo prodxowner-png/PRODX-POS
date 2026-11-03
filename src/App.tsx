@@ -4,8 +4,6 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
-import { auth } from './lib/firebase';
 import { Loader2 } from 'lucide-react';
 import { ThemeProvider } from './context/ThemeContext';
 import { LanguageProvider } from './context/LanguageContext';
@@ -76,14 +74,6 @@ const checkIsDedicatedAdminLoginPath = () => {
 };
 
 const MainApplication: React.FC = () => {
-  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
-
-  useEffect(() => {
-    return onAuthStateChanged(auth, (user) => {
-      setFirebaseUser(user);
-    });
-  }, []);
-
   const { session } = useAuth();
   const { currentShift, isLoading: isShiftLoading } = useShift();
   const [isStartShiftModalOpen, setIsStartShiftModalOpen] = useState(false);

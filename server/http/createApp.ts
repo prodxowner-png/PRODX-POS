@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import express, { type NextFunction, type Request, type Response } from 'express';
+import { runWithRequestContext } from './request-context-storage.ts';
 import type {
   ApiErrorBody,
   AuthenticateRequest,
@@ -112,11 +113,12 @@ const authenticate = (authenticator: AuthenticateRequest) => {
         return;
       }
 
-      request.prodxContext = {
+      const context = {
         requestId: request.id,
         principal,
       };
-      next();
+      request.prodxContext = context;
+      runWithRequestContext(context, next);
     } catch {
       sendError(response, 401, 'UNAUTHENTICATED', 'Authentication could not be verified.', request.id);
     }

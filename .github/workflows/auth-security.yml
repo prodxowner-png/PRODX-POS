@@ -35,6 +35,11 @@ jobs:
         with:
           node-version: 20
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.3
+
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
@@ -55,6 +60,12 @@ jobs:
       - name: M2 PostgreSQL authentication integration
         run: npm run server:test:integration
 
+      - name: First-tenant bootstrap PostgreSQL integration
+        env:
+          PRODX_RUN_BOOTSTRAP_POSTGRES_INTEGRATION: '1'
+          PRODX_BOOTSTRAP_TEST_DATABASE_URL: ${{ env.DATABASE_URL }}
+        run: node --import tsx --test server/auth/first-tenant-bootstrap.integration.test.ts
+
       - name: Reject direct mock auth wiring
         shell: bash
         run: |
@@ -62,6 +73,16 @@ jobs:
           if grep -R --line-number --include='*.ts' --include='*.tsx' \
             "from '../adapters/mockAdapter'" src/context/AuthContext.tsx; then
             echo "Direct mock authentication import detected in AuthContext. Use authApiFactory instead."
+            exit 1
+          fi
+
+      - name: Reject hardcoded default admin credential paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -R -n -E --include='*.ts' --include='*.tsx' \
+            'DEFAULT_SYSTEM_OWNER_PASSWORD|DEFAULT_STAFF_PASSWORDS|initializeDefaultAdminCredentials|resetAdminPasswordToDefault|default_hardcoded' src; then
+            echo "Hardcoded default administrator credential path detected."
             exit 1
           fi
 

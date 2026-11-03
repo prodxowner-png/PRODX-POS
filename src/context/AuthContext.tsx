@@ -20,7 +20,6 @@ import {
   getStoredOperationalScope,
   saveStoredOperationalScope,
   ROLE_PERMISSIONS,
-  initializeDefaultAdminCredentials,
 } from '../domain/auth';
 import {
   CustomPermissionSet,
@@ -51,6 +50,7 @@ import {
   writePersistedSession,
 } from './authSessionStorage';
 import { shouldReadMock } from '../adapters/env';
+import { createAuthDiagnosticRequest } from './authDiagnostics';
 
 export interface AddStaffPayload {
   name: string;
@@ -171,10 +171,6 @@ function applyOperationalScopeToSession(
 }
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  useEffect(() => {
-    initializeDefaultAdminCredentials();
-  }, []);
-
   const [session, setSession] = useState<SessionContext | null>(null);
   const [operationalScope, setOperationalScopeState] = useState<OperationalScope | null>(() =>
     getStoredOperationalScope(),
@@ -432,23 +428,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  // Ensure default admin PIN
-  useEffect(() => {
-    if (!IS_DEVELOPMENT) return;
-    const adminUsers = staffUsers.filter((u) => u.role === 'admin');
-    let needsUpdate = false;
-    const nextPins = { ...staffPins };
-    for (const admin of adminUsers) {
-      if (!nextPins[admin.id]) {
-        nextPins[admin.id] = '999999';
-        needsUpdate = true;
-      }
-    }
-    if (needsUpdate) {
-      setStaffPins(nextPins);
-      saveStoredStaffPins(nextPins);
-    }
-  }, [staffUsers]);
 
   useEffect(() => {
     async function restoreSession() {
@@ -543,14 +522,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         traceId,
         stage,
         timestamp: new Date().toISOString(),
-        request: {
-          org: req.organizationSlug || '',
-          branch: req.storeCode || '',
-          terminal: req.registerId || '',
-          emailOrPin: req.emailOrPin || '',
-          passwordOrPin: req.passwordOrPin || null,
-          requireAdmin: req.requireAdminRole || false,
-        },
+        // Never persist credentials or direct identifiers in diagnostic logs.
+        request: createAuthDiagnosticRequest(req),
         ...data,
       };
 
@@ -567,24 +540,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     logTrace('START');
 
-    // VERBOSE DIAGNOSTIC: Log raw credentials and context before any transformation or API call
-    console.group('%c[AUTH_VERBOSE_DIAGNOSTIC] Pre-Sign-In Capture', 'color: #f59e0b; font-weight: bold;');
-    console.info('Raw Credentials from UI:', {
-      emailOrPin: req.emailOrPin,
-      passwordOrPin: req.passwordOrPin,
-      organizationSlug: req.organizationSlug,
-      storeCode: req.storeCode,
-      registerId: req.registerId,
-    });
-    console.info('Current Operational Scope (State):', operationalScope);
-    console.info('Expected Firestore User Shape Reference:', {
-      email: 'Must match exactly (case-sensitive if not handled by server)',
-      employeeCode: 'Used for matching if email is not provided',
-      pin: 'Matched against staffPins or staff record',
-      orgId: 'Matches effectiveScope.organizationId',
-      branchId: 'Matches effectiveScope.branchId',
-    });
-    console.groupEnd();
+    // Authentication credentials must never be written to console or audit logs.
 
     try {
       const effectiveScope = req.organizationContext ?? operationalScope ?? undefined;
@@ -617,18 +573,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             toRegisterId: enrichedReq.registerId,
           }
         },
-      });
-
-      // VERBOSE DIAGNOSTIC: Log the final payload being sent to the "Firebase sign-in" equivalent
-      console.info('%c[AUTH_VERBOSE_DIAGNOSTIC] FINAL ENRICHED REQUEST', 'color: #10b981; font-weight: bold;', {
-        finalPayload: enrichedReq,
-        checks: {
-          orgSlugLooksValid: /^[a-z0-9\-]+$/.test(enrichedReq.organizationSlug),
-          storeCodeLooksValid: /^[a-zA-Z0-9_\-]+$/.test(enrichedReq.storeCode),
-          registerIdLooksValid: /^[a-zA-Z0-9_\-]+$/.test(enrichedReq.registerId),
-          identityIsEmail: enrichedReq.emailOrPin.includes('@'),
-        },
-        note: 'Verify that storeCode matches the "code" field in Firestore branches collection, NOT the name. If any check is false, credentials will likely fail.'
       });
 
       if (enrichedReq.storeCode.includes(' ')) {

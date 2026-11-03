@@ -1,66 +1,124 @@
 /**
- * PRODX POS - Gmail Workspace Integration Service
+ * PRODX POS — Gmail Workspace Integration.
+ * Uses Google Identity Services directly; Firebase Auth is not required.
  */
 
-import { initializeApp, getApps } from 'firebase/app';
-import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User } from 'firebase/auth';
-import firebaseConfig from '../../../firebase-applet-config.json';
+export interface GmailUser {
+  uid: string;
+  email: string | null;
+  displayName: string | null;
+}
 
-const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
-const auth = getAuth(app);
+interface GoogleTokenResponse {
+  access_token?: string;
+  error?: string;
+  error_description?: string;
+}
+
+interface GoogleTokenClient {
+  requestAccessToken(options?: { prompt?: string }): void;
+}
+
+interface GoogleIdentityServices {
+  oauth2: {
+    initTokenClient(options: {
+      client_id: string;
+      scope: string;
+      callback: (response: GoogleTokenResponse) => void;
+      error_callback?: (error: { type?: string; message?: string }) => void;
+    }): GoogleTokenClient;
+    revoke(token: string, callback?: () => void): void;
+  };
+}
+
+declare global {
+  interface Window {
+    google?: { accounts?: GoogleIdentityServices };
+  }
+}
 
 const GMAIL_SCOPES = [
-  'https://mail.google.com/',
-  'https://www.googleapis.com/auth/gmail.send',
   'https://www.googleapis.com/auth/gmail.readonly',
-  'https://www.googleapis.com/auth/gmail.compose',
-  'https://www.googleapis.com/auth/gmail.modify'
-];
-
-const provider = new GoogleAuthProvider();
-GMAIL_SCOPES.forEach(scope => provider.addScope(scope));
+  'https://www.googleapis.com/auth/gmail.send',
+].join(' ');
 
 let cachedAccessToken: string | null = null;
-let isSigningIn = false;
+let tokenClient: GoogleTokenClient | null = null;
+let cachedUser: GmailUser | null = null;
+let scriptPromise: Promise<void> | null = null;
 
-export const initGmailAuth = (
-  onAuthSuccess?: (user: User, token: string) => void,
-  onAuthFailure?: () => void
-) => {
-  return onAuthStateChanged(auth, async (user: User | null) => {
-    if (user) {
-      if (cachedAccessToken) {
-        if (onAuthSuccess) onAuthSuccess(user, cachedAccessToken);
-      } else if (!isSigningIn) {
-        if (onAuthFailure) onAuthFailure();
-      }
-    } else {
-      cachedAccessToken = null;
-      if (onAuthFailure) onAuthFailure();
-    }
-  });
+const googleClientId = (): string => {
+  const id = import.meta.env.VITE_GOOGLE_OAUTH_CLIENT_ID?.trim();
+  if (!id) throw new Error('Gmail integration is not configured: VITE_GOOGLE_OAUTH_CLIENT_ID is missing.');
+  return id;
 };
 
-export const signInWithGmail = async (): Promise<{ user: User; accessToken: string }> => {
-  isSigningIn = true;
-  try {
-    const result = await signInWithPopup(auth, provider);
-    const credential = GoogleAuthProvider.credentialFromResult(result);
-    if (!credential?.accessToken) {
-      throw new Error('Failed to obtain Google access token for Gmail');
-    }
-    cachedAccessToken = credential.accessToken;
-    return { user: result.user, accessToken: cachedAccessToken };
-  } finally {
-    isSigningIn = false;
+async function ensureGoogleIdentityServices(): Promise<void> {
+  if (typeof window === 'undefined' || typeof document === 'undefined') {
+    throw new Error('Gmail sign-in is only available in a browser.');
   }
+  if (window.google?.accounts?.oauth2) return;
+  if (!scriptPromise) {
+    scriptPromise = new Promise<void>((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = 'https://accounts.google.com/gsi/client';
+      script.async = true;
+      script.defer = true;
+      script.onload = () => window.google?.accounts?.oauth2
+        ? resolve()
+        : reject(new Error('Google Identity Services loaded without OAuth support.'));
+      script.onerror = () => reject(new Error('Could not load Google Identity Services.'));
+      document.head.appendChild(script);
+    }).catch((error) => {
+      scriptPromise = null;
+      throw error;
+    });
+  }
+  await scriptPromise;
+}
+
+export const initGmailAuth = (
+  onAuthSuccess?: (user: GmailUser, token: string) => void,
+  onAuthFailure?: () => void,
+): (() => void) => {
+  if (cachedAccessToken && cachedUser) onAuthSuccess?.(cachedUser, cachedAccessToken);
+  else onAuthFailure?.();
+  return () => undefined;
+};
+
+export const signInWithGmail = async (): Promise<{ user: GmailUser; accessToken: string }> => {
+  await ensureGoogleIdentityServices();
+  const clientId = googleClientId();
+  const googleOAuth = window.google?.accounts?.oauth2;
+  if (!googleOAuth) throw new Error('Google OAuth is unavailable.');
+  return new Promise((resolve, reject) => {
+    tokenClient = googleOAuth.initTokenClient({
+      client_id: clientId,
+      scope: GMAIL_SCOPES,
+      callback: (response) => {
+        if (response.error || !response.access_token) {
+          reject(new Error(response.error_description || response.error || 'Google did not return a Gmail access token.'));
+          return;
+        }
+        cachedAccessToken = response.access_token;
+        cachedUser = { uid: 'google-oauth-session', email: null, displayName: 'Google account' };
+        resolve({ user: cachedUser, accessToken: response.access_token });
+      },
+      error_callback: (error) => reject(new Error(error.message || 'Google OAuth popup failed.')),
+    });
+    tokenClient.requestAccessToken({ prompt: 'consent' });
+  });
 };
 
 export const getGmailAccessToken = (): string | null => cachedAccessToken;
 
-export const signOutGmail = async () => {
-  await auth.signOut();
+export const signOutGmail = async (): Promise<void> => {
+  const token = cachedAccessToken;
   cachedAccessToken = null;
+  cachedUser = null;
+  if (!token || typeof window === 'undefined') return;
+  await ensureGoogleIdentityServices();
+  window.google?.accounts?.oauth2.revoke(token, () => undefined);
 };
 
 // Helper to encode email in base64url format required by Gmail API

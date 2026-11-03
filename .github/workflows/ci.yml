@@ -62,6 +62,22 @@ jobs:
     - name: Verify build artifacts
       run: |
         ls -la dist/
-        test -f dist/index.html
-        test -f dist/index.js
-        echo "Build artifacts verified successfully!"
+        test -s dist/index.html
+        test ! -e dist/index.js
+        test ! -e dist/server-bundle.js
+        test -s .private-build/server/index.js
+        test ! -e build/index.js
+        test ! -e build/server-bundle.js
+        test ! -e build/diagnostics
+        echo "Frontend output verified; server bundle is outside public dist."
+        test ! -e dist/stats.html
+        test ! -e dist/metafile.json
+        test ! -e dist/stats.html.gz
+        test ! -e dist/stats.html.br
+        test ! -e dist/metafile.json.gz
+        test ! -e dist/metafile.json.br
+        test ! -e dist/index.js.gz
+        test ! -e dist/index.js.br
+        test -s .private-build/diagnostics/stats.html
+        test -s .private-build/diagnostics/metafile.json
+        echo "Server bundle and diagnostics are kept outside public dist output."

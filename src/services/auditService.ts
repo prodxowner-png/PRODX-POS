@@ -2,23 +2,12 @@
  * PRODX POS — Background Buffered Diagnostic & Audit Log Service
  *
  * Buffers high-frequency hardware, peripheral, and system diagnostic log events locally
- * (in-memory + durable localStorage fallback) before batch-uploading them to Google Cloud
- * Firestore using atomic `writeBatch` commits. This minimizes Firestore API overhead and
- * network contention during peak checkout and hardware telemetry bursts.
+ * (in-memory + durable localStorage fallback) before batch-uploading them through the
+ * authenticated PostgreSQL audit API. Idempotency keys make retried batches safe.
  */
 
-import {
-  collection,
-  doc,
-  getDocs,
-  limit,
-  onSnapshot,
-  orderBy,
-  query,
-  Unsubscribe,
-  writeBatch,
-} from 'firebase/firestore';
-import { db, OperationType, handleFirestoreError } from '../lib/firebase';
+import { readPersistedSession } from '../context/authSessionStorage';
+
 
 export type DiagnosticLogLevel = 'TRACE' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR' | 'CRITICAL';
 
@@ -80,8 +69,8 @@ export interface AuditBufferConfig {
   flushIntervalMs: number;
   /** Debounce window for expedited flush when ERROR / CRITICAL events arrive (default: 1200ms) */
   criticalFlushDebounceMs: number;
-  /** Maximum operations per single Firestore writeBatch (default: 450, Firestore hard limit is 500) */
-  maxFirestoreBatchSize: number;
+  /** Maximum events per PostgreSQL audit API batch (hard limit: 100). */
+  maxBatchSize: number;
   /** Maximum local buffer capacity before low-priority TRACE/DEBUG eviction (default: 1000) */
   maxLocalBufferSize: number;
   /** Whether background periodic timer is active */
@@ -94,7 +83,7 @@ export interface AuditBufferStats {
   totalQueuedCount: number;
   totalUploadedCount: number;
   batchesCommittedCount: number;
-  /** Number of individual Firestore write API requests saved by batching */
+  /** Number of individual API requests saved by batching */
   apiCallsSavedCount: number;
   failedFlushCount: number;
   lastFlushTimestamp: string | null;
@@ -111,7 +100,6 @@ export type AuditStatsListener = (stats: AuditBufferStats) => void;
 export type BatchUploadHandler = (documents: DiagnosticLogDocument[], batchId: string) => Promise<void>;
 
 const LOCAL_STORAGE_BUFFER_KEY = 'prodx_diagnostic_log_buffer_v1';
-const DIAGNOSTIC_LOGS_COLLECTION = 'diagnostic_logs';
 
 function sanitizeId(raw: string): string {
   return raw.replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 120) || `log-${Date.now()}`;
@@ -130,71 +118,64 @@ function sanitizeString(value: string | undefined, maxLen: number, fallback = ''
 }
 
 /**
- * Recursively removes 'undefined' values from an object to prevent Firestore errors.
+ * Recursively removes 'undefined' values from an object to prevent API payload errors.
  * Replaces 'undefined' with 'null'.
  */
-function sanitizeForFirestore(data: any): any {
+function sanitizeDiagnosticMetadata(data: any): any {
   if (data === undefined) return null;
   if (data === null || typeof data !== 'object') return data;
-  if (Array.isArray(data)) return data.map(sanitizeForFirestore);
+  if (Array.isArray(data)) return data.map(sanitizeDiagnosticMetadata);
 
   const result: Record<string, any> = {};
   for (const key in data) {
     if (Object.prototype.hasOwnProperty.call(data, key)) {
-      result[key] = sanitizeForFirestore(data[key]);
+      result[key] = sanitizeDiagnosticMetadata(data[key]);
     }
   }
   return result;
 }
 
-/**
- * Default Firestore batch uploader using atomic `writeBatch(db)`
- */
-async function defaultFirestoreBatchUploader(
-  documents: DiagnosticLogDocument[],
-): Promise<void> {
-  if (documents.length === 0) return;
-  if (typeof window === 'undefined') {
-    // Avoid keeping a persistent Firestore WebChannel open in headless Node CLI test runs
-    return;
-  }
-
-  const batch = writeBatch(db);
-
-  for (const item of documents) {
-    const docRef = doc(db, DIAGNOSTIC_LOGS_COLLECTION, item.id);
-    const payload: Record<string, unknown> = {
-      id: item.id,
-      batchId: item.batchId,
-      category: item.category,
-      level: item.level,
-      event: sanitizeString(item.event, 120, 'DIAGNOSTIC_EVENT'),
-      message: sanitizeString(item.message, 500, 'System diagnostic log entry'),
-      timestamp: item.timestamp,
-      flushedAt: item.flushedAt,
-    };
-
-    if (item.peripheralId) payload.peripheralId = sanitizeString(item.peripheralId, 128);
-    if (item.deviceName) payload.deviceName = sanitizeString(item.deviceName, 160);
-    if (item.port) payload.port = sanitizeString(item.port, 64);
-    if (item.interfaceType) payload.interfaceType = sanitizeString(item.interfaceType, 64);
-    if (item.orgId) payload.orgId = sanitizeString(item.orgId, 128);
-    if (item.branchId) payload.branchId = sanitizeString(item.branchId, 128);
-    if (item.terminalId) payload.terminalId = sanitizeString(item.terminalId, 128);
-    if (item.metadata && Object.keys(item.metadata).length > 0) {
-      payload.metadata = sanitizeForFirestore(item.metadata);
-    }
-
-    batch.set(docRef, payload);
-  }
-
-  try {
-    await batch.commit();
-  } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, DIAGNOSTIC_LOGS_COLLECTION);
+/** Uploads a bounded diagnostic batch through the authenticated PostgreSQL API. */
+async function defaultPostgresBatchUploader(documents: DiagnosticLogDocument[]): Promise<void> {
+  if (documents.length === 0 || typeof window === 'undefined') return;
+  const session = readPersistedSession(window.localStorage);
+  if (!session?.token) throw new Error('A valid POS session is required to upload diagnostic logs.');
+  const batchId = documents[0].batchId;
+  const response = await fetch('/api/v1/audit/diagnostics', {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.token}`,
+    },
+    body: JSON.stringify({
+      batchId,
+      events: documents.map((item) => ({
+        id: item.id,
+        batchId: item.batchId,
+        category: item.category,
+        level: item.level,
+        event: sanitizeString(item.event, 100, 'DIAGNOSTIC_EVENT'),
+        message: sanitizeString(item.message, 500, 'System diagnostic log entry'),
+        timestamp: item.timestamp,
+        flushedAt: item.flushedAt,
+        peripheralId: item.peripheralId ? sanitizeString(item.peripheralId, 128) : undefined,
+        deviceName: item.deviceName ? sanitizeString(item.deviceName, 160) : undefined,
+        port: item.port ? sanitizeString(item.port, 64) : undefined,
+        interfaceType: item.interfaceType ? sanitizeString(item.interfaceType, 64) : undefined,
+        orgId: item.orgId ? sanitizeString(item.orgId, 128) : undefined,
+        branchId: item.branchId ? sanitizeString(item.branchId, 128) : undefined,
+        terminalId: item.terminalId ? sanitizeString(item.terminalId, 128) : undefined,
+        metadata: item.metadata ? sanitizeDiagnosticMetadata(item.metadata) : {},
+      })),
+    }),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null) as { error?: { message?: string } } | null;
+    throw new Error(body?.error?.message || `Diagnostic API rejected the batch (${response.status}).`);
   }
 }
-
 export class BufferedAuditDiagnosticService {
   private buffer: BufferedDiagnosticLogItem[] = [];
   private recentUploadedLogs: DiagnosticLogDocument[] = [];
@@ -218,7 +199,7 @@ export class BufferedAuditDiagnosticService {
     batchSizeThreshold: 20,
     flushIntervalMs: 8000,
     criticalFlushDebounceMs: 1200,
-    maxFirestoreBatchSize: 450,
+    maxBatchSize: 100,
     maxLocalBufferSize: 1000,
     autoFlushEnabled: true,
   };
@@ -425,8 +406,8 @@ export class BufferedAuditDiagnosticService {
   }
 
   /**
-   * Flushes buffered diagnostic log events to Firestore in atomic chunks (up to 450 per writeBatch).
-   * If a batch fails due to network/Firestore error, events remain safely in the local buffer for retry.
+   * Flushes buffered diagnostic log events to the PostgreSQL audit API in bounded chunks (up to 100 events).
+   * If a batch fails due to network/API error, events remain safely in the local buffer for retry.
    */
   public async flush(): Promise<{
     uploadedCount: number;
@@ -469,7 +450,7 @@ export class BufferedAuditDiagnosticService {
 
     try {
       while (this.buffer.length > 0) {
-        const chunkSize = Math.min(this.buffer.length, this.config.maxFirestoreBatchSize);
+        const chunkSize = Math.min(this.buffer.length, this.config.maxBatchSize);
         const chunk = this.buffer.slice(0, chunkSize);
         const flushedAt = Date.now();
         const batchId = generateLogId('batch');
@@ -497,7 +478,7 @@ export class BufferedAuditDiagnosticService {
         if (this.customBatchUploader) {
           await this.customBatchUploader(documents, batchId);
         } else {
-          await defaultFirestoreBatchUploader(documents);
+          await defaultPostgresBatchUploader(documents);
         }
 
         // Remove committed chunk from head of buffer
@@ -536,10 +517,7 @@ export class BufferedAuditDiagnosticService {
       }));
       this.persistBufferToStorage();
 
-      console.error(
-        `[AuditService] Firestore batch upload failed (${OperationType.WRITE} on /${DIAGNOSTIC_LOGS_COLLECTION}):`,
-        errorMsg,
-      );
+      console.error('[AuditService] PostgreSQL audit API batch upload failed:', errorMsg);
 
       this.isFlushing = false;
       this.emitStats();
@@ -556,7 +534,7 @@ export class BufferedAuditDiagnosticService {
   /**
    * Simulates a high-traffic burst of hardware diagnostic logs (e.g. peak checkout barcode scans,
    * thermal printer ESC/POS telemetry, and network keep-alives) to demonstrate local buffering
-   * and single-batch Firestore upload efficiency.
+   * and single-batch diagnostic API upload efficiency.
    */
   public simulateHighTrafficBurst(
     eventCount = 25,
@@ -724,50 +702,72 @@ export class BufferedAuditDiagnosticService {
 export const auditService = new BufferedAuditDiagnosticService();
 
 /**
- * Real-time Firestore listener for batch-uploaded diagnostic logs in `/diagnostic_logs`.
+ * Compatibility export: diagnostic logs are read from the authenticated PostgreSQL audit API.
  */
-export function subscribeToFirestoreDiagnosticLogs(
+export function subscribeToDiagnosticLogs(
   maxResults = 40,
   onData: (logs: DiagnosticLogDocument[]) => void,
   onError?: (error: Error) => void,
-): Unsubscribe {
-  const q = query(
-    collection(db, DIAGNOSTIC_LOGS_COLLECTION),
-    orderBy('timestamp', 'desc'),
-    limit(maxResults),
-  );
-
-  return onSnapshot(
-    q,
-    (snapshot) => {
-      const items: DiagnosticLogDocument[] = snapshot.docs.map(
-        (d) => d.data() as DiagnosticLogDocument,
-      );
-      onData(items);
-    },
-    (err) => {
-      console.warn('[AuditService] Real-time diagnostic_logs subscription warning:', err);
-      if (onError) onError(err);
-    },
-  );
+): () => void {
+  let stopped = false;
+  const refresh = async () => {
+    try {
+      const logs = await fetchDiagnosticLogs(maxResults);
+      if (!stopped) onData(logs);
+    } catch (cause) {
+      if (!stopped) onError?.(cause instanceof Error ? cause : new Error('Could not load diagnostic logs.'));
+    }
+  };
+  void refresh();
+  const timer = typeof window !== 'undefined' ? window.setInterval(() => void refresh(), 15000) : null;
+  return () => {
+    stopped = true;
+    if (timer !== null && typeof window !== 'undefined') window.clearInterval(timer);
+  };
 }
 
 /**
- * Fetches latest batch-uploaded diagnostic logs from `/diagnostic_logs`.
+ * Fetches diagnostic audit events from the server-authoritative PostgreSQL API.
  */
-export async function fetchFirestoreDiagnosticLogs(
-  maxResults = 40,
-): Promise<DiagnosticLogDocument[]> {
+export async function fetchDiagnosticLogs(maxResults = 40): Promise<DiagnosticLogDocument[]> {
   try {
-    const q = query(
-      collection(db, DIAGNOSTIC_LOGS_COLLECTION),
-      orderBy('timestamp', 'desc'),
-      limit(maxResults),
-    );
-    const snap = await getDocs(q);
-    return snap.docs.map((d) => d.data() as DiagnosticLogDocument);
-  } catch (err) {
-    console.warn('[AuditService] Failed to fetch diagnostic_logs from Firestore:', err);
+    if (typeof window === 'undefined') return auditService.getStats().recentUploadedLogs.slice(0, maxResults);
+    const session = readPersistedSession(window.localStorage);
+    if (!session?.token) return auditService.getStats().recentUploadedLogs.slice(0, maxResults);
+    const response = await fetch(`/api/v1/audit/logs?limit=${Math.max(1, Math.min(200, Math.floor(maxResults)))}`, {
+      credentials: 'include',
+      headers: { Accept: 'application/json', Authorization: `Bearer ${session.token}` },
+    });
+    if (!response.ok) throw new Error(`Diagnostic API request failed (${response.status}).`);
+    const rows = await response.json() as Array<Record<string, unknown>>;
+    return rows.flatMap((row): DiagnosticLogDocument[] => {
+      const details = row.details && typeof row.details === 'object' ? row.details as Record<string, unknown> : null;
+      if (!details || typeof details.category !== 'string' || typeof details.level !== 'string') return [];
+      const category = details.category as DiagnosticLogEventInput['category'];
+      const level = details.level as DiagnosticLogEventInput['level'];
+      if (!['printer', 'scanner', 'drawer', 'edc', 'display', 'scale', 'system', 'network'].includes(category) ||
+          !['TRACE', 'DEBUG', 'INFO', 'WARN', 'ERROR', 'CRITICAL'].includes(level)) return [];
+      return [{
+        id: typeof details.eventId === 'string' ? details.eventId : String(row.id ?? ''),
+        batchId: typeof details.batchId === 'string' ? details.batchId : '',
+        category,
+        level,
+        event: typeof details.event === 'string' ? details.event : String(row.action ?? 'DIAGNOSTIC_EVENT'),
+        message: typeof details.message === 'string' ? details.message : '',
+        peripheralId: typeof details.peripheralId === 'string' ? details.peripheralId : undefined,
+        deviceName: typeof details.deviceName === 'string' ? details.deviceName : undefined,
+        port: typeof details.port === 'string' ? details.port : undefined,
+        interfaceType: typeof details.interfaceType === 'string' ? details.interfaceType : undefined,
+        orgId: typeof details.orgId === 'string' ? details.orgId : undefined,
+        branchId: typeof details.branchId === 'string' ? details.branchId : undefined,
+        terminalId: typeof details.terminalId === 'string' ? details.terminalId : undefined,
+        metadata: details.metadata && typeof details.metadata === 'object' ? details.metadata as Record<string, unknown> : undefined,
+        timestamp: typeof details.timestamp === 'number' ? details.timestamp : Date.parse(String(row.timestamp ?? '')),
+        flushedAt: typeof details.flushedAt === 'number' ? details.flushedAt : Date.parse(String(row.timestamp ?? '')),
+      }];
+    }).slice(0, maxResults);
+  } catch (cause) {
+    console.warn('[AuditService] Failed to fetch diagnostic logs from PostgreSQL audit API:', cause);
     return auditService.getStats().recentUploadedLogs.slice(0, maxResults);
   }
 }

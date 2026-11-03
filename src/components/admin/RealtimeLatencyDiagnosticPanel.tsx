@@ -20,8 +20,6 @@ import {
   Cpu,
   Layers,
 } from 'lucide-react';
-import { db } from '../../lib/firebase';
-import { doc, getDocFromServer } from 'firebase/firestore';
 import { useToast } from '../../context/ToastContext';
 
 export interface LatencySample {
@@ -30,8 +28,8 @@ export interface LatencySample {
   clientSentPerfNow: number;
   timestamp: string;
   timeStr: string;
-  firestoreRttMs: number;
-  firestoreStatus: 'ok' | 'error';
+  readinessRttMs: number;
+  readinessStatus: 'ok' | 'error';
   cloudSqlRttMs: number;
   cloudSqlQueryDurationMs: number;
   cloudSqlStatus: 'ok' | 'error';
@@ -67,8 +65,8 @@ export function RealtimeLatencyDiagnosticPanel() {
       second: '2-digit',
     });
 
-    let firestoreRttMs = 0;
-    let firestoreStatus: 'ok' | 'error' = 'ok';
+    let readinessRttMs = 0;
+    let readinessStatus: 'ok' | 'error' = 'ok';
 
     let cloudSqlRttMs = 0;
     let cloudSqlQueryDurationMs = 0;
@@ -76,27 +74,18 @@ export function RealtimeLatencyDiagnosticPanel() {
     let networkTransitMs = 0;
 
     try {
-      // 1. Direct Firestore RTT probe with performance.now()
-      const fsStart = performance.now();
+      // 1. Probe the production readiness endpoint; this exercises the server-authoritative PostgreSQL check.
+      const readinessStart = performance.now();
       try {
-        const probeDoc = doc(db, 'organizations', 'connection-check');
-        await Promise.race([
-          getDocFromServer(probeDoc),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore probe timeout')), 3000)),
-        ]);
-        firestoreRttMs = Number((performance.now() - fsStart).toFixed(2));
-      } catch (err: unknown) {
-        firestoreRttMs = Number((performance.now() - fsStart).toFixed(2));
-        const msg = err instanceof Error ? err.message : String(err);
-        // If server reached and rejected or not found, RTT is still valid network round-trip!
-        if (msg.includes('permission-denied') || msg.includes('not-found') || msg.includes('Missing or insufficient permissions')) {
-          firestoreStatus = 'ok';
-        } else {
-          firestoreStatus = 'error';
-        }
+        const response = await fetch('/api/v1/readyz', { headers: { Accept: 'application/json' } });
+        readinessRttMs = Number((performance.now() - readinessStart).toFixed(2));
+        readinessStatus = response.ok ? 'ok' : 'error';
+      } catch {
+        readinessRttMs = Number((performance.now() - readinessStart).toFixed(2));
+        readinessStatus = 'error';
       }
 
-      // 2. Cloud SQL RTT probe via backend with performance.now()
+      // 2. Supabase PostgreSQL RTT probe via backend with performance.now()
       const sqlStart = performance.now();
       try {
         const resp = await fetch(`/api/v1/infrastructure/latency-ping?clientTime=${sqlStart}`);
@@ -127,8 +116,8 @@ export function RealtimeLatencyDiagnosticPanel() {
         clientSentPerfNow,
         timestamp: now.toISOString(),
         timeStr,
-        firestoreRttMs,
-        firestoreStatus,
+        readinessRttMs,
+        readinessStatus,
         cloudSqlRttMs,
         cloudSqlQueryDurationMs,
         cloudSqlStatus,
@@ -169,12 +158,12 @@ export function RealtimeLatencyDiagnosticPanel() {
     if (samples.length === 0) {
       return {
         cloudSql: { current: 0, min: 0, max: 0, avg: 0, p95: 0, jitter: 0 },
-        firestore: { current: 0, min: 0, max: 0, avg: 0, p95: 0, jitter: 0 },
+        readiness: { current: 0, min: 0, max: 0, avg: 0, p95: 0, jitter: 0 },
       };
     }
 
     const sqlVals = samples.map((s) => s.cloudSqlRttMs);
-    const fsVals = samples.map((s) => s.firestoreRttMs);
+    const fsVals = samples.map((s) => s.readinessRttMs);
 
     const calcStats = (vals: number[]) => {
       const sorted = [...vals].sort((a, b) => a - b);
@@ -202,7 +191,7 @@ export function RealtimeLatencyDiagnosticPanel() {
 
     return {
       cloudSql: calcStats(sqlVals),
-      firestore: calcStats(fsVals),
+      readiness: calcStats(fsVals),
     };
   }, [samples]);
 
@@ -213,11 +202,11 @@ export function RealtimeLatencyDiagnosticPanel() {
       'SampleIndex',
       'Timestamp',
       'ClientPerfNowMs',
-      'CloudSqlRttMs',
+      'SupabasePostgreSQLRttMs',
       'CloudSqlQueryMs',
       'CloudSqlStatus',
-      'FirestoreRttMs',
-      'FirestoreStatus',
+      'Readiness APIRttMs',
+      'Readiness APIStatus',
       'NetworkTransitMs',
     ].join(',');
 
@@ -229,8 +218,8 @@ export function RealtimeLatencyDiagnosticPanel() {
         s.cloudSqlRttMs,
         s.cloudSqlQueryDurationMs,
         s.cloudSqlStatus,
-        s.firestoreRttMs,
-        s.firestoreStatus,
+        s.readinessRttMs,
+        s.readinessStatus,
         s.networkTransitMs,
       ].join(',')
     );
@@ -301,11 +290,11 @@ export function RealtimeLatencyDiagnosticPanel() {
   const chartWidth = 500;
   const maxChartVal = useMemo(() => {
     if (samples.length === 0) return 100;
-    const all = samples.flatMap((s) => [s.cloudSqlRttMs, s.firestoreRttMs]);
+    const all = samples.flatMap((s) => [s.cloudSqlRttMs, s.readinessRttMs]);
     return Math.max(80, Math.ceil(Math.max(...all) * 1.25));
   }, [samples]);
 
-  const generatePoints = (key: 'cloudSqlRttMs' | 'firestoreRttMs') => {
+  const generatePoints = (key: 'cloudSqlRttMs' | 'readinessRttMs') => {
     if (samples.length < 2) return '';
     return samples
       .map((s, idx) => {
@@ -317,10 +306,10 @@ export function RealtimeLatencyDiagnosticPanel() {
   };
 
   const sqlPoints = useMemo(() => generatePoints('cloudSqlRttMs'), [samples, maxChartVal]);
-  const fsPoints = useMemo(() => generatePoints('firestoreRttMs'), [samples, maxChartVal]);
+  const fsPoints = useMemo(() => generatePoints('readinessRttMs'), [samples, maxChartVal]);
 
   const sqlBadge = getRatingBadge(stats.cloudSql.current, samples[samples.length - 1]?.cloudSqlStatus ?? 'ok');
-  const fsBadge = getRatingBadge(stats.firestore.current, samples[samples.length - 1]?.firestoreStatus ?? 'ok');
+  const fsBadge = getRatingBadge(stats.readiness.current, samples[samples.length - 1]?.readinessStatus ?? 'ok');
 
   return (
     <div className="bg-card rounded-3xl border border-border border-crisp shadow-sm p-5 sm:p-6 space-y-6">
@@ -333,7 +322,7 @@ export function RealtimeLatencyDiagnosticPanel() {
           </div>
           <h2 className="text-xl font-bold text-text flex items-center gap-2.5">
             <Gauge className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
-            แผงวิเคราะห์เวลาตอบสนองแบบเรียลไทม์ (Cloud SQL & Firestore RTT)
+            แผงวิเคราะห์เวลาตอบสนองแบบเรียลไทม์ (Cloud SQL & Readiness API RTT)
           </h2>
           <p className="text-xs text-text/60 mt-0.5">
             วัดความหน่วงของเครือข่ายและเวลาประมวลผลคำสั่งด้วย High-Resolution Timestamps (performance.now()) ระดับไมโครวินาที
@@ -486,7 +475,7 @@ export function RealtimeLatencyDiagnosticPanel() {
           </div>
         </div>
 
-        {/* Service 2: Google Cloud Firestore Latency */}
+        {/* Service 2: Google Cloud Readiness API Latency */}
         <div className="bg-background/80 rounded-2xl p-5 border border-border border-crisp shadow-xs space-y-4 relative overflow-hidden">
           <div className="flex items-start justify-between">
             <div className="flex items-center gap-3">
@@ -495,11 +484,11 @@ export function RealtimeLatencyDiagnosticPanel() {
               </div>
               <div>
                 <h3 className="font-bold text-sm text-text flex items-center gap-2">
-                  Google Cloud Firestore
+                  Google Cloud Readiness API
                   <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
                 </h3>
                 <span className="text-xs text-text/60">
-                  Direct SDK Probe • Browser to Native Firestore
+                  Direct SDK Probe • Browser to Native Readiness API
                 </span>
               </div>
             </div>
@@ -512,7 +501,7 @@ export function RealtimeLatencyDiagnosticPanel() {
           {/* Main Large Metric */}
           <div className="flex items-baseline gap-3">
             <span className="text-3xl font-extrabold font-mono text-text">
-              {stats.firestore.current}
+              {stats.readiness.current}
             </span>
             <span className="text-xs text-text/60 font-medium">ms (RTT)</span>
             <span className="text-xs text-amber-600 dark:text-amber-400 font-mono font-medium">
@@ -525,25 +514,25 @@ export function RealtimeLatencyDiagnosticPanel() {
             <div className="bg-card p-2 rounded-xl border border-border/60">
               <span className="text-[10px] text-text/50 uppercase block font-semibold">Min</span>
               <span className="font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400">
-                {stats.firestore.min} ms
+                {stats.readiness.min} ms
               </span>
             </div>
             <div className="bg-card p-2 rounded-xl border border-border/60">
               <span className="text-[10px] text-text/50 uppercase block font-semibold">Avg</span>
               <span className="font-mono text-xs font-bold text-amber-600 dark:text-amber-400">
-                {stats.firestore.avg} ms
+                {stats.readiness.avg} ms
               </span>
             </div>
             <div className="bg-card p-2 rounded-xl border border-border/60">
               <span className="text-[10px] text-text/50 uppercase block font-semibold">P95</span>
               <span className="font-mono text-xs font-bold text-amber-600 dark:text-amber-400">
-                {stats.firestore.p95} ms
+                {stats.readiness.p95} ms
               </span>
             </div>
             <div className="bg-card p-2 rounded-xl border border-border/60">
               <span className="text-[10px] text-text/50 uppercase block font-semibold">Jitter</span>
               <span className="font-mono text-xs font-bold text-text/70">
-                ±{stats.firestore.jitter} ms
+                ±{stats.readiness.jitter} ms
               </span>
             </div>
           </div>
@@ -568,7 +557,7 @@ export function RealtimeLatencyDiagnosticPanel() {
             </div>
             <div className="flex items-center gap-1.5">
               <span className="w-3 h-1.5 rounded-full bg-amber-400 inline-block" />
-              <span className="text-slate-300">Firestore (RTT)</span>
+              <span className="text-slate-300">Readiness API (RTT)</span>
             </div>
             <span className="text-slate-500 text-[11px]">Scale: 0 - {maxChartVal} ms</span>
           </div>
@@ -601,7 +590,7 @@ export function RealtimeLatencyDiagnosticPanel() {
                 points={sqlPoints}
               />
 
-              {/* Firestore Polyline */}
+              {/* Readiness API Polyline */}
               <polyline
                 fill="none"
                 stroke="#f59e0b"
@@ -622,7 +611,7 @@ export function RealtimeLatencyDiagnosticPanel() {
                   />
                   <circle
                     cx={chartWidth}
-                    cy={chartHeight - (Math.min(samples[samples.length - 1].firestoreRttMs, maxChartVal) / maxChartVal) * (chartHeight - 15) - 8}
+                    cy={chartHeight - (Math.min(samples[samples.length - 1].readinessRttMs, maxChartVal) / maxChartVal) * (chartHeight - 15) - 8}
                     r="4"
                     fill="#f59e0b"
                   />
@@ -663,7 +652,7 @@ export function RealtimeLatencyDiagnosticPanel() {
                 <th className="py-2 px-3">performance.now() Start</th>
                 <th className="py-2 px-3 text-blue-600 dark:text-blue-400">Cloud SQL RTT</th>
                 <th className="py-2 px-3 text-blue-600 dark:text-blue-400">Query Time</th>
-                <th className="py-2 px-3 text-amber-600 dark:text-amber-400">Firestore RTT</th>
+                <th className="py-2 px-3 text-amber-600 dark:text-amber-400">Readiness API RTT</th>
                 <th className="py-2 px-3">Transit Overhead</th>
                 <th className="py-2 px-3">Status</th>
               </tr>
@@ -676,17 +665,17 @@ export function RealtimeLatencyDiagnosticPanel() {
                   <td className="py-2 px-3 text-text/50 text-[11px]">{s.clientSentPerfNow.toFixed(1)}ms</td>
                   <td className="py-2 px-3 font-bold text-blue-600 dark:text-blue-400">{s.cloudSqlRttMs} ms</td>
                   <td className="py-2 px-3 text-text/70">{s.cloudSqlQueryDurationMs} ms</td>
-                  <td className="py-2 px-3 font-bold text-amber-600 dark:text-amber-400">{s.firestoreRttMs} ms</td>
+                  <td className="py-2 px-3 font-bold text-amber-600 dark:text-amber-400">{s.readinessRttMs} ms</td>
                   <td className="py-2 px-3 text-text/60">{s.networkTransitMs} ms</td>
                   <td className="py-2 px-3">
                     <span
                       className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md font-semibold ${
-                        s.cloudSqlStatus === 'ok' && s.firestoreStatus === 'ok'
+                        s.cloudSqlStatus === 'ok' && s.readinessStatus === 'ok'
                           ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
                           : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
                       }`}
                     >
-                      {s.cloudSqlStatus === 'ok' && s.firestoreStatus === 'ok' ? 'OK (200)' : 'DEGRADED'}
+                      {s.cloudSqlStatus === 'ok' && s.readinessStatus === 'ok' ? 'OK (200)' : 'DEGRADED'}
                     </span>
                   </td>
                 </tr>

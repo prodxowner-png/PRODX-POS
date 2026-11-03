@@ -1,0 +1,187 @@
+name: Gemini Autonomous Coding (Draft PR only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: Open GitHub issue number to implement
+        required: true
+        type: number
+
+permissions:
+  contents: read
+  issues: read
+
+concurrency:
+  group: gemini-code-issue-${{ inputs.issue_number }}
+  cancel-in-progress: false
+
+jobs:
+  generate:
+    name: Generate candidate change (read-only credentials)
+    runs-on: ubuntu-latest
+    # Gemini 4 Argon long-decode can span multiple 20-minute REST hops.
+    # Eight 20-minute REST hops can require up to 160 minutes; keep a bounded job budget.
+    timeout-minutes: 180
+    permissions:
+      contents: read
+      issues: read
+    outputs:
+      base_sha: ${{ steps.base.outputs.sha }}
+    steps:
+      - name: Checkout trusted main source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Record immutable base commit
+        id: base
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Generate candidate from issue and repository context
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ISSUE_NUMBER: ${{ inputs.issue_number }}
+        run: python3 scripts/gemini_code_agent.py generate --issue-number "$ISSUE_NUMBER" --output candidate.json
+      - name: Upload untrusted candidate for isolated verification
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: gemini-candidate
+          path: candidate.json
+          if-no-files-found: error
+          retention-days: 1
+
+  verify:
+    name: Apply candidate and run checks without AI/write secrets
+    needs: generate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: prodx
+          POSTGRES_PASSWORD: prodx
+          POSTGRES_DB: prodx_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U prodx -d prodx_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://prodx:prodx@127.0.0.1:5432/prodx_test
+    steps:
+      - name: Checkout trusted main source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.generate.outputs.base_sha }}
+          persist-credentials: false
+      - name: Download candidate artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: gemini-candidate
+      - name: Validate and apply candidate
+        run: python3 scripts/gemini_code_agent.py apply --artifact candidate.json
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # pinned release
+        with:
+          bun-version: 1.4.3
+      - name: Verify coding-agent contract tests
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: python3 -m unittest discover -s scripts -p 'test_gemini_code_agent.py' -v
+      - name: Install dependencies from lockfile
+        run: bun install --frozen-lockfile
+      - name: Server typecheck
+        run: bun run server:check
+      - name: Application typecheck
+        run: bun run lint
+      - name: Apply PostgreSQL migrations
+        shell: bash
+        run: |
+          set -euo pipefail
+          for migration in db/migrations/*.sql; do
+            psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration"
+          done
+      - name: Build
+        run: bun run build
+      - name: Server tests
+        run: bun run server:test
+      - name: Check whitespace and diff
+        run: git diff --check
+      - name: Upload verified source changes
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: gemini-verified-change
+          path: candidate.json
+          if-no-files-found: error
+          retention-days: 1
+
+  draft-pr:
+    name: Open Draft PR for Owner review
+    needs: [generate, verify]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: read
+    steps:
+      - name: Checkout trusted main source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.generate.outputs.base_sha }}
+          persist-credentials: false
+      - name: Download verified changes
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: gemini-verified-change
+      - name: Restore only allowed changed files
+        run: python3 scripts/gemini_code_agent.py apply --artifact candidate.json
+      - name: Create branch and Draft PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ inputs.issue_number }}
+          RUN_ID: ${{ github.run_id }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          branch="ai/issue-${ISSUE_NUMBER}-run-${RUN_ID}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          summary="$(python3 -c 'import json; print(json.load(open("candidate.json")).get("summary", "AI-generated candidate change"))')"
+          while IFS= read -r -d '' path; do git add -- "$path"; done < <(python3 -c 'import json; [print(f["path"], end="\0") for f in json.load(open("candidate.json"))["files"]]')
+          rm -f candidate.json
+          if git diff --cached --quiet; then
+            echo "Candidate produced no effective source changes; refusing to open an empty PR."
+            exit 1
+          fi
+          git diff --cached --check
+          git commit -m "ai: propose implementation for issue #${ISSUE_NUMBER}"
+          auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git -c "http.extraheader=AUTHORIZATION: basic ${auth}" push origin "HEAD:refs/heads/${branch}"
+          body_file="$(mktemp)"
+          {
+            printf '## AI-generated candidate\n\nCloses #%s (not auto-merged).\n\n' "$ISSUE_NUMBER"
+            printf '### Summary\n%s\n\n' "$summary"
+            cat <<'BODY'
+          ### Verification
+          - Candidate was generated by Gemini from issue and bounded repository context.
+          - Path policy validated before application.
+          - Server typecheck, app typecheck, build, server tests, and diff checks passed in a separate job without GEMINI_API_KEY or write-scoped GitHub credentials.
+          - Review this diff carefully; AI output is untrusted and this PR is Draft.
+
+          ### Safety limits
+          - No workflow, package manifest/lockfile, secret, or agent-control changes are allowed.
+          - No automatic merge or deployment. Owner approval and all repository gates remain required.
+          BODY
+          } > "$body_file"
+          gh pr create --repo "$REPO" --base main --head "$branch" --draft \
+            --title "[AI Draft] Implement issue #${ISSUE_NUMBER}" \
+            --body-file "$body_file"
+          rm -f "$body_file"

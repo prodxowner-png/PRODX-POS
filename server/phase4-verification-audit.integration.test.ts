@@ -43,7 +43,9 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
     return;
   }
 
-  const { app, pool } = await createProductionApp();
+  const { app, pool } = await createProductionApp({
+    checkCompromisedPassword: async () => ({ compromised: false, count: 0 }),
+  });
   const passwordHash = await hashPassword('Phase4-Pass!99');
 
   const cleanup = async () => {

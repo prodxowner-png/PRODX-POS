@@ -16,6 +16,7 @@ test('approved policy: fifth failure locks for 15 minutes and active-lockout att
   let current = { ...credential };
   const repository: AuthenticationRepository = {
     findCredentialByUsername: async () => current,
+    findUserBySupabaseUserId: async () => null,
     recordFailedAttempt: async (_userId) => {
       const failedAttempts = Math.min(current.failedAttempts + 1, 5);
       current = { ...current, failedAttempts, lockedUntil: failedAttempts >= 5 ? new Date(now.getTime() + 15 * 60 * 1000) : current.lockedUntil };

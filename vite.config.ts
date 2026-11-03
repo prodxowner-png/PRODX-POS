@@ -8,13 +8,15 @@ import compression from 'vite-plugin-compression';
 import { visualizer } from 'rollup-plugin-visualizer';
 
 export default defineConfig(() => {
+  const diagnosticsDir = path.resolve(process.cwd(), '.private-build/diagnostics');
+  fs.mkdirSync(diagnosticsDir, { recursive: true });
   return {
     plugins: [
       react(), 
       tailwindcss(),
       splitVendorChunkPlugin(),
       visualizer({
-        filename: 'dist/stats.html',
+        filename: '.private-build/diagnostics/stats.html',
         open: false,
         gzipSize: true,
         brotliSize: true,
@@ -94,7 +96,7 @@ export default defineConfig(() => {
 
           metafile.summary.totalSizeKb = Math.round(totalBytes / 1024 * 100) / 100;
 
-          const outDir = options.dir || 'dist';
+          const outDir = path.resolve(process.cwd(), '.private-build/diagnostics');
           if (!fs.existsSync(outDir)) {
             fs.mkdirSync(outDir, { recursive: true });
           }
@@ -103,7 +105,7 @@ export default defineConfig(() => {
             JSON.stringify(metafile, null, 2),
             'utf-8'
           );
-          console.log(`[PRODX Metafile Reporter] Generated detailed build metafile report at ${outDir}/metafile.json`);
+          console.log(`[PRODX Metafile Reporter] Generated private build metafile report at ${outDir}/metafile.json`);
         },
       },
       {
@@ -252,30 +254,16 @@ export default defineConfig(() => {
       rollupOptions: {
         output: {
           manualChunks(id) {
-            if (id.includes('node_modules')) {
-              // Group React core framework separately
-              if (id.includes('react') || id.includes('scheduler') || id.includes('react-dom')) {
-                return 'vendor-react';
-              }
-              // Group Lucide icons separately for icon tree-shaking and lazy loading
-              if (id.includes('lucide-react')) {
-                return 'vendor-icons';
-              }
-              // Group Firebase & Database
-              if (id.includes('firebase') || id.includes('@supabase')) {
-                return 'vendor-firebase';
-              }
-              // Group animation & charts into secondary lazy bundles
-              if (id.includes('framer-motion') || id.includes('motion') || id.includes('recharts') || id.includes('d3')) {
-                return 'vendor-ui-extra';
-              }
-              // Group PDF, DnD, i18n utilities
-              if (id.includes('jspdf') || id.includes('html2canvas') || id.includes('@dnd-kit') || id.includes('i18next') || id.includes('react-i18next')) {
-                return 'vendor-utils';
-              }
-              // Other libraries
-              return 'vendor-libs';
-            }
+            // Match package path segments, not arbitrary substrings such as "react-router"
+            // or transitive packages that can create circular manual chunk dependencies.
+            if (!id.includes('node_modules')) return;
+            if (/(?:^|[\\/])node_modules[\\/](?:react|react-dom|scheduler)[\\/]/.test(id)) return 'vendor-react';
+            if (/(?:^|[\\/])node_modules[\\/]lucide-react[\\/]/.test(id)) return 'vendor-icons';
+            if (/(?:^|[\\/])node_modules[\\/](?:firebase|@firebase[\\/][^\\/]+|@supabase[\\/][^\\/]+)(?:[\\/]|$)/.test(id)) return 'vendor-firebase';
+            if (/(?:^|[\\/])node_modules[\\/](?:framer-motion|motion|recharts|d3-[^\\/]+)[\\/]/.test(id)) return 'vendor-ui-extra';
+            if (/(?:^|[\\/])node_modules[\\/](?:jspdf|html2canvas|@dnd-kit[\\/][^\\/]+|i18next|react-i18next)[\\/]/.test(id)) return 'vendor-utils';
+            // Let Rollup place all remaining dependencies automatically to avoid a catch-all chunk cycle.
+            return;
           },
         },
       },

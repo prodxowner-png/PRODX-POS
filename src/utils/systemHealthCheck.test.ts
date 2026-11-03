@@ -26,45 +26,47 @@ test('SystemHealthCheckUtility formats status-coded JSON object properly on exec
         environment: {
           nodeEnv: 'test',
           appletId: '069bc919-d8b1-4f51-9f13-c61a86822990',
-          region: 'asia-southeast1',
-          cloudSqlProject: 'gen-lang-client-0282713343',
-          firestoreDatabaseId: 'ai-studio-prodxpos-069bc919-d8b1-4f51-9f13-c61a86822990',
+          region: 'ap-southeast-1',
+          cloudSqlProject: 'wcyqyiewbzpmrekoljfw',
+          firestoreDatabaseId: 'retired',
         },
         services: {
           cloudSql: {
-            service: 'Google Cloud SQL (PostgreSQL)',
+            service: 'PostgreSQL (Supabase session pooler)',
             statusCode: 200,
             status: 'connected',
             latencyMs: 8.2,
-            engine: 'PostgreSQL 16 (Cloud SQL)',
-            region: 'asia-southeast1',
-            projectId: 'gen-lang-client-0282713343',
-            database: 'prodx_pos',
+            engine: 'PostgreSQL (Supabase session pooler)',
+            region: 'ap-southeast-1',
+            projectId: 'wcyqyiewbzpmrekoljfw',
+            database: 'postgres',
           },
           firestore: {
-            service: 'Google Cloud Firestore',
-            statusCode: 200,
-            status: 'connected',
-            latencyMs: 12.4,
-            databaseId: 'ai-studio-prodxpos-069bc919-d8b1-4f51-9f13-c61a86822990',
-            projectId: 'modified-bit-mct7q',
-            region: 'asia-southeast1',
-            endpoint: 'projects/modified-bit-mct7q/databases/ai-studio-prodxpos-069bc919-d8b1-4f51-9f13-c61a86822990',
-            verifiedCollections: ['audit_logs', 'AppErrorLog', 'organizations', 'diagnostic_logs'],
-            verificationMode: 'rest_probe',
+            service: 'Firestore (retired)',
+            statusCode: 503,
+            status: 'disabled',
+            latencyMs: 0,
+            databaseId: 'retired',
+            projectId: 'retired',
+            region: 'retired',
+            endpoint: 'disabled',
+            verifiedCollections: [],
+            verificationMode: 'disabled',
           },
         },
-        summary: 'All backend services operational (Cloud SQL & Firestore ping succeeded).',
+        summary: 'Supabase PostgreSQL health query succeeded. Firestore is retired.',
       }),
     } as any;
   };
 
   try {
-    const result = await utility.executePing({ skipClientFirestoreProbe: true });
+    const result = await utility.executePing();
     assert.equal(result.statusCode, 200);
     assert.equal(result.status, 'HEALTHY');
-    assert.equal(result.services.cloudSql.projectId, 'gen-lang-client-0282713343');
-    assert.equal(result.services.firestore.databaseId, 'ai-studio-prodxpos-069bc919-d8b1-4f51-9f13-c61a86822990');
+    assert.equal(result.services.cloudSql.projectId, 'wcyqyiewbzpmrekoljfw');
+    assert.equal(result.services.firestore.databaseId, 'retired');
+    assert.equal(result.services.firestore.status, 'disabled');
+    assert.deepEqual(result.services.firestore.verifiedCollections, []);
     assert.ok(result.rawJson.includes('"statusCode": 200'));
     assert.ok(result.rawJson.includes('"status": "HEALTHY"'));
 
@@ -80,7 +82,7 @@ test('SystemHealthCheckUtility formats status-coded JSON object properly on exec
   }
 });
 
-test('SystemHealthCheckUtility produces 207 Multi-Status when Cloud SQL is down but Firestore is up', async () => {
+test('SystemHealthCheckUtility reports DOWN when Supabase PostgreSQL is down and Firestore is retired', async () => {
   const utility = SystemHealthCheckUtility.getInstance();
   const originalFetch = globalThis.fetch;
 
@@ -97,46 +99,47 @@ test('SystemHealthCheckUtility produces 207 Multi-Status when Cloud SQL is down 
         environment: {
           nodeEnv: 'test',
           appletId: '069bc919-d8b1-4f51-9f13-c61a86822990',
-          region: 'asia-southeast1',
-          cloudSqlProject: 'gen-lang-client-0282713343',
-          firestoreDatabaseId: 'ai-studio-prodxpos-069bc919-d8b1-4f51-9f13-c61a86822990',
+          region: 'ap-southeast-1',
+          cloudSqlProject: 'wcyqyiewbzpmrekoljfw',
+          firestoreDatabaseId: 'retired',
         },
         services: {
           cloudSql: {
-            service: 'Google Cloud SQL (PostgreSQL)',
+            service: 'PostgreSQL (Supabase session pooler)',
             statusCode: 503,
             status: 'unreachable',
             latencyMs: 15.0,
-            engine: 'PostgreSQL 16 (Google Cloud SQL)',
-            region: 'asia-southeast1',
-            projectId: 'gen-lang-client-0282713343',
-            database: 'prodx_pos',
+            engine: 'PostgreSQL (Supabase session pooler)',
+            region: 'ap-southeast-1',
+            projectId: 'wcyqyiewbzpmrekoljfw',
+            database: 'postgres',
             error: 'Connection refused',
           },
           firestore: {
-            service: 'Google Cloud Firestore',
-            statusCode: 200,
-            status: 'connected',
-            latencyMs: 10.1,
-            databaseId: 'ai-studio-prodxpos-069bc919-d8b1-4f51-9f13-c61a86822990',
-            projectId: 'modified-bit-mct7q',
-            region: 'asia-southeast1',
-            endpoint: 'projects/modified-bit-mct7q/databases/ai-studio-prodxpos-069bc919-d8b1-4f51-9f13-c61a86822990',
-            verifiedCollections: ['audit_logs', 'AppErrorLog'],
-            verificationMode: 'rest_probe',
+            service: 'Firestore (retired)',
+            statusCode: 503,
+            status: 'disabled',
+            latencyMs: 0,
+            databaseId: 'retired',
+            projectId: 'retired',
+            region: 'retired',
+            endpoint: 'disabled',
+            verifiedCollections: [],
+            verificationMode: 'disabled',
           },
         },
-        summary: 'Degraded state: Firestore is operational, but Cloud SQL returned an error.',
+        summary: 'Production PostgreSQL health query failed. Firestore is retired.',
       }),
     } as any;
   };
 
   try {
-    const result = await utility.executePing({ skipClientFirestoreProbe: true });
-    assert.equal(result.statusCode, 207);
-    assert.equal(result.status, 'DEGRADED');
+    const result = await utility.executePing();
+    assert.equal(result.statusCode, 503);
+    assert.equal(result.status, 'DOWN');
     assert.equal(result.services.cloudSql.statusCode, 503);
-    assert.equal(result.services.firestore.statusCode, 200);
+    assert.equal(result.services.firestore.statusCode, 503);
+    assert.equal(result.services.firestore.status, 'disabled');
   } finally {
     globalThis.fetch = originalFetch;
   }

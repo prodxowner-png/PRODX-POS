@@ -1,17 +1,22 @@
 import 'dotenv/config';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
+import type { QueryResultRow } from 'pg';
 import { createPostgresAuthentication } from './auth/composition.ts';
+import { createPostgresFirstTenantBootstrapRepository } from './auth/postgres-repository.ts';
+import { readFirstTenantBootstrapConfig } from './auth/first-tenant-bootstrap.ts';
+import type { PasswordCompromiseCheck } from './auth/password-compromise.ts';
 import { createPostgresAuthorization } from './auth/production-authorization.ts';
-import { asSqlExecutor, createProductionPostgresPool, resolveConfiguredDatabaseUrl } from './db/postgres.ts';
+import { asSqlExecutor, createProductionPostgresPool } from './db/postgres.ts';
+import { assertPostgresReady } from './db/postgres-readiness.ts';
 import { createTransactionalPostgresExecutor } from './db/transaction.ts';
 import { createAIGatewayService } from './ai/production-composition.ts';
-import { pingFirestore } from './services/systemHealthCheckService.ts';
 import { registerCheckoutRoute } from './http/checkout-route.ts';
 import { registerAuthRoutes } from './http/auth-route.ts';
 import { createApp } from './http/createApp.ts';
 import { registerRefundRoute } from './http/refund-route.ts';
 import { registerAuditRoute } from './http/audit-route.ts';
+import { registerTasksRoute } from './http/tasks-route.ts';
 import { registerShiftRoute } from './http/shift-route.ts';
 import { registerTimeclockRoute } from './http/timeclock-route.ts';
 import { registerCatalogRoute } from './http/catalog-route.ts';
@@ -25,67 +30,42 @@ import { registerVoidRoute } from './http/void-route.ts';
 import { registerInventoryAdjustmentRoute } from './http/inventory-adjustment-route.ts';
 import { registerInfrastructureRoutes, registerPublicInfrastructureRoutes } from './http/infrastructureRoutes.ts';
 import { installAIHttpRoute } from './ai/http-route.ts';
+export { createRetryableInitialization } from './http/retryable-initialization.ts';
 
 export type ProductionAppOptions = {
   vercelOidcToken?: string;
+  checkCompromisedPassword?: (password: string) => Promise<PasswordCompromiseCheck>;
 };
 
 export const createProductionApp = async (options: ProductionAppOptions = {}) => {
   const pool = await createProductionPostgresPool({}, options.vercelOidcToken);
   const sql = asSqlExecutor(pool);
   const transactions = createTransactionalPostgresExecutor(pool);
-  const sessions = createPostgresAuthentication(sql);
-  const authorize = createPostgresAuthorization(sql);
-  const aiGateway = createAIGatewayService(sql, authorize);
+  // Authentication bootstrap remains a separate pre-principal boundary. All
+  // post-auth authorization and AI data queries use the request-scoped executor.
+  const requestScopedSql = {
+    async query<T extends Record<string, unknown>>(statement: string, parameters: readonly unknown[] = []): Promise<readonly T[]> {
+      const result = await transactions.query<T & QueryResultRow>(statement, parameters);
+      return result.rows;
+    },
+  };
+  const sessions = createPostgresAuthentication(sql, options.checkCompromisedPassword);
+  const authorize = createPostgresAuthorization(requestScopedSql);
+  const aiGateway = createAIGatewayService(requestScopedSql, authorize);
 
   const app = createApp({
     readinessCheck: async () => {
-      // PRODX-POS Readiness: We require at least one authoritative data store to be responsive.
-      // While PostgreSQL is the primary transactional store, we also support Firestore
-      // for audit logs and management entities.
-      
-      let postgresOk = false;
-      let firestoreOk = false;
-      let postgresError: any = null;
-      let firestoreError: any = null;
-
-      // 1. Check PostgreSQL (if configured)
-      const connectionString = resolveConfiguredDatabaseUrl();
-      if (connectionString) {
-        try {
-          await sql.query<{ ok: number }>('SELECT 1 AS ok');
-          postgresOk = true;
-        } catch (error: unknown) {
-          postgresError = error;
-        }
-      }
-
-      // 2. Check Firestore
-      try {
-        const firestoreResult = await pingFirestore();
-        firestoreOk = firestoreResult.statusCode === 200;
-      } catch (error: unknown) {
-        firestoreError = error;
-      }
-
-      // If both are down, the service is truly not ready.
-      if (!postgresOk && !firestoreOk) {
-        const error = new Error('Database readiness check failed: Both PostgreSQL and Firestore are unreachable.');
-        Object.assign(error, {
-          postgres: postgresError ? { code: postgresError.code, syscall: postgresError.syscall } : 'unconfigured',
-          firestore: firestoreError ? { message: firestoreError.message } : 'failed',
-        });
-        throw error;
-      }
-
-      if (!postgresOk) {
-        console.warn('PRODX POS starting in DEGRADED mode (PostgreSQL unreachable, Firestore OK).');
-      } else if (!firestoreOk) {
-        console.warn('PRODX POS starting in DEGRADED mode (Firestore unreachable, PostgreSQL OK).');
-      }
+      // PostgreSQL is the authoritative transactional store for POS readiness.
+      // A secondary service must never make the POS ready when PostgreSQL is unavailable.
+      await assertPostgresReady(pool);
     },
     configurePublicRoutes: (configuredApp) => {
-      registerAuthRoutes(configuredApp, sql, sessions);
+      registerAuthRoutes(configuredApp, requestScopedSql, sessions, {
+        firstTenantBootstrap: {
+          repository: createPostgresFirstTenantBootstrapRepository(requestScopedSql),
+          config: readFirstTenantBootstrapConfig(process.env),
+        },
+      });
       registerPublicInfrastructureRoutes(configuredApp, pool);
     },
     authenticateRequest: async (request) => {
@@ -96,6 +76,7 @@ export const createProductionApp = async (options: ProductionAppOptions = {}) =>
     authorizeRequest: authorize,
     configureRoutes: (configuredApp) => {
       registerAuditRoute(configuredApp, transactions);
+      registerTasksRoute(configuredApp, transactions);
       registerShiftRoute(configuredApp, transactions);
       registerTimeclockRoute(configuredApp, transactions);
       registerCheckoutRoute(configuredApp, transactions);

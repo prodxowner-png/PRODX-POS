@@ -47,6 +47,7 @@ export const createAuditReadService = (db: SqlQueryExecutor) => ({
     action: string;
     severity?: string;
     details?: unknown;
+    sourceEventKey?: string;
   }) {
     const storeId = String(input.storeId ?? '').trim();
     const action = String(input.action ?? '').trim();
@@ -54,6 +55,8 @@ export const createAuditReadService = (db: SqlQueryExecutor) => ({
     if (!storeId) throw new AuditValidationError('Store is required.');
     if (!action || action.length > 120) throw new AuditValidationError('Audit action is required.');
     if (!VALID_SEVERITIES.has(severity)) throw new AuditValidationError('Audit severity must be info, warn, or critical.');
+    const sourceEventKey = input.sourceEventKey?.trim() || null;
+    if (sourceEventKey && sourceEventKey.length > 180) throw new AuditValidationError('Source event key cannot exceed 180 characters.');
 
     const payload =
       typeof input.details === 'string'
@@ -81,9 +84,11 @@ export const createAuditReadService = (db: SqlQueryExecutor) => ({
     }
 
     const id = crypto.randomUUID();
-    await db.query(
-      `INSERT INTO prodx_audit_log(id, organization_id, store_id, register_id, user_id, action, severity, details)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)`,
+    const inserted = await db.query<{ id: string; created_at: Date | string }>(
+      `INSERT INTO prodx_audit_log(id, organization_id, store_id, register_id, user_id, action, severity, details, source_event_key)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)
+       ON CONFLICT DO NOTHING
+       RETURNING id, created_at`,
       [
         id,
         input.organizationId,
@@ -93,12 +98,30 @@ export const createAuditReadService = (db: SqlQueryExecutor) => ({
         action,
         severity,
         JSON.stringify(payload),
+        sourceEventKey,
       ],
     );
 
+    // A retried event must return the original persisted identity/time, not a
+    // newly generated ID and timestamp for an INSERT that did nothing.
+    let persisted = inserted.rows[0];
+    if (!persisted && sourceEventKey) {
+      const existing = await db.query<{ id: string; created_at: Date | string }>(
+        `SELECT id, created_at
+           FROM prodx_audit_log
+          WHERE organization_id = $1 AND store_id = $2 AND source_event_key = $3
+          LIMIT 1`,
+        [input.organizationId, storeId, sourceEventKey],
+      );
+      persisted = existing.rows[0];
+    }
+    if (!persisted) {
+      throw new Error('Audit event insert did not persist and no idempotent event was found.');
+    }
+
     return {
-      id,
-      timestamp: new Date().toISOString(),
+      id: persisted.id,
+      timestamp: new Date(persisted.created_at).toISOString(),
       storeId,
       registerId: rawRegister || undefined,
       userId: input.userId,

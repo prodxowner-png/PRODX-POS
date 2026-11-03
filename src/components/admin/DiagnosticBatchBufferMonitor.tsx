@@ -18,14 +18,14 @@ import {
   AuditBufferStats,
   DiagnosticLogDocument,
   auditService,
-  subscribeToFirestoreDiagnosticLogs,
+  subscribeToDiagnosticLogs,
 } from '../../services/auditService';
 import { useToast } from '../../context/ToastContext';
 
 export const DiagnosticBatchBufferMonitor: React.FC = () => {
   const { addToast } = useToast();
   const [stats, setStats] = useState<AuditBufferStats>(() => auditService.getStats());
-  const [firestoreLogs, setFirestoreLogs] = useState<DiagnosticLogDocument[]>([]);
+  const [diagnosticLogs, setDiagnosticLogs] = useState<DiagnosticLogDocument[]>([]);
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
@@ -33,13 +33,13 @@ export const DiagnosticBatchBufferMonitor: React.FC = () => {
       setStats(nextStats);
     });
 
-    const unsubFirestore = subscribeToFirestoreDiagnosticLogs(25, (docs) => {
-      setFirestoreLogs(docs);
+    const unsubscribeDiagnostics = subscribeToDiagnosticLogs(25, (docs) => {
+      setDiagnosticLogs(docs);
     });
 
     return () => {
       unsubStats();
-      unsubFirestore();
+      unsubscribeDiagnostics();
     };
   }, []);
 
@@ -62,7 +62,7 @@ export const DiagnosticBatchBufferMonitor: React.FC = () => {
       type: 'success',
       title: '⚡ จำลอง High-Traffic Log Burst (25 รายการ)',
       message:
-        'รวบรวม 25 Diagnostic Logs ลง Local Buffer และอัปโหลดขึ้น Firestore ด้วย writeBatch เดียวสำเร็จ (ประหยัด API 24 ครั้ง)',
+        'รวบรวม 25 Diagnostic Logs ลง Local Buffer และส่งผ่าน PostgreSQL audit API เป็นชุด',
       durationMs: 4500,
     });
   };
@@ -74,7 +74,7 @@ export const DiagnosticBatchBufferMonitor: React.FC = () => {
     if (!result.error) {
       addToast({
         type: 'success',
-        title: '☁️ Batch Upload ขึ้น Firestore สำเร็จ',
+        title: '☁️ Batch Upload ขึ้น PostgreSQL audit API สำเร็จ',
         message: `ส่งข้อมูล ${result.uploadedCount || countToFlush} รายการใน ${result.batchesCommitted} Batch (${result.batchId || 'OK'})`,
         durationMs: 4000,
       });
@@ -89,7 +89,7 @@ export const DiagnosticBatchBufferMonitor: React.FC = () => {
   };
 
   const displayedUploadedLogs =
-    firestoreLogs.length > 0 ? firestoreLogs : stats.recentUploadedLogs;
+    diagnosticLogs.length > 0 ? diagnosticLogs : stats.recentUploadedLogs;
 
   const bufferFillPercent = Math.min(
     100,

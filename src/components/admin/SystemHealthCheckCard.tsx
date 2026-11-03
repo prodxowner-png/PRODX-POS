@@ -42,7 +42,7 @@ export function SystemHealthCheckCard() {
       addToast({
         type: res.statusCode === 200 ? 'success' : res.statusCode === 207 ? 'warning' : 'error',
         title: `Health Check ${res.statusCode} ${res.status}`,
-        message: `Cloud SQL: ${res.services.cloudSql.status} (${res.services.cloudSql.latencyMs}ms) | Firestore: ${res.services.firestore.status} (${res.services.firestore.latencyMs}ms)`,
+        message: `Supabase PostgreSQL: ${res.services.cloudSql.status} (${res.services.cloudSql.latencyMs}ms) | Firebase/Firestore: retired`,
         durationMs: 3500,
       });
     } catch (err: unknown) {
@@ -87,7 +87,7 @@ export function SystemHealthCheckCard() {
       addToast({
         type: 'info',
         title: `Auto-Ping ทำงานทุก ${seconds} วินาที`,
-        message: 'ระบบจะส่ง ping ตรวจสอบ Cloud SQL และ Firestore อย่างต่อเนื่อง',
+        message: 'ระบบจะตรวจสอบ Supabase PostgreSQL อย่างต่อเนื่อง โดยไม่เรียก Firebase/Firestore',
         durationMs: 2500,
       });
     }
@@ -159,10 +159,10 @@ export function SystemHealthCheckCard() {
           </div>
           <h2 className="text-xl font-bold text-text flex items-center gap-2.5">
             <Activity className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
-            การตรวจสอบความพร้อมของบริการแบ็กเอนด์ (Cloud SQL & Firestore)
+            การตรวจสอบความพร้อมของบริการแบ็กเอนด์ (Supabase PostgreSQL)
           </h2>
           <p className="text-xs text-text/60 mt-0.5">
-            ส่งสัญญาณ Ping แบบ End-to-End ไปยัง Google Cloud SQL และ Google Cloud Firestore พร้อมรับผลลัพธ์เป็น Status-Coded JSON Object
+            ตรวจสอบ PostgreSQL บน Supabase ผ่าน production API; Firebase/Firestore ถูกปิดใช้งานและไม่มีการ ping ไปยัง provider เดิม
           </p>
         </div>
 

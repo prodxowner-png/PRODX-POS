@@ -29,8 +29,18 @@ test('production auth HTTP boundary enforces login scope, session revocation, ma
 
   const { app, pool } = await createProductionApp();
   const passwordHash = await hashPassword('correct-password');
+  // Password-compromise screening is covered by its dedicated tests. Keep this
+  // database/HTTP boundary test deterministic and independent of HIBP availability.
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    if (String(input).startsWith('https://api.pwnedpasswords.com/range/')) {
+      return new Response('', { status: 200 });
+    }
+    return originalFetch(input, init);
+  };
 
   const cleanup = async () => {
+    globalThis.fetch = originalFetch;
     await pool.query('DELETE FROM prodx_auth_login_throttles WHERE client_fingerprint = ANY($1::text[])', [localClientFingerprints]);
     await pool.query('DELETE FROM prodx_security_audit_events WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
     await pool.query('DELETE FROM prodx_sessions WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);

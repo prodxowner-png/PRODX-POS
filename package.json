@@ -5,13 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build && esbuild server.ts --bundle --platform=node --format=esm --outfile=dist/index.js --packages=external && mkdir -p build && cp -r dist/* build/",
+    "build": "vite build && rm -rf build/diagnostics build/index.js build/server-bundle.js && mkdir -p build .private-build/server && esbuild server.ts --bundle --platform=node --format=esm --outfile=.private-build/server/index.js --packages=external && cp -r dist/* build/",
     "start": "node --import tsx server.ts",
     "preview": "vite preview",
     "clean": "rm -rf dist build",
     "lint": "tsc --noEmit",
     "server:check": "tsc -p tsconfig.server.json",
-    "server:test": "node --import tsx --test server/**/*.test.ts",
+    "server:test": "node --import tsx --test server/*.test.ts server/**/*.test.ts",
     "server:test:integration": "node --import tsx --test server/**/*.integration.test.ts",
     "server:test:refund": "node --import tsx --test server/http/refund-route.test.ts server/transactions/refund-postgres.integration.test.ts",
     "theme:validate": "tsx theme-validator.ts --check",
@@ -29,6 +29,8 @@
     "@supabase/supabase-js": "2.117.2",
     "@tailwindcss/vite": "^4.1.14",
     "@types/d3": "^7.4.3",
+    "@vercel/oidc": "3.1.0",
+    "@vercel/speed-insights": "^2.0.0",
     "@vitejs/plugin-react": "^5.0.4",
     "@yudiel/react-qr-scanner": "^2.6.0",
     "d3": "^7.9.0",
@@ -67,5 +69,8 @@
     "autoprefixer": "^10.4.21",
     "madge": "^8.0.0",
     "typescript": "~5.8.2"
+  },
+  "overrides": {
+    "@grpc/grpc-js": "^1.13.6"
   }
 }

@@ -376,14 +376,12 @@ var createPostgresAuthorization = (db) => async (context, permission) => {
 
 // server/db/postgres.ts
 import { Pool } from "pg";
-var DEFAULT_DB_BROKER_URL = "https://sjgwesmmpegtzsqqqhvd.supabase.co/functions/v1/prodx-db-broker";
 var shouldResolveProductionDatabaseUrl = () => process.env.VERCEL === "1" && process.env.NODE_ENV === "production";
 var classifyProductionDatabaseTarget = (databaseUrl) => {
   if (!databaseUrl) return "invalid";
   try {
     const hostname = new URL(databaseUrl).hostname;
     if (hostname === "aws-0-ap-northeast-1.pooler.supabase.com") return "supabase_session_pooler";
-    if (hostname === "db.sjgwesmmpegtzsqqqhvd.supabase.co") return "supabase_direct";
     return "other";
   } catch {
     return "invalid";
@@ -397,7 +395,10 @@ var resolveProductionDatabaseUrl = async (vercelOidcToken) => {
   if (!oidcToken) {
     throw new Error("Vercel OIDC token is required to resolve the production PostgreSQL connection.");
   }
-  const brokerUrl = process.env.PRODX_DB_BROKER_URL ?? DEFAULT_DB_BROKER_URL;
+  const brokerUrl = process.env.PRODX_DB_BROKER_URL?.trim();
+  if (!brokerUrl) {
+    throw new Error("PRODX_DB_BROKER_URL is required to resolve the production PostgreSQL connection.");
+  }
   const response = await fetch(brokerUrl, {
     method: "GET",
     headers: {
