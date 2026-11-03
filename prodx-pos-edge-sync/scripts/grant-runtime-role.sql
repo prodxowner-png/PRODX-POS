@@ -27,9 +27,11 @@ GRANT INSERT ON sale_lines,inventory_ledger,audit_logs TO prodx_pos_worker;
 GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO prodx_pos_worker;
 -- Re-run the sequence GRANT after any later migration that adds a serial/bigserial column.
 
--- Product management runs separately and must set app.current_tenant_id per transaction.
-GRANT SELECT,INSERT,UPDATE ON products TO prodx_catalog_writer;
-GRANT SELECT ON tenant_catalog_versions TO prodx_catalog_writer;
+-- Catalog mutation is intentionally disabled in this Edge Sync deployment.
+-- No authenticated catalog-writer route currently binds a verified operator UUID
+-- to the mutation transaction and its immutable audit_logs event. Keep this role
+-- read-only until that complete application transaction and its tests are delivered.
+GRANT SELECT ON products,tenant_catalog_versions TO prodx_catalog_writer;
 
 -- Device enrollment/revocation runs separately and must set app.current_tenant_id.
 GRANT SELECT,INSERT,UPDATE ON terminal_devices TO prodx_device_admin;
