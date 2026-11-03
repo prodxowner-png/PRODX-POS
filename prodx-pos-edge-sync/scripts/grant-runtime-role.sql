@@ -29,7 +29,7 @@ GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO prodx_pos_worker;
 
 -- Product management runs separately and must set app.current_tenant_id per transaction.
 GRANT SELECT,INSERT,UPDATE ON products TO prodx_catalog_writer;
-GRANT SELECT,INSERT,UPDATE ON tenant_catalog_versions TO prodx_catalog_writer;
+GRANT SELECT ON tenant_catalog_versions TO prodx_catalog_writer;
 
 -- Device enrollment/revocation runs separately and must set app.current_tenant_id.
 GRANT SELECT,INSERT,UPDATE ON terminal_devices TO prodx_device_admin;
