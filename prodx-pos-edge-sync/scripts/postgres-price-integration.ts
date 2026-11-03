@@ -35,6 +35,12 @@ try{
     `INSERT INTO terminal_devices(tenant_id,terminal_id,cert_fingerprint_sha256,active)
      VALUES($1,$2,$3,true)`,[tenantId,terminalId,certificateFingerprint]
   );
+  // Seed stock through the immutable ledger path; direct balance writes are forbidden.
+  await admin.query(
+    `INSERT INTO inventory_ledger(tenant_id,product_id,reference_id,quantity_delta,reason)
+     VALUES($1,$2,$3,2,'OPENING_BALANCE')`,
+    [tenantId,productId,randomUUID()]
+  );
   const versionResult=await admin.query(
     `SELECT catalog_version FROM tenant_catalog_versions WHERE tenant_id=$1`,[tenantId]
   );
@@ -110,7 +116,7 @@ try{
       WHERE b.tenant_id=$1 AND b.product_id=$3`,[tenantId,saleId,productId]
   );
   if(Number(signedAudit?.signed_unit_price_minor)!==10000||
-     Number(stock.rows[0]?.balance)!==-2||Number(stock.rows[0]?.quantity_delta)!==-2||Number(stock.rows[0]?.row_count)!==1){
+     Number(stock.rows[0]?.balance)!==0||Number(stock.rows[0]?.quantity_delta)!==-2||Number(stock.rows[0]?.row_count)!==1){
     throw new Error("AUDIT_OR_INVENTORY_INTEGRITY_ASSERTION_FAILED");
   }
 
@@ -129,7 +135,7 @@ try{
   console.log(JSON.stringify({
     result:"PASS",tenant_id:tenantId,terminal_id:terminalId,sale_id:saleId,
     committed_price_minor:10000,current_database_price_minor:20000,
-    total_minor:21400,duplicate_result:duplicate,inventory_balance_after_ledger_trigger:-2,
+    total_minor:21400,duplicate_result:duplicate,inventory_balance_after_ledger_trigger:0,
     audit_catalog_version:catalogVersion,rls_cross_tenant_read:"blocked",mtls_certificate_mapping:"pass"
   },null,2));
 }catch(error){
