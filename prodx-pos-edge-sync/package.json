@@ -1,0 +1,33 @@
+{
+  "name": "prodx-pos-edge-sync",
+  "private": true,
+  "version": "1.1.2",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "types": "wrangler types",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:edge": "vitest run test/edge-sync.test.ts",
+    "chaos": "tsx scripts/chaos-load-test.ts",
+    "integration:postgres": "tsx scripts/postgres-price-integration.ts",
+    "export:do-health": "tsx scripts/export-do-health.ts",
+    "verify:ci": "npm run typecheck && npm run test:edge && npm run integration:postgres && npm run chaos"
+  },
+  "dependencies": {
+    "jose": "^6.1.0",
+    "pg": "^8.16.3",
+    "undici": "^7.16.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.15.5",
+    "typescript": "^5.9.3",
+    "wrangler": "^4.45.0",
+    "@cloudflare/vitest-plugin": "^1.4.11",
+    "vitest": "^4.1.0",
+    "tsx": "^4.20.0",
+    "@types/node": "^22.19.0"
+  }
+}

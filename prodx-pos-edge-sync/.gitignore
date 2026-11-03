@@ -1,0 +1,14 @@
+node_modules/
+.dev.vars
+.env
+.env.*
+!.dev.vars.example
+*.key
+*.pem
+*.p12
+*.pfx
+*.crt
+*.cer
+do-outbox-export.csv
+coverage/
+dist/
