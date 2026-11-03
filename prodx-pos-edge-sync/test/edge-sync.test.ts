@@ -198,6 +198,17 @@ describe("PRODX Edge sync Durable Object", () => {
     expect(await verifySalePrices(forged,SECRET)).toBe(false);
   });
 
+  it("blocks later sequences behind an unresolved permanent failure", async () => {
+    const stub=getStub("failed-sequence-blocks-following");
+    const failed=prepared("failed-sequence-owner-key","e".repeat(64),1);
+    await stub.submitBatch(submission([failed]));
+    await stub.markFailed(TENANT,TERMINAL,failed.sale.idempotency_key,"INSUFFICIENT_STOCK");
+    const later=prepared("sale-after-failed-sequence-key","f".repeat(64),2);
+    await expect(stub.submitBatch(submission([later]),{
+      last_committed_seq_no:0,last_hlc_physical_ms:0,last_hlc_logical:0
+    })).rejects.toThrow("TERMINAL_SEQUENCE_BLOCKED_BY_FAILED_RECEIPT");
+  });
+
   it("rejects a different idempotency key that reuses a locally accepted sequence", async () => {
     const stub=getStub("sequence-reuse-after-local-accept");
     const first=prepared("sequence-owner-idempotency-key","a".repeat(64),1);
