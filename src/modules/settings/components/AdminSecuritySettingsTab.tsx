@@ -2,10 +2,8 @@
  * PRODX POS — Admin Security Tab & System Owner 'Change Admin Password' Vault
  *
  * Provides a dedicated 'Admin Security' workspace inside SettingsScreen.tsx featuring:
- * 1. System Owner Verification & Active Database Credential Telemetry (/admin_credentials/usr-admin-kamkokaew)
- * 2. 'Change Admin Password' workflow requiring mandatory Re-Authentication (Current Password or WebAuthn Biometrics)
- * 3. Live & Pre-Commit Cryptographic Hashing / Encryption Check (PBKDF2-HMAC-SHA256 + Salted SHA-256 via Web Crypto API)
- * 4. Atomic update of the hardcoded System Owner credentials in Firestore and local auth storage with immutable audit logging
+ * Legacy reset controls remain visible for diagnosis but are fail-closed until a server-authoritative PostgreSQL reset endpoint exists.
+ * Browser hashing is display-only and is not authentication evidence.
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -21,7 +19,6 @@ import {
   Sparkles,
   CheckCircle2,
   Database,
-  RotateCcw,
   RefreshCw,
   Cpu,
   FileKey2,
@@ -31,7 +28,6 @@ import {
 import {
   SYSTEM_OWNER_ADMIN_EMAIL,
   SYSTEM_OWNER_ADMIN_ID,
-  DEFAULT_SYSTEM_OWNER_PASSWORD,
   isVerifiedSystemOwner,
 } from '../../../domain/auth';
 import { useAuth } from '../../../context/AuthContext';
@@ -279,14 +275,6 @@ export const AdminSecuritySettingsTab: React.FC<AdminSecuritySettingsTabProps> =
     navigator.clipboard?.writeText(shuffled).catch(() => {});
   };
 
-  const handleRestoreDefaultOwnerPassword = () => {
-    setNewPassword(DEFAULT_SYSTEM_OWNER_PASSWORD);
-    setConfirmPassword(DEFAULT_SYSTEM_OWNER_PASSWORD);
-    setShowNewPassword(true);
-    setShowConfirmPassword(true);
-    setPreviewSalt(`salt-${Date.now().toString(36)}-owner`);
-  };
-
   const handleSubmitChangeAdminPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
@@ -377,6 +365,10 @@ export const AdminSecuritySettingsTab: React.FC<AdminSecuritySettingsTabProps> =
 
   return (
     <div className="space-y-6">
+      <div role="alert" className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-xs text-text">
+        <strong>{isThai ? 'รีเซ็ตรหัสผ่านถูกปิดชั่วคราวเพื่อความปลอดภัย' : 'Administrator credential reset is disabled for security.'}</strong>{' '}
+        {isThai ? 'ยังไม่มี API ฝั่งเซิร์ฟเวอร์ที่ตรวจสอบรหัสผ่านและบันทึก credential กับ audit ใน PostgreSQL transaction เดียวกัน จึงไม่มีการแก้ credential จากเบราว์เซอร์' : 'A server endpoint that verifies the current password and atomically commits the credential update with its audit record is not wired yet. Browser-side credential writes are disabled.'}
+      </div>
       {/* Top Identity & Cryptographic Vault Header Card */}
       <div className="bg-card border border-border border-crisp rounded-2xl p-5 sm:p-6 shadow-xs space-y-5">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-border/60">
@@ -422,6 +414,7 @@ export const AdminSecuritySettingsTab: React.FC<AdminSecuritySettingsTabProps> =
                 variant="outline"
                 size="sm"
                 onClick={onOpenResetModal}
+                disabled={true}
                 leftIcon={<KeyRound className="w-3.5 h-3.5 text-amber-500" />}
                 className="min-h-[40px] px-3 text-xs font-bold border-amber-500/40 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 cursor-pointer"
               >
@@ -450,10 +443,10 @@ export const AdminSecuritySettingsTab: React.FC<AdminSecuritySettingsTabProps> =
               <Cpu className="w-3.5 h-3.5 text-primary" />
             </div>
             <div className="text-xs font-mono font-bold text-primary truncate">
-              {dbStatus?.hashAlgorithm || 'PBKDF2-HMAC-SHA256 + SHA-256'}
+              {dbStatus?.hashAlgorithm || 'Server-managed; client hashing disabled'}
             </div>
             <div className="text-[11px] font-mono text-text/50 truncate">
-              Salt: {dbStatus?.passwordSalt || 'prodx-system-owner-v1'}
+              Salt: {dbStatus?.passwordSalt || (dbStatus?.source === 'unconfigured' ? (isThai ? 'ยังไม่ได้ตั้งค่า' : 'Not configured') : '—')}
             </div>
           </div>
 
@@ -466,7 +459,7 @@ export const AdminSecuritySettingsTab: React.FC<AdminSecuritySettingsTabProps> =
               <span className="text-xs font-mono font-bold text-text truncate">
                 {dbStatus?.passwordHash
                   ? `${dbStatus.passwordHash.slice(0, 18)}...${dbStatus.passwordHash.slice(-6)}`
-                  : 'Computing...'}
+                  : dbStatus?.source === 'unconfigured' ? (isThai ? 'ยังไม่ได้ตั้งค่า' : 'Not configured') : 'Unavailable'}
               </span>
               {dbStatus?.passwordHash && (
                 <button
@@ -494,14 +487,16 @@ export const AdminSecuritySettingsTab: React.FC<AdminSecuritySettingsTabProps> =
               <Database className="w-3.5 h-3.5 text-emerald-500" />
             </div>
             <div className="text-xs font-mono font-bold text-emerald-600 dark:text-emerald-400 truncate">
-              /admin_credentials/{SYSTEM_OWNER_ADMIN_ID}
+              {isThai ? 'ปิดใช้งาน — รอ API ฝั่งเซิร์ฟเวอร์' : 'Disabled — awaiting server API'}
             </div>
             <div className="text-[11px] text-text/50 truncate">
               {dbStatus?.updatedAt
                 ? `${isThai ? 'อัปเดตล่าสุด:' : 'Updated:'} ${new Date(dbStatus.updatedAt).toLocaleTimeString()}`
                 : isThai
                   ? 'พร้อมซิงค์ข้อมูล'
-                  : 'Ready for sync'}
+                  : dbStatus?.source === 'unconfigured'
+                    ? isThai ? 'ยังไม่ได้ตั้งค่า' : 'Not configured'
+                    : isThai ? 'พร้อมซิงค์ข้อมูล' : 'Ready for sync'}
             </div>
           </div>
         </div>
@@ -658,15 +653,6 @@ export const AdminSecuritySettingsTab: React.FC<AdminSecuritySettingsTabProps> =
                 <span>{isThai ? 'สุ่มรหัสผ่านปลอดภัยสูง' : 'Generate Strong Password'}</span>
               </button>
 
-              <button
-                type="button"
-                onClick={handleRestoreDefaultOwnerPassword}
-                disabled={!isOwner}
-                className="min-h-[36px] px-3 rounded-lg border border-border bg-card text-text/75 hover:text-text text-xs font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-                <span>{isThai ? 'ใช้ค่าเริ่มต้นเจ้าของระบบ' : 'Restore Default Owner Credential'}</span>
-              </button>
             </div>
           </div>
 
@@ -837,21 +823,15 @@ export const AdminSecuritySettingsTab: React.FC<AdminSecuritySettingsTabProps> =
             <Database className="w-4 h-4 text-primary shrink-0" />
             <span>
               {isThai
-                ? 'บันทึกข้อมูลแฮชลงคอลเลกชัน /admin_credentials และบันทึกประวัติ /audit_logs อัตโนมัติ'
-                : 'Atomically updates /admin_credentials and appends an immutable /audit_logs entry.'}
+                ? 'ปิดใช้งานจนกว่าจะมี API ฝั่งเซิร์ฟเวอร์สำหรับบันทึก credential และ audit แบบ atomic'
+                : 'Disabled. Credential changes require a server-authoritative PostgreSQL transaction and immutable audit record.'}
             </span>
           </div>
 
           <button
             type="submit"
             id="admin-security-submit-change-password-btn"
-            disabled={
-              !isOwner ||
-              isSubmitting ||
-              !analysis.isPolicyCompliant ||
-              !passwordsMatch ||
-              (!isReauthenticated && !currentPassword.trim())
-            }
+            disabled={true}
             className="min-h-[44px] px-6 rounded-xl bg-amber-500 text-slate-950 font-black text-xs hover:bg-amber-400 disabled:opacity-40 transition flex items-center justify-center gap-2 cursor-pointer shadow-sm"
           >
             <KeyRound className="w-4 h-4" />

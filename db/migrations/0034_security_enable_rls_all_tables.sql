@@ -1,6 +1,8 @@
--- Security hardening: Explicitly enable Row Level Security (RLS) on all public PRODX tables.
--- This ensures that default-deny security posture is enforced at the PostgreSQL boundary.
--- Combined with 0033_security_prodx_app_role, the prodx_app backend role operates with explicit policies.
+-- Security hardening: Explicitly enable Row Level Security (RLS) on PRODX-owned tables.
+-- Shared public-schema tables belonging to other applications (for example the Owner
+-- Console's public.user_roles) must retain their independently managed RLS policies.
+-- Combined with 0033_security_prodx_app_role and 0036_security_tenant_store_rls,
+-- POS-owned tables use the dedicated runtime role and explicit policies.
 
 DO $$
 DECLARE
@@ -12,6 +14,7 @@ BEGIN
     JOIN pg_namespace n ON n.oid = c.relnamespace
     WHERE n.nspname = 'public'
       AND c.relkind = 'r'
+      AND c.relname LIKE 'prodx\_%' ESCAPE '\'
       AND c.relname NOT IN ('prodx_schema_migrations', 'prodx_migration_lock')
   LOOP
     EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', table_name);

@@ -5,6 +5,7 @@ import App from './App.tsx';
 import './index.css';
 import './premium-design-system.css';
 import { registerSW } from 'virtual:pwa-register';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 
 const updateServiceWorker = registerSW({
   immediate: true,
@@ -41,5 +42,6 @@ void updateServiceWorker;
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <App />
+    <SpeedInsights />
   </StrictMode>,
 );

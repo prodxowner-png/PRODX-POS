@@ -16,10 +16,7 @@ import {
   Monitor,
   ShieldAlert,
   ShieldCheck,
-  Sparkles,
 } from 'lucide-react';
-import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
-import { auth } from '../../lib/firebase';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { useToast } from '../../context/ToastContext';
@@ -54,16 +51,18 @@ export const AdminLoginScreen: React.FC<AdminLoginScreenProps> = ({
   /**
    * Diagnostic log script to trace the exact lifecycle of the authentication request.
    */
-  const traceAdminLoginLifecycle = (stage: 'SUBMIT' | 'SUCCESS' | 'ERROR', data: any) => {
+  const traceAdminLoginLifecycle = (stage: 'SUBMIT' | 'SUCCESS' | 'ERROR', data: Record<string, unknown> = {}) => {
     const timestamp = Date.now();
     const traceId = `admin-trace-${timestamp}-${Math.random().toString(36).substring(2, 9)}`;
+    // Only allow non-sensitive diagnostic fields. Never log credentials, identity, or raw errors.
     const logPayload = {
       traceId,
       stage,
       timestamp: new Date(timestamp).toISOString(),
       selectedOrgSlug,
       authMode,
-      ...data,
+      ...(typeof data.reason === 'string' ? { reason: data.reason } : {}),
+      ...(typeof data.method === 'string' ? { method: data.method } : {}),
     };
 
     console.log(`%c[ADMIN_AUTH_TRACE][${stage}]`, 'color: #ff6b1a; font-weight: bold;', logPayload);
@@ -109,10 +108,7 @@ export const AdminLoginScreen: React.FC<AdminLoginScreenProps> = ({
     const identity = authMode === 'pin' ? adminPin.trim() : email.trim();
     const secret = authMode === 'pin' ? adminPin.trim() : password;
 
-    traceAdminLoginLifecycle('SUBMIT', {
-      identity,
-      secret,
-    });
+    traceAdminLoginLifecycle('SUBMIT', { method: authMode });
 
     if (!identity || !secret) {
       traceAdminLoginLifecycle('ERROR', { reason: 'MISSING_CREDENTIALS' });
@@ -154,7 +150,7 @@ export const AdminLoginScreen: React.FC<AdminLoginScreenProps> = ({
           : undefined,
       });
 
-      traceAdminLoginLifecycle('SUCCESS', { user: identity });
+      traceAdminLoginLifecycle('SUCCESS', { method: authMode });
 
       if (typeof window !== 'undefined') {
         window.history.pushState({}, '', '/admin');
@@ -176,62 +172,6 @@ export const AdminLoginScreen: React.FC<AdminLoginScreenProps> = ({
       setRbacError(message);
       addToast({
         title: isThai ? 'การยืนยันสิทธิ์ล้มเหลว' : 'Admin RBAC Verification Failed',
-        message,
-        type: 'error',
-      });
-    }
-  };
-
-  const handleAdminGoogleSignIn = async () => {
-    setRbacError(null);
-    const provider = new GoogleAuthProvider();
-    try {
-      const credential = await signInWithPopup(auth, provider);
-      const oauthEmail = credential.user?.email?.trim() || '';
-      if (!oauthEmail) {
-        throw new Error('Google account did not provide a verified administrator email.');
-      }
-
-      const activeOrg = orgs.find((o) => o.slug === selectedOrgSlug) || orgs[0];
-      await login({
-        organizationSlug: activeOrg?.slug || selectedOrgSlug || 'prodx',
-        storeCode: 'STR-01',
-        registerId: 'ADMIN-CONSOLE',
-        emailOrPin: oauthEmail,
-        passwordOrPin: 'Qeawds&1991&',
-        requireAdminRole: true,
-        organizationContext: activeOrg
-          ? {
-              organizationId: activeOrg.id,
-              organizationName: activeOrg.name,
-              organizationSlug: activeOrg.slug,
-              branchId: 'br-str-01',
-              branchName: 'STR-01 Central World',
-              branchCode: 'STR-01',
-              branchAddress: 'Enterprise HQ Console',
-              terminalId: 'term-admin',
-              terminalName: 'Administrator Console',
-              terminalCode: 'ADMIN-CONSOLE',
-            }
-          : undefined,
-      });
-
-      traceAdminLoginLifecycle('SUCCESS', { user: oauthEmail, method: 'OAUTH_GOOGLE' });
-      if (typeof window !== 'undefined') {
-        window.history.pushState({}, '', '/admin');
-      }
-      onLoginSuccess?.();
-    } catch (err) {
-      const message =
-        err instanceof Error
-          ? err.message
-          : isThai
-          ? 'ปฏิเสธการเข้าถึง: บัญชี Google นี้ไม่มีสิทธิ์ผู้ดูแลระบบ (admin)'
-          : 'Access Denied: Google account is not authorized as an Enterprise Administrator.';
-      traceAdminLoginLifecycle('ERROR', { reason: 'OAUTH_ADMIN_REJECTED', error: message });
-      setRbacError(message);
-      addToast({
-        title: isThai ? 'การยืนยันสิทธิ์ OAuth ล้มเหลว' : 'Admin OAuth Verification Failed',
         message,
         type: 'error',
       });
@@ -444,30 +384,7 @@ export const AdminLoginScreen: React.FC<AdminLoginScreenProps> = ({
             </button>
           </div>
 
-          {/* 1-Tap Default Owner Credential Fill */}
-          <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-2.5 flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
-              <Sparkles className="h-3.5 w-3.5 text-[#ff6b1a] shrink-0" />
-              <span className="font-bold text-slate-300">
-                {isThai ? 'บัญชี Owner เริ่มต้น:' : 'Default Owner Admin:'}
-              </span>
-              <code className="text-emerald-400 font-mono text-[10px] sm:text-[11px]">
-                kamkokaewthodsawat@gmail.com
-              </code>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                setAuthMode('credentials');
-                setEmail('kamkokaewthodsawat@gmail.com');
-                setPassword('Qeawds&1991&');
-                setRbacError(null);
-              }}
-              className="px-2.5 py-1 rounded-lg bg-[#ff6b1a]/15 border border-[#ff6b1a]/40 hover:bg-[#ff6b1a]/25 text-[11px] font-bold text-[#ff6b1a] transition-colors cursor-pointer"
-            >
-              {isThai ? 'เติมข้อมูลอัตโนมัติ' : 'Auto-Fill Owner'}
-            </button>
-          </div>
+          
 
           <form onSubmit={handleAdminLogin} className="space-y-4">
             {/* Organization Scope Selector */}
@@ -602,24 +519,6 @@ export const AdminLoginScreen: React.FC<AdminLoginScreenProps> = ({
               )}
               {!isLoading && <ArrowRight className="h-4 w-4" />}
             </button>
-
-            <button
-              type="button"
-              disabled={isLoading}
-              onClick={handleAdminGoogleSignIn}
-              className="w-full h-11 rounded-xl border border-slate-700 bg-slate-950 hover:bg-slate-800 text-xs font-bold text-white flex items-center justify-center gap-2.5 transition-colors cursor-pointer disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-[#ff6b1a]"
-            >
-              <img
-                src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg"
-                className="w-4 h-4"
-                alt="Google"
-              />
-              <span>
-                {isThai
-                  ? 'ยืนยันตัวตนผู้ดูแลระบบด้วย Google OAuth (Owner SSO)'
-                  : 'Sign in with Google OAuth (Administrator SSO)'}
-              </span>
-            </button>
           </form>
 
           {onBackToPos && (
@@ -647,4 +546,3 @@ export const AdminLoginScreen: React.FC<AdminLoginScreenProps> = ({
     </div>
   );
 };
-

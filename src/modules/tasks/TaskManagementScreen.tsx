@@ -18,14 +18,14 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { useTasks } from '../../hooks/useTasks';
-import { auth } from '../../lib/firebase';
-import { GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
+import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export default function TaskManagementScreen() {
   const { tasks, loading, error, addTask, updateTaskStatus, deleteTask } = useTasks();
+  const { session, logout } = useAuth();
   const { addToast } = useToast();
   const { language } = useLanguage();
   const isThai = language === 'th';
@@ -36,27 +36,9 @@ export default function TaskManagementScreen() {
   const [filter, setFilter] = useState<'all' | 'active' | 'completed'>('all');
   const [searchQuery, setSearchQuery] = useState('');
 
-  const handleSignIn = async () => {
-    const provider = new GoogleAuthProvider();
-    try {
-      await signInWithPopup(auth, provider);
-      addToast({
-        type: 'success',
-        title: isThai ? 'เข้าสู่ระบบสำเร็จ' : 'Sign-in Successful',
-        message: isThai ? 'ยินดีต้อนรับสู่ระบบจัดการงาน' : 'Welcome to the Task Management system',
-      });
-    } catch (err: any) {
-      addToast({
-        type: 'error',
-        title: isThai ? 'เข้าสู่ระบบไม่สำเร็จ' : 'Sign-in Failed',
-        message: err.message,
-      });
-    }
-  };
-
   const handleSignOut = async () => {
     try {
-      await signOut(auth);
+      await logout();
       addToast({
         type: 'info',
         title: isThai ? 'ออกจากระบบแล้ว' : 'Signed Out',
@@ -107,7 +89,7 @@ export default function TaskManagementScreen() {
       (t.description || '').toLowerCase().includes(searchQuery.toLowerCase())
     );
 
-  if (!auth.currentUser) {
+  if (!session) {
     return (
       <div className="min-h-[80vh] flex flex-col items-center justify-center p-6 text-center">
         <motion.div
@@ -124,17 +106,11 @@ export default function TaskManagementScreen() {
             </h1>
             <p className="text-text/60 font-medium">
               {isThai
-                ? 'กรุณาเข้าสู่ระบบด้วย Google เพื่อจัดการงานส่วนตัวของคุณ'
-                : 'Please sign in with Google to manage your personal tasks'}
+                ? 'กรุณาเข้าสู่ระบบ POS ก่อน เพื่อจัดการงานส่วนตัวของคุณ'
+                : 'Sign in through the PRODX POS login before managing your personal tasks'}
             </p>
           </div>
-          <button
-            onClick={handleSignIn}
-            className="w-full flex items-center justify-center gap-3 bg-white text-slate-900 font-bold py-4 px-6 rounded-2xl border border-slate-200 hover:bg-slate-50 transition-all shadow-md active:scale-95 cursor-pointer"
-          >
-            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-5 h-5" alt="Google" />
-            <span>{isThai ? 'เข้าสู่ระบบด้วย Google' : 'Continue with Google'}</span>
-          </button>
+          <p className="text-sm text-text/60">{isThai ? 'ใช้หน้าล็อกอินของ PRODX POS เพื่อยืนยันตัวตน' : 'Use the PRODX POS login to authenticate.'}</p>
           <div className="flex items-center gap-2 justify-center text-[11px] text-text/40 font-mono uppercase tracking-widest">
             <ShieldCheck className="w-3.5 h-3.5" />
             <span>Enterprise Security Enabled</span>
@@ -158,7 +134,7 @@ export default function TaskManagementScreen() {
             </h1>
             <div className="flex items-center gap-2 text-xs text-text/60 font-medium mt-0.5">
               <UserIcon className="w-3.5 h-3.5 text-indigo-500" />
-              <span>{auth.currentUser.email}</span>
+              <span>{session.currentUser.email}</span>
             </div>
           </div>
         </div>

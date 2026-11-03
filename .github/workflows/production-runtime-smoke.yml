@@ -1,6 +1,8 @@
 name: Production Runtime Smoke
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
   schedule:
     - cron: "*/15 * * * *"
@@ -9,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: production-runtime-smoke
+  group: production-runtime-smoke-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -21,22 +23,31 @@ jobs:
       - name: Check API liveness
         run: |
           set -euo pipefail
-          curl --fail --show-error --silent --retry 3 --retry-delay 2             --max-time 15             --output /tmp/api-healthz.json             --write-out "HTTP %{http_code}
-"             https://prodx-pos.vercel.app/api/v1/healthz
+          curl --fail --show-error --silent --retry 3 --retry-delay 2 \
+            --max-time 15 \
+            --output /tmp/api-healthz.json \
+            --write-out "HTTP %{http_code}\n" \
+            https://prodx-pos.vercel.app/api/v1/healthz
           grep -Eq '"status"[[:space:]]*:[[:space:]]*"ok"' /tmp/api-healthz.json
 
       - name: Check API readiness
         run: |
           set -euo pipefail
-          curl --fail --show-error --silent --retry 3 --retry-delay 2             --max-time 15             --output /tmp/api-readyz.json             --write-out "HTTP %{http_code}
-"             https://prodx-pos.vercel.app/api/v1/readyz
+          curl --fail --show-error --silent --retry 3 --retry-delay 2 \
+            --max-time 15 \
+            --output /tmp/api-readyz.json \
+            --write-out "HTTP %{http_code}\n" \
+            https://prodx-pos.vercel.app/api/v1/readyz
           grep -Eq '"status"[[:space:]]*:[[:space:]]*"ready"' /tmp/api-readyz.json
 
       - name: Check frontend availability
         run: |
           set -euo pipefail
-          curl --fail --show-error --silent --retry 3 --retry-delay 2             --max-time 15             --output /tmp/frontend.html             --write-out "HTTP %{http_code}
-"             https://prodx-pos.vercel.app/
+          curl --fail --show-error --silent --retry 3 --retry-delay 2 \
+            --max-time 15 \
+            --output /tmp/frontend.html \
+            --write-out "HTTP %{http_code}\n" \
+            https://prodx-pos.vercel.app/
           grep -Fq "PRODX POS" /tmp/frontend.html
 
       - name: Publish smoke evidence

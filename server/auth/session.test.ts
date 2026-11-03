@@ -14,12 +14,17 @@ const device: DeviceRecord = {
 const repositoryFixture = () => {
   let session: SessionRecord | null = null;
   let currentCredential = { ...credential };
+  let linkedSupabaseUserId: string | null = '00000000-0000-4000-8000-000000000099';
   const calls = { failed: 0, reset: 0, touched: 0, revoked: 0, lastLockedUntil: null as Date | null };
   const repository: AuthenticationRepository = {
-    findCredentialByUsername: async (username, organizationId) =>
-      username === currentCredential.username && (organizationId === undefined || organizationId === currentCredential.organizationId)
+    findCredentialByUsername: async (username, deviceId) =>
+      username === currentCredential.username && deviceId === device.id
         ? currentCredential : null,
-    recordFailedAttempt: async (_userId) => {
+    findUserBySupabaseUserId: async (supabaseUserId, deviceId) =>
+      supabaseUserId === linkedSupabaseUserId && deviceId === device.id
+        ? { userId: currentCredential.userId, organizationId: currentCredential.organizationId, username: currentCredential.username, status: currentCredential.status }
+        : null,
+    recordFailedAttempt: async (_userId, _organizationId) => {
       calls.failed += 1;
       const next = currentCredential.failedAttempts + 1;
       const lockedUntil = next >= 5 ? new Date(clock.getTime() + 15 * 60 * 1000) : currentCredential.lockedUntil;
@@ -30,10 +35,10 @@ const repositoryFixture = () => {
     createSession: async (input) => { session = { ...input, revokedAt: null, userStatus: 'active' }; },
     findSessionByTokenHash: async (tokenHash) => session?.tokenHash === tokenHash ? session : null,
     findDevice: async (deviceId) => deviceId === device.id ? device : null,
-    revokeSession: async (_sessionId, at) => { calls.revoked += 1; if (session) session = { ...session, revokedAt: at }; },
+    revokeSession: async (_sessionId, _tokenHash, at) => { calls.revoked += 1; if (session) session = { ...session, revokedAt: at }; },
     touchSession: async () => { calls.touched += 1; },
   };
-  return { repository, calls, getSession: () => session, getCredential: () => currentCredential };
+  return { repository, calls, getSession: () => session, getCredential: () => currentCredential, unlinkSupabaseIdentity: () => { linkedSupabaseUserId = null; } };
 };
 
 const clock = new Date('2026-09-13T12:00:00.000Z');
@@ -174,3 +179,39 @@ test('rejects client-controlled WebAuthn marker without issuing a session', asyn
   assert.equal(calls.reset, 0);
 });
 
+
+
+test('Supabase subject creates a POS session through explicit UUID mapping without a local password credential', async () => {
+  const { repository, getSession } = repositoryFixture();
+  repository.findCredentialByUsername = async () => null;
+  const identityExpiry = new Date(clock.getTime() + 2 * 60 * 60 * 1000);
+  const issuer = createSessionIssuer(
+    repository,
+    async () => true,
+    () => clock,
+    async () => ({ compromised: false, count: 0 }),
+    async (token) => token === 'verified-token'
+      ? { userId: '00000000-0000-4000-8000-000000000099', expiresAt: identityExpiry }
+      : null,
+  );
+  const result = await issuer.authenticateSupabaseToken({ token: 'verified-token', deviceId: device.id });
+  assert.ok(result);
+  assert.equal(result.expiresAt.getTime(), identityExpiry.getTime());
+  assert.equal(getSession()?.organizationId, credential.organizationId);
+  assert.equal(getSession()?.deviceId, device.id);
+  assert.equal(getSession()?.tokenHash, hashSessionToken(result.token));
+});
+
+test('Supabase subject does not fall back to email when no explicit mapping exists', async () => {
+  const { repository, getSession, unlinkSupabaseIdentity } = repositoryFixture();
+  unlinkSupabaseIdentity();
+  const issuer = createSessionIssuer(
+    repository,
+    async () => true,
+    () => clock,
+    async () => ({ compromised: false, count: 0 }),
+    async () => ({ userId: '00000000-0000-4000-8000-000000000099', expiresAt: new Date(clock.getTime() + 60_000) }),
+  );
+  assert.equal(await issuer.authenticateSupabaseToken({ token: 'valid-but-unlinked', deviceId: device.id }), null);
+  assert.equal(getSession(), null);
+});

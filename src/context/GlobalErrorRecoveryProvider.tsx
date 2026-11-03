@@ -17,8 +17,7 @@ import React, {
   Component,
   ErrorInfo,
 } from 'react';
-import { db } from '../lib/firebase';
-import { doc, setDoc } from 'firebase/firestore';
+import { AUTH_SESSION_STORAGE_KEY } from './authSessionStorage';
 
 export type CriticalFailureType =
   | 'API_TIMEOUT'
@@ -454,21 +453,40 @@ export const GlobalErrorRecoveryProvider: React.FC<{ children: ReactNode }> = ({
 
       console.warn(`[GlobalErrorRecovery] Critical failure intercepted [${input.type} in ${newFailure.module}]:`, input.message);
 
-      // Sync to Firestore AppErrorLog collection for remote diagnosis
+      // Persist diagnostics through the authenticated PostgreSQL-backed audit API.
+      // Never write browser diagnostics directly to a retired Firebase project.
       void (async () => {
         try {
-          const docRef = doc(db, 'AppErrorLog', id);
-          await setDoc(docRef, {
-            id,
-            type: input.type,
-            title: input.title,
-            message: input.message,
-            module: newFailure.module,
-            errorStack: errorStack || null,
-            timestamp: Date.now(),
+          if (typeof window === 'undefined') return;
+          const rawSession = window.localStorage.getItem(AUTH_SESSION_STORAGE_KEY);
+          const session = rawSession ? JSON.parse(rawSession) as { token?: unknown } : null;
+          const token = typeof session?.token === 'string' ? session.token.trim() : '';
+          if (!token) return; // Unauthenticated startup failures remain local-only.
+          const response = await fetch('/api/v1/audit/logs', {
+            method: 'POST',
+            headers: {
+              Accept: 'application/json',
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              action: `SYSTEM_ERROR:${input.type}`,
+              severity: 'critical',
+              details: {
+                id,
+                title: input.title,
+                message: input.message,
+                module: newFailure.module,
+                errorStack: errorStack || null,
+                timestamp: newFailure.timestamp,
+              },
+            }),
           });
-        } catch (e) {
-          console.warn('[GlobalErrorRecovery] Failed to sync error log to Firestore:', e);
+          if (!response.ok) {
+            console.warn('[GlobalErrorRecovery] PostgreSQL audit API rejected diagnostic log:', response.status);
+          }
+        } catch (error) {
+          console.warn('[GlobalErrorRecovery] Failed to persist diagnostic log to PostgreSQL audit API:', error);
         }
       })();
 

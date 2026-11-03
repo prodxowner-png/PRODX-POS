@@ -47,7 +47,7 @@ test('AuditService — coalesces high-traffic burst into a single batch upload a
   const uploadedBatches: Array<{ batchId: string; docs: DiagnosticLogDocument[] }> = [];
   const service = new BufferedAuditDiagnosticService({
     batchSizeThreshold: 20,
-    maxFirestoreBatchSize: 450,
+    maxBatchSize: 100,
     autoFlushEnabled: false,
   });
 
@@ -82,7 +82,7 @@ test('AuditService — retains events in local buffer on upload failure and succ
 
   service.setCustomBatchUploader(async (docs) => {
     if (shouldFail) {
-      throw new Error('Simulated Firestore network timeout');
+      throw new Error('Simulated diagnostic API timeout');
     }
     uploadedBatches.push(docs);
   });
@@ -102,7 +102,7 @@ test('AuditService — retains events in local buffer on upload failure and succ
 
   // 1. First flush fails -> buffer must retain all 2 items with retryCount = 1
   const failedResult = await service.flush();
-  assert.ok(failedResult.error?.includes('Simulated Firestore network timeout'));
+  assert.ok(failedResult.error?.includes('Simulated diagnostic API timeout'));
   assert.equal(service.getStats().bufferedCount, 2);
   assert.equal(service.getStats().failedFlushCount, 1);
   assert.equal(service.getStats().bufferItems[0].retryCount, 1);

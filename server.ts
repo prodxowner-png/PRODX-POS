@@ -4,6 +4,7 @@ import { createServer as createViteServer } from 'vite';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'path';
 import { createProductionApp } from './server/entrypoint.ts';
+import { privateBuildArtifactGuard } from './server/http/private-build-artifact-guard.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -56,6 +57,8 @@ async function startServer() {
     }
 
     app.use(backendApp);
+    // Must run before express.static: distPath may fall back to build/ or the repository root.
+    app.use(privateBuildArtifactGuard);
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
       res.sendFile(resolve(distPath, 'index.html'));

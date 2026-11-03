@@ -45,6 +45,7 @@ import {
 import { Order, CartLineItem, CartTotals, TenderPayment } from '../domain/order';
 import { Shift, CashMovement, CashMovementType, computeExpectedDrawerCash, TimeclockRecord } from '../domain/shift';
 import { AuditLogEntry, AuditAction, AuditSeverity } from '../domain/audit';
+import { developmentAuditLogs } from './developmentMockAuditSink';
 import { OutboxItem } from '../domain/sync';
 import { Money, createMoney, ZERO_USD, addMoney, subtractMoney } from '../domain/money';
 import {
@@ -262,7 +263,7 @@ class MockPosState {
   inventoryLedger: InventoryLedgerEntry[] = [];
   orders: Order[] = [];
   shifts: Shift[] = [];
-  auditLogs: AuditLogEntry[] = [];
+  auditLogs: AuditLogEntry[] = developmentAuditLogs;
   timeclockRecords: TimeclockRecord[] = [];
   idempotencyCache: Map<string, CheckoutResponse> = new Map();
   simulatedLatencyMs = 120;
@@ -605,7 +606,7 @@ class MockPosState {
     this.inventoryLedger = [];
     this.orders = [];
     this.shifts = [];
-    this.auditLogs = [];
+    this.auditLogs.length = 0;
     this.idempotencyCache.clear();
     this.seedInitialShift();
     this.seedInitialOrders();
@@ -723,13 +724,15 @@ export class MockAuthApi implements IAuthApi {
 
     const { organization, currentStore: store, registerId } = resolveSessionOrganizationAndStore(req);
 
+    // Never log credentials or direct identifiers (email, PIN, password) - metadata only.
     console.info(`${LOG_PREFIX} [AUTH_DEBUG] Login attempt details:`, {
       input: {
         orgSlug: req.organizationSlug,
         storeCode: req.storeCode,
         registerId: req.registerId,
-        emailOrPin: term,
-        passwordOrPin: passOrPin, 
+        identityPresent: term.length > 0,
+        identityType: term.includes('@') ? 'email' : 'staff-identifier',
+        secretPresent: passOrPin.length > 0,
       },
       resolved: {
         org: organization.slug,
@@ -947,7 +950,13 @@ export class MockAuthApi implements IAuthApi {
 
   async forgotPin(organizationSlug: string, storeCode: string, emailOrPin: string, registerId: string): Promise<void> {
     await delay(500);
-    console.info(`${LOG_PREFIX} Forgot PIN requested for:`, { organizationSlug, storeCode, emailOrPin, registerId });
+    // Do not log the submitted identifier (email or PIN); record scope and presence only.
+    console.info(`${LOG_PREFIX} Forgot PIN requested for:`, {
+      organizationSlug,
+      storeCode,
+      registerId,
+      identityPresent: Boolean(emailOrPin),
+    });
     // In mock, just log it.
   }
 }
