@@ -125,7 +125,7 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 
 CREATE OR REPLACE FUNCTION apply_inventory_ledger_delta()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
-SET search_path=pg_catalog,public,pg_temp AS $
+SET search_path=pg_catalog,public,pg_temp AS $prodx$
 DECLARE
   current_balance bigint;
 BEGIN
@@ -153,7 +153,7 @@ BEGIN
                 updated_at=now();
   RETURN NEW;
 END;
-$;
+$prodx$;
 REVOKE ALL ON FUNCTION apply_inventory_ledger_delta() FROM PUBLIC;
 DROP TRIGGER IF EXISTS trg_apply_inventory_ledger_delta ON inventory_ledger;
 CREATE TRIGGER trg_apply_inventory_ledger_delta
