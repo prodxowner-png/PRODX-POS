@@ -24,6 +24,15 @@ test('Supabase POS renewal migration keeps expiry monotonic and cannot revive ex
   assert.doesNotMatch(migration, /SET\s+token_hash\s*=/i);
 });
 
+test('Supabase POS renewal appends an audit event atomically only after a successful session update', () => {
+  assert.match(migration, /RETURNING ses\.expires_at, ses\.user_id, ses\.organization_id[\s\S]*?INTO renewed_expiry, renewed_user_id, renewed_organization_id/);
+  assert.match(migration, /IF renewed_expiry IS NOT NULL THEN[\s\S]*?INSERT INTO public\.prodx_security_audit_events/);
+  assert.match(migration, /'POS_SESSION_RENEWED'/);
+  assert.match(migration, /'session_id', p_session_id/);
+  assert.match(migration, /'expires_at', renewed_expiry/);
+  assert.match(migration, /END IF;\s*RETURN renewed_expiry;/);
+});
+
 test('Supabase POS renewal RPC is executable only by the backend runtime role', () => {
   assert.match(migration, /REVOKE ALL PRIVILEGES ON FUNCTION public\.prodx_auth_renew_supabase_session[\s\S]*?FROM PUBLIC/);
   assert.ok(migration.includes("ARRAY['anon', 'authenticated', 'service_role']"));

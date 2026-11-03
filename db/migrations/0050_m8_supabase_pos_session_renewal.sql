@@ -14,6 +14,8 @@ SET search_path = pg_catalog, public
 AS $function$
 DECLARE
   renewed_expiry timestamptz;
+  renewed_user_id uuid;
+  renewed_organization_id uuid;
 BEGIN
   IF p_expires_at IS NULL
      OR p_expires_at <= CURRENT_TIMESTAMP
@@ -42,7 +44,25 @@ BEGIN
      AND d.id = ses.device_id
      AND d.status = 'active'
      AND s.active = TRUE
-  RETURNING ses.expires_at INTO renewed_expiry;
+  RETURNING ses.expires_at, ses.user_id, ses.organization_id
+       INTO renewed_expiry, renewed_user_id, renewed_organization_id;
+
+  -- Record the security event in the same transaction as the successful renewal.
+  -- A rejected/expired/revoked session returns NULL and produces no audit row.
+  IF renewed_expiry IS NOT NULL THEN
+    INSERT INTO public.prodx_security_audit_events
+      (id, organization_id, user_id, event_type, metadata)
+    VALUES (
+      gen_random_uuid(),
+      renewed_organization_id,
+      renewed_user_id,
+      'POS_SESSION_RENEWED',
+      jsonb_build_object(
+        'session_id', p_session_id,
+        'expires_at', renewed_expiry
+      )
+    );
+  END IF;
 
   RETURN renewed_expiry;
 END

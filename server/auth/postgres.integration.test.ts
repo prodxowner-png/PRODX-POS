@@ -182,6 +182,28 @@ test('M2 PostgreSQL authentication enforces credential, tenant, session, token-h
   );
   assert.equal(persistedRenewal.rows[0].expires_at.getTime(), laterRenewalExpiry.getTime());
   assert.equal(persistedRenewal.rows[0].revoked_at, null);
+
+  const renewalAudit = await pool.query<{
+    organization_id: string;
+    user_id: string;
+    metadata: { session_id: string; expires_at: string };
+  }>(
+    `SELECT organization_id, user_id, metadata
+       FROM prodx_security_audit_events
+      WHERE organization_id = $1
+        AND user_id = $2
+        AND event_type = 'POS_SESSION_RENEWED'
+        AND metadata->>'session_id' = $3
+      ORDER BY occurred_at`,
+    [ids.organizationA, ids.userA, renewalSession.sessionId],
+  );
+  assert.equal(renewalAudit.rows.length, 2, 'each successful renewal must append one audit event');
+  for (const event of renewalAudit.rows) {
+    assert.equal(event.organization_id, ids.organizationA);
+    assert.equal(event.user_id, ids.userA);
+    assert.equal(event.metadata.session_id, renewalSession.sessionId);
+  }
+
   assert.equal(await authentication.revokeBearer(renewalSession.token), true);
   assert.equal(await identityRepository.renewSession({
     sessionId: renewalSession.sessionId,
@@ -189,6 +211,17 @@ test('M2 PostgreSQL authentication enforces credential, tenant, session, token-h
     supabaseUserId: ids.supabaseUserA,
     expiresAt: new Date(Date.now() + 90 * 60 * 1000),
   }), null, 'a revoked POS bearer must never be revived');
+  const auditAfterRejectedRenewal = await pool.query<{ count: number }>(
+    `SELECT COUNT(*)::int AS count
+       FROM prodx_security_audit_events
+      WHERE organization_id = $1
+        AND user_id = $2
+        AND event_type = 'POS_SESSION_RENEWED'
+        AND metadata->>'session_id' = $3`,
+    [ids.organizationA, ids.userA, renewalSession.sessionId],
+  );
+  assert.equal(auditAfterRejectedRenewal.rows[0]?.count, 2,
+    'a rejected renewal must not append an audit event');
 
   const beforeTouch = await pool.query<{ last_seen_at: Date | null }>(
     'SELECT last_seen_at FROM prodx_sessions WHERE id = $1',
