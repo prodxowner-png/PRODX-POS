@@ -1,0 +1,45 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "prodx-pos-edge-sync-tests",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-30",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "IDEMPOTENCY",
+        "class_name": "IdempotencyGate"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "IdempotencyGate"
+      ]
+    }
+  ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "POS_INGEST_QUEUE",
+        "queue": "prodx-pos-test-queue"
+      },
+      {
+        "binding": "POS_INGEST_DLQ",
+        "queue": "prodx-pos-test-dlq"
+      }
+    ]
+  },
+  "vars": {
+    "ACCESS_TEAM_DOMAIN": "test.cloudflareaccess.com",
+    "ACCESS_AUD": "test-aud"
+  },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  }
+}
