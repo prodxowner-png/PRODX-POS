@@ -28,9 +28,11 @@ GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO prodx_pos_worker;
 -- Re-run the sequence GRANT after any later migration that adds a serial/bigserial column.
 
 -- Catalog mutation is intentionally disabled in this Edge Sync deployment.
+-- Revoke legacy direct grants before restoring the read-only policy; GRANT SELECT
+-- alone does not remove INSERT/UPDATE privileges left by an earlier provisioning run.
 -- No authenticated catalog-writer route currently binds a verified operator UUID
--- to the mutation transaction and its immutable audit_logs event. Keep this role
--- read-only until that complete application transaction and its tests are delivered.
+-- to the mutation transaction and its immutable audit_logs event.
+REVOKE ALL PRIVILEGES ON TABLE products,tenant_catalog_versions FROM prodx_catalog_writer;
 GRANT SELECT ON products,tenant_catalog_versions TO prodx_catalog_writer;
 
 -- Device enrollment/revocation runs separately and must set app.current_tenant_id.

@@ -99,9 +99,13 @@ jobs:
       # ─────────────────────────────────────────────────────────────
       # Gate 4 — PostgreSQL 16 CTE, RLS, Signed Price & Ledger Tests
       # ─────────────────────────────────────────────────────────────
-      - name: Gate 4.1 — Apply PostgreSQL migration
+      - name: Gate 4.1 — Apply immutable PostgreSQL base migration
         id: migration
         run: psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/001_pos_ledger.sql 2>&1 | tee artifacts/logs/migration.log
+
+      - name: Gate 4.1.2 — Apply forward inventory non-negative invariant
+        id: inventory_invariant_migration
+        run: psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/002_inventory_nonnegative.sql 2>&1 | tee artifacts/logs/inventory-invariant-migration.log
 
       - name: Gate 4.2 — Create isolated CI database roles
         id: create_roles

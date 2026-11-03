@@ -231,6 +231,49 @@ describe("PRODX Edge sync Durable Object", () => {
     });
   });
 
+  it("forwards expired exact replays only after the origin checkpoint confirms commit", async () => {
+    const stub=getStub("expired-exact-replay-origin-checkpoint");
+    const original=prepared("expired-origin-replay-key","c".repeat(64),1);
+    await stub.submitBatch(submission([original]));
+
+    await runInDO(stub,async (instance:any,state:any) => {
+      // Simulate an origin-committed receipt whose Edge cache is older than retention.
+      state.storage.sql.exec(
+        "UPDATE idempotency SET state='COMMITTED',updated_at=? WHERE idempotency_key=?",
+        new Date(Date.now()-31*86400_000).toISOString(),original.sale.idempotency_key
+      );
+      instance.pruneStorage(Date.now());
+      const retained=state.storage.sql.exec(
+        "SELECT COUNT(*) AS count FROM idempotency WHERE idempotency_key=?",
+        original.sale.idempotency_key
+      ).toArray()[0]!.count;
+      expect(retained).toBe(0);
+    });
+
+    // Local sequence memory alone is insufficient proof that PostgreSQL committed.
+    const replay:PreparedSale={...original,receiptId:crypto.randomUUID()};
+    await runInDO(stub,async (instance:IdempotencyGate) => {
+      let failure:unknown;
+      try {
+        await instance.submitBatch(submission([replay]),{
+          last_committed_seq_no:0,last_hlc_physical_ms:0,last_hlc_logical:0
+        });
+      } catch (error) { failure=error; }
+      expect(failure).toBeInstanceOf(Error);
+      expect((failure as Error).message).toBe("TERMINAL_SEQUENCE_ALREADY_ACCEPTED");
+    });
+
+    const accepted=await stub.submitBatch(submission([replay]),{
+      last_committed_seq_no:1,
+      last_hlc_physical_ms:original.sale.hlc.physical_ms,
+      last_hlc_logical:original.sale.hlc.logical
+    });
+    expect(accepted.results[0]?.status).toBe("accepted");
+    await runInDO(stub,async (instance:IdempotencyGate) => {
+      expect(instance.getStatus(TENANT,TERMINAL,original.sale.idempotency_key).status).toBe("queued");
+    });
+  });
+
   it("retains sequence ownership until PostgreSQL confirms the origin checkpoint", async () => {
     const stub=getStub("sequence-claim-origin-retention");
     const first=prepared("sequence-retention-owner-key","c".repeat(64),1);

@@ -284,9 +284,11 @@ export class IdempotencyGate extends DurableObject<Env> {
         ).toArray()[0];
         if (existingKey) continue;
         const seq = item.sale.terminal_seq_no;
-        // A replay older than the Edge retention window is delegated to PostgreSQL,
-        // whose unique idempotency and terminal sequence constraints are permanent.
+        // A replay older than the Edge retention window is delegated to PostgreSQL
+        // only when its authoritative checkpoint proves that the sequence committed.
+        // PostgreSQL then verifies the permanent idempotency key, payload hash and sale ID.
         if (seq <= sequenceState.last_contiguous_seq_no) {
+          if (seq <= originCommittedSeq) continue;
           throw new Error("TERMINAL_SEQUENCE_ALREADY_ACCEPTED");
         }
         const priorSeq = this.ctx.storage.sql.exec<{ sale_id: string }>(
