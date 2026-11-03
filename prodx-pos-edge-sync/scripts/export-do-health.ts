@@ -1,10 +1,11 @@
 import { writeFile } from "node:fs/promises";
 
 const endpoint=process.env.POS_SYNC_URL;
-const token=process.env.POS_OPS_TOKEN;
+const token=process.env.POS_PROXY_TOKEN;
+const bypass=process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
 const terminalIdsRaw=process.env.POS_TERMINAL_IDS;
 const outputPath=process.env.POS_DO_HEALTH_CSV??"do-outbox-export.csv";
-if(!endpoint||!token||!terminalIdsRaw) throw new Error("Set POS_SYNC_URL, POS_OPS_TOKEN (POS_SYNC_AUDITOR Access JWT), and POS_TERMINAL_IDS (JSON UUID array)");
+if(!endpoint||!token||!bypass||!terminalIdsRaw) throw new Error("Set POS_SYNC_URL (Vercel Preview proxy base), POS_PROXY_TOKEN, VERCEL_AUTOMATION_BYPASS_SECRET, and POS_TERMINAL_IDS (JSON UUID array)");
 const terminalIds=JSON.parse(terminalIdsRaw) as string[];
 if(!Array.isArray(terminalIds)||terminalIds.length===0||terminalIds.some((id)=>typeof id!=="string")) throw new Error("POS_TERMINAL_IDS must be a non-empty JSON UUID array");
 
@@ -15,9 +16,9 @@ function csv(value:unknown):string{
 const columns=["tenant_id","terminal_id","idempotency_key","state","failure_code","terminal_seq_no","last_hlc_physical_ms","last_hlc_logical","gap_from_seq_no","gap_to_seq_no","updated_at"];
 const output=[columns.join(",")];
 for(const terminalId of terminalIds){
-  const url=new URL("/api/v1/ops/terminal-sync-diagnostics",endpoint);
+  const url=new URL(`${endpoint.replace(/\/$/,"")}/api/v1/ops/terminal-sync-diagnostics`);
   url.searchParams.set("terminal_id",terminalId);
-  const response=await fetch(url,{headers:{"cf-access-jwt-assertion":token}});
+  const response=await fetch(url,{headers:{authorization:`Bearer ${token}`,"x-vercel-protection-bypass":bypass,"x-vercel-set-bypass-cookie":"true"}});
   if(!response.ok) throw new Error(`diagnostics failed for terminal ${terminalId}: HTTP ${response.status}`);
   const data=await response.json() as {
     tenant_id:string;terminal_id:string;last_contiguous_seq_no:number;last_hlc_physical_ms:number;last_hlc_logical:number;exported_at:string;

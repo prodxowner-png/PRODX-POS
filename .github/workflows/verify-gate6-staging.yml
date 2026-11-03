@@ -39,10 +39,8 @@ jobs:
           STAGING_RECONCILIATION_DATABASE_URL: ${{ secrets.STAGING_RECONCILIATION_DATABASE_URL }}
           POS_STAGING_ACCESS_AUD: ${{ secrets.POS_STAGING_ACCESS_AUD }}
           POS_STAGING_SYNC_URL: ${{ secrets.POS_STAGING_SYNC_URL }}
-          POS_STAGING_ACCESS_JWT: ${{ secrets.POS_STAGING_ACCESS_JWT }}
-          POS_STAGING_OPS_JWT: ${{ secrets.POS_STAGING_OPS_JWT }}
-          POS_STAGING_MTLS_CERT_PEM: ${{ secrets.POS_STAGING_MTLS_CERT_PEM }}
-          POS_STAGING_MTLS_KEY_PEM: ${{ secrets.POS_STAGING_MTLS_KEY_PEM }}
+          POS_STAGING_PROXY_TOKEN: ${{ secrets.POS_STAGING_PROXY_TOKEN }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
           POS_STAGING_E2E_PAYLOAD_B64: ${{ secrets.POS_STAGING_E2E_PAYLOAD_B64 }}
           POS_STAGING_TERMINAL_IDS_JSON: ${{ secrets.POS_STAGING_TERMINAL_IDS_JSON }}
           CATALOG_SIGNING_KEY: ${{ secrets.CATALOG_SIGNING_KEY }}
@@ -55,8 +53,7 @@ jobs:
           set -euo pipefail
           required=(CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID STAGING_DATABASE_URL
             STAGING_RECONCILIATION_DATABASE_URL POS_STAGING_ACCESS_AUD POS_STAGING_SYNC_URL
-            POS_STAGING_ACCESS_JWT POS_STAGING_OPS_JWT POS_STAGING_MTLS_CERT_PEM
-            POS_STAGING_MTLS_KEY_PEM POS_STAGING_E2E_PAYLOAD_B64
+            POS_STAGING_PROXY_TOKEN VERCEL_AUTOMATION_BYPASS_SECRET POS_STAGING_E2E_PAYLOAD_B64
             POS_STAGING_TERMINAL_IDS_JSON CATALOG_SIGNING_KEY
             EXPECTED_STAGING_DATABASE_HOST EXPECTED_STAGING_DATABASE_NAME
             EXPECTED_STAGING_RECONCILIATION_DATABASE_HOST
@@ -78,7 +75,11 @@ jobs:
           const syncUrl = new URL(process.env.POS_STAGING_SYNC_URL);
           assert.equal(syncUrl.protocol, 'https:', 'Staging sync endpoint must use HTTPS');
           assert.equal(syncUrl.hostname.toLowerCase(), process.env.EXPECTED_POS_STAGING_SYNC_HOST.toLowerCase(),
-            'Staging sync hostname is not the approved Staging hostname');
+            'Staging sync hostname is not the approved Vercel Preview hostname');
+          assert.equal(syncUrl.pathname.replace(/\/$/, ''), '/__staging/edge',
+            'Staging sync URL must target the dedicated Vercel Preview proxy path');
+          assert.notEqual(syncUrl.hostname.toLowerCase(), 'prodx-pos.vercel.app',
+            'Production alias must never be used for Gate 6 Staging');
           validateDatabaseUrl(process.env.STAGING_DATABASE_URL,
             process.env.EXPECTED_STAGING_DATABASE_HOST, process.env.EXPECTED_STAGING_DATABASE_NAME,
             'STAGING_DATABASE_URL');
@@ -122,19 +123,11 @@ jobs:
           CATALOG_SIGNING_KEY: ${{ secrets.CATALOG_SIGNING_KEY }}
         run: ./scripts/provision-staging.sh set-secret
 
-      - name: Prepare mTLS client certificate
-        env:
-          POS_STAGING_MTLS_CERT_PEM: ${{ secrets.POS_STAGING_MTLS_CERT_PEM }}
-          POS_STAGING_MTLS_KEY_PEM: ${{ secrets.POS_STAGING_MTLS_KEY_PEM }}
-        run: |
-          printf '%s\n' "$POS_STAGING_MTLS_CERT_PEM" > /tmp/prodx-staging-client.crt
-          printf '%s\n' "$POS_STAGING_MTLS_KEY_PEM" > /tmp/prodx-staging-client.key
-          chmod 600 /tmp/prodx-staging-client.crt /tmp/prodx-staging-client.key
-
       - name: Gate 6.1 — Edge to DO to Queue to Hyperdrive E2E
         env:
           POS_STAGING_SYNC_URL: ${{ secrets.POS_STAGING_SYNC_URL }}
-          POS_STAGING_ACCESS_JWT: ${{ secrets.POS_STAGING_ACCESS_JWT }}
+          POS_STAGING_PROXY_TOKEN: ${{ secrets.POS_STAGING_PROXY_TOKEN }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
           POS_STAGING_E2E_PAYLOAD_B64: ${{ secrets.POS_STAGING_E2E_PAYLOAD_B64 }}
         run: |
           set -euo pipefail
@@ -142,9 +135,10 @@ jobs:
           http_code="$(curl --silent --show-error --output /tmp/prodx-staging-accepted.json \
             --write-out '%{http_code}' --request POST \
             --url "${POS_STAGING_SYNC_URL%/}/api/v1/pos/sync-batch" \
-            --header "cf-access-jwt-assertion: $POS_STAGING_ACCESS_JWT" \
+            --header "authorization: Bearer $POS_STAGING_PROXY_TOKEN" \
+            --header "x-vercel-protection-bypass: $VERCEL_AUTOMATION_BYPASS_SECRET" \
+            --header "x-vercel-set-bypass-cookie: true" \
             --header "content-type: application/json" \
-            --cert /tmp/prodx-staging-client.crt --key /tmp/prodx-staging-client.key \
             --data-binary @/tmp/prodx-staging-e2e.json)"
           cat /tmp/prodx-staging-accepted.json | jq '{batch_id,accepted_count,duplicate_count,committed_count,has_sequence_gaps}'
           [[ "$http_code" == "202" ]] || { echo "Expected HTTP 202 from Edge, got $http_code"; exit 1; }
@@ -162,8 +156,9 @@ jobs:
               status_code="$(curl --silent --show-error --output /tmp/prodx-staging-status.json \
                 --write-out '%{http_code}' --request GET \
                 --url "${POS_STAGING_SYNC_URL%/}/api/v1/pos/receipt-status?idempotency_key=$key" \
-                --header "cf-access-jwt-assertion: $POS_STAGING_ACCESS_JWT" \
-                --cert /tmp/prodx-staging-client.crt --key /tmp/prodx-staging-client.key)"
+                --header "authorization: Bearer $POS_STAGING_PROXY_TOKEN" \
+                --header "x-vercel-protection-bypass: $VERCEL_AUTOMATION_BYPASS_SECRET" \
+                --header "x-vercel-set-bypass-cookie: true")"
               status="$(jq -r '.status // "unknown"' /tmp/prodx-staging-status.json)"
               if [[ "$status_code" == "200" && "$status" == "committed" ]]; then committed=true; break; fi
               if [[ "$status_code" == "409" || "$status" == "failed" ]]; then
@@ -179,7 +174,8 @@ jobs:
       - name: Gate 6.2 — Export real Durable Object checkpoint and outbox state
         env:
           POS_SYNC_URL: ${{ secrets.POS_STAGING_SYNC_URL }}
-          POS_OPS_TOKEN: ${{ secrets.POS_STAGING_OPS_JWT }}
+          POS_PROXY_TOKEN: ${{ secrets.POS_STAGING_PROXY_TOKEN }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
           POS_TERMINAL_IDS: ${{ secrets.POS_STAGING_TERMINAL_IDS_JSON }}
           POS_DO_HEALTH_CSV: do-outbox-export.csv
         run: npm run export:do-health 2>&1 | tee artifacts/logs/export-do-health.log
