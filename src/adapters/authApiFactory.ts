@@ -26,6 +26,10 @@ const createDevelopmentMockAuthApi = (): IAuthApi => ({
     const { developmentMockAuthApi } = await import('./developmentMockAuthApi');
     return developmentMockAuthApi.logout(token);
   },
+  async renewSession(token) {
+    const { developmentMockAuthApi } = await import('./developmentMockAuthApi');
+    return developmentMockAuthApi.renewSession(token);
+  },
   async verifySession(token) {
     const { developmentMockAuthApi } = await import('./developmentMockAuthApi');
     return developmentMockAuthApi.verifySession(token);

@@ -148,6 +148,48 @@ test('M2 PostgreSQL authentication enforces credential, tenant, session, token-h
   assert.notEqual(persisted.rows[0].token_hash, result.token);
   assert.equal(persisted.rows[0].revoked_at, null);
 
+  const renewalSession = await authentication.authenticateCredentials({
+    username: 'm2-user-a',
+    password: 'correct-password',
+    deviceId: ids.deviceA,
+  });
+  assert.ok(renewalSession);
+  const initialShortExpiry = new Date(Date.now() + 15 * 60 * 1000);
+  await pool.query('UPDATE prodx_sessions SET expires_at = $1 WHERE id = $2', [
+    initialShortExpiry,
+    renewalSession.sessionId,
+  ]);
+  const earlierRenewalExpiry = new Date(Date.now() + 30 * 60 * 1000);
+  const laterRenewalExpiry = new Date(Date.now() + 60 * 60 * 1000);
+  const concurrentRenewals = await Promise.all([
+    identityRepository.renewSession({
+      sessionId: renewalSession.sessionId,
+      tokenHash: hashSessionToken(renewalSession.token),
+      supabaseUserId: ids.supabaseUserA,
+      expiresAt: earlierRenewalExpiry,
+    }),
+    identityRepository.renewSession({
+      sessionId: renewalSession.sessionId,
+      tokenHash: hashSessionToken(renewalSession.token),
+      supabaseUserId: ids.supabaseUserA,
+      expiresAt: laterRenewalExpiry,
+    }),
+  ]);
+  assert.ok(concurrentRenewals.every((expiry) => expiry instanceof Date));
+  const persistedRenewal = await pool.query<{ expires_at: Date; revoked_at: Date | null }>(
+    'SELECT expires_at, revoked_at FROM prodx_sessions WHERE id = $1',
+    [renewalSession.sessionId],
+  );
+  assert.equal(persistedRenewal.rows[0].expires_at.getTime(), laterRenewalExpiry.getTime());
+  assert.equal(persistedRenewal.rows[0].revoked_at, null);
+  assert.equal(await authentication.revokeBearer(renewalSession.token), true);
+  assert.equal(await identityRepository.renewSession({
+    sessionId: renewalSession.sessionId,
+    tokenHash: hashSessionToken(renewalSession.token),
+    supabaseUserId: ids.supabaseUserA,
+    expiresAt: new Date(Date.now() + 90 * 60 * 1000),
+  }), null, 'a revoked POS bearer must never be revived');
+
   const beforeTouch = await pool.query<{ last_seen_at: Date | null }>(
     'SELECT last_seen_at FROM prodx_sessions WHERE id = $1',
     [result.sessionId],

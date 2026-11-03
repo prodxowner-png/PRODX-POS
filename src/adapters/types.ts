@@ -80,6 +80,8 @@ export interface CheckoutResponse {
 export interface IAuthApi {
   login(req: LoginRequest): Promise<SessionContext>;
   logout(token: string): Promise<void>;
+  /** Refreshes a Supabase-backed POS session; null means this is not a Supabase session. */
+  renewSession(token: string): Promise<SessionContext | null>;
   verifySession(token: string): Promise<SessionContext | null>;
   getStores(orgSlug: string, token: string): Promise<readonly Store[]>;
   forgotPin(organizationSlug: string, storeCode: string, emailOrPin: string, registerId: string): Promise<void>;

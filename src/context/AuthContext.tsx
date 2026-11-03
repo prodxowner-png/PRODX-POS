@@ -721,6 +721,63 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  useEffect(() => {
+    if (!session || IS_DEVELOPMENT) return;
+
+    let disposed = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const expiry = Date.parse(session.expiresAt);
+    if (!Number.isFinite(expiry)) {
+      void logout();
+      return;
+    }
+
+    const attemptRenewal = async (): Promise<void> => {
+      if (disposed) return;
+      if (expiry - Date.now() <= 0) {
+        await logout();
+        return;
+      }
+
+      try {
+        const renewed = await authApi.renewSession(session.token);
+        if (disposed) return;
+        if (renewed) {
+          setSession((current) => current?.token === session.token
+            ? applyOperationalScopeToSession(renewed, current.operationalScope ?? null)
+            : current);
+          return;
+        }
+      } catch (error) {
+        const status = typeof error === 'object' && error !== null && 'status' in error
+          ? (error as { status?: unknown }).status
+          : undefined;
+        if (status === 401 || status === 403) {
+          await logout();
+          return;
+        }
+        console.warn(
+          '[AuthContext] POS session renewal failed; retrying only while the current session remains valid.',
+          error instanceof Error ? error.message : 'unknown error',
+        );
+      }
+
+      if (disposed) return;
+      const remaining = expiry - Date.now();
+      if (remaining <= 0) {
+        await logout();
+        return;
+      }
+      timer = setTimeout(() => { void attemptRenewal(); }, Math.min(30_000, Math.max(1_000, remaining - 500)));
+    };
+
+    timer = setTimeout(() => { void attemptRenewal(); }, Math.max(0, expiry - Date.now() - 60_000));
+    return () => {
+      disposed = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [session?.token, session?.expiresAt]);
+
   const switchStore = (store: Store) => {
     if (!IS_DEVELOPMENT || !session) return;
     const updatedScope: OperationalScope | undefined = session.operationalScope

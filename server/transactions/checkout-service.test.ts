@@ -13,3 +13,28 @@ test('rejects client grand-total tampering before financial writes',async()=>{co
 test('rejects payment currency mismatch and malformed cash',async()=>{const db=baseDb();await assert.rejects(createCheckoutService(db).checkout(request({payments:[{...request().payments[0],amount:{amountInCents:2000,currency:'USD'}}]})),/Payment currency/);await assert.rejects(createCheckoutService(db).checkout(request({payments:[{...request().payments[0],tenderedCash:{amountInCents:2100,currency:'THB'},changeGiven:{amountInCents:0,currency:'THB'}}]})),/Cash tender/);});
 test('requires idempotency key and positive items',async()=>{const db=baseDb();await assert.rejects(createCheckoutService(db).checkout(request({idempotencyKey:'   '})),(e:unknown)=>e instanceof CheckoutValidationError);await assert.rejects(createCheckoutService(db).checkout(request({items:[]})),(e:unknown)=>e instanceof CheckoutValidationError);});
 test('preserves transaction failures for rollback',async()=>{const db:TransactionalSqlExecutor={query:async()=>({rows:[]}),transaction:async()=>{throw new Error('db failure');}};await assert.rejects(createCheckoutService(db).checkout(request()),/db failure/);});
+
+test('locks product rows in deterministic UUID order for concurrent checkouts',async()=>{
+  let lockSql='';
+  let lockIds:readonly unknown[]=[];
+  const db=executor(async<T extends Record<string,unknown>>(sql:string,parameters:readonly unknown[]=[])=>{
+    if(sql.includes('FROM prodx_orders'))return rows([]) as {rows:T[]};
+    if(sql.includes('FROM prodx_shifts'))return rows([{id:'shift-1'}]) as {rows:T[]};
+    if(sql.includes('FROM prodx_products')){
+      lockSql=sql;
+      lockIds=parameters[1] as readonly unknown[];
+      return rows([
+        {id:'product-a',store_id:'store-1',category_id:'cat-1',sku:'SKU-A',barcode:'BAR-A',name:'Product A',description:null,price_amount:'10.00',cost_price_amount:'5.00',currency:'THB',tax_rate_bps:0,current_stock:10,reorder_point:1,unit_of_measure:'each',active:true},
+        {id:'product-z',store_id:'store-1',category_id:'cat-1',sku:'SKU-Z',barcode:'BAR-Z',name:'Product Z',description:null,price_amount:'10.00',cost_price_amount:'5.00',currency:'THB',tax_rate_bps:0,current_stock:10,reorder_point:1,unit_of_measure:'each',active:true},
+      ]) as {rows:T[]};
+    }
+    if(sql.includes('INSERT INTO prodx_orders'))return rows([]) as {rows:T[]};
+    throw new Error(`unexpected query: ${sql}`);
+  });
+  const base=request();
+  const itemA={...base.items[0],lineId:'line-a',product:{...base.items[0].product,id:'product-a',sku:'SKU-A',barcode:'BAR-A'},quantity:1,lineSubtotal:{amountInCents:1000,currency:'THB'},lineTotal:{amountInCents:1000,currency:'THB'}};
+  const itemZ={...base.items[0],lineId:'line-z',product:{...base.items[0].product,id:'product-z',sku:'SKU-Z',barcode:'BAR-Z'},quantity:1,lineSubtotal:{amountInCents:1000,currency:'THB'},lineTotal:{amountInCents:1000,currency:'THB'}};
+  await assert.rejects(createCheckoutService(db).checkout(request({items:[itemZ,itemA]})),(e:unknown)=>e instanceof CheckoutConflictError);
+  assert.match(lockSql,/ORDER BY id FOR UPDATE/);
+  assert.deepEqual(lockIds,['product-a','product-z']);
+});

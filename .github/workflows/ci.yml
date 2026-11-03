@@ -38,7 +38,6 @@ jobs:
     - name: Install dependencies from lockfile
       run: bun install --frozen-lockfile
 
-
     - name: Type check (TypeScript)
       run: bun run lint
 
@@ -52,6 +51,33 @@ jobs:
         for migration in db/migrations/*.sql; do
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration"
         done
+
+    - name: Exercise production migration runner on a clean PostgreSQL database
+      shell: bash
+      run: |
+        set -euo pipefail
+        PGPASSWORD=prodx createdb --host=127.0.0.1 --username=prodx prodx_migration_runner_test
+        DATABASE_URL=postgresql://prodx:prodx@127.0.0.1:5432/prodx_migration_runner_test bun run db:migrate
+        psql postgresql://prodx:prodx@127.0.0.1:5432/prodx_migration_runner_test -v ON_ERROR_STOP=1 -Atc "
+          SELECT CASE
+            WHEN count(*) = 53
+             AND (SELECT count(*) FROM prodx_schema_migrations WHERE version LIKE '004%') = 12
+             AND (SELECT count(*) FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
+                  JOIN pg_namespace n ON n.oid = c.relnamespace
+                  WHERE n.nspname = 'public'
+                    AND c.relname IN (
+                      'prodx_inventory_ledger_store_created_idx',
+                      'prodx_inventory_ledger_store_product_created_idx',
+                      'prodx_cash_movements_store_shift_created_idx',
+                      'prodx_products_store_category_active_name_idx',
+                      'prodx_products_store_lower_sku_active_idx'
+                    )
+                    AND i.indisvalid) = 5
+            THEN 'migration runner verified'
+            ELSE 'migration runner verification failed'
+          END
+          FROM prodx_schema_migrations
+        " | grep -Fx 'migration runner verified'
 
     - name: Run server tests
       run: bun run server:test
