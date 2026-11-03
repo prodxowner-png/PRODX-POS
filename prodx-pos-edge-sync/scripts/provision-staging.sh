@@ -132,7 +132,7 @@ ensure_hyperdrive() {
   id="$(hyperdrive_id "$name")"
   if [[ -n "$id" ]]; then
     validate_hyperdrive "$name" "$id" "$([[ "$caching" == "disabled" ]] && echo true || echo false)"
-    printf 'Hyperdrive exists and exact origin/caching policy verified: %s (%s)\\n' "$name" "$id" >&2
+    printf 'Hyperdrive exists and exact origin/caching policy verified: %s (%s)\n' "$name" "$id" >&2
     printf '%s' "$id"
     return
   fi
