@@ -74,6 +74,12 @@ jobs:
           }
           const syncUrl = new URL(process.env.POS_STAGING_SYNC_URL);
           assert.equal(syncUrl.protocol, 'https:', 'Staging sync endpoint must use HTTPS');
+          assert.equal(syncUrl.username, '', 'Staging sync URL must not embed credentials');
+          assert.equal(syncUrl.password, '', 'Staging sync URL must not embed credentials');
+          assert.equal(syncUrl.search, '', 'Staging sync URL must not contain query parameters');
+          assert.equal(syncUrl.hash, '', 'Staging sync URL must not contain a fragment');
+          assert.ok(syncUrl.hostname.toLowerCase().endsWith('.vercel.app'),
+            'Gate 6 must use a Vercel Preview hostname');
           assert.equal(syncUrl.hostname.toLowerCase(), process.env.EXPECTED_POS_STAGING_SYNC_HOST.toLowerCase(),
             'Staging sync hostname is not the approved Vercel Preview hostname');
           assert.equal(syncUrl.pathname.replace(/\/$/, ''), '/__staging/edge',

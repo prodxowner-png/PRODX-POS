@@ -102,6 +102,11 @@ export function createStagingEdgeProxy(env: StagingEdgeProxyEnv) {
       return sendJson(response, 503, 'STAGING_UPSTREAM_NOT_ALLOWED');
     }
 
+    if (request.method === 'GET' &&
+        ((request.headers['content-length'] && request.headers['content-length'] !== '0') || request.headers['transfer-encoding'])) {
+      return sendJson(response, 400, 'INVALID_REQUEST');
+    }
+
     let body: Buffer;
     try {
       body = request.method === 'POST' ? await readBody(request) : Buffer.alloc(0);
