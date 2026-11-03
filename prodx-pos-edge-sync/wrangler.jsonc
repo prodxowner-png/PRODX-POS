@@ -1,0 +1,149 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "prodx-pos-edge-sync",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-01",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE_DIRECT",
+      "id": "00000000000000000000000000000000"
+    },
+    {
+      "binding": "HYPERDRIVE_CACHED",
+      "id": "11111111111111111111111111111111"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "IDEMPOTENCY",
+        "class_name": "IdempotencyGate"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "IdempotencyGate"
+      ]
+    }
+  ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "POS_INGEST_QUEUE",
+        "queue": "prodx-pos-ingest"
+      },
+      {
+        "binding": "POS_INGEST_DLQ",
+        "queue": "prodx-pos-ingest-dlq"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "prodx-pos-ingest",
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_retries": 100,
+        "retry_delay": 60,
+        "max_concurrency": 4,
+        "dead_letter_queue": "prodx-pos-ingest-dlq"
+      },
+      {
+        "queue": "prodx-pos-ingest-dlq",
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_retries": 100,
+        "retry_delay": 60,
+        "max_concurrency": 1
+      }
+    ]
+  },
+  "vars": {
+    "ACCESS_TEAM_DOMAIN": "prodx-pos.cloudflareaccess.com",
+    "ACCESS_AUD": "REPLACE_WITH_DEDICATED_POS_ACCESS_AUD",
+    "POS_INGEST_DLQ_QUEUE": "prodx-pos-ingest-dlq"
+  },
+  "account_id": "3c0c1c843f861164db9de3fb31f062f5",
+  "env": {
+    "staging": {
+      "name": "prodx-pos-edge-sync-staging",
+      "account_id": "3c0c1c843f861164db9de3fb31f062f5",
+      "workers_dev": true,
+      "observability": {
+        "enabled": true,
+        "head_sampling_rate": 1
+      },
+      "hyperdrive": [
+        {
+          "binding": "HYPERDRIVE_DIRECT",
+          "id": "22222222222222222222222222222222"
+        },
+        {
+          "binding": "HYPERDRIVE_CACHED",
+          "id": "33333333333333333333333333333333"
+        }
+      ],
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "IDEMPOTENCY",
+            "class_name": "IdempotencyGate"
+          }
+        ]
+      },
+      "migrations": [
+        {
+          "tag": "staging-v1",
+          "new_sqlite_classes": [
+            "IdempotencyGate"
+          ]
+        }
+      ],
+      "queues": {
+        "producers": [
+          {
+            "binding": "POS_INGEST_QUEUE",
+            "queue": "prodx-pos-ingest-staging"
+          },
+          {
+            "binding": "POS_INGEST_DLQ",
+            "queue": "prodx-pos-ingest-dlq-staging"
+          }
+        ],
+        "consumers": [
+          {
+            "queue": "prodx-pos-ingest-staging",
+            "max_batch_size": 10,
+            "max_batch_timeout": 5,
+            "max_retries": 100,
+            "retry_delay": 60,
+            "max_concurrency": 4,
+            "dead_letter_queue": "prodx-pos-ingest-dlq-staging"
+          },
+          {
+            "queue": "prodx-pos-ingest-dlq-staging",
+            "max_batch_size": 10,
+            "max_batch_timeout": 5,
+            "max_retries": 100,
+            "retry_delay": 60,
+            "max_concurrency": 1
+          }
+        ]
+      },
+      "vars": {
+        "ACCESS_TEAM_DOMAIN": "prodx-pos.cloudflareaccess.com",
+        "ACCESS_AUD": "REPLACE_WITH_STAGING_POS_ACCESS_AUD",
+        "POS_INGEST_DLQ_QUEUE": "prodx-pos-ingest-dlq-staging"
+      }
+    }
+  }
+}
