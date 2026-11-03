@@ -35,7 +35,7 @@ Each sale contains `terminal_seq_no` and `hlc: { physical_ms, logical }`. DO tra
 
 ### Database migration / RLS
 
-Apply `migrations/001_pos_ledger.sql` with a migration/admin role. It creates a monotonic tenant catalog revision, signed-price columns, HLC columns, immutable-ledger triggers, and `ENABLE` + `FORCE ROW LEVEL SECURITY` policies. Configure separate runtime roles with `NOBYPASSRLS`, least-privilege grants, and no ownership/superuser privileges. Product-catalog writers cannot directly modify `tenant_catalog_versions`; a protected trigger function advances it when product data changes. Run `scripts/rls-smoke.sql` as `prodx_rls_auditor` (NOBYPASSRLS), not as the Worker role.
+Apply `migrations/001_pos_ledger.sql` with a migration/admin role, then apply `migrations/002_inventory_nonnegative.sql` to existing databases. The inventory trigger locks the product row before checking the current balance and applying a ledger delta, so concurrent sales cannot drive stock below zero. It creates a monotonic tenant catalog revision, signed-price columns, HLC columns, immutable-ledger triggers, and `ENABLE` + `FORCE ROW LEVEL SECURITY` policies. Configure separate runtime roles with `NOBYPASSRLS`, least-privilege grants, and no ownership/superuser privileges. Product-catalog writers cannot directly modify `tenant_catalog_versions`; a protected trigger function advances it when product data changes. Run `scripts/rls-smoke.sql` as `prodx_rls_auditor` (NOBYPASSRLS), not as the Worker role.
 
 Existing deployments should back up and review the migration before applying it. `CREATE TABLE IF NOT EXISTS` does not retrofit all old schema constraints; the included `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` covers the new sale columns, but operators must verify prior table definitions and indexes before production rollout.
 
@@ -83,6 +83,7 @@ Migration and security checks:
 
 ```bash
 psql "$MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/001_pos_ledger.sql
+psql "$MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/002_inventory_nonnegative.sql
 psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/grant-runtime-role.sql
 # RLS_AUDIT_DATABASE_URL uses prodx_rls_auditor (NOBYPASSRLS).
 psql "$RLS_AUDIT_DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/rls-smoke.sql
