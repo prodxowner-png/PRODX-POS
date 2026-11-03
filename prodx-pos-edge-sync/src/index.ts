@@ -8,6 +8,35 @@ export { IdempotencyGate } from "./idempotency-do";
 
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
 const MAX_BODY_BYTES = 1_000_000;
+class PayloadTooLargeError extends Error {}
+
+async function readBoundedBody(request: Request): Promise<string> {
+  const reader = request.body?.getReader();
+  if (!reader) return "";
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > MAX_BODY_BYTES) {
+        await reader.cancel();
+        throw new PayloadTooLargeError("PAYLOAD_TOO_LARGE");
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
+}
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), { status, headers: JSON_HEADERS });
@@ -21,12 +50,18 @@ function getDoName(tenantId: string, terminalId: string): string {
 async function handleSync(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const auth = await authenticate(request, env);
   const originCheckpoint = await verifyTerminalCertificate(request,env,auth);
-  const contentLength = Number(request.headers.get("content-length") ?? "0");
-  if (contentLength > MAX_BODY_BYTES) return json({ error: "PAYLOAD_TOO_LARGE" }, 413);
+  const contentLengthHeader = request.headers.get("content-length");
+  if (contentLengthHeader !== null) {
+    if (!/^\\d+$/.test(contentLengthHeader)) return json({ error: "INVALID_CONTENT_LENGTH" }, 400);
+    if (Number(contentLengthHeader) > MAX_BODY_BYTES) return json({ error: "PAYLOAD_TOO_LARGE" }, 413);
+  }
 
-  const raw = await request.text();
-  if (new TextEncoder().encode(raw).byteLength > MAX_BODY_BYTES) {
-    return json({ error: "PAYLOAD_TOO_LARGE" }, 413);
+  let raw: string;
+  try {
+    raw = await readBoundedBody(request);
+  } catch (error) {
+    if (error instanceof PayloadTooLargeError) return json({ error: "PAYLOAD_TOO_LARGE" }, 413);
+    throw error;
   }
 
   let batch: SyncBatch;
@@ -52,7 +87,11 @@ async function handleSync(request: Request, env: Env, ctx: ExecutionContext): Pr
           idempotency_key: sale.idempotency_key }, 413);
       }
       const { payload_hash: claimedHash, ...payload } = sale;
-      const canonicalPayload = canonicalize(payload);
+      const canonicalPayload = canonicalize({
+        tenant_id: auth.tenantId,
+        terminal_id: auth.terminalId,
+        sale: payload
+      });
       const actualHash = await sha256Hex(canonicalPayload);
       if (actualHash !== claimedHash.toLowerCase()) {
         return json({
