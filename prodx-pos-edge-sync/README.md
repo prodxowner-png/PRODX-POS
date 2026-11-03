@@ -120,6 +120,14 @@ psql "$RECONCILIATION_DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/reconcile.sql
 
 The export creates `do-outbox-export.csv`; `scripts/reconcile.sql` imports it with `\copy` and runs the DO-local pending/gap/checkpoint checks in the same `psql` session. Run only against an isolated staging database with test products and inventory.
 
+## Gate 6 Staging `workers.dev` Access mTLS
+
+The Gate 6 Staging environment uses the dedicated `prodx-pos-edge-sync-staging.<account-subdomain>.workers.dev` hostname (`workers_dev=true` only under the `staging` Wrangler environment). Protect that exact hostname with a dedicated Cloudflare Access application. Configure a Service Auth policy with the upstream Linked App Token selector in `include` and the enrolled CI client certificate selector in `require`, so both the trusted terminal/operator JWT and the Vercel-to-Worker CI mTLS certificate are mandatory. Associate the issuing CA with this exact hostname.
+
+The Worker must still validate the downstream Access JWT audience/issuer and `request.cf.tlsClientAuth` fingerprint against the active `terminal_devices` row for the dedicated Staging test terminal. Before running Gate 6 E2E, verify that Access mTLS populates the expected Worker certificate fields and that a missing/invalid certificate is rejected. If the account plan does not include Access mTLS or the Worker cannot observe the certificate fingerprint, keep Gate 6 on HOLD; do not replace the check with a caller-supplied fingerprint or shared-secret bypass. Access mTLS plan availability is documented by Cloudflare and must be confirmed for the account.
+
+The WAF custom rule below is the alternative for a zone-managed hostname using Cloudflare SSL/TLS client-certificate validation; it is not the current `workers.dev` Staging enforcement mechanism.
+
 ## WAF mTLS custom rule
 
 Block action expression:
