@@ -130,6 +130,14 @@ describe("PRODX Edge sync Durable Object", () => {
     const status=await stub.getStatus(TENANT,TERMINAL,item.sale.idempotency_key);
     expect(status.status).toBe("failed");
     expect(status.failure_code).toBe("PRODUCT_NOT_FOUND_IN_TENANT");
+    await runInDO(stub, async (instance: IdempotencyGate, state) => {
+      (instance as any).pruneStorage(Date.now() + 31 * 86400_000);
+      const retained=state.storage.sql.exec<{count:number}>(
+        `SELECT COUNT(*) AS count FROM idempotency WHERE idempotency_key=? AND failure_code IS NOT NULL`,
+        item.sale.idempotency_key
+      ).toArray()[0]!.count;
+      expect(retained).toBe(1);
+    });
     await runInDO(stub, async (instance: IdempotencyGate) => {
       let failure: unknown;
       try {
@@ -188,5 +196,38 @@ describe("PRODX Edge sync Durable Object", () => {
     expect(await verifySalePrices(sale,SECRET)).toBe(true);
     const forged={...sale,lines:[{...sale.lines[0]!,unit_price_minor:1}]};
     expect(await verifySalePrices(forged,SECRET)).toBe(false);
+  });
+
+  it("rejects a different idempotency key that reuses a locally accepted sequence", async () => {
+    const stub=getStub("sequence-reuse-after-local-accept");
+    const first=prepared("sequence-owner-idempotency-key","a".repeat(64),1);
+    await stub.submitBatch(submission([first]));
+    const reused=prepared("sequence-reuse-new-idempotency-key","b".repeat(64),1);
+    await expect(stub.submitBatch(submission([reused]))).rejects.toThrow("TERMINAL_SEQUENCE_ALREADY_ACCEPTED");
+  });
+
+  it("retains sequence ownership until PostgreSQL confirms the origin checkpoint", async () => {
+    const stub=getStub("sequence-claim-origin-retention");
+    const first=prepared("sequence-retention-owner-key","c".repeat(64),1);
+    await stub.submitBatch(submission([first]));
+    await runInDO(stub,async (instance:any,state:any) => {
+      instance.pruneStorage(Date.now() + 31 * 86400_000);
+      const retained=state.storage.sql.exec<{count:number}>(
+        "SELECT COUNT(*) AS count FROM terminal_sequence_seen WHERE seq_no=1"
+      ).toArray()[0]!.count;
+      expect(retained).toBe(1);
+    });
+    const next=prepared("sequence-retention-next-key","d".repeat(64),2);
+    await stub.submitBatch(submission([next]),{
+      last_committed_seq_no:1,
+      last_hlc_physical_ms:first.sale.hlc.physical_ms,
+      last_hlc_logical:first.sale.hlc.logical
+    });
+    await runInDO(stub,async (_instance:any,state:any) => {
+      const retained=state.storage.sql.exec<{count:number}>(
+        "SELECT COUNT(*) AS count FROM terminal_sequence_seen WHERE seq_no=1"
+      ).toArray()[0]!.count;
+      expect(retained).toBe(0);
+    });
   });
 });
