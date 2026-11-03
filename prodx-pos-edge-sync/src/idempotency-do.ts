@@ -122,16 +122,13 @@ export class IdempotencyGate extends DurableObject<Env> {
 
   private pruneStorage(now = Date.now()): void {
     const cutoff = new Date(now - IDEMPOTENCY_RETENTION_MS).toISOString();
-    const contiguous = this.ctx.storage.sql.exec<{ last_contiguous_seq_no:number }>(
-      `SELECT last_contiguous_seq_no FROM terminal_sequence_state WHERE singleton=1`
-    ).toArray()[0]?.last_contiguous_seq_no ?? 0;
-    // PostgreSQL is the permanent idempotency authority. Keep the Edge receipt
-    // cache for thirty days, retain only out-of-order sequence rows, and preserve
-    // open gaps. This bounds per-terminal SQLite growth.
+    // PostgreSQL is the permanent idempotency authority. Expire only committed
+    // receipt cache rows. Sequence ownership is retained until the PostgreSQL
+    // checkpoint explicitly confirms the corresponding sequence numbers.
+    // Failed receipts remain durable until an explicit origin-side resolution exists.
     this.ctx.storage.sql.exec(
       `DELETE FROM idempotency WHERE state='COMMITTED' AND updated_at < ?`,cutoff
     );
-    this.ctx.storage.sql.exec(`DELETE FROM terminal_sequence_seen WHERE seq_no <= ?`,contiguous);
     this.ctx.storage.sql.exec(
       `DELETE FROM terminal_sequence_gaps WHERE status='CLOSED' AND resolved_at < ?`,cutoff
     );
@@ -154,7 +151,6 @@ export class IdempotencyGate extends DurableObject<Env> {
         `UPDATE terminal_sequence_state SET last_contiguous_seq_no=?,last_hlc_physical_ms=?,last_hlc_logical=?
          WHERE singleton=1`,checkpoint.last_committed_seq_no,checkpoint.last_hlc_physical_ms,checkpoint.last_hlc_logical
       );
-      this.ctx.storage.sql.exec(`DELETE FROM terminal_sequence_seen WHERE seq_no<=?`,checkpoint.last_committed_seq_no);
       this.ctx.storage.sql.exec(
         `UPDATE terminal_sequence_gaps SET status='CLOSED',resolved_at=?
          WHERE status='OPEN' AND gap_to_seq_no<=?`,now,checkpoint.last_committed_seq_no
@@ -172,6 +168,11 @@ export class IdempotencyGate extends DurableObject<Env> {
         checkpoint.last_hlc_physical_ms,checkpoint.last_hlc_logical
       );
     }
+    // Clean claims only through the authoritative origin checkpoint, even when
+    // its sequence equals or trails the local accepted prefix.
+    this.ctx.storage.sql.exec(
+      `DELETE FROM terminal_sequence_seen WHERE seq_no<=?`,checkpoint.last_committed_seq_no
+    );
   }
 
   private trimResolvedGaps(contiguous: number, now: string): void {
@@ -268,7 +269,9 @@ export class IdempotencyGate extends DurableObject<Env> {
         const seq = item.sale.terminal_seq_no;
         // A replay older than the Edge retention window is delegated to PostgreSQL,
         // whose unique idempotency and terminal sequence constraints are permanent.
-        if (seq <= sequenceState.last_contiguous_seq_no) continue;
+        if (seq <= sequenceState.last_contiguous_seq_no) {
+          throw new Error("TERMINAL_SEQUENCE_ALREADY_ACCEPTED");
+        }
         const priorSeq = this.ctx.storage.sql.exec<{ sale_id: string }>(
           `SELECT sale_id FROM terminal_sequence_seen WHERE seq_no=?`, seq
         ).toArray()[0];
