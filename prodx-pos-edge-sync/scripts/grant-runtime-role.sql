@@ -60,3 +60,19 @@ TO prodx_reconciliation_admin;
 GRANT EXECUTE ON FUNCTION apply_inventory_ledger_delta() TO prodx_pos_worker,prodx_inventory_admin;
 GRANT EXECUTE ON FUNCTION increment_product_version() TO prodx_catalog_writer;
 GRANT EXECUTE ON FUNCTION bump_tenant_catalog_version() TO prodx_catalog_writer;
+
+-- Fail the permission gate if an unaudited catalog mutation path is reintroduced.
+DO $$
+BEGIN
+  IF NOT has_table_privilege('prodx_catalog_writer','public.products','SELECT') THEN
+    RAISE EXCEPTION 'catalog writer must retain product read access';
+  END IF;
+  IF has_table_privilege('prodx_catalog_writer','public.products','INSERT')
+     OR has_table_privilege('prodx_catalog_writer','public.products','UPDATE')
+     OR has_table_privilege('prodx_catalog_writer','public.products','DELETE')
+     OR has_table_privilege('prodx_catalog_writer','public.tenant_catalog_versions','INSERT')
+     OR has_table_privilege('prodx_catalog_writer','public.tenant_catalog_versions','UPDATE')
+     OR has_table_privilege('prodx_catalog_writer','public.tenant_catalog_versions','DELETE') THEN
+    RAISE EXCEPTION 'unaudited catalog writer mutation privilege detected';
+  END IF;
+END $$;
