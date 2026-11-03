@@ -5,6 +5,68 @@ export type SqlExecutor = {
   query<T extends Record<string, unknown>>(sql: string, parameters?: readonly unknown[]): Promise<readonly T[]>;
 };
 
+export type FirstTenantBootstrapInput = {
+  supabaseUserId: string;
+  organizationCode: string;
+  organizationName: string;
+  storeCode: string;
+  storeName: string;
+  businessTimezone: string;
+  ownerUsername: string;
+  ownerDisplayName: string;
+  deviceKey: string;
+  deviceName: string;
+};
+
+export type FirstTenantBootstrapResult = {
+  organizationId: string;
+  storeId: string;
+  userId: string;
+  roleId: string;
+  deviceId: string;
+};
+
+export type FirstTenantBootstrapRepository = {
+  bootstrapFirstTenant(input: FirstTenantBootstrapInput): Promise<FirstTenantBootstrapResult | null>;
+};
+
+export const createPostgresFirstTenantBootstrapRepository = (db: SqlExecutor): FirstTenantBootstrapRepository => ({
+  async bootstrapFirstTenant(input) {
+    const rows = await db.query<{
+      organization_id: string;
+      store_id: string;
+      user_id: string;
+      role_id: string;
+      device_id: string;
+    }>(
+      `SELECT * FROM public.prodx_auth_bootstrap_first_tenant(
+        $1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10
+      )`,
+      [
+        input.supabaseUserId,
+        input.organizationCode,
+        input.organizationName,
+        input.storeCode,
+        input.storeName,
+        input.businessTimezone,
+        input.ownerUsername,
+        input.ownerDisplayName,
+        input.deviceKey,
+        input.deviceName,
+      ],
+    );
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      organizationId: row.organization_id,
+      storeId: row.store_id,
+      userId: row.user_id,
+      roleId: row.role_id,
+      deviceId: row.device_id,
+    };
+  },
+});
+
 export const createPostgresAuthenticationRepository = (db: SqlExecutor): AuthenticationRepository => ({
   async findCredentialByUsername(username, deviceId) {
     const rows = await db.query<CredentialRecord & { credential_type: 'password'; secret_hash: string; failed_attempts: number; locked_until: Date | null; }>(
