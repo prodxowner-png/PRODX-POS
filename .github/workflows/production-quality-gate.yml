@@ -264,11 +264,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if grep -n -E "VITE_AUTH_API_BASE_URL|!import\\.meta\\.env\\.VITE_AUTH_API_BASE_URL" src/adapters/authApiFactory.ts; then
-            echo "Production auth adapter selection must not depend on a missing API URL; production must fail closed inside the production adapter."
+          factory=src/adapters/authApiFactory.ts
+          grep -Fq "import.meta.env.DEV" "$factory"
+          grep -Fq "developmentMockAuthApi" "$factory"
+          grep -Fq "await import('./developmentMockAuthApi')" "$factory"
+          if grep -n -E "^import .*developmentMockAuthApi" "$factory"; then
+            echo "Development mock auth must be lazy-loaded, not statically bundled into production auth wiring."
             exit 1
           fi
-          grep -n "import.meta.env.DEV ? mockAuthApi : productionAuthApi" src/adapters/authApiFactory.ts
+          grep -Fq "authProvider !== 'supabase' && authProvider !== 'production'" "$factory"
+          grep -Fq "throw new Error('Authentication provider must be explicitly configured" "$factory"
+          if grep -n -E "mockAdapter|mockAuthApi" "$factory"; then
+            echo "Production auth factory must use the isolated development auth adapter, not the general mock adapter."
+            exit 1
+          fi
+          echo "Production auth selection is explicit, development-only for mocks, and fails closed when provider configuration is missing."
 
       - name: Verify offline sync context does not directly import mock sync adapter
         shell: bash

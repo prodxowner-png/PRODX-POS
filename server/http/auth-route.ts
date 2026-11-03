@@ -6,8 +6,10 @@ type Permission =
   | 'customers:read' | 'customers:write'
   | 'reports:read' | 'audit:read' | 'settings:manage'
   | 'org:read' | 'org:manage' | 'branch:manage' | 'terminal:manage' | 'rbac:manage';
-import type { AuthenticatedSession, SessionIssuer } from '../auth/session';
-import type { SqlExecutor } from '../auth/postgres-repository';
+import { timingSafeEqual } from 'node:crypto';
+import { verifySupabaseToken, type AuthenticatedSession, type SessionIssuer, type SupabaseTokenVerifier } from '../auth/session';
+import type { FirstTenantBootstrapConfig } from '../auth/first-tenant-bootstrap';
+import type { FirstTenantBootstrapRepository, SqlExecutor } from '../auth/postgres-repository';
 import { runWithRequestContext } from './request-context-storage.ts';
 import { checkLoginThrottle, recordLoginFailure } from '../auth/login-rate-limit';
 
@@ -219,7 +221,90 @@ const loadSessionContext = async (
  * requests; routes that need a session validate the bearer token themselves
  * through the same SessionIssuer used by the global middleware.
  */
-export const registerAuthRoutes = (app: Express, db: SqlExecutor, sessions: SessionIssuer): void => {
+export type AuthRouteOptions = {
+  firstTenantBootstrap?: {
+    config: FirstTenantBootstrapConfig | null;
+    repository: FirstTenantBootstrapRepository;
+    verifySupabaseIdentity?: SupabaseTokenVerifier;
+  };
+};
+
+export const registerAuthRoutes = (
+  app: Express,
+  db: SqlExecutor,
+  sessions: SessionIssuer,
+  options: AuthRouteOptions = {},
+): void => {
+  app.post('/auth/supabase/bootstrap', asyncRoute(async (request, response) => {
+    const bootstrap = options.firstTenantBootstrap;
+    const config = bootstrap?.config;
+    if (!bootstrap || !config) {
+      response.status(404).json(errorBody(request, 'NOT_FOUND', 'Not found.'));
+      return;
+    }
+
+    const supabaseToken = bearerToken(request);
+    const suppliedSecret = request.header('x-prodx-bootstrap-secret') ?? '';
+    const expectedBytes = Buffer.from(config.secret, 'utf8');
+    const suppliedBytes = Buffer.from(suppliedSecret, 'utf8');
+    const secretMatches = expectedBytes.length === suppliedBytes.length
+      && timingSafeEqual(expectedBytes, suppliedBytes);
+    if (!supabaseToken || !secretMatches) {
+      sendUnauthenticated(request, response, 'Bootstrap authorization is invalid.');
+      return;
+    }
+
+    const verifyIdentity = bootstrap.verifySupabaseIdentity ?? verifySupabaseToken;
+    const verified = await verifyIdentity(supabaseToken);
+    if (!verified || verified.userId.toLowerCase() !== config.supabaseUserId) {
+      sendUnauthenticated(request, response, 'Bootstrap authorization is invalid.');
+      return;
+    }
+
+    const provisioned = await bootstrap.repository.bootstrapFirstTenant({
+      supabaseUserId: verified.userId,
+      organizationCode: config.organizationCode,
+      organizationName: config.organizationName,
+      storeCode: config.storeCode,
+      storeName: config.storeName,
+      businessTimezone: config.businessTimezone,
+      ownerUsername: config.ownerUsername,
+      ownerDisplayName: config.ownerDisplayName,
+      deviceKey: config.deviceKey,
+      deviceName: config.deviceName,
+    });
+    if (!provisioned) {
+      sendAuthFailed(request, response, 'First-tenant bootstrap could not be completed.');
+      return;
+    }
+
+    const issued = await sessions.authenticateSupabaseToken({
+      token: supabaseToken,
+      deviceId: provisioned.deviceId,
+    });
+    if (!issued) {
+      sendAuthFailed(request, response, 'First-tenant session could not be established.');
+      return;
+    }
+    const principal = await sessions.authenticateBearer(issued.token);
+    if (!principal || principal.organizationId !== provisioned.organizationId
+        || principal.userId !== provisioned.userId || principal.storeId !== provisioned.storeId) {
+      await sessions.revokeBearer(issued.token);
+      sendAuthFailed(request, response, 'First-tenant session scope is invalid.');
+      return;
+    }
+    const context = await withPrincipalContext(request, principal, () =>
+      loadSessionContext(db, principal, issued.token, issued.expiresAt));
+    if (!context || context.currentUser.role !== 'admin') {
+      await sessions.revokeBearer(issued.token);
+      sendAdminRoleRequired(request, response);
+      return;
+    }
+
+    response.setHeader('Cache-Control', 'private, no-store');
+    response.status(200).json(context);
+  }));
+
   app.post('/auth/supabase/session', asyncRoute(async (request, response) => {
     const token = bearerToken(request);
     if (!token) { sendUnauthenticated(request, response); return; }
