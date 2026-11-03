@@ -44,9 +44,9 @@ if [[ "$MODE" == "provision" ]]; then
     if (!["postgres:", "postgresql:"].includes(u.protocol)) process.exit(2);
     process.stdout.write([
       u.hostname.toLowerCase(),
-      decodeURIComponent(u.pathname.replace(/^\\//, "")),
+      decodeURIComponent(u.pathname.slice(1)),
       String(Number(u.port || 5432)),
-    ].join("\\n"));
+    ].join("\n"));
   ')
   DB_HOST="${DB_TARGET[0]:-}"
   DB_NAME="${DB_TARGET[1]:-}"
@@ -131,7 +131,8 @@ ensure_hyperdrive() {
   local name="$1" caching="$2" id
   id="$(hyperdrive_id "$name")"
   if [[ -n "$id" ]]; then
-    printf 'Hyperdrive exists: %s (%s)\n' "$name" "$id" >&2
+    validate_hyperdrive "$name" "$id" "$([[ "$caching" == "disabled" ]] && echo true || echo false)"
+    printf 'Hyperdrive exists and exact origin/caching policy verified: %s (%s)\\n' "$name" "$id" >&2
     printf '%s' "$id"
     return
   fi
