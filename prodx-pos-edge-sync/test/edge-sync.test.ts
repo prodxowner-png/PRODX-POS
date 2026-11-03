@@ -204,9 +204,16 @@ describe("PRODX Edge sync Durable Object", () => {
     await stub.submitBatch(submission([failed]));
     await stub.markFailed(TENANT,TERMINAL,failed.sale.idempotency_key,"INSUFFICIENT_STOCK");
     const later=prepared("sale-after-failed-sequence-key","f".repeat(64),2);
-    await expect(stub.submitBatch(submission([later]),{
-      last_committed_seq_no:0,last_hlc_physical_ms:0,last_hlc_logical:0
-    })).rejects.toThrow("TERMINAL_SEQUENCE_BLOCKED_BY_FAILED_RECEIPT");
+    await runInDO(stub,async (instance:IdempotencyGate) => {
+      let failure:unknown;
+      try {
+        await instance.submitBatch(submission([later]),{
+          last_committed_seq_no:0,last_hlc_physical_ms:0,last_hlc_logical:0
+        });
+      } catch (error) { failure=error; }
+      expect(failure).toBeInstanceOf(Error);
+      expect((failure as Error).message).toBe("TERMINAL_SEQUENCE_BLOCKED_BY_FAILED_RECEIPT");
+    });
   });
 
   it("rejects a different idempotency key that reuses a locally accepted sequence", async () => {
@@ -214,7 +221,14 @@ describe("PRODX Edge sync Durable Object", () => {
     const first=prepared("sequence-owner-idempotency-key","a".repeat(64),1);
     await stub.submitBatch(submission([first]));
     const reused=prepared("sequence-reuse-new-idempotency-key","b".repeat(64),1);
-    await expect(stub.submitBatch(submission([reused]))).rejects.toThrow("TERMINAL_SEQUENCE_ALREADY_ACCEPTED");
+    await runInDO(stub,async (instance:IdempotencyGate) => {
+      let failure:unknown;
+      try {
+        await instance.submitBatch(submission([reused]));
+      } catch (error) { failure=error; }
+      expect(failure).toBeInstanceOf(Error);
+      expect((failure as Error).message).toBe("TERMINAL_SEQUENCE_ALREADY_ACCEPTED");
+    });
   });
 
   it("retains sequence ownership until PostgreSQL confirms the origin checkpoint", async () => {
