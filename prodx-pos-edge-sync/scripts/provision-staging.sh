@@ -19,6 +19,8 @@ case "$MODE" in
     require CLOUDFLARE_API_TOKEN
     require CLOUDFLARE_ACCOUNT_ID
     require STAGING_DATABASE_URL
+    require STAGING_DATABASE_HOST_EXPECTED
+    require STAGING_DATABASE_NAME_EXPECTED
     require POS_STAGING_ACCESS_AUD
     ;;
   set-secret)
@@ -35,6 +37,29 @@ case "$MODE" in
 esac
 
 cd "$ROOT"
+
+if [[ "$MODE" == "provision" ]]; then
+  mapfile -t DB_TARGET < <(node -e '
+    const u = new URL(process.env.STAGING_DATABASE_URL);
+    if (!["postgres:", "postgresql:"].includes(u.protocol)) process.exit(2);
+    process.stdout.write([
+      u.hostname.toLowerCase(),
+      decodeURIComponent(u.pathname.replace(/^\\//, "")),
+      String(Number(u.port || 5432)),
+    ].join("\\n"));
+  ')
+  DB_HOST="${DB_TARGET[0]:-}"
+  DB_NAME="${DB_TARGET[1]:-}"
+  DB_PORT="${DB_TARGET[2]:-}"
+  [[ -n "$DB_HOST" && "$DB_HOST" == "${STAGING_DATABASE_HOST_EXPECTED,,}" ]] || {
+    echo "ERROR: Staging database host does not match the exact approved host allowlist" >&2
+    exit 1
+  }
+  [[ -n "$DB_NAME" && "$DB_NAME" == "$STAGING_DATABASE_NAME_EXPECTED" ]] || {
+    echo "ERROR: Staging database name does not match the exact approved database allowlist" >&2
+    exit 1
+  }
+fi
 
 if [[ "$MODE" == "set-secret" ]]; then
   # Secret value is piped through stdin and never echoed to logs.
@@ -79,6 +104,29 @@ hyperdrive_id() {
     jq -r --arg n "$name" '.result[]? | select(.name == $n) | .id' | head -n1
 }
 
+validate_hyperdrive() {
+  local name="$1" id="$2" expected_caching_disabled="$3"
+  local config
+  config="$(api GET "/accounts/$CLOUDFLARE_ACCOUNT_ID/hyperdrive/configs/$id")"
+  jq -e \
+    --arg name "$name" \
+    --arg host "$DB_HOST" \
+    --arg database "$DB_NAME" \
+    --argjson port "$DB_PORT" \
+    --argjson caching_disabled "$expected_caching_disabled" \
+    '.success == true
+      and .result.name == $name
+      and ((.result.origin.host // "") | ascii_downcase) == $host
+      and .result.origin.database == $database
+      and (.result.origin.port // 5432) == $port
+      and (.result.origin.scheme == "postgres" or .result.origin.scheme == "postgresql")
+      and (.result.caching.disabled // false) == $caching_disabled' \
+    <<<"$config" >/dev/null || {
+      echo "ERROR: existing Hyperdrive $name does not match the exact approved Staging origin/caching policy" >&2
+      exit 1
+    }
+}
+
 ensure_hyperdrive() {
   local name="$1" caching="$2" id
   id="$(hyperdrive_id "$name")"
@@ -107,6 +155,7 @@ ensure_hyperdrive() {
     echo "ERROR: could not resolve Hyperdrive ID after creation: $name" >&2
     return 1
   fi
+  validate_hyperdrive "$name" "$id" "$([[ "$caching" == "disabled" ]] && echo true || echo false)"
   printf '%s' "$id"
 }
 
