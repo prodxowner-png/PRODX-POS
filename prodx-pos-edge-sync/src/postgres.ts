@@ -19,21 +19,24 @@ interface WriteCteResult {
   prior_sequence_sale_id: string | null;
 }
 
-function moneyFromLines(lines: SaleLine[]): number {
-  let total = 0;
-  for (const line of lines) {
-    const lineBase = line.quantity * line.unit_price_minor;
-    const tax = Math.round((lineBase * line.tax_bps) / 10000);
-    total += lineBase + tax;
-    if (!Number.isSafeInteger(total)) throw new PermanentDataError("AMOUNT_OVERFLOW");
-  }
-  return total;
-}
+const MAX_SAFE_MINOR = BigInt(Number.MAX_SAFE_INTEGER);
 
 function lineTaxMinor(line: SaleLine): number {
-  const tax = Math.round((line.quantity * line.unit_price_minor * line.tax_bps) / 10000);
-  if (!Number.isSafeInteger(tax)) throw new PermanentDataError("TAX_AMOUNT_OVERFLOW");
-  return tax;
+  const base = BigInt(line.quantity) * BigInt(line.unit_price_minor);
+  const tax = (base * BigInt(line.tax_bps) + 5_000n) / 10_000n;
+  if (tax > MAX_SAFE_MINOR) throw new PermanentDataError("TAX_AMOUNT_OVERFLOW");
+  return Number(tax);
+}
+
+function moneyFromLines(lines: SaleLine[]): number {
+  let total = 0n;
+  for (const line of lines) {
+    const base = BigInt(line.quantity) * BigInt(line.unit_price_minor);
+    const tax = (base * BigInt(line.tax_bps) + 5_000n) / 10_000n;
+    total += base + tax;
+    if (total > MAX_SAFE_MINOR) throw new PermanentDataError("AMOUNT_OVERFLOW");
+  }
+  return Number(total);
 }
 
 /**
@@ -235,24 +238,33 @@ export async function commitSale(env: Env, message: QueueSale): Promise<"committ
     // A single parameterized PostgreSQL statement performs the entire sale
     // transaction (including duplicate resolution), RLS context, idempotency,
     // ledger writes, inventory trigger, immutable audit, and checkpoint advance.
-    const result = await client.query(COMMIT_SALE_CTE, [
-      message.tenant_id,
-      message.terminal_id,
-      message.idempotency_key,
-      message.receipt_id,
-      message.payload_hash,
-      message.sale.sale_id,
-      message.sale.terminal_seq_no,
-      message.sale.currency,
-      totalMinor,
-      message.sale.catalog_version,
-      message.sale.hlc.physical_ms,
-      message.sale.hlc.logical,
-      message.sale.client_recorded_at,
-      message.edge_received_at,
-      JSON.stringify(lineRecords),
-      JSON.stringify(auditMetadata)
-    ]);
+    let result;
+    try {
+      result = await client.query(COMMIT_SALE_CTE, [
+        message.tenant_id,
+        message.terminal_id,
+        message.idempotency_key,
+        message.receipt_id,
+        message.payload_hash,
+        message.sale.sale_id,
+        message.sale.terminal_seq_no,
+        message.sale.currency,
+        totalMinor,
+        message.sale.catalog_version,
+        message.sale.hlc.physical_ms,
+        message.sale.hlc.logical,
+        message.sale.client_recorded_at,
+        message.edge_received_at,
+        JSON.stringify(lineRecords),
+        JSON.stringify(auditMetadata)
+      ]);
+    } catch (error) {
+      if (typeof error === "object" && error !== null &&
+          "code" in error && (error as { code?: string }).code === "PZ001") {
+        throw new PermanentDataError("INSUFFICIENT_STOCK");
+      }
+      throw error;
+    }
 
     const row = result.rows[0] as WriteCteResult | undefined;
     if (!row) throw new Error("POSTGRES_CTE_RETURNED_NO_STATUS");
