@@ -64,7 +64,7 @@ describe("PRODX Edge sync Durable Object", () => {
       }
       expect(mismatch).toBeInstanceOf(Error);
       expect((mismatch as Error).message).toContain("IDEMPOTENCY_PAYLOAD_MISMATCH");
-      const count=state.storage.sql.exec<{count:number}>("SELECT COUNT(*) AS count FROM idempotency").toArray()[0]!.count;
+      const count=state.storage.sql.exec("SELECT COUNT(*) AS count FROM idempotency").toArray()[0]!.count;
       expect(count).toBe(1);
       expect(state.storage.sql.exec("SELECT idempotency_key FROM idempotency WHERE idempotency_key LIKE 'new-%'").toArray()).toHaveLength(0);
       expect(state.storage.sql.exec("SELECT seq_no FROM terminal_sequence_seen").toArray()).toHaveLength(0);
@@ -80,7 +80,7 @@ describe("PRODX Edge sync Durable Object", () => {
       Object.defineProperty(queue,"sendBatch",{ configurable:true, value:async()=>{ throw new Error("injected queue outage"); } });
       const item=prepared("alarm-idempotency-key-0001","c".repeat(64),1);
       await expect((instance as any).submitBatch(submission([item]))).rejects.toThrow("injected queue outage");
-      const pending=state.storage.sql.exec<{count:number}>("SELECT COUNT(*) AS count FROM idempotency WHERE state='ENQUEUE_PENDING'").toArray()[0]!.count;
+      const pending=state.storage.sql.exec("SELECT COUNT(*) AS count FROM idempotency WHERE state='ENQUEUE_PENDING'").toArray()[0]!.count;
       expect(pending).toBe(1);
       Object.defineProperty(queue,"sendBatch",{ configurable:true, value:async(messages:unknown[])=>{
         recoveredQueueCalls++; expect(messages).toHaveLength(1);
@@ -89,7 +89,7 @@ describe("PRODX Edge sync Durable Object", () => {
     expect(await runDurableObjectAlarm(stub)).toBe(true);
     expect(recoveredQueueCalls).toBe(1);
     await runInDO(stub, async (instance, state) => {
-      const queued=state.storage.sql.exec<{count:number}>("SELECT COUNT(*) AS count FROM idempotency WHERE state='QUEUED'").toArray()[0]!.count;
+      const queued=state.storage.sql.exec("SELECT COUNT(*) AS count FROM idempotency WHERE state='QUEUED'").toArray()[0]!.count;
       expect(queued).toBe(1);
     });
   });
@@ -132,7 +132,7 @@ describe("PRODX Edge sync Durable Object", () => {
     expect(status.failure_code).toBe("PRODUCT_NOT_FOUND_IN_TENANT");
     await runInDO(stub, async (instance: IdempotencyGate, state) => {
       (instance as any).pruneStorage(Date.now() + 31 * 86400_000);
-      const retained=state.storage.sql.exec<{count:number}>(
+      const retained=state.storage.sql.exec(
         `SELECT COUNT(*) AS count FROM idempotency WHERE idempotency_key=? AND failure_code IS NOT NULL`,
         item.sale.idempotency_key
       ).toArray()[0]!.count;
@@ -223,7 +223,7 @@ describe("PRODX Edge sync Durable Object", () => {
     await stub.submitBatch(submission([first]));
     await runInDO(stub,async (instance:any,state:any) => {
       instance.pruneStorage(Date.now() + 31 * 86400_000);
-      const retained=state.storage.sql.exec<{count:number}>(
+      const retained=state.storage.sql.exec(
         "SELECT COUNT(*) AS count FROM terminal_sequence_seen WHERE seq_no=1"
       ).toArray()[0]!.count;
       expect(retained).toBe(1);
@@ -235,7 +235,7 @@ describe("PRODX Edge sync Durable Object", () => {
       last_hlc_logical:first.sale.hlc.logical
     });
     await runInDO(stub,async (_instance:any,state:any) => {
-      const retained=state.storage.sql.exec<{count:number}>(
+      const retained=state.storage.sql.exec(
         "SELECT COUNT(*) AS count FROM terminal_sequence_seen WHERE seq_no=1"
       ).toArray()[0]!.count;
       expect(retained).toBe(0);
