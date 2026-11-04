@@ -9,6 +9,7 @@ description: Orchestrates the obra/superpowers development methodology with PROD
 Use the upstream Superpowers skills as a disciplined development workflow, while keeping PRODX-POS architecture, safety, product decisions, and production evidence authoritative.
 
 Upstream source: https://github.com/obra/superpowers  
+Pinned upstream commit: `22f0b463e7a5e579904dd6211a520321035526f7` (release v7.0.2, 2026-11-03).  
 License: MIT; see `THIRD-PARTY-LICENSES/obra-superpowers-LICENSE`.  
 Vendored skill source: `obra/superpowers` `main` at integration time (Codex plugin manifest reported version `7.0.2`). Keep upstream content attribution and license when updating.
 
