@@ -256,6 +256,7 @@ test('M2 PostgreSQL authentication enforces credential, tenant, session, token-h
     `SELECT event_type, organization_id, user_id, metadata
        FROM prodx_security_audit_events
       WHERE organization_id = $1
+        AND event_type = 'AUTH_LOCKOUT'
       ORDER BY occurred_at DESC`,
     [ids.organizationA],
   );
@@ -285,7 +286,9 @@ test('M2 PostgreSQL authentication enforces credential, tenant, session, token-h
   assert.equal(resetState.rows[0].locked_until, null);
   const resetAudit = await pool.query<{ event_type: string; metadata: { previous_failed_attempts: number } }>(
     `SELECT event_type, metadata FROM prodx_security_audit_events
-      WHERE organization_id = $1 ORDER BY occurred_at ASC`,
+      WHERE organization_id = $1
+        AND event_type IN ('AUTH_LOCKOUT', 'AUTH_LOCKOUT_RESET')
+      ORDER BY occurred_at ASC`,
     [ids.organizationA],
   );
   assert.equal(resetAudit.rows.length, 2);
