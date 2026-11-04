@@ -78,12 +78,20 @@ esac
 # marker must name this plan; a missing marker means a new workspace or a
 # pre-marker legacy one, and either way the plan claims it by writing one.
 owns() {
-  if [ -e "$1/plan-path" ]; then
-    [ "$(cat "$1/plan-path")" = "$plan_id" ]
-  else
-    mkdir -p "$1"
-    printf '%s\n' "$plan_id" > "$1/plan-path"
+  local workspace="$1" marker="$1/plan-path" tmp
+  mkdir -p "$workspace"
+  if [ ! -e "$marker" ]; then
+    # Prepare a private marker then publish it with an atomic no-clobber link.
+    # Only one competing SDD session can claim an unowned workspace.
+    tmp="$workspace/.plan-path.$$.${RANDOM:-0}"
+    printf '%s\n' "$plan_id" > "$tmp"
+    if ! ln "$tmp" "$marker" 2>/dev/null; then
+      rm -f "$tmp"
+    else
+      rm -f "$tmp"
+    fi
   fi
+  [ -f "$marker" ] && [ "$(cat "$marker")" = "$plan_id" ]
 }
 
 dir="$base/$slug"
