@@ -1,0 +1,8 @@
+(
+  http.request.method eq "POST"
+  and http.request.uri.path eq "/api/v1/pos/sync-batch"
+  and (
+    not cf.tls_client_auth.cert_verified
+    or cf.tls_client_auth.cert_revoked
+  )
+)
