@@ -26,6 +26,27 @@ These agent skills turn PRODX-POS production principles into repeatable engineer
 - [prodx-responsive-accessibility](prodx-responsive-accessibility/SKILL.md) — responsive behavior, keyboard/touch usability, and accessibility.
 - [prodx-frontend-review](prodx-frontend-review/SKILL.md) — visual, UX, accessibility, responsive, and production-integration review.
 
+## Upstream Superpowers workflow (MIT)
+
+PRODX vendors the upstream `obra/superpowers` skill set under the original skill names:
+- [brainstorming](brainstorming/SKILL.md)
+- [diagnosing-superpowers](diagnosing-superpowers/SKILL.md)
+- [dispatching-parallel-agents](dispatching-parallel-agents/SKILL.md)
+- [executing-plans](executing-plans/SKILL.md)
+- [finishing-a-development-branch](finishing-a-development-branch/SKILL.md)
+- [receiving-code-review](receiving-code-review/SKILL.md)
+- [requesting-code-review](requesting-code-review/SKILL.md)
+- [subagent-driven-development](subagent-driven-development/SKILL.md)
+- [systematic-debugging](systematic-debugging/SKILL.md)
+- [test-driven-development](test-driven-development/SKILL.md)
+- [using-git-worktrees](using-git-worktrees/SKILL.md)
+- [using-superpowers](using-superpowers/SKILL.md)
+- [verification-before-completion](verification-before-completion/SKILL.md)
+- [writing-plans](writing-plans/SKILL.md)
+- [writing-skills](writing-skills/SKILL.md)
+
+Use [prodx-superpowers-integration](prodx-superpowers-integration/SKILL.md) as the PRODX-specific entry point. It defines precedence, mapping, and safe use of this upstream workflow. Preserve upstream attribution and the [MIT license](THIRD-PARTY-LICENSES/obra-superpowers-LICENSE).
+
 ## Required evidence vocabulary
 Every skill must distinguish:
 - **PASS** — current direct evidence proves the criterion.
