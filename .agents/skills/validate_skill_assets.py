@@ -14,11 +14,12 @@ from urllib.parse import unquote
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SKILLS_ROOT = REPO_ROOT / ".agents" / "skills"
-MARKDOWN_LINK = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
+MARKDOWN_LINK = re.compile(r"!?[^\[]*\[([^\]]*)\]\(([^)]+)\)")
 REFERENCE_LINK = re.compile(r"^\s*\[[^\]]+\]:\s*(\S+)", re.MULTILINE)
 INLINE_ASSET = re.compile(
     r"(?<![\w./-])((?:\.\.?/)?(?:scripts|references|prompts|templates)/[A-Za-z0-9._/-]+)"
 )
+FENCED_BLOCK = re.compile(r"(?ms)^[ \t]*([\x60~]{3,}).*?^[ \t]*\1[ \t]*$")
 IGNORED_EXAMPLES = {"scripts/tool.sh", "scripts/tool.js"}
 
 
@@ -38,17 +39,27 @@ def main() -> int:
     errors: list[str] = []
     markdown_files = sorted(SKILLS_ROOT.rglob("*.md"))
     for doc in markdown_files:
-        text = doc.read_text(encoding="utf-8")
-        for match in list(MARKDOWN_LINK.finditer(text)) + list(REFERENCE_LINK.finditer(text)):
-            raw = local_target(match.group(1))
+        source = doc.read_text(encoding="utf-8")
+        # Links inside fenced examples describe hypothetical layouts, not assets.
+        text = FENCED_BLOCK.sub("", source)
+        for match in MARKDOWN_LINK.finditer(text):
+            raw = local_target(match.group(2))
             if raw is None:
                 continue
             target = (doc.parent / raw).resolve()
             if not target.exists():
                 errors.append(f"{doc.relative_to(REPO_ROOT)}: missing Markdown target {raw}")
+        for match in REFERENCE_LINK.finditer(text):
+            raw = local_target(match.group(1))
+            if raw is None:
+                continue
+            target = (doc.parent / raw).resolve()
+            if not target.exists():
+                errors.append(f"{doc.relative_to(REPO_ROOT)}: missing reference target {raw}")
 
     for skill_doc in sorted(SKILLS_ROOT.glob("*/SKILL.md")):
-        text = skill_doc.read_text(encoding="utf-8")
+        source = skill_doc.read_text(encoding="utf-8")
+        text = FENCED_BLOCK.sub("", source)
         skill_root = skill_doc.parent
         for match in INLINE_ASSET.finditer(text):
             raw = match.group(1).rstrip(".,;:)")
