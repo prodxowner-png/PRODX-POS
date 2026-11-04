@@ -1,8 +1,8 @@
 # PRODX-POS Engineering Skill Pack
 
-These agent skills turn PRODX-POS production principles into repeatable review procedures. They are guardrails and checklists, not evidence that the system passes a gate.
+These agent skills turn PRODX-POS production principles into repeatable engineering and design procedures. They are guardrails and checklists, not evidence that the system passes a gate.
 
-## Skills
+## Core production engineering
 - [prodx-architecture](prodx-architecture/SKILL.md) — dependency boundaries and production wiring.
 - [prodx-security](prodx-security/SKILL.md) — authentication, authorization, tenancy, secrets, and audit controls.
 - [prodx-postgresql](prodx-postgresql/SKILL.md) — schema, migrations, constraints, RLS, transactions, and concurrency.
@@ -16,8 +16,15 @@ These agent skills turn PRODX-POS production principles into repeatable review p
 - [prodx-ci-cd](prodx-ci-cd/SKILL.md) — CI gates, branch protection, artifact provenance, release, and rollback.
 - [prodx-backup-recovery](prodx-backup-recovery/SKILL.md) — restore drills, integrity checks, RPO/RTO, and DR.
 - [prodx-production-readiness](prodx-production-readiness/SKILL.md) — aggregate hard-gate decision and status reporting.
-- [prodx-code-review](prodx-code-review/SKILL.md) — adversarial pull-request review contract already present in this repository.
+- [prodx-code-review](prodx-code-review/SKILL.md) — adversarial pull-request review contract.
 - [prodx-ai-tooling](prodx-ai-tooling/SKILL.md) — safe AI tool-calling, permission boundaries, prompt injection, idempotency, and auditable execution.
+
+## Frontend design and experience
+- [prodx-ui-ux-design](prodx-ui-ux-design/SKILL.md) — cashier-first UX, user journeys, screen hierarchy, and interaction states.
+- [prodx-design-system](prodx-design-system/SKILL.md) — visual language, semantic tokens, themes, typography, spacing, and reusable components.
+- [prodx-frontend-engineering](prodx-frontend-engineering/SKILL.md) — production React/TypeScript implementation and real API wiring.
+- [prodx-responsive-accessibility](prodx-responsive-accessibility/SKILL.md) — responsive behavior, keyboard/touch usability, and accessibility.
+- [prodx-frontend-review](prodx-frontend-review/SKILL.md) — visual, UX, accessibility, responsive, and production-integration review.
 
 ## Required evidence vocabulary
 Every skill must distinguish:
