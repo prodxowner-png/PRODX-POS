@@ -73,7 +73,7 @@ TASK_BRIEF_PLAN="$plan" awk -v n="$n" '
     count = 0
     while (substr(trimmed, count + 1, 1) == fence_char) count++
     tail = substr(trimmed, count + 1)
-    if (count >= fence_len && tail ~ /^[ \\t]*$/) infence = 0
+    if (NR > fence_line && count >= fence_len && tail ~ /^[ \\t]*$/) infence = 0
     else if (trimmed ~ /^#+[ \\t]+Task[ \\t]/) hidden = 1
   }
   !infence && /^#+[ \t]+Task[ \t]/ {
