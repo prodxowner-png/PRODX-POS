@@ -32,6 +32,14 @@ For a meaningful UI feature, apply this sequence:
 
 Do not mechanically invoke every skill for a trivial copy or styling change; select the narrowest relevant subset. A frontend design skill never overrides server authority, security, financial/inventory invariants, or repository quality gates.
 
+## Superpowers development methodology
+
+The repository vendors the 15 MIT-licensed skills from [obra/superpowers](https://github.com/obra/superpowers). For development tasks, use `prodx-superpowers-integration` as the entry point and combine the relevant upstream workflow skill with the narrowest PRODX domain skill(s).
+
+Recommended lifecycle: brainstorming → isolated branch/worktree → implementation plan → RED/GREEN/REFACTOR → root-cause debugging as needed → review → exact-SHA verification → finish-branch readiness.
+
+This methodology does not supersede `AGENTS.md`, approved product specifications, PRODX domain invariants, or explicit authorization boundaries. If subagents/worktrees are unavailable, use the documented inline/fallback process; never claim unsupported capabilities. Merge and deployment authorization remain separate.
+
 ## Evidence and status
 
 The skills guide how to gather evidence; they do not create evidence by themselves. Record each relevant gate against the exact candidate SHA. Use **BLOCKED** for unavailable infrastructure/access and **UNVERIFIED** for missing or indirect proof. Any required gate that is not PASS prevents a Production Ready decision.
