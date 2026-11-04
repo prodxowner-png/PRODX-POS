@@ -60,8 +60,22 @@ fi
 # backslashes of a Windows path.
 rc=0
 TASK_BRIEF_PLAN="$plan" awk -v n="$n" '
-  /^```/ { infence = !infence; if (infence) { fence_line = NR; hidden = 0 } }
-  infence && /^#+[ \t]+Task[ \t]/ { hidden = 1 }
+  { trimmed = $0; sub(/^[ \\t]*/, "", trimmed) }
+  !infence && (trimmed ~ /^```/ || trimmed ~ /^~~~/) {
+    fence_char = substr(trimmed, 1, 1)
+    fence_len = 0
+    while (substr(trimmed, fence_len + 1, 1) == fence_char) fence_len++
+    infence = 1
+    fence_line = NR
+    hidden = 0
+  }
+  infence {
+    count = 0
+    while (substr(trimmed, count + 1, 1) == fence_char) count++
+    tail = substr(trimmed, count + 1)
+    if (count >= fence_len && tail ~ /^[ \\t]*$/) infence = 0
+    else if (trimmed ~ /^#+[ \\t]+Task[ \\t]/) hidden = 1
+  }
   !infence && /^#+[ \t]+Task[ \t]/ {
     id = $0
     sub(/^#+[ \t]+Task[ \t]+/, "", id)
