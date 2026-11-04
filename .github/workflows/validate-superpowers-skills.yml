@@ -29,3 +29,8 @@ jobs:
           python-version: "3.12"
       - name: Validate local skill references
         run: python .agents/skills/validate_skill_assets.py
+      - name: Validate brainstorm server shell syntax and argument handling
+        run: |
+          bash -n .agents/skills/brainstorming/scripts/start-server.sh
+          bash -n .agents/skills/brainstorming/scripts/start-server.test.sh
+          bash .agents/skills/brainstorming/scripts/start-server.test.sh
