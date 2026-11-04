@@ -19,9 +19,14 @@ const id = {
   cat: '00000000-0000-4000-8000-000000002007',
   product: '00000000-0000-4000-8000-000000002008',
   payment: '00000000-0000-4000-8000-000000002009',
+  discountedPayment: '00000000-0000-4000-8000-000000002010',
 };
 
-const request = (key: string): CheckoutRequest => ({
+const request = (key: string, orderDiscountBps = 0, paymentId = id.payment): CheckoutRequest & { orderDiscountBps?: number } => {
+  const orderDiscountAmount = Math.round((2000 * orderDiscountBps) / 10000);
+  const grandTotalAmount = 2000 - orderDiscountAmount;
+  return ({
+  orderDiscountBps,
   idempotencyKey: key,
   storeId: id.store,
   registerId: id.reg,
@@ -40,16 +45,17 @@ const request = (key: string): CheckoutRequest => ({
   }],
   totals: {
     grossSubtotal: { amountInCents: 2000, currency: 'THB' }, itemDiscounts: { amountInCents: 0, currency: 'THB' },
-    orderDiscount: { amountInCents: 0, currency: 'THB' }, netSubtotal: { amountInCents: 2000, currency: 'THB' },
-    totalTax: { amountInCents: 0, currency: 'THB' }, grandTotal: { amountInCents: 2000, currency: 'THB' },
+    orderDiscount: { amountInCents: orderDiscountAmount, currency: 'THB' }, netSubtotal: { amountInCents: grandTotalAmount, currency: 'THB' },
+    totalTax: { amountInCents: 0, currency: 'THB' }, grandTotal: { amountInCents: grandTotalAmount, currency: 'THB' },
     totalItemsCount: 2,
   },
   payments: [{
-    id: id.payment, method: 'cash', amount: { amountInCents: 2000, currency: 'THB' },
-    tenderedCash: { amountInCents: 2000, currency: 'THB' }, changeGiven: { amountInCents: 0, currency: 'THB' },
+    id: paymentId, method: 'cash', amount: { amountInCents: grandTotalAmount, currency: 'THB' },
+    tenderedCash: { amountInCents: grandTotalAmount, currency: 'THB' }, changeGiven: { amountInCents: 0, currency: 'THB' },
     timestamp: '2026-09-18T00:00:00.000Z',
   }],
-});
+  });
+};
 
 async function clean() {
   if (!pool) return;
@@ -188,4 +194,29 @@ test('PostgreSQL refund is atomic, idempotent, bounded by order total, and resto
   await assert.rejects(refund.refund({ storeId: id.store, orderId: order.order.id, refundAmount: { amountInCents: 500, currency: 'THB' }, reason: 'Different request reusing the same key', refundMethod: 'cash', authorizedByUserId: id.user, idempotencyKey: 'refund-1' }));
   await assert.rejects(refund.refund({ storeId: id.store, orderId: order.order.id, refundAmount: { amountInCents: 1000, currency: 'THB' }, reason: 'Customer return', refundMethod: 'cash', authorizedByUserId: id.user, itemsToRestock: [{ productId: id.product, quantity: 2 }], idempotencyKey: 'refund-1' }));
   await assert.rejects(refund.refund({ storeId: id.store, orderId: order.order.id, refundAmount: { amountInCents: 1100, currency: 'THB' }, reason: 'Too much', refundMethod: 'cash', authorizedByUserId: id.user, idempotencyKey: 'refund-too-much' }));
+
+  // Order-level discounts reduce the refundable/restockable value of every
+  // returned line. A fully returned 20.00 order discounted by 10% must restock
+  // at 18.00, not the pre-order-discount 20.00 line value.
+  const stockBeforeDiscountedOrder = (await pool.query(
+    'SELECT current_stock FROM prodx_products WHERE id=$1', [id.product],
+  )).rows[0].current_stock;
+  const discountedOrder = await createCheckoutService(db).checkout(
+    request('refund-order-discount', 1000, id.discountedPayment),
+  );
+  assert.equal(discountedOrder.order.totals.grandTotal.amountInCents, 1800);
+  const discountedRefund = await refund.refund({
+    storeId: id.store, orderId: discountedOrder.order.id,
+    refundAmount: { amountInCents: 1800, currency: 'THB' },
+    reason: 'Return discounted order', refundMethod: 'cash', authorizedByUserId: id.user,
+    itemsToRestock: [{ productId: id.product, quantity: 2 }], idempotencyKey: 'refund-order-discount',
+  });
+  assert.equal(discountedRefund.status, 'refunded');
+  assert.equal((await pool.query(
+    'SELECT SUM(amount)::text AS amount FROM prodx_refund_items WHERE store_id=$1 AND refund_id=$2',
+    [id.store, discountedRefund.refundId],
+  )).rows[0].amount, '18.00');
+  assert.equal((await pool.query(
+    'SELECT current_stock FROM prodx_products WHERE id=$1', [id.product],
+  )).rows[0].current_stock, stockBeforeDiscountedOrder);
 });
