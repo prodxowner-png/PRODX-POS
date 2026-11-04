@@ -19,7 +19,27 @@ REFERENCE_LINK = re.compile(r"^\s*\[[^\]]+\]:\s*(\S+)", re.MULTILINE)
 INLINE_ASSET = re.compile(
     r"(?<![\w./-])((?:\.\.?/)?(?:scripts|references|prompts|templates)/[A-Za-z0-9._/-]+)"
 )
-FENCED_BLOCK = re.compile(r"(?ms)^[ \t]*([\x60~]{3,}).*?^[ \t]*\1[ \t]*$")
+FENCE_OPEN = re.compile(r"^[ \\t]{0,3}(`{3,}|~{3,})")
+
+def strip_fenced_blocks(source: str) -> str:
+    """Remove fenced examples, accepting closing fences at least as long as the opener."""
+    kept: list[str] = []
+    fence_char: str | None = None
+    fence_length = 0
+    for line in source.splitlines(keepends=True):
+        if fence_char is None:
+            match = FENCE_OPEN.match(line)
+            if match:
+                fence = match.group(1)
+                fence_char, fence_length = fence[0], len(fence)
+                continue
+            kept.append(line)
+            continue
+        stripped = line.lstrip(" \\t")
+        count = len(stripped) - len(stripped.lstrip(fence_char))
+        if count >= fence_length and not stripped[count:].strip():
+            fence_char, fence_length = None, 0
+    return "".join(kept)
 IGNORED_EXAMPLES = {"scripts/tool.sh", "scripts/tool.js"}
 
 
@@ -41,7 +61,7 @@ def main() -> int:
     for doc in markdown_files:
         source = doc.read_text(encoding="utf-8")
         # Links inside fenced examples describe hypothetical layouts, not assets.
-        text = FENCED_BLOCK.sub("", source)
+        text = strip_fenced_blocks("", source)
         for match in MARKDOWN_LINK.finditer(text):
             raw = local_target(match.group(2))
             if raw is None:
@@ -59,7 +79,7 @@ def main() -> int:
 
     for skill_doc in sorted(SKILLS_ROOT.glob("*/SKILL.md")):
         source = skill_doc.read_text(encoding="utf-8")
-        text = FENCED_BLOCK.sub("", source)
+        text = strip_fenced_blocks("", source)
         skill_root = skill_doc.parent
         for match in INLINE_ASSET.finditer(text):
             raw = match.group(1).rstrip(".,;:)")
