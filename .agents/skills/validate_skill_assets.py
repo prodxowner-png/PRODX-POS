@@ -61,7 +61,7 @@ def main() -> int:
     for doc in markdown_files:
         source = doc.read_text(encoding="utf-8")
         # Links inside fenced examples describe hypothetical layouts, not assets.
-        text = strip_fenced_blocks("", source)
+        text = strip_fenced_blocks(source)
         for match in MARKDOWN_LINK.finditer(text):
             raw = local_target(match.group(2))
             if raw is None:
@@ -79,7 +79,7 @@ def main() -> int:
 
     for skill_doc in sorted(SKILLS_ROOT.glob("*/SKILL.md")):
         source = skill_doc.read_text(encoding="utf-8")
-        text = strip_fenced_blocks("", source)
+        text = strip_fenced_blocks(source)
         skill_root = skill_doc.parent
         for match in INLINE_ASSET.finditer(text):
             raw = match.group(1).rstrip(".,;:)")
