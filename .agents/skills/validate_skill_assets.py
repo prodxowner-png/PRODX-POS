@@ -19,7 +19,7 @@ REFERENCE_LINK = re.compile(r"^\s*\[[^\]]+\]:\s*(\S+)", re.MULTILINE)
 INLINE_ASSET = re.compile(
     r"(?<![\w./-])((?:\.\.?/)?(?:scripts|references|prompts|templates)/[A-Za-z0-9._/-]+)"
 )
-FENCE_OPEN = re.compile(r"^[ \\t]{0,3}(`{3,}|~{3,})")
+FENCE_OPEN = re.compile(r"^[ \t]{0,3}(`{3,}|~{3,})")
 
 def strip_fenced_blocks(source: str) -> str:
     """Remove fenced examples, accepting closing fences at least as long as the opener."""
@@ -35,7 +35,7 @@ def strip_fenced_blocks(source: str) -> str:
                 continue
             kept.append(line)
             continue
-        stripped = line.lstrip(" \\t")
+        stripped = line.lstrip(" \t")
         count = len(stripped) - len(stripped.lstrip(fence_char))
         if count >= fence_length and not stripped[count:].strip():
             fence_char, fence_length = None, 0
