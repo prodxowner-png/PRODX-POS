@@ -196,8 +196,8 @@ test('PostgreSQL refund is atomic, idempotent, bounded by order total, and resto
   await assert.rejects(refund.refund({ storeId: id.store, orderId: order.order.id, refundAmount: { amountInCents: 1100, currency: 'THB' }, reason: 'Too much', refundMethod: 'cash', authorizedByUserId: id.user, idempotencyKey: 'refund-too-much' }));
 
   // Order-level discounts reduce the refundable/restockable value of every
-  // returned line. A fully returned 20.00 order discounted by 10% must restock
-  // at 18.00, not the pre-order-discount 20.00 line value.
+  // returned line. Two partial returns of a 20.00 order discounted by 10% must
+  // allocate 9.00 each and reconcile exactly to the 18.00 grand total.
   const stockBeforeDiscountedOrder = (await pool.query(
     'SELECT current_stock FROM prodx_products WHERE id=$1', [id.product],
   )).rows[0].current_stock;
@@ -205,17 +205,28 @@ test('PostgreSQL refund is atomic, idempotent, bounded by order total, and resto
     request('refund-order-discount', 1000, id.discountedPayment),
   );
   assert.equal(discountedOrder.order.totals.grandTotal.amountInCents, 1800);
-  const discountedRefund = await refund.refund({
+  const firstDiscountedRefund = await refund.refund({
     storeId: id.store, orderId: discountedOrder.order.id,
-    refundAmount: { amountInCents: 1800, currency: 'THB' },
-    reason: 'Return discounted order', refundMethod: 'cash', authorizedByUserId: id.user,
-    itemsToRestock: [{ productId: id.product, quantity: 2 }], idempotencyKey: 'refund-order-discount',
+    refundAmount: { amountInCents: 900, currency: 'THB' },
+    reason: 'First partial return of discounted order', refundMethod: 'cash', authorizedByUserId: id.user,
+    itemsToRestock: [{ productId: id.product, quantity: 1 }], idempotencyKey: 'refund-order-discount-first',
   });
-  assert.equal(discountedRefund.status, 'refunded');
+  assert.equal(firstDiscountedRefund.status, 'server_confirmed');
   assert.equal((await pool.query(
     'SELECT SUM(amount)::text AS amount FROM prodx_refund_items WHERE store_id=$1 AND refund_id=$2',
-    [id.store, discountedRefund.refundId],
-  )).rows[0].amount, '18.00');
+    [id.store, firstDiscountedRefund.refundId],
+  )).rows[0].amount, '9.00');
+  const secondDiscountedRefund = await refund.refund({
+    storeId: id.store, orderId: discountedOrder.order.id,
+    refundAmount: { amountInCents: 900, currency: 'THB' },
+    reason: 'Second partial return of discounted order', refundMethod: 'cash', authorizedByUserId: id.user,
+    itemsToRestock: [{ productId: id.product, quantity: 1 }], idempotencyKey: 'refund-order-discount-second',
+  });
+  assert.equal(secondDiscountedRefund.status, 'refunded');
+  assert.equal((await pool.query(
+    'SELECT SUM(amount)::text AS amount FROM prodx_refund_items WHERE store_id=$1 AND refund_id=$2',
+    [id.store, secondDiscountedRefund.refundId],
+  )).rows[0].amount, '9.00');
   assert.equal((await pool.query(
     'SELECT current_stock FROM prodx_products WHERE id=$1', [id.product],
   )).rows[0].current_stock, stockBeforeDiscountedOrder);
