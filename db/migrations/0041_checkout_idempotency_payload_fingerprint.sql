@@ -1,8 +1,9 @@
 -- 0041: persist a semantic request fingerprint for checkout idempotency.
 -- Existing orders remain readable, but legacy rows without a fingerprint fail closed
 -- on key reuse because their original request cannot be reconstructed reliably.
-
-BEGIN;
+--
+-- Intentionally omit BEGIN/COMMIT: scripts/migrate.ts owns the transaction and
+-- session-level advisory lock for the complete migration pass.
 
 ALTER TABLE public.prodx_orders
   ADD COLUMN IF NOT EXISTS idempotency_payload_hash CHAR(64);
@@ -28,5 +29,3 @@ COMMENT ON COLUMN public.prodx_orders.idempotency_payload_hash IS
 INSERT INTO public.prodx_schema_migrations(version)
 VALUES ('0041_checkout_idempotency_payload_fingerprint')
 ON CONFLICT (version) DO NOTHING;
-
-COMMIT;
