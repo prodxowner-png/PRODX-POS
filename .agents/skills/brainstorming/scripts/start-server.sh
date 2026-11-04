@@ -26,21 +26,32 @@ FORCE_BACKGROUND="false"
 BIND_HOST="127.0.0.1"
 URL_HOST=""
 IDLE_TIMEOUT_MINUTES=""
+require_option_value() {
+  if [[ $# -lt 2 || -z "$2" || "$2" == --* ]]; then
+    echo "{\"error\": \"$1 requires a non-empty value\"}"
+    exit 2
+  fi
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --project-dir)
+      require_option_value "$1" "${2:-}"
       PROJECT_DIR="$2"
       shift 2
       ;;
     --host)
+      require_option_value "$1" "${2:-}"
       BIND_HOST="$2"
       shift 2
       ;;
     --url-host)
+      require_option_value "$1" "${2:-}"
       URL_HOST="$2"
       shift 2
       ;;
     --idle-timeout-minutes)
+      require_option_value "$1" "${2:-}"
       IDLE_TIMEOUT_MINUTES="$2"
       shift 2
       ;;
