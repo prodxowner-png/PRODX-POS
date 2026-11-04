@@ -64,6 +64,8 @@ export interface CheckoutRequest {
   customer?: { id: string; name: string; phone: string; email: string };
   items: readonly CartLineItem[];
   totals: CartTotals;
+  /** Optional order-level discount; the backend validates permission and recalculates it. */
+  orderDiscountBps?: number;
   payments: readonly TenderPayment[];
   notes?: string;
   isOfflineSubmission?: boolean;

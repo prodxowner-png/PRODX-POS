@@ -10,9 +10,56 @@ const rows=(value:Record<string,unknown>[])=>({rows:value});
 const baseDb=(queries:string[]=[]):TransactionalSqlExecutor=>executor(async<T extends Record<string,unknown>>(sql:string)=>{queries.push(sql);if(sql.includes('FROM prodx_orders'))return rows([]) as {rows:T[]};if(sql.includes('FROM prodx_shifts'))return rows([{id:'shift-1'}]) as {rows:T[]};if(sql.includes('FROM prodx_products'))return rows([{id:'product-1',store_id:'store-1',category_id:'cat-1',sku:'SKU-1',barcode:'BAR-1',name:'Product',description:null,price_amount:'10.00',cost_price_amount:'5.00',currency:'THB',tax_rate_bps:0,current_stock:10,reorder_point:1,unit_of_measure:'each',active:true}]) as {rows:T[]};throw new Error(`unexpected query: ${sql}`);});
 
 test('rejects client grand-total tampering before financial writes',async()=>{const q:string[]=[];const db=baseDb(q);await assert.rejects(createCheckoutService(db).checkout(request({totals:{...request().totals,grandTotal:{amountInCents:1,currency:'THB'}}})),(e:unknown)=>e instanceof CheckoutConflictError);assert.equal(q.some(x=>/^INSERT|^UPDATE/.test(x.trimStart())),false);});
+test('rejects a grand-total currency mismatch before financial writes',async()=>{const q:string[]=[];const service=createCheckoutService(baseDb(q));await assert.rejects(service.checkout(request({totals:{...request().totals,grandTotal:{amountInCents:2000,currency:'USD'}}})),/Grand total currency/);assert.equal(q.some(x=>/^INSERT|^UPDATE/.test(x.trimStart())),false);});
 test('rejects payment currency mismatch and malformed cash',async()=>{const db=baseDb();await assert.rejects(createCheckoutService(db).checkout(request({payments:[{...request().payments[0],amount:{amountInCents:2000,currency:'USD'}}]})),/Payment currency/);await assert.rejects(createCheckoutService(db).checkout(request({payments:[{...request().payments[0],tenderedCash:{amountInCents:2100,currency:'THB'},changeGiven:{amountInCents:0,currency:'THB'}}]})),/Cash tender/);});
+test('rejects tendered cash and change currency mismatches before financial writes',async()=>{const q:string[]=[];const service=createCheckoutService(baseDb(q));const payment=request().payments[0];await assert.rejects(service.checkout(request({payments:[{...payment,tenderedCash:{amountInCents:2000,currency:'USD'}}]})),/Tendered cash currency/);await assert.rejects(service.checkout(request({payments:[{...payment,changeGiven:{amountInCents:0,currency:'USD'}}]})),/Change given currency/);assert.equal(q.some(x=>/^INSERT|^UPDATE/.test(x.trimStart())),false);});
 test('requires idempotency key and positive items',async()=>{const db=baseDb();await assert.rejects(createCheckoutService(db).checkout(request({idempotencyKey:'   '})),(e:unknown)=>e instanceof CheckoutValidationError);await assert.rejects(createCheckoutService(db).checkout(request({items:[]})),(e:unknown)=>e instanceof CheckoutValidationError);});
 test('preserves transaction failures for rollback',async()=>{const db:TransactionalSqlExecutor={query:async()=>({rows:[]}),transaction:async()=>{throw new Error('db failure');}};await assert.rejects(createCheckoutService(db).checkout(request()),/db failure/);});
+
+test('rejects reuse of an idempotency key with a different semantic checkout payload',async()=>{
+ const db=executor(async<T extends Record<string,unknown>>(sql:string)=>{
+  if(sql.includes('FROM prodx_orders'))return rows([{id:'existing-order',idempotency_payload_hash:'0'.repeat(64)}]) as {rows:T[]};
+  throw new Error(`unexpected query: ${sql}`);
+ });
+ await assert.rejects(createCheckoutService(db).checkout(request()),(error:unknown)=>error instanceof CheckoutConflictError);
+});
+test('rejects item and order discounts outside the supported basis-point range',async()=>{
+ const service=createCheckoutService(baseDb());
+ await assert.rejects(service.checkout(request({items:[{...request().items[0],discountBps:10001}]})),(error:unknown)=>error instanceof CheckoutValidationError);
+ await assert.rejects(service.checkout(request({orderDiscountBps:-1})),(error:unknown)=>error instanceof CheckoutValidationError);
+});
+
+
+test('validates untrusted checkout structures and safe integer amounts before opening a transaction', async () => {
+ let transactionStarted = false;
+ const db: TransactionalSqlExecutor = {
+  query: async () => ({ rows: [] }),
+  transaction: async () => { transactionStarted = true; throw new Error('transaction must not start'); },
+ };
+ const base = request();
+ const malformed = [
+  { ...base, items: null },
+  { ...base, items: [null] },
+  { ...base, items: [{ ...base.items[0], product: null }] },
+  { ...base, payments: [null] },
+  { ...base, totals: null },
+  { ...base, payments: [{ ...base.payments[0], amount: { amountInCents: 1.5, currency: 'THB' } }] },
+  { ...base, payments: [{ ...base.payments[0], amount: { amountInCents: Number.MAX_SAFE_INTEGER + 1, currency: 'THB' } }] },
+  { ...base, payments: [{ ...base.payments[0], amount: { amountInCents: 1_000_000_000_000, currency: 'THB' } }] },
+  { ...base, payments: [{ ...base.payments[0], amount: { amountInCents: '2000', currency: 'THB' } }] },
+  { ...base, items: [{ ...base.items[0], quantity: Number.MAX_SAFE_INTEGER + 1 }] },
+  { ...base, items: [{ ...base.items[0], quantity: 2_147_483_648 }] },
+ ] as unknown as CheckoutRequest[];
+
+ for (const payload of malformed) {
+  await assert.rejects(
+   createCheckoutService(db).checkout(payload),
+   (error: unknown) => error instanceof CheckoutValidationError,
+  );
+ }
+ assert.equal(transactionStarted, false);
+});
+
 
 test('locks product rows in deterministic UUID order for concurrent checkouts',async()=>{
   let lockSql='';

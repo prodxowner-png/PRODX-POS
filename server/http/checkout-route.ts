@@ -1,12 +1,14 @@
 import type { Express, Request, Response } from 'express';
 import type { CheckoutRequest } from '../../src/adapters/types';
-import { createCheckoutService, CheckoutConflictError, CheckoutValidationError } from '../transactions/checkout-service';
+import { createCheckoutService, CheckoutConflictError } from '../transactions/checkout-service';
+import { assertCheckoutRequest, CheckoutValidationError, hasCheckoutDiscount } from '../transactions/checkout-validation';
 import { requirePermission } from './createApp';
 import type { TransactionalSqlExecutor } from '../db/transaction';
+import type { AuthorizeRequest } from './types';
 
 const parseBody = (value: unknown): CheckoutRequest => {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new CheckoutValidationError('Request body must be an object.');
-  return value as CheckoutRequest;
+  assertCheckoutRequest(value);
+  return value;
 };
 
 export const registerCheckoutRoute = (app: Express, db: TransactionalSqlExecutor, permission = 'pos.sell'): void => {
@@ -19,6 +21,13 @@ export const registerCheckoutRoute = (app: Express, db: TransactionalSqlExecutor
       if (payload.storeId !== context.principal.storeId || payload.cashierId !== context.principal.userId) {
         response.status(403).json({ error:{code:'STORE_SCOPE_VIOLATION',message:'Checkout store and cashier must match the authenticated principal.',requestId:request.id} });
         return;
+      }
+      if (hasCheckoutDiscount(payload)) {
+        const authorizer = request.app.locals.prodxAuthorize as AuthorizeRequest | undefined;
+        if (!authorizer || !(await authorizer(context, 'pos.discount'))) {
+          response.status(403).json({ error:{code:'DISCOUNT_NOT_AUTHORIZED',message:'The authenticated user is not authorized to apply discounts.',requestId:request.id} });
+          return;
+        }
       }
       const result = await service.checkout(payload);
       response.status(result.idempotencyCached ? 200 : 201).json(result);
