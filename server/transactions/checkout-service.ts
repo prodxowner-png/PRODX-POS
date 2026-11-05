@@ -39,7 +39,22 @@ const orderFromDb=async(db:SqlQueryExecutor,o:DbRow,cached:boolean):Promise<Chec
  return {success:true,serverConfirmed:true,idempotencyCached:cached,message:cached?'Checkout already committed; returning the existing transaction.':'Checkout committed.',order:{id:o.id,orderNumber:o.order_number,idempotencyKey:o.idempotency_key,storeId:o.store_id,registerId:o.register_id,cashierId:o.cashier_id,cashierName:'',items:items.map((i:any)=>({lineId:i.id,product:{id:i.product_id,storeId:o.store_id,sku:i.sku,barcode:i.barcode,name:i.name,categoryId:i.category_id,price:money(i.unit_price_amount),costPrice:money(i.cost_price_amount),taxRateBps:i.tax_rate_bps,currentStock:i.current_stock,reorderPoint:i.reorder_point,unitOfMeasure:i.unit_of_measure},quantity:i.quantity,unitPrice:money(i.unit_price_amount),discountBps:i.item_discount_bps,lineSubtotal:money(i.line_subtotal_amount),lineTax:money(i.line_tax_amount),lineTotal:money(i.line_total_amount)})),totals:{grossSubtotal:money(o.gross_subtotal_amount),itemDiscounts:money(o.item_discounts_amount),orderDiscount:money(o.order_discount_amount),netSubtotal:money(o.net_subtotal_amount),totalTax:money(o.total_tax_amount),grandTotal:money(o.grand_total_amount),totalItemsCount:o.total_items_count},payments:payments.map((p:any)=>({id:p.id,method:p.method,amount:money(p.amount),tenderedCash:p.tendered_cash===null?undefined:money(p.tendered_cash),changeGiven:p.change_given===null?undefined:money(p.change_given),authCode:p.auth_code??undefined,cardLastFour:p.card_last_four??undefined,terminalReference:p.terminal_reference??undefined,timestamp:new Date(p.created_at).toISOString()})),status:o.status,serverCommittedAt:new Date(o.server_committed_at).toISOString(),createdAt:new Date(o.created_at).toISOString()}} as CheckoutResponse;
 };
 
-export const createCheckoutService=(db:TransactionalSqlExecutor)=>({async checkout(request:CheckoutRequest):Promise<CheckoutResponse>{
+export const createCheckoutService=(db:TransactionalSqlExecutor)=>({
+ async resolveCommittedReplay(request: CheckoutRequest, scope: { organizationId: string; storeId: string; cashierId: string }): Promise<CheckoutResponse | null> {
+  assertCheckoutRequest(request);
+  if(request.items.length===0)throw new CheckoutValidationError('At least one item is required.');
+  for(const item of request.items)validateBasisPoints(item.discountBps,`Discount for product ${item.product.id}`);
+  validateBasisPoints((request as CheckoutRequest & {orderDiscountBps?:number}).orderDiscountBps??0,'Order discount');
+  if(request.storeId!==scope.storeId || request.cashierId!==scope.cashierId)throw new CheckoutConflictError('Checkout replay scope does not match the authenticated principal.');
+  const payloadHash=checkoutFingerprint(request);
+  return db.transaction(async tx=>{
+   const existing=(await tx.query(`SELECT * FROM prodx_orders WHERE organization_id=$1 AND store_id=$2 AND cashier_id=$3 AND idempotency_key=$4 LIMIT 1`,[scope.organizationId,scope.storeId,scope.cashierId,request.idempotencyKey])).rows[0];
+   if(!existing)return null;
+   if(existing.idempotency_payload_hash!==payloadHash)throw new CheckoutConflictError('Idempotency key was already used for a different checkout payload.');
+   return orderFromDb(tx,existing,true);
+  });
+ },
+ async checkout(request:CheckoutRequest):Promise<CheckoutResponse>{
  assertCheckoutRequest(request);
  if(request.items.length===0)throw new CheckoutValidationError('At least one item is required.');
  for(const item of request.items)validateBasisPoints(item.discountBps,`Discount for product ${item.product.id}`);

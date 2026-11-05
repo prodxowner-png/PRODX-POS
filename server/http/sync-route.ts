@@ -83,20 +83,39 @@ export const registerSyncRoute = (
         return;
       }
 
-      if (hasCheckoutDiscount(item.payload)) {
+      const checkoutRequest = {
+        ...item.payload,
+        idempotencyKey: item.idempotencyKey,
+        storeId: context.principal.storeId,
+        cashierId: context.principal.userId,
+      };
+
+      if (hasCheckoutDiscount(checkoutRequest)) {
         const authorizer = request.app.locals.prodxAuthorize as AuthorizeRequest | undefined;
         if (!authorizer || !(await authorizer(context, 'pos.discount'))) {
+          // A previously committed discounted sale is an acknowledgement, not a
+          // new discount operation. Resolve it with the authenticated tenant,
+          // store and cashier scope before denying a first-time discount.
+          const replay = await checkout.resolveCommittedReplay(checkoutRequest, {
+            organizationId: context.principal.organizationId,
+            storeId: context.principal.storeId,
+            cashierId: context.principal.userId,
+          });
+          if (replay) {
+            response.status(200).json({
+              confirmedOrder: replay.order,
+              syncedAt: replay.order.serverCommittedAt,
+              serverConfirmed: replay.serverConfirmed,
+              idempotencyCached: true,
+            });
+            return;
+          }
           response.status(403).json({ error: { code: 'DISCOUNT_NOT_AUTHORIZED', message: 'The authenticated user is not authorized to apply discounts.', requestId: request.id } });
           return;
         }
       }
 
-      const result = await checkout.checkout({
-        ...item.payload,
-        idempotencyKey: item.idempotencyKey,
-        storeId: context.principal.storeId,
-        cashierId: context.principal.userId,
-      });
+      const result = await checkout.checkout(checkoutRequest);
 
       response.status(result.idempotencyCached ? 200 : 201).json({
         confirmedOrder: result.order,

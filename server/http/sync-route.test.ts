@@ -76,10 +76,14 @@ test('sync route rejects idempotency mismatch before database work', async () =>
 });
 
 test('sync route rejects discounted offline orders without pos.discount permission', async () => {
+  const replayLookupDb: TransactionalSqlExecutor = {
+    query: async () => ({ rows: [] }),
+    transaction: async (work) => work({ query: async () => ({ rows: [] }) }),
+  };
   const app = createApp({
     authenticateRequest: () => principal,
     authorizeRequest: (_context, permission) => permission === 'pos.sell',
-    configureRoutes: (configuredApp) => registerSyncRoute(configuredApp, unreachableDb),
+    configureRoutes: (configuredApp) => registerSyncRoute(configuredApp, replayLookupDb),
   });
   const server = await start(app);
   try {
@@ -154,20 +158,34 @@ test('production sync HTTP path commits once and returns cached result on replay
     await pool.query("INSERT INTO prodx_shifts(id,organization_id,store_id,register_id,cashier_id,opening_float_amount,currency) VALUES($1,$2,$3,$4,$5,0,'THB')", [ids.shift, ids.org, ids.store, ids.register, ids.user]);
     await pool.query('INSERT INTO prodx_categories(id,organization_id,store_id,name,slug) VALUES($1,$2,$3,$4,$5)', [ids.category, ids.org, ids.store, 'Sync Category', 'sync-category']);
     await pool.query("INSERT INTO prodx_products(id,organization_id,store_id,category_id,sku,barcode,name,price_amount,cost_price_amount,currency,tax_rate_bps,current_stock,reorder_point,unit_of_measure) VALUES($1,$2,$3,$4,'SYNC-1','SYNC-1','Sync Product',10.00,5.00,'THB',0,10,1,'each')", [ids.product, ids.org, ids.store, ids.category]);
-    const app = createApp({ authenticateRequest: () => ({ userId: ids.user, organizationId: ids.org, storeId: ids.store, sessionId: 'sync-http-session' }), authorizeRequest: (_context, permission) => permission === 'pos.sell', configureRoutes: (configuredApp) => registerSyncRoute(configuredApp, db) });
+    let discountAuthorized = true;
+    const app = createApp({ authenticateRequest: () => ({ userId: ids.user, organizationId: ids.org, storeId: ids.store, sessionId: 'sync-http-session' }), authorizeRequest: (_context, permission) => permission === 'pos.sell' || (permission === 'pos.discount' && discountAuthorized), configureRoutes: (configuredApp) => registerSyncRoute(configuredApp, db) });
     const server = await start(app);
     try {
-      const item = { id: 'offline-sync-1', type: 'order_transaction' as const, idempotencyKey: 'offline-sync-key', payload: request('offline-sync-key'), createdAt: '2026-10-05T00:00:00.000Z', attempts: 0, syncState: 'queued' as const };
+      const basePayload = request('offline-sync-key');
+      const discountedPayload: CheckoutRequest = {
+        ...basePayload,
+        items: basePayload.items.map((line) => ({ ...line, discountBps: 500 })),
+        totals: { ...basePayload.totals, itemDiscounts: { amountInCents: 50, currency: 'THB' }, netSubtotal: { amountInCents: 950, currency: 'THB' }, grandTotal: { amountInCents: 950, currency: 'THB' } },
+        payments: basePayload.payments.map((payment) => ({ ...payment, amount: { amountInCents: 950, currency: 'THB' }, tenderedCash: { amountInCents: 950, currency: 'THB' }, changeGiven: { amountInCents: 0, currency: 'THB' } })),
+      };
+      const item = { id: 'offline-sync-1', type: 'order_transaction' as const, idempotencyKey: 'offline-sync-key', payload: discountedPayload, createdAt: '2026-10-05T00:00:00.000Z', attempts: 0, syncState: 'queued' as const };
       const first = await fetch(`${server.baseUrl}/api/v1/sync/commands`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ item }) });
       assert.equal(first.status, 201);
       const firstBody = await first.json() as { confirmedOrder: { id: string }; serverConfirmed: boolean; idempotencyCached: boolean };
       assert.equal(firstBody.serverConfirmed, true); assert.equal(firstBody.idempotencyCached, false);
+      discountAuthorized = false;
       const replay = await fetch(`${server.baseUrl}/api/v1/sync/commands`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ item: { ...item, attempts: 1 } }) });
       assert.equal(replay.status, 200);
       const replayBody = await replay.json() as { confirmedOrder: { id: string }; serverConfirmed: boolean; idempotencyCached: boolean };
       assert.equal(replayBody.serverConfirmed, true); assert.equal(replayBody.idempotencyCached, true); assert.equal(replayBody.confirmedOrder.id, firstBody.confirmedOrder.id);
+      const changedPayload = { ...discountedPayload, notes: 'altered payload must not replay' };
+      const changedReplay = await fetch(`${server.baseUrl}/api/v1/sync/commands`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ item: { ...item, payload: changedPayload, attempts: 2 } }) });
+      assert.equal(changedReplay.status, 409);
+      assert.equal((await changedReplay.json()).error.code, 'CHECKOUT_CONFLICT');
       assert.equal((await pool.query('SELECT count(*)::int AS count FROM prodx_orders WHERE store_id=$1 AND idempotency_key=$2', [ids.store, item.idempotencyKey])).rows[0].count, 1);
       assert.equal((await pool.query('SELECT current_stock FROM prodx_products WHERE id=$1', [ids.product])).rows[0].current_stock, 9);
+      assert.equal((await pool.query('SELECT grand_total_amount::text FROM prodx_orders WHERE id=$1', [firstBody.confirmedOrder.id])).rows[0].grand_total_amount, '9.50');
       assert.equal((await pool.query('SELECT count(*)::int AS count FROM prodx_payments WHERE store_id=$1 AND order_id=$2', [ids.store, firstBody.confirmedOrder.id])).rows[0].count, 1);
     } finally { await server.close(); }
   } finally { await clean(); await pool.end(); }
