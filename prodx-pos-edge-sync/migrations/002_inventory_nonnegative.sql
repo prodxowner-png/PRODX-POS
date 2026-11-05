@@ -1,3 +1,27 @@
+-- Refuse to establish the invariant on top of already-corrupt balances.
+-- Reconcile existing negative stock through an owner-approved, audited ledger
+-- adjustment before applying this migration; never silently rewrite balances.
+DO $migration_preflight$
+DECLARE
+  negative_balance_count bigint;
+BEGIN
+  SELECT count(*)
+    INTO negative_balance_count
+    FROM public.inventory_balances
+   WHERE quantity < 0;
+
+  IF negative_balance_count > 0 THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '23514',
+      MESSAGE = format(
+        'INVENTORY_MIGRATION_BLOCKED: %s pre-existing negative balance(s) found',
+        negative_balance_count
+      ),
+      HINT = 'Stop migration, reconcile each affected tenant/product through the audited inventory ledger, then rerun this forward migration.';
+  END IF;
+END
+$migration_preflight$;
+
 -- PRODX POS inventory non-negative invariant.
 -- Apply after 001_pos_ledger.sql. Product-row locking serializes ledger deltas
 -- even when no inventory_balances row exists yet (opening stock / first sale).
