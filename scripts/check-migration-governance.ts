@@ -21,6 +21,30 @@ const names = (await readdir(migrationDir)).filter((name) => name.endsWith('.sql
 const currentPaths = new Set(names.map((name) => path.posix.join('db/migrations', name)));
 const baselinePaths = new Set(Object.keys(manifest.files));
 const errors: string[] = [];
+const baselineIds = new Map<string, string[]>();
+for (const relativePath of baselinePaths) {
+  const name = path.posix.basename(relativePath);
+  const match = /^(\\d{4})_[a-z0-9][a-z0-9_-]*\\.sql$/.exec(name);
+  if (!match) {
+    errors.push(`Baseline migration filename is invalid: ${relativePath}`);
+    continue;
+  }
+  const entries = baselineIds.get(match[1]) ?? [];
+  entries.push(relativePath);
+  baselineIds.set(match[1], entries);
+}
+const observedLegacyDuplicates = [...baselineIds.entries()]
+  .filter(([, entries]) => entries.length > 1)
+  .map(([id]) => id)
+  .sort();
+const declaredLegacyDuplicates = [...manifest.legacyDuplicateIds].sort();
+if (JSON.stringify(observedLegacyDuplicates) !== JSON.stringify(declaredLegacyDuplicates)) {
+  errors.push(`Legacy duplicate-ID allowlist mismatch: observed [${observedLegacyDuplicates.join(', ')}], declared [${declaredLegacyDuplicates.join(', ')}]`);
+}
+const observedBaselineMax = Math.max(...[...baselineIds.keys()].map(Number));
+if (observedBaselineMax !== manifest.baselineMaxId) {
+  errors.push(`Baseline maximum ID mismatch: observed ${observedBaselineMax}, declared ${manifest.baselineMaxId}`);
+}
 
 for (const [relativePath, expectedBlobSha] of Object.entries(manifest.files)) {
   if (!currentPaths.has(relativePath)) {
