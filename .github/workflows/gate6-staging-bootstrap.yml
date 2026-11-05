@@ -25,12 +25,27 @@ jobs:
     name: Provision, Deploy & Verify Cloudflare Staging
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    # The workflow definition itself must come from the protected default branch.
+    # The target PR is checked out separately by its exact SHA below.
+    if: github.ref == 'refs/heads/main' && github.ref_protected
     environment: staging
     defaults:
       run:
         shell: bash
         working-directory: prodx-pos-edge-sync
     steps:
+      - name: Enforce protected default-branch dispatch
+        working-directory: .
+        env:
+          DISPATCH_REF: ${{ github.ref }}
+          DISPATCH_REF_PROTECTED: ${{ github.ref_protected }}
+        run: |
+          set -euo pipefail
+          [[ "$DISPATCH_REF" == "refs/heads/main" && "$DISPATCH_REF_PROTECTED" == "true" ]] || {
+            echo "::error::Gate 6 workflow must be dispatched from protected main; refusing to expose Staging credentials."
+            exit 1
+          }
+
       - name: Validate requested target
         working-directory: .
         env:
@@ -96,24 +111,24 @@ jobs:
 
       - name: Preflight — require isolated Staging credentials and E2E fixture
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          STAGING_DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
-          STAGING_RECONCILIATION_DATABASE_URL: ${{ secrets.STAGING_RECONCILIATION_DATABASE_URL }}
-          POS_STAGING_ACCESS_AUD: ${{ secrets.POS_STAGING_ACCESS_AUD }}
-          POS_STAGING_SYNC_URL: ${{ secrets.POS_STAGING_SYNC_URL }}
-          POS_STAGING_ACCESS_JWT: ${{ secrets.POS_STAGING_ACCESS_JWT }}
-          POS_STAGING_OPS_JWT: ${{ secrets.POS_STAGING_OPS_JWT }}
-          POS_STAGING_MTLS_CERT_PEM: ${{ secrets.POS_STAGING_MTLS_CERT_PEM }}
-          POS_STAGING_MTLS_KEY_PEM: ${{ secrets.POS_STAGING_MTLS_KEY_PEM }}
-          POS_STAGING_E2E_PAYLOAD_B64: ${{ secrets.POS_STAGING_E2E_PAYLOAD_B64 }}
-          POS_STAGING_TERMINAL_IDS_JSON: ${{ secrets.POS_STAGING_TERMINAL_IDS_JSON }}
-          CATALOG_SIGNING_KEY: ${{ secrets.CATALOG_SIGNING_KEY }}
-          EXPECTED_STAGING_DATABASE_HOST: ${{ vars.STAGING_DATABASE_HOST }}
-          EXPECTED_STAGING_DATABASE_NAME: ${{ vars.STAGING_DATABASE_NAME }}
-          EXPECTED_STAGING_RECONCILIATION_DATABASE_HOST: ${{ vars.STAGING_RECONCILIATION_DATABASE_HOST }}
-          EXPECTED_STAGING_RECONCILIATION_DATABASE_NAME: ${{ vars.STAGING_RECONCILIATION_DATABASE_NAME }}
-          EXPECTED_POS_STAGING_SYNC_HOST: ${{ vars.POS_STAGING_SYNC_HOST }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.PRODX_STAGING_CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.PRODX_STAGING_CLOUDFLARE_ACCOUNT_ID }}
+          STAGING_DATABASE_URL: ${{ secrets.PRODX_STAGING_DATABASE_URL }}
+          STAGING_RECONCILIATION_DATABASE_URL: ${{ secrets.PRODX_STAGING_RECONCILIATION_DATABASE_URL }}
+          POS_STAGING_ACCESS_AUD: ${{ secrets.PRODX_STAGING_ACCESS_AUD }}
+          POS_STAGING_SYNC_URL: ${{ secrets.PRODX_STAGING_SYNC_URL }}
+          POS_STAGING_ACCESS_JWT: ${{ secrets.PRODX_STAGING_ACCESS_JWT }}
+          POS_STAGING_OPS_JWT: ${{ secrets.PRODX_STAGING_OPS_JWT }}
+          POS_STAGING_MTLS_CERT_PEM: ${{ secrets.PRODX_STAGING_MTLS_CERT_PEM }}
+          POS_STAGING_MTLS_KEY_PEM: ${{ secrets.PRODX_STAGING_MTLS_KEY_PEM }}
+          POS_STAGING_E2E_PAYLOAD_B64: ${{ secrets.PRODX_STAGING_E2E_PAYLOAD_B64 }}
+          POS_STAGING_TERMINAL_IDS_JSON: ${{ secrets.PRODX_STAGING_TERMINAL_IDS_JSON }}
+          CATALOG_SIGNING_KEY: ${{ secrets.PRODX_STAGING_CATALOG_SIGNING_KEY }}
+          EXPECTED_STAGING_DATABASE_HOST: ${{ vars.PRODX_STAGING_DATABASE_HOST }}
+          EXPECTED_STAGING_DATABASE_NAME: ${{ vars.PRODX_STAGING_DATABASE_NAME }}
+          EXPECTED_STAGING_RECONCILIATION_DATABASE_HOST: ${{ vars.PRODX_STAGING_RECONCILIATION_DATABASE_HOST }}
+          EXPECTED_STAGING_RECONCILIATION_DATABASE_NAME: ${{ vars.PRODX_STAGING_RECONCILIATION_DATABASE_NAME }}
+          EXPECTED_POS_STAGING_SYNC_HOST: ${{ vars.PRODX_STAGING_SYNC_HOST }}
         run: |
           set -euo pipefail
           required=(CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID STAGING_DATABASE_URL
@@ -126,10 +141,11 @@ jobs:
             EXPECTED_STAGING_RECONCILIATION_DATABASE_NAME EXPECTED_POS_STAGING_SYNC_HOST)
           for name in "${required[@]}"; do
             if [[ -z "${!name:-}" ]]; then
-              echo "::error::Missing GitHub Environment 'staging' secret: $name"
+              echo "::error::Missing GitHub Environment 'staging' secret/variable: $name"
               exit 1
             fi
           done
+          node -e 'const k=process.env.CATALOG_SIGNING_KEY; if(typeof k!=="string" || k.length<32 || Buffer.byteLength(k,"utf8")<32) { console.error("CATALOG_SIGNING_KEY must contain at least 32 UTF-8 bytes before provisioning"); process.exit(1); } console.log("Catalog signing key length preflight: PASS")'
           node <<'NODE'
           const assert = require('node:assert/strict');
           function parseDatabaseUrl(raw, expectedHost, expectedDatabase, label) {
@@ -160,12 +176,12 @@ jobs:
 
       - name: Provision isolated Staging Queues and Hyperdrive
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          STAGING_DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
-          STAGING_DATABASE_HOST_EXPECTED: ${{ vars.STAGING_DATABASE_HOST }}
-          STAGING_DATABASE_NAME_EXPECTED: ${{ vars.STAGING_DATABASE_NAME }}
-          POS_STAGING_ACCESS_AUD: ${{ secrets.POS_STAGING_ACCESS_AUD }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.PRODX_STAGING_CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.PRODX_STAGING_CLOUDFLARE_ACCOUNT_ID }}
+          STAGING_DATABASE_URL: ${{ secrets.PRODX_STAGING_DATABASE_URL }}
+          STAGING_DATABASE_HOST_EXPECTED: ${{ vars.PRODX_STAGING_DATABASE_HOST }}
+          STAGING_DATABASE_NAME_EXPECTED: ${{ vars.PRODX_STAGING_DATABASE_NAME }}
+          POS_STAGING_ACCESS_AUD: ${{ secrets.PRODX_STAGING_ACCESS_AUD }}
         run: |
           chmod +x scripts/provision-staging.sh
           ./scripts/provision-staging.sh provision
@@ -175,20 +191,20 @@ jobs:
 
       - name: Deploy Worker to Cloudflare Staging only
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.PRODX_STAGING_CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.PRODX_STAGING_CLOUDFLARE_ACCOUNT_ID }}
         run: npx wrangler deploy --env staging
 
       - name: Set Staging-only catalog signing secret
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CATALOG_SIGNING_KEY: ${{ secrets.CATALOG_SIGNING_KEY }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.PRODX_STAGING_CLOUDFLARE_API_TOKEN }}
+          CATALOG_SIGNING_KEY: ${{ secrets.PRODX_STAGING_CATALOG_SIGNING_KEY }}
         run: ./scripts/provision-staging.sh set-secret
 
       - name: Prepare mTLS client certificate
         env:
-          POS_STAGING_MTLS_CERT_PEM: ${{ secrets.POS_STAGING_MTLS_CERT_PEM }}
-          POS_STAGING_MTLS_KEY_PEM: ${{ secrets.POS_STAGING_MTLS_KEY_PEM }}
+          POS_STAGING_MTLS_CERT_PEM: ${{ secrets.PRODX_STAGING_MTLS_CERT_PEM }}
+          POS_STAGING_MTLS_KEY_PEM: ${{ secrets.PRODX_STAGING_MTLS_KEY_PEM }}
         run: |
           printf '%s\n' "$POS_STAGING_MTLS_CERT_PEM" > /tmp/prodx-staging-client.crt
           printf '%s\n' "$POS_STAGING_MTLS_KEY_PEM" > /tmp/prodx-staging-client.key
@@ -196,9 +212,9 @@ jobs:
 
       - name: Gate 6.1 — Edge to DO to Queue to Hyperdrive E2E
         env:
-          POS_STAGING_SYNC_URL: ${{ secrets.POS_STAGING_SYNC_URL }}
-          POS_STAGING_ACCESS_JWT: ${{ secrets.POS_STAGING_ACCESS_JWT }}
-          POS_STAGING_E2E_PAYLOAD_B64: ${{ secrets.POS_STAGING_E2E_PAYLOAD_B64 }}
+          POS_STAGING_SYNC_URL: ${{ secrets.PRODX_STAGING_SYNC_URL }}
+          POS_STAGING_ACCESS_JWT: ${{ secrets.PRODX_STAGING_ACCESS_JWT }}
+          POS_STAGING_E2E_PAYLOAD_B64: ${{ secrets.PRODX_STAGING_E2E_PAYLOAD_B64 }}
         run: |
           set -euo pipefail
           printf '%s' "$POS_STAGING_E2E_PAYLOAD_B64" | base64 --decode > /tmp/prodx-staging-e2e.json
@@ -242,15 +258,15 @@ jobs:
 
       - name: Gate 6.2 — Export real Durable Object checkpoint and outbox state
         env:
-          POS_SYNC_URL: ${{ secrets.POS_STAGING_SYNC_URL }}
-          POS_OPS_TOKEN: ${{ secrets.POS_STAGING_OPS_JWT }}
-          POS_TERMINAL_IDS: ${{ secrets.POS_STAGING_TERMINAL_IDS_JSON }}
+          POS_SYNC_URL: ${{ secrets.PRODX_STAGING_SYNC_URL }}
+          POS_OPS_TOKEN: ${{ secrets.PRODX_STAGING_OPS_JWT }}
+          POS_TERMINAL_IDS: ${{ secrets.PRODX_STAGING_TERMINAL_IDS_JSON }}
           POS_DO_HEALTH_CSV: do-outbox-export.csv
         run: npm run export:do-health 2>&1 | tee artifacts/logs/export-do-health.log
 
       - name: Gate 6.3 — Reconcile Cloudflare DO export against Staging PostgreSQL
         env:
-          DATABASE_URL: ${{ secrets.STAGING_RECONCILIATION_DATABASE_URL }}
+          DATABASE_URL: ${{ secrets.PRODX_STAGING_RECONCILIATION_DATABASE_URL }}
         run: |
           set -euo pipefail
           test -s do-outbox-export.csv
