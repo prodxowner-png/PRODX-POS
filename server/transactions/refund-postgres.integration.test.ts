@@ -265,7 +265,12 @@ test('PostgreSQL refund is atomic, idempotent, bounded by order total, and resto
     WHERE ri.store_id=$1 AND ri.refund_id=$2 ORDER BY oi.id`,[id.store,multiLineRefund.refundId])).rows;
   assert.equal(allocated.length,3);
   assert.deepEqual(allocated.map((row:any)=>row.amount),['9.66','9.67','9.67']);
-  assert.equal(allocated.reduce((sum:number,row:any)=>sum+Math.round(Number(row.amount)*100),0),2900);
+  const allocatedCents=allocated.map((row:any)=>{
+    const match=/^(\d+)\.(\d{2})$/.exec(String(row.amount));
+    assert.ok(match,`Refund amount must be an exact two-decimal NUMERIC string: ${row.amount}`);
+    return BigInt(match[1])*100n+BigInt(match[2]);
+  });
+  assert.equal(allocatedCents.reduce((sum:bigint,cents:bigint)=>sum+cents,0n),2900n);
   const expectedByUuid=(await pool.query('SELECT id FROM prodx_order_items WHERE order_id=$1 ORDER BY id',[multiLineOrder.order.id])).rows;
   assert.equal(allocated[0].order_item_id,expectedByUuid[0].id);
 });
