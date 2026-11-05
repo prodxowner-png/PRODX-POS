@@ -1,3 +1,10 @@
+-- Run the preflight and trigger replacement as one atomic migration.
+-- ACCESS EXCLUSIVE locks wait for in-flight writers, then prevent new ledger,
+-- balance, or product writes until the non-negative trigger is installed.
+BEGIN;
+LOCK TABLE public.inventory_ledger, public.inventory_balances, public.products
+  IN ACCESS EXCLUSIVE MODE;
+
 -- Refuse to establish the invariant on top of already-corrupt balances.
 -- Reconcile existing negative stock through an owner-approved, audited ledger
 -- adjustment before applying this migration; never silently rewrite balances.
@@ -57,3 +64,5 @@ BEGIN
 END;
 $$;
 REVOKE ALL ON FUNCTION apply_inventory_ledger_delta() FROM PUBLIC;
+
+COMMIT;
