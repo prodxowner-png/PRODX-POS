@@ -28,7 +28,7 @@ for (const [relativePath, expectedBlobSha] of Object.entries(manifest.files)) {
     continue;
   }
   const content = await readFile(path.join(root, relativePath));
-  const gitBlobSha = createHash('sha1').update(`blob ${content.length}\\0`).update(content).digest('hex');
+  const gitBlobSha = createHash('sha1').update(`blob ${content.length}\0`).update(content).digest('hex');
   if (gitBlobSha !== expectedBlobSha) errors.push(`Baseline migration was modified: ${relativePath}`);
 }
 
