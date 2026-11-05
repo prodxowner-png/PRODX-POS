@@ -103,6 +103,33 @@ jobs:
         id: migration
         run: psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/001_pos_ledger.sql 2>&1 | tee artifacts/logs/migration.log
 
+      - name: Gate 4.1.1 — Prove inventory migration rejects pre-existing negative balances
+        id: inventory_migration_preflight
+        run: |
+          set -euo pipefail
+          tenant_id="00000000-0000-4000-8000-00000000f001"
+          product_id="00000000-0000-4000-8000-00000000f002"
+          psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 <<SQL
+          INSERT INTO products(id,tenant_id,sku,name,unit_price_minor,tax_bps)
+          VALUES ('$product_id','$tenant_id','CI-NEGATIVE-PREFLIGHT','CI migration preflight',100,0);
+          INSERT INTO inventory_balances(tenant_id,product_id,quantity)
+          VALUES ('$tenant_id','$product_id',-1);
+          SQL
+          if psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/002_inventory_nonnegative.sql > artifacts/logs/inventory-negative-preflight.log 2>&1; then
+            echo "::error::Inventory migration unexpectedly accepted a pre-existing negative balance."
+            exit 1
+          fi
+          if ! grep -q 'INVENTORY_MIGRATION_BLOCKED' artifacts/logs/inventory-negative-preflight.log; then
+            cat artifacts/logs/inventory-negative-preflight.log
+            echo "::error::Migration failed for an unexpected reason; fail-closed assertion not proven."
+            exit 1
+          fi
+          psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 <<SQL
+          DELETE FROM inventory_balances WHERE tenant_id='$tenant_id' AND product_id='$product_id';
+          DELETE FROM products WHERE tenant_id='$tenant_id' AND id='$product_id';
+          SQL
+          echo "Pre-existing negative inventory rejection: PASS"
+
       - name: Gate 4.1.2 — Apply forward inventory non-negative invariant
         id: inventory_invariant_migration
         run: psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/002_inventory_nonnegative.sql 2>&1 | tee artifacts/logs/inventory-invariant-migration.log
