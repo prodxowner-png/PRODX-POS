@@ -24,7 +24,7 @@ const errors: string[] = [];
 const baselineIds = new Map<string, string[]>();
 for (const relativePath of baselinePaths) {
   const name = path.posix.basename(relativePath);
-  const match = /^(\\d{4})_[a-z0-9][a-z0-9_-]*\\.sql$/.exec(name);
+  const match = /^([0-9]{4})_[a-z0-9][a-z0-9_-]*\.sql$/.exec(name);
   if (!match) {
     errors.push(`Baseline migration filename is invalid: ${relativePath}`);
     continue;
@@ -60,7 +60,7 @@ const seenNewIds = new Map<string, string>();
 for (const relativePath of currentPaths) {
   if (baselinePaths.has(relativePath)) continue;
   const name = path.posix.basename(relativePath);
-  const match = /^(\\d{4})_[a-z0-9][a-z0-9_-]*\\.sql$/.exec(name);
+  const match = /^([0-9]{4})_[a-z0-9][a-z0-9_-]*\.sql$/.exec(name);
   if (!match) {
     errors.push(`New migration filename must use NNNN_description.sql: ${relativePath}`);
     continue;
