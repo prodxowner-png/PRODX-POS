@@ -14,7 +14,7 @@ const EXPECTED_LEGACY_DUPLICATE_IDS = ['0014', '0025', '0028', '0040'];
 
 const manifestBytes = await readFile(manifestPath);
 const manifestBlobSha = createHash('sha1')
-  .update(\`blob \${manifestBytes.length}\0\`)
+  .update(`blob ${manifestBytes.length}\0`)
   .update(manifestBytes)
   .digest('hex');
 if (manifestBlobSha !== EXPECTED_MANIFEST_GIT_BLOB_SHA) {
