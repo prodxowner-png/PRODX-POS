@@ -20,6 +20,9 @@ const id = {
   product: '00000000-0000-4000-8000-000000002008',
   payment: '00000000-0000-4000-8000-000000002009',
   discountedPayment: '00000000-0000-4000-8000-000000002010',
+  product2: '00000000-0000-4000-8000-000000002011',
+  product3: '00000000-0000-4000-8000-000000002012',
+  multiPayment: '00000000-0000-4000-8000-000000002013',
 };
 
 const request = (key: string, orderDiscountBps = 0, paymentId = id.payment): CheckoutRequest & { orderDiscountBps?: number } => {
@@ -74,7 +77,7 @@ async function clean() {
       ['DELETE FROM prodx_inventory_ledger WHERE store_id=$1', [id.store]],
       ['DELETE FROM prodx_orders WHERE store_id=$1', [id.store]],
       ['DELETE FROM prodx_shifts WHERE id=$1', [id.shift]],
-      ['DELETE FROM prodx_products WHERE id=$1', [id.product]],
+      ['DELETE FROM prodx_products WHERE id IN ($1,$2,$3)', [id.product,id.product2,id.product3]],
       ['DELETE FROM prodx_categories WHERE id=$1', [id.cat]],
       ['DELETE FROM prodx_registers WHERE id=$1', [id.reg]],
       ['DELETE FROM prodx_store_memberships WHERE store_id=$1', [id.store]],
@@ -99,7 +102,7 @@ async function seed() {
   await pool.query('INSERT INTO prodx_registers(id,organization_id,store_id,code,name) VALUES($1,$2,$3,$4,$5)', [id.reg, id.org, id.store, 'R1', 'Register']);
   await pool.query("INSERT INTO prodx_shifts(id,organization_id,store_id,register_id,cashier_id,opening_float_amount,currency) VALUES($1,$2,$3,$4,$5,0,'THB')", [id.shift, id.org, id.store, id.reg, id.user]);
   await pool.query('INSERT INTO prodx_categories(id,organization_id,store_id,name,slug) VALUES($1,$2,$3,$4,$5)', [id.cat, id.org, id.store, 'Category', 'refund-category']);
-  await pool.query("INSERT INTO prodx_products(id,organization_id,store_id,category_id,sku,barcode,name,price_amount,cost_price_amount,currency,tax_rate_bps,current_stock,reorder_point,unit_of_measure) VALUES($1,$2,$3,$4,'RF-1','RF-1','Refund Product',10,5,'THB',0,10,1,'each')", [id.product, id.org, id.store, id.cat]);
+  await pool.query("INSERT INTO prodx_products(id,organization_id,store_id,category_id,sku,barcode,name,price_amount,cost_price_amount,currency,tax_rate_bps,current_stock,reorder_point,unit_of_measure) VALUES($1,$2,$3,$4,'RF-1','RF-1','Refund Product 1',10,5,'THB',0,10,1,'each'),($5,$2,$3,$4,'RF-2','RF-2','Refund Product 2',10,5,'THB',0,10,1,'each'),($6,$2,$3,$4,'RF-3','RF-3','Refund Product 3',10,5,'THB',0,10,1,'each')", [id.product, id.org, id.store, id.cat,id.product2,id.product3]);
 }
 
 test('PostgreSQL refund is atomic, idempotent, bounded by order total, and restores stock', async (t) => {
@@ -230,4 +233,39 @@ test('PostgreSQL refund is atomic, idempotent, bounded by order total, and resto
   assert.equal((await pool.query(
     'SELECT current_stock FROM prodx_products WHERE id=$1', [id.product],
   )).rows[0].current_stock, stockBeforeDiscountedOrder);
+
+  // Three equal order lines and a one-dollar discount produce tied largest remainders.
+  // Verify both the persisted refund-item cents and the UUID tie-break used by PostgreSQL.
+  const multiLineRequest: CheckoutRequest & { orderDiscountBps?: number } = {
+    ...request('refund-multi-line-discount',333,id.multiPayment),
+    orderDiscountBps:333,
+    items:[id.product,id.product2,id.product3].map((productId,index)=>({
+      ...request('refund-multi-line-discount').items[0],
+      lineId:`refund-multi-${index}`,
+      quantity:1,
+      lineSubtotal:{amountInCents:1000,currency:'THB'},
+      lineTotal:{amountInCents:1000,currency:'THB'},
+      product:{...request('refund-multi-line-discount').items[0].product,id:productId,sku:`RF-${index+1}`,barcode:`RF-${index+1}`,name:`Refund Product ${index+1}`},
+    })),
+    totals:{grossSubtotal:{amountInCents:3000,currency:'THB'},itemDiscounts:{amountInCents:0,currency:'THB'},orderDiscount:{amountInCents:100,currency:'THB'},netSubtotal:{amountInCents:2900,currency:'THB'},totalTax:{amountInCents:0,currency:'THB'},grandTotal:{amountInCents:2900,currency:'THB'},totalItemsCount:3},
+    payments:[{...request('refund-multi-line-discount').payments[0],id:id.multiPayment,amount:{amountInCents:2900,currency:'THB'},tenderedCash:{amountInCents:2900,currency:'THB'},changeGiven:{amountInCents:0,currency:'THB'}}],
+  };
+  const multiLineOrder=await createCheckoutService(db).checkout(multiLineRequest);
+  assert.equal(multiLineOrder.order.totals.orderDiscount.amountInCents,100);
+  const multiLineRefund=await refund.refund({
+    storeId:id.store,orderId:multiLineOrder.order.id,
+    refundAmount:{amountInCents:2900,currency:'THB'},reason:'Full return of multi-line discounted order',
+    refundMethod:'cash',authorizedByUserId:id.user,
+    itemsToRestock:[id.product,id.product2,id.product3].map(productId=>({productId,quantity:1})),
+    idempotencyKey:'refund-multi-line-discount-full',
+  });
+  assert.equal(multiLineRefund.status,'refunded');
+  const allocated=(await pool.query(`SELECT oi.id AS order_item_id,ri.amount::text AS amount
+    FROM prodx_refund_items ri JOIN prodx_order_items oi ON oi.id=ri.order_item_id
+    WHERE ri.store_id=$1 AND ri.refund_id=$2 ORDER BY oi.id`,[id.store,multiLineRefund.refundId])).rows;
+  assert.equal(allocated.length,3);
+  assert.deepEqual(allocated.map((row:any)=>row.amount),['9.66','9.67','9.67']);
+  assert.equal(allocated.reduce((sum:number,row:any)=>sum+Math.round(Number(row.amount)*100),0),2900);
+  const expectedByUuid=(await pool.query('SELECT id FROM prodx_order_items WHERE order_id=$1 ORDER BY id',[multiLineOrder.order.id])).rows;
+  assert.equal(allocated[0].order_item_id,expectedByUuid[0].id);
 });
