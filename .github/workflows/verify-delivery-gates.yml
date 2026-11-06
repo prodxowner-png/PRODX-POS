@@ -134,6 +134,13 @@ jobs:
         id: inventory_invariant_migration
         run: psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/002_inventory_nonnegative.sql 2>&1 | tee artifacts/logs/inventory-invariant-migration.log
 
+      - name: Gate 4.1.3 — Apply forward failed-sequence recovery migration twice
+        id: failed_sequence_recovery_migration
+        run: |
+          set -euo pipefail
+          psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/003_failed_sequence_recovery.sql 2>&1 | tee artifacts/logs/failed-sequence-recovery-migration.log
+          psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/003_failed_sequence_recovery.sql 2>&1 | tee artifacts/logs/failed-sequence-recovery-migration-rerun.log
+
       - name: Gate 4.2 — Create isolated CI database roles
         id: create_roles
         run: psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 -v ci_role_password="$CI_ROLE_PASSWORD" -f scripts/create-ci-roles.sql 2>&1 | tee artifacts/logs/create-ci-roles.log

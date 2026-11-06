@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { Client } from "pg";
 import { canonicalize, sha256Hex } from "../src/canonical.js";
 import { signCatalogPriceProofs } from "../src/catalog-crypto.js";
-import { commitSale } from "../src/postgres.js";
+import { commitSale, PermanentDataError } from "../src/postgres.js";
+import { recordFailedSequence, resolveFailedSequence } from "../src/terminal-recovery.js";
 import { verifyTerminalCertificate } from "../src/auth.js";
 import type { OfflineSale, QueueSale } from "../src/contracts.js";
 
@@ -118,6 +119,86 @@ try{
   if(Number(signedAudit?.signed_unit_price_minor)!==10000||
      Number(stock.rows[0]?.balance)!==0||Number(stock.rows[0]?.quantity_delta)!==-2||Number(stock.rows[0]?.row_count)!==1){
     throw new Error("AUDIT_OR_INVENTORY_INTEGRITY_ASSERTION_FAILED");
+  }
+
+  // Exercise origin-authoritative permanent-failure recovery through the NOBYPASSRLS runtime role.
+  async function makeRecoveryMessage(sequence:number):Promise<QueueSale> {
+    const recoverySale:OfflineSale={
+      idempotency_key:`recovery-${sequence}-${randomUUID()}`,payload_hash:"0".repeat(64),
+      sale_id:randomUUID(),terminal_seq_no:sequence,
+      hlc:{physical_ms:sale.hlc.physical_ms+sequence,logical:0},catalog_version:catalogVersion,
+      signed_price_proofs:proofs,client_recorded_at:new Date().toISOString(),currency:"THB",
+      lines:[{product_id:productId,quantity:1,unit_price_minor:10000,tax_bps:700}]
+    };
+    const {payload_hash:_ignored,...hashableRecoverySale}=recoverySale;
+    recoverySale.payload_hash=await sha256Hex(canonicalize({
+      tenant_id:tenantId,terminal_id:terminalId,sale:hashableRecoverySale
+    }));
+    return {
+      tenant_id:tenantId,terminal_id:terminalId,idempotency_key:recoverySale.idempotency_key,
+      payload_hash:recoverySale.payload_hash,do_name:`${tenantId}:${terminalId}`,
+      sale:recoverySale,edge_received_at:new Date().toISOString(),receipt_id:randomUUID()
+    };
+  }
+  async function expectRecoverableStockFailure(message:QueueSale):Promise<void> {
+    let failure:unknown;
+    try { await commitSale(runtimeEnv,message); }
+    catch (error) { failure=error; }
+    if (!(failure instanceof PermanentDataError) || !failure.sequenceFailureEligible ||
+        failure.message!=="INSUFFICIENT_STOCK") {
+      throw new Error("RECOVERY_FIXTURE_DID_NOT_FAIL_WITH_ELIGIBLE_INSUFFICIENT_STOCK");
+    }
+    const recorded=await recordFailedSequence(runtimeEnv,message,failure.message);
+    if(recorded!=="recorded") throw new Error("FAILED_SEQUENCE_WAS_NOT_DURABLY_RECORDED");
+  }
+
+  const retryMessage=await makeRecoveryMessage(2);
+  await expectRecoverableStockFailure(retryMessage);
+  const retryInput={tenantId,terminalId,terminalSeqNo:2,disposition:"RETRY" as const,
+    requestId:randomUUID(),actorSubject:"integration-recovery-admin",reason:"Retry after replenishing the test stock"};
+  const retryResolution=await resolveFailedSequence(runtimeEnv,retryInput);
+  if(retryResolution.outcome!=="RETRY"||retryResolution.checkpoint.last_committed_seq_no!==1||
+     retryResolution.checkpoint.last_resolved_seq_no!==1) {
+    throw new Error("FAILED_SEQUENCE_RETRY_CHECKPOINT_ASSERTION_FAILED");
+  }
+  await admin.query("BEGIN");
+  await admin.query("SELECT set_config('app.current_tenant_id',$1,true)",[tenantId]);
+  await admin.query(
+    `INSERT INTO inventory_ledger(tenant_id,product_id,reference_id,quantity_delta,reason)
+     VALUES($1,$2,$3,1,'OPENING_BALANCE')`,[tenantId,productId,randomUUID()]
+  );
+  await admin.query("COMMIT");
+  const retryCommit=await commitSale(runtimeEnv,retryMessage);
+  if(retryCommit!=="committed") throw new Error("ORIGIN_AUTHORIZED_RETRY_DID_NOT_COMMIT");
+  const retryReplay=await resolveFailedSequence(runtimeEnv,retryInput);
+  if(retryReplay.outcome!=="COMMITTED"||retryReplay.resolution_id!==retryResolution.resolution_id||
+     retryReplay.checkpoint.last_committed_seq_no!==2||retryReplay.checkpoint.last_resolved_seq_no!==2) {
+    throw new Error("IDEMPOTENT_RETRY_REQUEST_DID_NOT_REPORT_CURRENT_COMMITTED_OUTCOME");
+  }
+
+  const voidMessage=await makeRecoveryMessage(3);
+  await expectRecoverableStockFailure(voidMessage);
+  const voidResolution=await resolveFailedSequence(runtimeEnv,{
+    tenantId,terminalId,terminalSeqNo:3,disposition:"VOID",requestId:randomUUID(),
+    actorSubject:"integration-recovery-admin",reason:"Void the permanently rejected test sale"
+  });
+  if(voidResolution.outcome!=="VOIDED"||voidResolution.checkpoint.last_committed_seq_no!==2||
+     voidResolution.checkpoint.last_resolved_seq_no!==3||
+     voidResolution.checkpoint.terminal_failures.find((failure)=>failure.terminal_seq_no===3)?.outcome!=="VOIDED") {
+    throw new Error("ORIGIN_AUTHORIZED_VOID_CHECKPOINT_ASSERTION_FAILED");
+  }
+  if(await commitSale(runtimeEnv,voidMessage)!=="voided"||
+     await recordFailedSequence(runtimeEnv,voidMessage,"INSUFFICIENT_STOCK")!=="voided") {
+    throw new Error("VOIDED_SEQUENCE_REPLAY_WAS_NOT_IDEMPOTENT");
+  }
+  const recoveryAudit=await admin.query(
+    `SELECT action FROM audit_logs WHERE tenant_id=$1
+      AND action IN ('POS_TERMINAL_SEQUENCE_FAILED','POS_TERMINAL_SEQUENCE_RETRY_AUTHORIZED','POS_TERMINAL_SEQUENCE_VOIDED')`,
+    [tenantId]
+  );
+  const recoveryActions=recoveryAudit.rows.map((row)=>row.action);
+  for(const action of ["POS_TERMINAL_SEQUENCE_FAILED","POS_TERMINAL_SEQUENCE_RETRY_AUTHORIZED","POS_TERMINAL_SEQUENCE_VOIDED"]) {
+    if(!recoveryActions.includes(action)) throw new Error(`TERMINAL_RECOVERY_AUDIT_MISSING:${action}`);
   }
 
   // Two independent inventory adjustments race to consume the final unit.

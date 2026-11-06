@@ -59,11 +59,28 @@ export interface QueueSale {
   edge_received_at: string; receipt_id: string;
 }
 export interface AuthContext { tenantId: string; terminalId: string; subject: string; }
+
+export interface TerminalFailureCheckpoint {
+  terminal_seq_no: number;
+  sale_id: string;
+  idempotency_key: string;
+  receipt_id: string;
+  payload_hash: string;
+  failure_code: string;
+  edge_received_at: string;
+  outcome: "FAILED" | "RETRY" | "VOIDED" | "COMMITTED";
+}
+
 export interface TerminalCheckpoint {
   last_committed_seq_no: number;
   last_hlc_physical_ms: number;
   last_hlc_logical: number;
+  last_resolved_seq_no: number;
+  last_resolved_hlc_physical_ms: number;
+  last_resolved_hlc_logical: number;
+  terminal_failures: TerminalFailureCheckpoint[];
 }
+
 export interface PreparedSale {
   sale: OfflineSale; payloadHash: string; edgeReceivedAt: string; receiptId: string;
 }
@@ -77,6 +94,6 @@ export interface IdempotencyBatchResult {
   last_hlc: { physical_ms:number; logical:number };
 }
 export interface IdempotencyResultItem {
-  idempotency_key: string; status: "accepted" | "duplicate" | "committed";
+  idempotency_key: string; status: "accepted" | "duplicate" | "committed" | "voided";
   receipt_id: string; payload_hash: string;
 }
