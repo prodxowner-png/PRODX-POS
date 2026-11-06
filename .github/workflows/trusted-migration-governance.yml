@@ -19,12 +19,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Checkout trusted verifier from the protected base branch
+      - name: Checkout trusted verifier from the exact protected base commit
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          ref: ${{ github.event.pull_request.base.sha }}
           path: trusted
           persist-credentials: false
+
+      - name: Assert trusted checkout matches the event base commit
+        env:
+          EXPECTED_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: test "$(git -C trusted rev-parse HEAD)" = "$EXPECTED_BASE_SHA"
 
       - name: Checkout pull request head as untrusted data only
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
