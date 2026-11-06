@@ -16,13 +16,13 @@ printf '%s\n' 'test fixture' > "$ROOT/no-runner/tests/sample.test.js"
   set -e
   [[ "$status" -eq 2 ]]
   grep -q 'INCONCLUSIVE: no supported package.json test runner' "$ROOT/no-runner/output"
-  ! grep -q 'No matched tests ran successfully' "$ROOT/no-runner/output"
+  ! grep -q 'No polluter found' "$ROOT/no-runner/output"
 )
 
 # A failing configured test runner must also be inconclusive.
 mkdir -p "$ROOT/failing/tests"
 printf '%s\n' 'test fixture' > "$ROOT/failing/tests/sample.test.js"
-printf '%s\n' '{"scripts":{"test":"node -e \\"process.exit(1)\\""}}' > "$ROOT/failing/package.json"
+printf '%s\n' '{"scripts":{"test":"node -e 'process.exit(1)'"}}' > "$ROOT/failing/package.json"
 (
   cd "$ROOT/failing"
   set +e
