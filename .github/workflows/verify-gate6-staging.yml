@@ -124,6 +124,45 @@ jobs:
       - name: Install locked dependencies
         run: npm ci --no-audit --no-fund --legacy-peer-deps
 
+      - name: Preflight — verify Staging database roles before provisioning
+        env:
+          STAGING_MIGRATION_DATABASE_URL: ${{ secrets.STAGING_MIGRATION_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          psql "$STAGING_MIGRATION_DATABASE_URL" --set=ON_ERROR_STOP=1 <<'SQL'
+          DO $rolepreflight$
+          DECLARE missing_roles text[]; unsafe_roles text[];
+          BEGIN
+            SELECT array_agg(required.rolename)
+              INTO missing_roles
+              FROM unnest(ARRAY[
+                'prodx_pos_worker','prodx_catalog_writer','prodx_device_admin',
+                'prodx_inventory_admin','prodx_rls_auditor','prodx_reconciliation_admin'
+              ]) AS required(rolename)
+             WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname=required.rolename);
+            IF missing_roles IS NOT NULL THEN
+              RAISE EXCEPTION 'STAGING_ROLE_BOOTSTRAP_REQUIRED: %',array_to_string(missing_roles,',');
+            END IF;
+            SELECT array_agg(rolname)
+              INTO unsafe_roles
+              FROM pg_roles
+             WHERE rolname IN (
+               'prodx_pos_worker','prodx_catalog_writer','prodx_device_admin',
+               'prodx_inventory_admin','prodx_rls_auditor'
+             ) AND (rolsuper OR rolbypassrls OR NOT rolcanlogin);
+            IF unsafe_roles IS NOT NULL THEN
+              RAISE EXCEPTION 'STAGING_APP_ROLE_PRIVILEGE_MISMATCH: %',array_to_string(unsafe_roles,',');
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_roles
+               WHERE rolname='prodx_reconciliation_admin'
+                 AND rolcanlogin AND NOT rolsuper AND rolbypassrls
+            ) THEN
+              RAISE EXCEPTION 'STAGING_RECONCILIATION_ROLE_PRIVILEGE_MISMATCH';
+            END IF;
+          END $rolepreflight$;
+          SQL
+
       - name: Provision isolated Staging Queues and Hyperdrive
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
