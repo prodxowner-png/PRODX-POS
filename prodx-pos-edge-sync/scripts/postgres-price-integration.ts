@@ -169,6 +169,23 @@ try{
   // already re-enqueued DO receipt failed again.
   const delayedDlqReplay=await recordFailedSequence(runtimeEnv,retryMessage,"INSUFFICIENT_STOCK");
   if(delayedDlqReplay!=="retry") throw new Error("AUTHORIZED_RETRY_WAS_NOT_PRESERVED_DURING_DLQ_REPLAY");
+  if(!retryResolution.resolution_id) throw new Error("RETRY_RESOLUTION_ID_MISSING");
+  retryMessage.recovery_resolution_id=retryResolution.resolution_id;
+  const failedRetryAttempt=await recordFailedSequence(runtimeEnv,retryMessage,"INSUFFICIENT_STOCK");
+  const duplicateFailedRetryAttempt=await recordFailedSequence(runtimeEnv,retryMessage,"INSUFFICIENT_STOCK");
+  if(failedRetryAttempt!=="retry_failed"||duplicateFailedRetryAttempt!=="retry_failed") {
+    throw new Error("AUTHORIZED_RETRY_FAILURE_WAS_NOT_DURABLY_AUDITED_IDEMPOTENTLY");
+  }
+  const retryAgainInput={...retryInput,requestId:randomUUID(),reason:"Retry again after confirming the replenishment operation"};
+  const retryAgainResolution=await resolveFailedSequence(runtimeEnv,retryAgainInput);
+  if(retryAgainResolution.outcome!=="RETRY"||
+     retryAgainResolution.checkpoint.terminal_failures.find((failure)=>failure.terminal_seq_no===2)?.outcome!=="RETRY") {
+    throw new Error("SECOND_RETRY_AUTHORIZATION_DID_NOT_SUPERSEDE_FAILED_ATTEMPT");
+  }
+  if(!retryAgainResolution.resolution_id) throw new Error("SECOND_RETRY_RESOLUTION_ID_MISSING");
+  const staleRetryDelivery=await recordFailedSequence(runtimeEnv,retryMessage,"INSUFFICIENT_STOCK");
+  if(staleRetryDelivery!=="retry") throw new Error("STALE_RETRY_GENERATION_WAS_NOT_FENCED");
+  retryMessage.recovery_resolution_id=retryAgainResolution.resolution_id;
   await admin.query("BEGIN");
   await admin.query("SELECT set_config('app.current_tenant_id',$1,true)",[tenantId]);
   await admin.query(
@@ -272,7 +289,7 @@ try{
     [tenantId]
   );
   const recoveryActions=recoveryAudit.rows.map((row)=>row.action);
-  for(const action of ["POS_TERMINAL_SEQUENCE_FAILED","POS_TERMINAL_SEQUENCE_RETRY_AUTHORIZED","POS_TERMINAL_SEQUENCE_VOIDED"]) {
+  for(const action of ["POS_TERMINAL_SEQUENCE_FAILED","POS_TERMINAL_SEQUENCE_RETRY_AUTHORIZED","POS_TERMINAL_SEQUENCE_RETRY_FAILED","POS_TERMINAL_SEQUENCE_VOIDED"]) {
     if(!recoveryActions.includes(action)) throw new Error(`TERMINAL_RECOVERY_AUDIT_MISSING:${action}`);
   }
 
