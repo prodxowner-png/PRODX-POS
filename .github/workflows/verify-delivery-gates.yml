@@ -140,6 +140,8 @@ jobs:
           set -euo pipefail
           psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/003_failed_sequence_recovery.sql 2>&1 | tee artifacts/logs/failed-sequence-recovery-migration.log
           psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/003_failed_sequence_recovery.sql 2>&1 | tee artifacts/logs/failed-sequence-recovery-migration-rerun.log
+          psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/004_terminal_retry_attempt_audit.sql 2>&1 | tee artifacts/logs/terminal-retry-attempt-audit-migration.log
+          psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/004_terminal_retry_attempt_audit.sql 2>&1 | tee artifacts/logs/terminal-retry-attempt-audit-migration-rerun.log
 
       - name: Gate 4.2 — Create isolated CI database roles
         id: create_roles
