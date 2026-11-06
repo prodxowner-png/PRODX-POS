@@ -227,6 +227,8 @@ export class IdempotencyGate extends DurableObject<Env> {
           typeof failure.idempotency_key !== "string" ||
           failure.idempotency_key.length < 16 || failure.idempotency_key.length > 200 ||
           !/^[0-9a-f]{64}$/i.test(failure.payload_hash) ||
+          (failure.resolution_id !== null && !/^[0-9a-f-]{36}$/i.test(failure.resolution_id)) ||
+          (failure.outcome === "RETRY" && !failure.resolution_id) ||
           !["FAILED","RETRY","VOIDED","COMMITTED"].includes(failure.outcome)) {
         throw new Error("INVALID_ORIGIN_TERMINAL_FAILURE_RECORD");
       }
@@ -249,18 +251,28 @@ export class IdempotencyGate extends DurableObject<Env> {
         if (row.state === "COMMITTED" || row.state === "VOIDED") {
           throw new Error("ORIGIN_FAILURE_OUTCOME_CONFLICT");
         }
-        this.ctx.storage.sql.exec(
-          `UPDATE idempotency SET failure_code=?,next_retry_at=NULL,updated_at=? WHERE idempotency_key=?`,
-          failure.failure_code,new Date(now).toISOString(),failure.idempotency_key
-        );
+        if (failure.resolution_id) {
+          queued.recovery_resolution_id = failure.resolution_id;
+          this.ctx.storage.sql.exec(
+            `UPDATE idempotency SET queue_payload=?,failure_code=?,next_retry_at=NULL,updated_at=?
+             WHERE idempotency_key=?`,
+            JSON.stringify(queued),failure.failure_code,new Date(now).toISOString(),failure.idempotency_key
+          );
+        } else {
+          this.ctx.storage.sql.exec(
+            `UPDATE idempotency SET failure_code=?,next_retry_at=NULL,updated_at=? WHERE idempotency_key=?`,
+            failure.failure_code,new Date(now).toISOString(),failure.idempotency_key
+          );
+        }
       } else if (failure.outcome === "RETRY") {
         if (row.state === "COMMITTED" || row.state === "VOIDED") {
           throw new Error("ORIGIN_RETRY_OUTCOME_CONFLICT");
         }
+        queued.recovery_resolution_id = failure.resolution_id!;
         this.ctx.storage.sql.exec(
-          `UPDATE idempotency SET state='ENQUEUE_PENDING',failure_code=NULL,next_retry_at=NULL,updated_at=?
+          `UPDATE idempotency SET queue_payload=?,state='ENQUEUE_PENDING',failure_code=NULL,next_retry_at=NULL,updated_at=?
            WHERE idempotency_key=?`,
-          new Date(now).toISOString(),failure.idempotency_key
+          JSON.stringify(queued),new Date(now).toISOString(),failure.idempotency_key
         );
       } else if (failure.outcome === "VOIDED") {
         if (row.state === "COMMITTED") throw new Error("ORIGIN_VOID_COMMITTED_CONFLICT");
@@ -686,7 +698,25 @@ export class IdempotencyGate extends DurableObject<Env> {
       new Date().toISOString(),tenantId,terminalId,idempotencyKey
     );
   }
-  markFailed(tenantId:string,terminalId:string,idempotencyKey:string,failureCode:string):void{
+  markFailed(
+    tenantId:string,terminalId:string,idempotencyKey:string,failureCode:string,
+    expectedResolutionId?:string
+  ):void{
+    const row=this.ctx.storage.sql.exec<{queue_payload:string}>(
+      `SELECT queue_payload FROM idempotency
+        WHERE tenant_id=? AND terminal_id=? AND idempotency_key=?`,
+      tenantId,terminalId,idempotencyKey
+    ).toArray()[0];
+    if(!row) return;
+    let currentResolutionId:string|undefined;
+    try {
+      currentResolutionId=(JSON.parse(row.queue_payload) as QueueSale).recovery_resolution_id;
+    } catch {
+      throw new Error("IDEMPOTENCY_OUTBOX_CORRUPT");
+    }
+    // A late failure from an older delivery generation must not overwrite a
+    // newer origin-authorized retry. The retry generation is carried in QueueSale.
+    if((currentResolutionId ?? null)!==(expectedResolutionId ?? null)) return;
     this.ctx.storage.sql.exec(
       `UPDATE idempotency SET failure_code=?,next_retry_at=NULL,updated_at=?
        WHERE tenant_id=? AND terminal_id=? AND idempotency_key=? AND state NOT IN ('COMMITTED','VOIDED')`,
