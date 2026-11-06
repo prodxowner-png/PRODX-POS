@@ -391,13 +391,13 @@ export default {
             if (recorded === "committed") await stub.markCommitted(failed.tenant_id,failed.terminal_id,failed.idempotency_key);
             else if (recorded === "voided") await stub.markVoided(failed.tenant_id,failed.terminal_id,failed.idempotency_key);
             else if (recorded !== "retry") await stub.markFailed(failed.tenant_id,failed.terminal_id,failed.idempotency_key,
-              failed.failure_code ?? "QUEUE_RETRY_EXHAUSTED");
+              failed.failure_code ?? "QUEUE_RETRY_EXHAUSTED",failed.recovery_resolution_id);
             // An origin-authorized RETRY has already reconciled the DO and re-enqueued
             // the original receipt. A delayed duplicate DLQ delivery must not re-mark
             // that receipt failed and cancel the authorized retry.
           } else {
             await stub.markFailed(failed.tenant_id,failed.terminal_id,failed.idempotency_key,
-              failed.failure_code ?? "QUEUE_RETRY_EXHAUSTED");
+              failed.failure_code ?? "QUEUE_RETRY_EXHAUSTED",failed.recovery_resolution_id);
           }
           message.ack();
         } catch (error) {
@@ -447,7 +447,10 @@ export default {
               recovery_eligible: recoveryEligible,
               failed_at: new Date().toISOString()
             });
-            await stub.markFailed(saleMessage.tenant_id,saleMessage.terminal_id,saleMessage.idempotency_key,reason);
+            if (recorded !== "retry") {
+              await stub.markFailed(saleMessage.tenant_id,saleMessage.terminal_id,saleMessage.idempotency_key,
+                reason,saleMessage.recovery_resolution_id);
+            }
             message.ack();
           } catch (dlqError) {
             console.error("dead_letter_enqueue_or_finalize_failed", dlqError);
