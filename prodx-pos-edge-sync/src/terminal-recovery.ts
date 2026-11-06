@@ -196,7 +196,7 @@ async function recordRetryAttemptFailure(
          (tenant_id,actor_type,actor_id,action,entity_type,entity_id,payload_hash,
           catalog_version,metadata,created_at)
        VALUES($1,'POS_TERMINAL',$2,'POS_TERMINAL_SEQUENCE_RETRY_FAILED',
-              'TERMINAL_SEQUENCE_RETRY_FAILURE',$3,$4,$5,NULL,$6::jsonb,now())`,
+              'TERMINAL_SEQUENCE_RETRY_FAILURE',$3,$4,NULL,$5::jsonb,now())`,
       [message.tenant_id,message.terminal_id,inserted.rows[0]!.retry_failure_id,
        message.payload_hash,JSON.stringify({
          terminal_id:message.terminal_id,
