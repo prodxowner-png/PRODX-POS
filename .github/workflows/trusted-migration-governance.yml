@@ -1,0 +1,43 @@
+name: Trusted Migration Governance
+
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: trusted-migration-governance-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: trusted-migration-governance
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout trusted verifier from the protected base branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: trusted
+          persist-credentials: false
+
+      - name: Checkout pull request head as untrusted data only
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: candidate
+          persist-credentials: false
+
+      - name: Test trusted verifier contracts
+        env:
+          MIGRATION_CANDIDATE_ROOT: candidate
+        run: node --test trusted/scripts/check-migration-governance-trusted.test.mjs
+
+      - name: Verify candidate migrations with trusted base-branch code
+        run: node trusted/scripts/check-migration-governance-trusted.mjs candidate trusted

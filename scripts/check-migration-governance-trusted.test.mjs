@@ -1,0 +1,120 @@
+import assert from 'node:assert/strict';
+import { cp, lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import test from 'node:test';
+import { fileURLToPath } from 'node:url';
+import { verifyMigrationGovernance } from './check-migration-governance-trusted.mjs';
+
+const trustedRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const fixtureRoot = process.env.MIGRATION_CANDIDATE_ROOT
+  ? path.resolve(process.env.MIGRATION_CANDIDATE_ROOT)
+  : null;
+
+async function temporaryCandidate() {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'prodx-migration-governance-'));
+  await mkdir(path.join(root, 'db/migrations'), { recursive: true });
+  return root;
+}
+
+async function candidateFixtureCopy(t) {
+  if (!fixtureRoot) {
+    t.skip('MIGRATION_CANDIDATE_ROOT is not set; no full candidate fixture was supplied.');
+    return null;
+  }
+  const fixtureManifest = path.join(fixtureRoot, 'db/migrations/manifest.json');
+  if (!await lstat(fixtureManifest).then(() => true).catch(() => false)) {
+    t.skip('Candidate does not yet contain the migration baseline manifest.');
+    return null;
+  }
+  const root = await temporaryCandidate();
+  await cp(path.join(fixtureRoot, 'db/migrations'), path.join(root, 'db/migrations'), { recursive: true });
+  return root;
+}
+
+test('candidate cannot remove the trusted migration manifest', async () => {
+  const candidate = await temporaryCandidate();
+  try {
+    await assert.rejects(
+      verifyMigrationGovernance(candidate, trustedRoot),
+      /Required candidate migration manifest is missing/,
+    );
+  } finally {
+    await rm(candidate, { recursive: true, force: true });
+  }
+});
+
+test('candidate cannot replace the pinned migration manifest', async () => {
+  const candidate = await temporaryCandidate();
+  try {
+    await writeFile(path.join(candidate, 'db/migrations/manifest.json'), '{}');
+    await assert.rejects(
+      verifyMigrationGovernance(candidate, trustedRoot),
+      /differs from the trusted base manifest/,
+    );
+  } finally {
+    await rm(candidate, { recursive: true, force: true });
+  }
+});
+
+test('trusted verifier accepts the exact pinned candidate baseline', async (t) => {
+  const candidate = await candidateFixtureCopy(t);
+  if (!candidate) return;
+  try {
+    const result = await verifyMigrationGovernance(candidate, trustedRoot);
+    assert.equal(result.status, 'passed');
+    assert.match(result.message, /47 immutable baseline migrations/);
+  } finally {
+    await rm(candidate, { recursive: true, force: true });
+  }
+});
+
+test('trusted verifier rejects modification of a baseline migration', async (t) => {
+  const candidate = await candidateFixtureCopy(t);
+  if (!candidate) return;
+  try {
+    const manifest = JSON.parse(await readFile(path.join(candidate, 'db/migrations/manifest.json'), 'utf8'));
+    const relativePath = Object.keys(manifest.files)[0];
+    const filePath = path.join(candidate, relativePath);
+    const original = await readFile(filePath, 'utf8');
+    await writeFile(filePath, `${original}\n-- tampered\n`);
+    await assert.rejects(
+      verifyMigrationGovernance(candidate, trustedRoot),
+      /Baseline migration was modified/,
+    );
+  } finally {
+    await rm(candidate, { recursive: true, force: true });
+  }
+});
+
+test('trusted verifier rejects symlinked baseline migrations', async (t) => {
+  const candidate = await candidateFixtureCopy(t);
+  if (!candidate) return;
+  try {
+    const manifest = JSON.parse(await readFile(path.join(candidate, 'db/migrations/manifest.json'), 'utf8'));
+    const relativePath = Object.keys(manifest.files)[0];
+    const filePath = path.join(candidate, relativePath);
+    await rm(filePath);
+    await symlink(path.join(candidate, 'db/migrations/manifest.json'), filePath);
+    await assert.rejects(
+      verifyMigrationGovernance(candidate, trustedRoot),
+      /Refusing non-regular baseline migration/,
+    );
+  } finally {
+    await rm(candidate, { recursive: true, force: true });
+  }
+});
+
+test('trusted verifier rejects migration IDs at or below the immutable baseline maximum', async (t) => {
+  const candidate = await candidateFixtureCopy(t);
+  if (!candidate) return;
+  try {
+    await writeFile(path.join(candidate, 'db/migrations/0045_duplicate_migration.sql'), 'SELECT 1;\n');
+    await assert.rejects(
+      verifyMigrationGovernance(candidate, trustedRoot),
+      /must be greater than baseline maximum 0045/,
+    );
+  } finally {
+    await rm(candidate, { recursive: true, force: true });
+  }
+});
