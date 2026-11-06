@@ -144,7 +144,7 @@ jobs:
           set -euo pipefail
           # Fail closed if the six separately provisioned non-owner roles are absent.
           psql "$STAGING_MIGRATION_DATABASE_URL" --set=ON_ERROR_STOP=1 <<'SQL'
-          DO $
+          DO $rolecheck$
           DECLARE missing_roles text[];
           BEGIN
             SELECT array_agg(required.rolename)
@@ -157,7 +157,7 @@ jobs:
             IF missing_roles IS NOT NULL THEN
               RAISE EXCEPTION 'STAGING_ROLE_BOOTSTRAP_REQUIRED: %',array_to_string(missing_roles,',');
             END IF;
-          END $;
+          END $rolecheck$;
           SQL
           for migration in \
             migrations/001_pos_ledger.sql \
