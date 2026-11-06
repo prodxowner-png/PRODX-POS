@@ -176,6 +176,10 @@ try{
   if(failedRetryAttempt!=="retry_failed"||duplicateFailedRetryAttempt!=="retry_failed") {
     throw new Error("AUTHORIZED_RETRY_FAILURE_WAS_NOT_DURABLY_AUDITED_IDEMPOTENTLY");
   }
+  const failedRetryCheckpoint=await resolveFailedSequence(runtimeEnv,retryInput);
+  if(failedRetryCheckpoint.checkpoint.terminal_failures.find((failure)=>failure.terminal_seq_no===2)?.outcome!=="FAILED") {
+    throw new Error("FAILED_RETRY_GENERATION_WAS_NOT_REPORTED_AS_FAILED");
+  }
   const retryAgainInput={...retryInput,requestId:randomUUID(),reason:"Retry again after confirming the replenishment operation"};
   const retryAgainResolution=await resolveFailedSequence(runtimeEnv,retryAgainInput);
   if(retryAgainResolution.outcome!=="RETRY"||
