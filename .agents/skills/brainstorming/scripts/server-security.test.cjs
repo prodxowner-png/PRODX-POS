@@ -18,7 +18,7 @@ test('only loopback addresses are accepted for the plaintext companion server', 
 test('custom browser launcher URL is shell-quoted as one literal argument', () => {
   const markerDir = fs.mkdtempSync(path.join(os.tmpdir(), 'brainstorm-shell-quote-'));
   const marker = path.join(markerDir, 'injected');
-  const url = `http://localhost:1234/?key=$(touch ${marker}); echo pwned`;
+  const url = `http://localhost:1234/?key=$(touch ${marker}); echo 'pwned'`;
   const command = `printf '%s' ${shellQuote(url)}`;
   const result = spawnSync('sh', ['-c', command], { encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
