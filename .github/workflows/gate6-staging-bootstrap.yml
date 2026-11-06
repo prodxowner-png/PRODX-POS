@@ -7,7 +7,7 @@ on:
         description: "Exact PR branch to verify"
         required: true
         type: string
-        default: "ci/verify-delivery-gates-v1.1.2"
+        default: "fix/edge-sync-p1-integrity-remediation"
       expected_head_sha:
         description: "Expected 40-character commit SHA for the target branch"
         required: true
@@ -53,8 +53,8 @@ jobs:
           EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
         run: |
           set -euo pipefail
-          [[ "$TARGET_REF" == "ci/verify-delivery-gates-v1.1.2" ]] || {
-            echo "::error::Only the reviewed Edge Sync v1.1.2 branch is permitted."
+          [[ "$TARGET_REF" == "fix/edge-sync-p1-integrity-remediation" ]] || {
+            echo "::error::Only the explicitly reviewed Edge Sync integrity-remediation branch is permitted."
             exit 1
           }
           [[ "$EXPECTED_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || {
