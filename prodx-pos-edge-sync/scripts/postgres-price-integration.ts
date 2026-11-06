@@ -150,6 +150,10 @@ try{
     }
     const recorded=await recordFailedSequence(runtimeEnv,message,failure.message);
     if(recorded!=="recorded") throw new Error("FAILED_SEQUENCE_WAS_NOT_DURABLY_RECORDED");
+    // The same envelope is delivered again by the DLQ consumer after the main
+    // Queue consumer has already persisted the failure. This must be idempotent.
+    const duplicateFailure=await recordFailedSequence(runtimeEnv,message,failure.message);
+    if(duplicateFailure!=="recorded") throw new Error("DUPLICATE_DLQ_FAILURE_RECORD_WAS_NOT_IDEMPOTENT");
   }
 
   const retryMessage=await makeRecoveryMessage(2);
@@ -161,6 +165,10 @@ try{
      retryResolution.checkpoint.last_resolved_seq_no!==1) {
     throw new Error("FAILED_SEQUENCE_RETRY_CHECKPOINT_ASSERTION_FAILED");
   }
+  // A delayed duplicate DLQ delivery after an operator RETRY must not mark the
+  // already re-enqueued DO receipt failed again.
+  const delayedDlqReplay=await recordFailedSequence(runtimeEnv,retryMessage,"INSUFFICIENT_STOCK");
+  if(delayedDlqReplay!=="retry") throw new Error("AUTHORIZED_RETRY_WAS_NOT_PRESERVED_DURING_DLQ_REPLAY");
   await admin.query("BEGIN");
   await admin.query("SELECT set_config('app.current_tenant_id',$1,true)",[tenantId]);
   await admin.query(
