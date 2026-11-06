@@ -335,7 +335,15 @@ export async function recordFailedSequence(
          })]
       );
     }
+    const latestResolution = await client.query<{ disposition: string }>(
+      `SELECT disposition FROM terminal_sequence_resolutions
+        WHERE failure_id=$1
+        ORDER BY created_at DESC,resolution_id DESC LIMIT 1`,
+      [row.id]
+    );
     await client.query("COMMIT");
+    if (latestResolution.rows[0]?.disposition === "VOID") return "voided";
+    if (latestResolution.rows[0]?.disposition === "RETRY") return "retry";
     return "recorded";
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
