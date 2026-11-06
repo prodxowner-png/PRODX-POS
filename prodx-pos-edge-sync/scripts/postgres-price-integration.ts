@@ -289,7 +289,8 @@ try{
   if(Number(voidCount.rows[0]?.count)!==1) throw new Error("CONCURRENT_VOID_CREATED_DUPLICATE_RESOLUTIONS");
   const recoveryAudit=await admin.query(
     `SELECT action FROM audit_logs WHERE tenant_id=$1
-      AND action IN ('POS_TERMINAL_SEQUENCE_FAILED','POS_TERMINAL_SEQUENCE_RETRY_AUTHORIZED','POS_TERMINAL_SEQUENCE_VOIDED')`,
+      AND action IN ('POS_TERMINAL_SEQUENCE_FAILED','POS_TERMINAL_SEQUENCE_RETRY_AUTHORIZED',
+                    'POS_TERMINAL_SEQUENCE_RETRY_FAILED','POS_TERMINAL_SEQUENCE_VOIDED')`,
     [tenantId]
   );
   const recoveryActions=recoveryAudit.rows.map((row)=>row.action);
