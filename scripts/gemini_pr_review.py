@@ -22,6 +22,7 @@ GEMINI_API = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5
 MAX_DIFF_CHARS = 60_000
 MAX_FILES = 500
 REVIEW_COOLDOWN = timedelta(minutes=10)
+GLOBAL_REVIEW_COOLDOWN = timedelta(minutes=5)
 COMMENT_MARKER = "<!-- prodx-gemini-review -->"
 TARGET_BASE = "main"
 VERDICTS = {"PASS", "NEEDS_CHANGES", "BLOCKED"}
@@ -30,6 +31,32 @@ SEVERITIES = {"critical", "high", "medium", "low"}
 
 class ReviewError(Exception):
     """Safe, non-secret-bearing error suitable for a CI summary."""
+
+
+_SECRET_PATTERNS = [
+    (re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z0-9 ]*PRIVATE KEY-----"), "[REDACTED PRIVATE KEY]"),
+    (re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,})\b"), "[REDACTED GITHUB TOKEN]"),
+    (re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b"), "[REDACTED GOOGLE API KEY]"),
+    (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), "[REDACTED AWS ACCESS KEY]"),
+    (re.compile(r"\b(?:sk|rk)_(?:live|test)_[0-9A-Za-z]{16,}\b"), "[REDACTED PAYMENT KEY]"),
+    (re.compile(r"\bxox[baprs]-[0-9A-Za-z-]{10,}\b"), "[REDACTED SLACK TOKEN]"),
+    (re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"), "[REDACTED JWT]"),
+    (re.compile(r"\bpostgres(?:ql)?://[^\s\"'<>]+", re.IGNORECASE), "[REDACTED DATABASE URL]"),
+    (re.compile(
+        r"(?i)(\b[A-Z0-9_-]*(?:API[_-]?KEY|ACCESS[_-]?TOKEN|AUTH[_-]?TOKEN|CLIENT[_-]?SECRET|SECRET|PASSWORD|PASSWD|PRIVATE[_-]?KEY|AUTHORIZATION|BEARER|TOKEN)[A-Z0-9_-]*\b\s*[:=]\s*)(?:\"[^\"]*\"|'[^']*'|[^\s,;]+)"
+    ), r"\1[REDACTED]"),
+    (re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/-]{12,}=?"), "Bearer [REDACTED TOKEN]"),
+]
+
+
+def redact_sensitive_data(value: str) -> tuple[str, bool]:
+    """Redact common credential formats before any untrusted text leaves GitHub."""
+    redacted = value
+    changed = False
+    for pattern, replacement in _SECRET_PATTERNS:
+        redacted, count = pattern.subn(replacement, redacted)
+        changed = changed or count > 0
+    return redacted, changed
 
 
 def _request_json(
@@ -155,9 +182,26 @@ def review_diff(
     diff: str,
     truncated: bool,
 ) -> dict[str, Any]:
+    safe_files: list[dict[str, Any]] = []
+    redaction_detected = False
+    for item in files:
+        if not isinstance(item, dict):
+            continue
+        safe_item = dict(item)
+        if isinstance(safe_item.get("filename"), str):
+            safe_item["filename"], changed = redact_sensitive_data(_safe_text(safe_item["filename"], 500))
+            redaction_detected = redaction_detected or changed
+        safe_files.append(safe_item)
+    safe_title, title_redacted = redact_sensitive_data(_safe_text(title, 300))
+    safe_body, body_redacted = redact_sensitive_data(_safe_text(body, 4_000))
+    safe_diff, diff_redacted = redact_sensitive_data(diff)
+    redaction_detected = redaction_detected or title_redacted or body_redacted or diff_redacted
+    if redaction_detected:
+        truncated = True
+        safe_diff += "\n\n[REDACTED SENSITIVE DATA; review coverage is partial.]"
     changed_paths = {
         _safe_text(item.get("filename"), 500)
-        for item in files
+        for item in safe_files
         if isinstance(item.get("filename"), str)
     }
     prompt = f"""
@@ -172,15 +216,15 @@ PASS is allowed only when coverage is complete and there are no actionable findi
 If evidence is insufficient or the diff is incomplete, return BLOCKED and coverage=partial.
 Return only the required JSON object.
 
-PR title (untrusted): {title[:300]}
-PR body (untrusted, truncated to 4000 chars): {body[:4000]}
+PR title (untrusted): {safe_title[:300]}
+PR body (untrusted, truncated to 4000 chars): {safe_body[:4000]}
 Head SHA: {head_sha}
 Diff truncated by the collector: {"yes" if truncated else "no"}
 Changed paths:
 {json.dumps(sorted(changed_paths), ensure_ascii=False)}
 
 DIFF:
-{diff}
+{safe_diff}
 """.strip()
     payload = {
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
@@ -259,7 +303,8 @@ DIFF:
 
 
 def _escape(value: Any, limit: int = 2_000) -> str:
-    return html.escape(_safe_text(value, limit), quote=True).replace("@", "@&#8203;")
+    safe_value, _ = redact_sensitive_data(_safe_text(value, limit))
+    return html.escape(safe_value, quote=True).replace("@", "@&#8203;")
 
 
 def render_comment(result: dict[str, Any], head_sha: str) -> str:
@@ -308,6 +353,37 @@ def find_existing_review_comment(repo: str, number: int, token: str) -> dict[str
         if existing or len(comments) < 100:
             return existing
     raise ReviewError("Could not locate the prior review comment within the pagination limit.")
+
+
+def global_review_throttle_reason(
+    repo: str, token: str, current_run_id: str, *, now: datetime | None = None
+) -> str | None:
+    """Apply a repository-wide cooldown across all public PRs, not just one PR."""
+    if not current_run_id.isdigit():
+        raise ReviewError("GitHub Actions run identity is unavailable; review quota guard cannot run.")
+    url = (
+        f"{GITHUB_API}/repos/{repo}/actions/workflows/gemini-ai-review.yml/runs"
+        "?event=pull_request_target&per_page=100"
+    )
+    response = _request_json(url, token=token)
+    if not isinstance(response, dict) or not isinstance(response.get("workflow_runs"), list):
+        raise ReviewError("GitHub returned invalid workflow-run quota metadata.")
+    current = now or datetime.now(timezone.utc)
+    for run in response["workflow_runs"]:
+        if not isinstance(run, dict) or str(run.get("id", "")) == current_run_id:
+            continue
+        created_at = run.get("created_at")
+        try:
+            if not isinstance(created_at, str):
+                raise ValueError("missing created_at")
+            created = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+            if created.tzinfo is None:
+                raise ValueError("timestamp is not timezone-aware")
+        except ValueError:
+            raise ReviewError("GitHub workflow-run timestamp is invalid; review quota guard failed closed.") from None
+        if created > current + timedelta(minutes=5) or current - created < GLOBAL_REVIEW_COOLDOWN:
+            return "Repository-wide Gemini review cooldown active; retry after the 5-minute window."
+    return None
 
 
 def review_throttle_reason(
@@ -404,6 +480,18 @@ def main() -> int:
 
     head_sha = pr["head"]["sha"]
     try:
+        global_throttle = global_review_throttle_reason(
+            repo, token, os.environ.get("GITHUB_RUN_ID", "")
+        )
+    except ReviewError as error:
+        print(f"Review blocked: {error}")
+        return 2
+    if global_throttle:
+        print(json.dumps({"pr": number, "head_sha": head_sha, "status": "SKIPPED_THROTTLED",
+                          "reason": global_throttle}, separators=(",", ":")))
+        return 0
+
+    try:
         existing_comment = find_existing_review_comment(repo, number, token)
     except ReviewError as error:
         print(f"Review blocked: {error}")
@@ -416,7 +504,7 @@ def main() -> int:
             "status": "SKIPPED_THROTTLED",
             "reason": throttle_reason,
         }, separators=(",", ":")))
-        return 0 if "already has a complete advisory review" in throttle_reason else 1
+        return 0
 
     try:
         existing_comment = reserve_review_slot(repo, number, token, head_sha, existing_comment)
@@ -487,7 +575,8 @@ def main() -> int:
         "coverage": result["coverage"],
         "finding_count": len(result.get("findings", [])),
     }, separators=(",", ":")))
-    return 0 if result["verdict"] == "PASS" and result["coverage"] == "complete" else 1
+    # Non-gating: success means the advisory report was recorded, never that the model approved code.
+    return 0
 
 
 if __name__ == "__main__":

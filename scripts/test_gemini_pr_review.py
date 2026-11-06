@@ -275,5 +275,106 @@ class GeminiReviewContractTests(unittest.TestCase):
         self.assertEqual(mocked.call_args.kwargs["method"], "PATCH")
         self.assertIn("/issues/comments/789", mocked.call_args.args[0])
 
+    def test_redacts_credentials_from_all_prompt_inputs_and_blocks_pass(self):
+        import gemini_pr_review as review
+        from unittest.mock import patch
+
+        secret = "ghp_" + "A" * 36
+        captured = {}
+        def fake_request(_url, **kwargs):
+            captured["prompt"] = kwargs["payload"]["contents"][0]["parts"][0]["text"]
+            return {"candidates": [{"content": {"parts": [{
+                "text": '{"verdict":"PASS","summary":"Looks good","coverage":"complete","findings":[]}'
+            }]}}]}
+
+        with patch.object(review, "_request_json", side_effect=fake_request):
+            result = review.review_diff(
+                api_key="not-a-real-key",
+                title="Title",
+                body=f"Leaked token: {secret}",
+                head_sha="f" * 40,
+                files=[{"filename": "server/example.ts"}],
+                diff=f"FILE: server/example.ts\n+const token = '{secret}';",
+                truncated=False,
+            )
+        self.assertNotIn(secret, captured["prompt"])
+        self.assertIn("[REDACTED]", captured["prompt"])
+        self.assertEqual(result["verdict"], "BLOCKED")
+        self.assertEqual(result["coverage"], "partial")
+
+    def test_redacts_private_keys_and_database_urls(self):
+        import gemini_pr_review as review
+
+        private_key = "-----BEGIN PRIVATE KEY-----\nprivate-material\n-----END PRIVATE KEY-----"
+        database_url = "postgresql://user:password@db.example.test:5432/prodx"
+        value, changed = review.redact_sensitive_data(private_key + "\n" + database_url)
+        self.assertTrue(changed)
+        self.assertNotIn("private-material", value)
+        self.assertNotIn("user:password", value)
+        self.assertIn("[REDACTED PRIVATE KEY]", value)
+        self.assertIn("[REDACTED DATABASE URL]", value)
+
+    def test_global_cooldown_limits_calls_across_different_prs(self):
+        import gemini_pr_review as review
+        from unittest.mock import patch
+
+        now = datetime(2026, 11, 6, 8, 5, tzinfo=timezone.utc)
+        response = {"workflow_runs": [
+            {"id": 101, "created_at": "2026-11-06T08:03:00Z"},
+            {"id": 202, "created_at": "2026-11-06T08:05:00Z"},
+        ]}
+        with patch.object(review, "_request_json", return_value=response) as mocked:
+            reason = review.global_review_throttle_reason(
+                "org/repo", "token", "202", now=now
+            )
+        self.assertIn("Repository-wide", reason)
+        self.assertIn("/actions/workflows/gemini-ai-review.yml/runs", mocked.call_args.args[0])
+
+    def test_global_cooldown_allows_review_after_five_minutes(self):
+        import gemini_pr_review as review
+        from unittest.mock import patch
+
+        now = datetime(2026, 11, 6, 8, 10, tzinfo=timezone.utc)
+        response = {"workflow_runs": [{"id": 101, "created_at": "2026-11-06T08:03:00Z"}]}
+        with patch.object(review, "_request_json", return_value=response):
+            self.assertIsNone(review.global_review_throttle_reason(
+                "org/repo", "token", "202", now=now
+            ))
+
+    def test_model_verdict_does_not_control_workflow_success(self):
+        import os
+        import gemini_pr_review as review
+        from unittest.mock import patch
+
+        pr = {"head": {"sha": "a" * 40}, "title": "test", "body": "test"}
+        env = {
+            "GITHUB_REPOSITORY": "org/repo",
+            "GITHUB_TOKEN": "token",
+            "PR_NUMBER": "9",
+            "GITHUB_RUN_ID": "202",
+            "GEMINI_API_KEY": "not-a-real-key",
+        }
+        report = {"verdict": "NEEDS_CHANGES", "coverage": "complete",
+                  "findings": [{"severity": "high"}]}
+        with patch.dict(os.environ, env), \
+             patch.object(review, "fetch_pr", side_effect=[pr, pr]), \
+             patch.object(review, "global_review_throttle_reason", return_value=None), \
+             patch.object(review, "find_existing_review_comment", return_value=None), \
+             patch.object(review, "review_throttle_reason", return_value=None), \
+             patch.object(review, "reserve_review_slot", return_value={"id": 1}), \
+             patch.object(review, "fetch_files_and_diff", return_value=([{"filename": "server/a.py"}], "diff", False)), \
+             patch.object(review, "review_diff", return_value=report), \
+             patch.object(review, "post_comment"):
+            self.assertEqual(review.main(), 0)
+
+    def test_secret_bearing_workflow_has_global_budget_and_is_non_gating(self):
+        workflow = Path(__file__).parents[1] / ".github/workflows/gemini-ai-review.yml"
+        text = workflow.read_text()
+        self.assertIn("actions: read", text)
+        self.assertIn("group: gemini-ai-review-global", text)
+        self.assertIn("cancel-in-progress: false", text)
+        self.assertIn("non-gating", text)
+        self.assertNotIn("workflow_dispatch", text)
+
 if __name__ == "__main__":
     unittest.main()

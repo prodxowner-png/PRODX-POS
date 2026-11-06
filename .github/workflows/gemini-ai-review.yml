@@ -1,4 +1,4 @@
-name: Gemini AI Code, Architecture & Security Review
+name: Gemini AI advisory review (non-gating)
 
 on:
   pull_request_target:
@@ -8,14 +8,15 @@ permissions:
   contents: read
   pull-requests: read
   issues: write
+  actions: read
 
 concurrency:
-  group: gemini-ai-review-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: true
+  group: gemini-ai-review-global
+  cancel-in-progress: false
 
 jobs:
   review:
-    name: Gemini code, architecture & security review
+    name: Gemini advisory code, architecture & security review
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -30,6 +31,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number || '' }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python3 scripts/gemini_pr_review.py
 
