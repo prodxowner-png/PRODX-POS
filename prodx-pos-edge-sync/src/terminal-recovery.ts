@@ -252,8 +252,7 @@ export async function recordFailedSequence(
       }>(
         `SELECT id::text AS id,sale_id::text AS sale_id,idempotency_key,payload_hash
            FROM terminal_sequence_failures
-          WHERE tenant_id=$1 AND terminal_id=$2 AND terminal_seq_no=$3
-          FOR UPDATE`,
+          WHERE tenant_id=$1 AND terminal_id=$2 AND terminal_seq_no=$3`,
         [message.tenant_id, message.terminal_id, message.sale.terminal_seq_no]
       );
       if (priorFailure.rowCount &&
@@ -298,8 +297,7 @@ export async function recordFailedSequence(
       `SELECT id::text AS id,sale_id::text AS sale_id,idempotency_key,receipt_id::text AS receipt_id,
               payload_hash,hlc_physical_ms::text AS hlc_physical_ms,hlc_logical,failure_metadata
          FROM terminal_sequence_failures
-        WHERE tenant_id=$1 AND terminal_id=$2 AND terminal_seq_no=$3
-        FOR UPDATE`,
+        WHERE tenant_id=$1 AND terminal_id=$2 AND terminal_seq_no=$3`,
       [message.tenant_id,message.terminal_id,message.sale.terminal_seq_no]
     );
     const row = failure.rows[0];
@@ -382,8 +380,7 @@ export async function resolveFailedSequence(
               terminal_seq_no::text AS terminal_seq_no,failure_id::text AS failure_id,
               idempotency_key,payload_hash,disposition,actor_subject,reason
          FROM terminal_sequence_resolutions
-        WHERE tenant_id=$1 AND request_id=$2
-        FOR UPDATE`,
+        WHERE tenant_id=$1 AND request_id=$2`,
       [input.tenantId,input.requestId]
     );
     if (priorRequest.rowCount) {
@@ -413,8 +410,7 @@ export async function resolveFailedSequence(
       `SELECT id::text AS id,sale_id::text AS sale_id,idempotency_key,receipt_id::text AS receipt_id,
               payload_hash,hlc_physical_ms::text AS hlc_physical_ms,hlc_logical,failure_code
          FROM terminal_sequence_failures
-        WHERE tenant_id=$1 AND terminal_id=$2 AND terminal_seq_no=$3
-        FOR UPDATE`,
+        WHERE tenant_id=$1 AND terminal_id=$2 AND terminal_seq_no=$3`,
       [input.tenantId,input.terminalId,input.terminalSeqNo]
     );
     const failure = failureResult.rows[0];
