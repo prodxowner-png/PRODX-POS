@@ -390,8 +390,11 @@ export default {
             const recorded=await recordFailedSequence(env,failed,failed.failure_code ?? "QUEUE_RETRY_EXHAUSTED");
             if (recorded === "committed") await stub.markCommitted(failed.tenant_id,failed.terminal_id,failed.idempotency_key);
             else if (recorded === "voided") await stub.markVoided(failed.tenant_id,failed.terminal_id,failed.idempotency_key);
-            else await stub.markFailed(failed.tenant_id,failed.terminal_id,failed.idempotency_key,
+            else if (recorded !== "retry") await stub.markFailed(failed.tenant_id,failed.terminal_id,failed.idempotency_key,
               failed.failure_code ?? "QUEUE_RETRY_EXHAUSTED");
+            // An origin-authorized RETRY has already reconciled the DO and re-enqueued
+            // the original receipt. A delayed duplicate DLQ delivery must not re-mark
+            // that receipt failed and cancel the authorized retry.
           } else {
             await stub.markFailed(failed.tenant_id,failed.terminal_id,failed.idempotency_key,
               failed.failure_code ?? "QUEUE_RETRY_EXHAUSTED");
