@@ -35,5 +35,7 @@ jobs:
           bash -n .agents/skills/brainstorming/scripts/start-server.test.sh
           bash .agents/skills/brainstorming/scripts/start-server.test.sh
           bash -n .agents/skills/systematic-debugging/find-polluter.sh
+          bash -n .agents/skills/systematic-debugging/find-polluter.test.sh
+          bash .agents/skills/systematic-debugging/find-polluter.test.sh
           node --check .agents/skills/writing-skills/render-graphs.js
           node --test .agents/skills/brainstorming/scripts/server-security.test.cjs .agents/skills/writing-skills/render-graphs.test.js
