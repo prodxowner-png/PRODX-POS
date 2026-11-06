@@ -83,24 +83,37 @@ export async function readTerminalCheckpoint(
     edge_received_at: string | null;
     matched_sale_id: string | null;
     latest_disposition: string | null;
+    latest_resolution_id: string | null;
+    retry_failure_id: string | null;
+    retry_failure_code: string | null;
   }>(
     `SELECT f.terminal_seq_no::text AS terminal_seq_no,
             f.sale_id::text AS sale_id,
             f.idempotency_key,
             f.receipt_id::text AS receipt_id,
             f.payload_hash,
-            f.failure_code,
+            COALESCE(rf.failure_code,f.failure_code) AS failure_code,
             f.failure_metadata->>'edge_received_at' AS edge_received_at,
             s.sale_id::text AS matched_sale_id,
-            r.disposition AS latest_disposition
+            r.disposition AS latest_disposition,
+            r.resolution_id::text AS latest_resolution_id,
+            rf.retry_failure_id::text AS retry_failure_id,
+            rf.failure_code AS retry_failure_code
        FROM terminal_sequence_failures f
        LEFT JOIN LATERAL (
-         SELECT disposition
+         SELECT resolution_id,disposition
            FROM terminal_sequence_resolutions
           WHERE failure_id=f.id
           ORDER BY created_at DESC,resolution_id DESC
           LIMIT 1
        ) r ON true
+       LEFT JOIN LATERAL (
+         SELECT retry_failure_id,failure_code
+           FROM terminal_sequence_retry_failures
+          WHERE failure_id=f.id AND resolution_id=r.resolution_id
+          ORDER BY failed_at DESC,retry_failure_id DESC
+          LIMIT 1
+       ) rf ON true
        LEFT JOIN sales s
          ON s.tenant_id=f.tenant_id AND s.terminal_id=f.terminal_id
         AND s.terminal_seq_no=f.terminal_seq_no
@@ -118,7 +131,7 @@ export async function readTerminalCheckpoint(
       ? "COMMITTED"
       : row.latest_disposition === "VOID"
         ? "VOIDED"
-        : row.latest_disposition === "RETRY"
+        : row.latest_disposition === "RETRY" && !row.retry_failure_id
           ? "RETRY"
           : "FAILED";
     if (!row.edge_received_at || !Number.isFinite(Date.parse(row.edge_received_at))) {
@@ -132,6 +145,7 @@ export async function readTerminalCheckpoint(
       payload_hash: row.payload_hash.trim(),
       failure_code: row.failure_code,
       edge_received_at: row.edge_received_at,
+      resolution_id: row.latest_resolution_id,
       outcome
     };
   });
@@ -158,11 +172,50 @@ export async function readTerminalCheckpoint(
  * Persist a permanent queue failure in PostgreSQL before the DO is marked failed.
  * The queue envelope is revalidated; only a contiguous next sequence can be recorded.
  */
+async function recordRetryAttemptFailure(
+  client: Client,
+  message: QueueSale,
+  failureId: string,
+  resolutionId: string,
+  failureCode: string
+): Promise<void> {
+  const inserted = await client.query<{ retry_failure_id: string }>(
+    `INSERT INTO terminal_sequence_retry_failures
+       (tenant_id,terminal_id,terminal_seq_no,failure_id,resolution_id,idempotency_key,
+        receipt_id,payload_hash,failure_code,failure_metadata,failed_at)
+     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,now())
+     ON CONFLICT (resolution_id,receipt_id) DO NOTHING
+     RETURNING retry_failure_id::text AS retry_failure_id`,
+    [message.tenant_id,message.terminal_id,message.sale.terminal_seq_no,failureId,resolutionId,
+     message.idempotency_key,message.receipt_id,message.payload_hash,failureCode,
+     JSON.stringify({edge_received_at:message.edge_received_at,do_name:message.do_name})]
+  );
+  if (inserted.rowCount === 1) {
+    await client.query(
+      `INSERT INTO audit_logs
+         (tenant_id,actor_type,actor_id,action,entity_type,entity_id,payload_hash,
+          catalog_version,metadata,created_at)
+       VALUES($1,'POS_TERMINAL',$2,'POS_TERMINAL_SEQUENCE_RETRY_FAILED',
+              'TERMINAL_SEQUENCE_RETRY_FAILURE',$3,$4,$5,NULL,$6::jsonb,now())`,
+      [message.tenant_id,message.terminal_id,inserted.rows[0]!.retry_failure_id,
+       message.payload_hash,JSON.stringify({
+         terminal_id:message.terminal_id,
+         terminal_seq_no:message.sale.terminal_seq_no,
+         sale_id:message.sale.sale_id,
+         idempotency_key:message.idempotency_key,
+         receipt_id:message.receipt_id,
+         resolution_id:resolutionId,
+         failure_code:failureCode
+       })]
+    );
+  }
+}
+
 export async function recordFailedSequence(
   env: Env,
   message: QueueSale,
   rawFailureCode: string
-): Promise<"recorded" | "committed" | "voided" | "retry"> {
+): Promise<"recorded" | "committed" | "voided" | "retry" | "retry_failed"> {
   if (!UUID.test(message.tenant_id) || !UUID.test(message.terminal_id) ||
       !UUID.test(message.receipt_id) || message.idempotency_key !== message.sale?.idempotency_key ||
       !HASH.test(message.payload_hash) || message.sale?.payload_hash !== message.payload_hash) {
@@ -266,15 +319,23 @@ export async function recordFailedSequence(
           Number(prior.hlc_physical_ms) === message.sale.hlc.physical_ms &&
           prior.hlc_logical === message.sale.hlc.logical &&
           prior.failure_metadata?.edge_received_at === message.edge_received_at) {
-        const latest = await client.query<{ disposition: string }>(
-          `SELECT disposition FROM terminal_sequence_resolutions
+        const latest = await client.query<{ resolution_id: string; disposition: string }>(
+          `SELECT resolution_id::text AS resolution_id,disposition
+             FROM terminal_sequence_resolutions
             WHERE failure_id=$1
             ORDER BY created_at DESC,resolution_id DESC LIMIT 1`,
           [prior.id]
         );
+        const current = latest.rows[0];
+        if (current?.disposition === "RETRY" &&
+            message.recovery_resolution_id === current.resolution_id) {
+          await recordRetryAttemptFailure(client,message,prior.id,current.resolution_id,failureCode);
+          await client.query("COMMIT");
+          return "retry_failed";
+        }
         await client.query("COMMIT");
-        if (latest.rows[0]?.disposition === "VOID") return "voided";
-        if (latest.rows[0]?.disposition === "RETRY") return "retry";
+        if (current?.disposition === "VOID") return "voided";
+        if (current?.disposition === "RETRY") return "retry";
         // The DLQ consumer can safely replay this exact durable failure record.
         return "recorded";
       }
@@ -335,15 +396,23 @@ export async function recordFailedSequence(
          })]
       );
     }
-    const latestResolution = await client.query<{ disposition: string }>(
-      `SELECT disposition FROM terminal_sequence_resolutions
+    const latestResolution = await client.query<{ resolution_id: string; disposition: string }>(
+      `SELECT resolution_id::text AS resolution_id,disposition
+         FROM terminal_sequence_resolutions
         WHERE failure_id=$1
         ORDER BY created_at DESC,resolution_id DESC LIMIT 1`,
       [row.id]
     );
+    const current = latestResolution.rows[0];
+    if (current?.disposition === "RETRY" &&
+        message.recovery_resolution_id === current.resolution_id) {
+      await recordRetryAttemptFailure(client,message,row.id,current.resolution_id,failureCode);
+      await client.query("COMMIT");
+      return "retry_failed";
+    }
     await client.query("COMMIT");
-    if (latestResolution.rows[0]?.disposition === "VOID") return "voided";
-    if (latestResolution.rows[0]?.disposition === "RETRY") return "retry";
+    if (current?.disposition === "VOID") return "voided";
+    if (current?.disposition === "RETRY") return "retry";
     return "recorded";
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
