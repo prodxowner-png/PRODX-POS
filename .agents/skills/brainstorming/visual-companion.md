@@ -112,7 +112,8 @@ Open the returned `http://localhost:49152/?key=…` URL locally while the SSH tu
 ## The Loop
 
 1. **Check server is alive**, then **write HTML** to a new file in `screen_dir`:
-   - **Required: confirm the server is alive before referring to the URL or pushing a screen.** Check that `$STATE_DIR/server-info` exists and `$STATE_DIR/server-stopped` does not. If it has shut down, restart it with `start-server.sh` using the **same `--project-dir`** — it reuses the same port, so the user's open tab reconnects on its own (it shows a "paused" overlay while the server is down) and you don't need to send a new URL. The server auto-exits after 4 hours idle (configurable with `--idle-timeout-minutes`).
+   - **Required: confirm the server is alive before referring to the URL or pushing a screen.** Check that `$STATE_DIR/server-info` exists and `$STATE_DIR/server-stopped` does not.
+   - Save the returned JSON fields `screen_dir`, `state_dir`, and `session_dir` as `$SCREEN_DIR`, `$STATE_DIR`, and `$SESSION_DIR` respectively; use the returned `session_dir` for cleanup. If it has shut down, restart it with `start-server.sh` using the **same `--project-dir`** — it reuses the same port, so the user's open tab reconnects on its own (it shows a "paused" overlay while the server is down) and you don't need to send a new URL. The server auto-exits after 4 hours idle (configurable with `--idle-timeout-minutes`).
    - Use semantic filenames: `platform.html`, `visual-style.html`, `layout.html`
    - **Never reuse filenames** — each screen gets a fresh file
    - Use your file-creation tool — **never use cat/heredoc** (dumps noise into terminal)
@@ -294,7 +295,7 @@ If `$STATE_DIR/events` doesn't exist, the user didn't interact with the browser 
 ## Cleaning Up
 
 ```bash
-bash scripts/stop-server.sh "$(dirname "$STATE_DIR")"
+bash scripts/stop-server.sh "$SESSION_DIR"
 ```
 
 If the session used `--project-dir`, mockup files persist in `.superpowers/brainstorm/` for later reference. Only `/tmp` sessions get deleted on stop.
