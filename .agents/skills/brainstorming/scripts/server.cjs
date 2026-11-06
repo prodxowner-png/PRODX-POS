@@ -285,7 +285,8 @@ function urlHostForHttp(host) {
 }
 
 function isLoopbackHost(host) {
-  const value = String(host).toLowerCase().replace(/^\\[|\\]$/g, '');
+  const raw = String(host).toLowerCase();
+  const value = raw.startsWith('[') && raw.endsWith(']') ? raw.slice(1, -1) : raw;
   if (value === 'localhost') return true;
   const family = net.isIP(value);
   if (family === 4) return value.split('.')[0] === '127';
