@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const net = require('net');
 
 // ========== WebSocket Protocol (RFC 6455) ==========
 
@@ -283,6 +284,18 @@ function urlHostForHttp(host) {
   return h.includes(':') ? '[' + h + ']' : h;
 }
 
+function isLoopbackHost(host) {
+  const value = String(host).toLowerCase().replace(/^\\[|\\]$/g, '');
+  if (value === 'localhost') return true;
+  const family = net.isIP(value);
+  if (family === 4) return value.split('.')[0] === '127';
+  return family === 6 && value === '::1';
+}
+
+function shellQuote(value) {
+  return "'" + String(value).replace(/'/g, "'\\''") + "'";
+}
+
 function companionUrl() {
   return 'http://' + urlHostForHttp(URL_HOST) + ':' + PORT + '/?key=' + TOKEN;
 }
@@ -537,7 +550,7 @@ function maybeOpenBrowser() {
   const cp = require('child_process');
   // Operator-provided launcher: run as given (this env var is trusted operator input).
   if (process.env.BRAINSTORM_OPEN_CMD) {
-    try { cp.exec(process.env.BRAINSTORM_OPEN_CMD + ' ' + JSON.stringify(url), () => {}); } catch (e) { /* best effort */ }
+    try { cp.exec(process.env.BRAINSTORM_OPEN_CMD + ' ' + shellQuote(url), () => {}); } catch (e) { /* best effort */ }
     return;
   }
   // Platform launchers: pass the URL as an argv element via execFile (no shell),
@@ -574,6 +587,15 @@ const debounceTimers = new Map();
 // ========== Server Startup ==========
 
 function startServer() {
+  // The session key is a bearer credential embedded in the URL. This server
+  // speaks plain HTTP, so never expose it on a non-loopback interface. Remote
+  // access must use an encrypted SSH local-port-forwarding tunnel.
+  if (!isLoopbackHost(HOST)) {
+    console.error('Refusing non-loopback HTTP bind for a session URL containing a bearer key. Bind to 127.0.0.1 and use SSH local port forwarding for remote access.');
+    process.exitCode = 1;
+    return;
+  }
+
   if (!fs.existsSync(CONTENT_DIR)) fs.mkdirSync(CONTENT_DIR, { recursive: true });
   if (!fs.existsSync(STATE_DIR)) fs.mkdirSync(STATE_DIR, { recursive: true });
 
@@ -681,7 +703,7 @@ function startServer() {
     const info = JSON.stringify({
       type: 'server-started', port: Number(PORT), host: HOST,
       url_host: URL_HOST, url: companionUrl(),
-      screen_dir: CONTENT_DIR, state_dir: STATE_DIR, idle_timeout_ms: IDLE_TIMEOUT_MS
+      screen_dir: CONTENT_DIR, state_dir: STATE_DIR, session_dir: SESSION_DIR, idle_timeout_ms: IDLE_TIMEOUT_MS
     });
     console.log(info);
     // server-info embeds the key — keep it owner-only.
@@ -718,6 +740,8 @@ module.exports = {
   encodeFrame,
   decodeFrame,
   browserLauncherForPlatform,
+  isLoopbackHost,
+  shellQuote,
   OPCODES,
   MAX_FRAME_PAYLOAD_BYTES
 };
