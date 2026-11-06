@@ -1,7 +1,7 @@
+import { isProductionApiBaseUrl } from './apiBaseUrl';
+
 export const isMockDisabled = (): boolean => 
   typeof localStorage !== 'undefined' && localStorage.getItem('prodx_disable_mocks') === 'true';
-
-import { isProductionApiBaseUrl } from './apiBaseUrl';
 
 export const hasProductionUrl = (): boolean => {
   const url = import.meta.env.VITE_AUTH_API_BASE_URL?.trim() || '';
