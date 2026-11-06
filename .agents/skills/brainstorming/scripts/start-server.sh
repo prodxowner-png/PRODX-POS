@@ -82,6 +82,16 @@ if [[ -z "$URL_HOST" ]]; then
   fi
 fi
 
+# The companion URL carries a bearer key over plain HTTP. Only bind to
+# loopback; use an SSH local-port-forwarding tunnel for remote access.
+case "$BIND_HOST" in
+  127.0.0.1|localhost|::1|\[::1\]) ;;
+  *)
+    echo '{"error": "Non-loopback HTTP binds are disabled; use 127.0.0.1 with an SSH local-port-forwarding tunnel for remote access."}'
+    exit 1
+    ;;
+esac
+
 if [[ -n "$IDLE_TIMEOUT_MINUTES" ]]; then
   if ! [[ "$IDLE_TIMEOUT_MINUTES" =~ ^[0-9]+$ ]] || [[ "$IDLE_TIMEOUT_MINUTES" -lt 1 ]]; then
     echo "{\"error\": \"--idle-timeout-minutes must be a positive integer\"}"
