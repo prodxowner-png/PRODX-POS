@@ -114,7 +114,7 @@ const SUPERPOWERS_TELEMETRY_DISABLED = TELEMETRY_DISABLE_ENV_VARS.some(name => i
 let ownerPid = process.env.BRAINSTORM_OWNER_PID ? Number(process.env.BRAINSTORM_OWNER_PID) : null;
 
 // Per-session secret key. The companion is reachable by any local browser tab
-// and, when bound to a non-loopback host, by any host that can route to it.
+// Remote access is provided only through an encrypted SSH local-port-forwarding tunnel.
 // The key authenticates the real client uniformly across loopback, tunnel, and
 // remote binds — and defeats DNS rebinding — where a Host/Origin allowlist
 // cannot. It rides the served URL as ?key= and is mirrored into a cookie on
