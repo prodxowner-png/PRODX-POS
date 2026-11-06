@@ -14,6 +14,11 @@ test('production auth rejects missing, protocol-relative, and non-root-relative 
   assert.equal(isProductionApiBaseUrl('   '), false);
   assert.equal(isProductionApiBaseUrl('//untrusted.example/api'), false);
   assert.equal(isProductionApiBaseUrl('api/v1'), false);
+  assert.equal(isProductionApiBaseUrl('httpx://untrusted.example'), false);
+  assert.equal(isProductionApiBaseUrl('httpsomething://untrusted.example'), false);
+  assert.equal(isProductionApiBaseUrl('http://'), false);
+  assert.equal(isProductionApiBaseUrl('/\\\\untrusted.example/api'), false);
+  assert.equal(isProductionApiBaseUrl('/api\\\\..\\\\evil'), false);
 });
 
 test('session renewal guard accepts only the active, undisposed bearer', () => {
