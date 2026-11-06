@@ -92,16 +92,22 @@ bash scripts/start-server.sh --project-dir /path/to/project --open --foreground
 
 **Other environments:** The server must keep running in the background across conversation turns. If your environment reaps detached processes, use `--foreground` and launch the command with your platform's background execution mechanism.
 
-If the URL is unreachable from your browser (common in remote/containerized setups), bind a non-loopback host:
+The companion URL contains a bearer session key and the bundled server uses plain HTTP. **Never bind it to a non-loopback interface** (for example `0.0.0.0` or a LAN address). The server rejects those binds.
+
+For remote/containerized development, keep the server on loopback and use an SSH local-port-forwarding tunnel. Pin a port so both ends agree:
 
 ```bash
-bash scripts/start-server.sh \
+# On the remote development machine:
+BRAINSTORM_PORT=49152 bash scripts/start-server.sh \
   --project-dir /path/to/project \
-  --host 0.0.0.0 \
-  --url-host localhost
+  --host 127.0.0.1 \
+  --foreground
+
+# On your local workstation, in a second terminal:
+ssh -N -L 127.0.0.1:49152:127.0.0.1:49152 user@remote-host
 ```
 
-Use `--url-host` to control what hostname is printed in the returned URL JSON.
+Open the returned `http://localhost:49152/?key=…` URL locally while the SSH tunnel is active. SSH encrypts the network hop; do not expose the server port directly or forward it through plaintext HTTP.
 
 ## The Loop
 
@@ -288,7 +294,7 @@ If `$STATE_DIR/events` doesn't exist, the user didn't interact with the browser 
 ## Cleaning Up
 
 ```bash
-bash scripts/stop-server.sh $SESSION_DIR
+bash scripts/stop-server.sh "$(dirname "$STATE_DIR")"
 ```
 
 If the session used `--project-dir`, mockup files persist in `.superpowers/brainstorm/` for later reference. Only `/tmp` sessions get deleted on stop.
