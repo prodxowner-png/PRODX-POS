@@ -30,4 +30,13 @@ for option in --project-dir --host --url-host --idle-timeout-minutes; do
   fi
 done
 
+set +e
+output="$(bash "$START_SERVER" --host 0.0.0.0 2>&1)"
+status=$?
+set -e
+if [[ "$status" -ne 1 || "$output" != *"Non-loopback HTTP binds are disabled"* ]]; then
+  printf 'FAIL: non-loopback host was not rejected safely (status %s)\n%s\n' "$status" "$output" >&2
+  exit 1
+fi
+
 printf 'start-server argument validation: PASS\n'
