@@ -199,6 +199,73 @@ try{
      await recordFailedSequence(runtimeEnv,voidMessage,"INSUFFICIENT_STOCK")!=="voided") {
     throw new Error("VOIDED_SEQUENCE_REPLAY_WAS_NOT_IDEMPOTENT");
   }
+
+  // Negative scope checks must not reveal another tenant's failure or permit
+  // a recovery request against a terminal with no matching durable failure.
+  for (const [wrongTenant,wrongTerminal] of [
+    [randomUUID(),terminalId],
+    [tenantId,randomUUID()]
+  ] as const) {
+    let notFound=false;
+    try {
+      await resolveFailedSequence(runtimeEnv,{
+        tenantId:wrongTenant,terminalId:wrongTerminal,terminalSeqNo:3,
+        disposition:"VOID",requestId:randomUUID(),
+        actorSubject:"integration-recovery-admin",reason:"Negative scope test"
+      });
+    } catch (error) {
+      notFound=error instanceof Error&&error.message==="TERMINAL_SEQUENCE_FAILURE_NOT_FOUND";
+    }
+    if(!notFound) throw new Error("RECOVERY_SCOPE_MISMATCH_WAS_NOT_REJECTED");
+  }
+  let emptyReasonRejected=false;
+  try {
+    await resolveFailedSequence(runtimeEnv,{
+      tenantId,terminalId,terminalSeqNo:3,disposition:"VOID",requestId:randomUUID(),
+      actorSubject:"integration-recovery-admin",reason:"   "
+    });
+  } catch (error) {
+    emptyReasonRejected=error instanceof Error&&error.message==="INVALID_TERMINAL_SEQUENCE_RECOVERY_REQUEST";
+  }
+  if(!emptyReasonRejected) throw new Error("EMPTY_RECOVERY_REASON_WAS_ACCEPTED");
+
+  // Reusing a request ID with changed intent must fail closed, even after the
+  // original RETRY has committed its sale.
+  let requestConflictRejected=false;
+  try {
+    await resolveFailedSequence(runtimeEnv,{
+      ...retryInput,reason:"Changed reason under an already-used request ID"
+    });
+  } catch (error) {
+    requestConflictRejected=error instanceof Error&&
+      error.message==="TERMINAL_SEQUENCE_RECOVERY_REQUEST_ID_CONFLICT";
+  }
+  if(!requestConflictRejected) throw new Error("RECOVERY_REQUEST_ID_CONFLICT_WAS_NOT_REJECTED");
+
+  // Two concurrent identical VOID requests must serialize on the origin
+  // checkpoint and converge on one immutable resolution/audit identity.
+  const concurrentVoidMessage=await makeRecoveryMessage(4);
+  await expectRecoverableStockFailure(concurrentVoidMessage);
+  const concurrentVoidInput={
+    tenantId,terminalId,terminalSeqNo:4,disposition:"VOID" as const,
+    requestId:randomUUID(),actorSubject:"integration-recovery-admin",
+    reason:"Concurrent idempotent operator VOID"
+  };
+  const [voidA,voidB]=await Promise.all([
+    resolveFailedSequence(runtimeEnv,concurrentVoidInput),
+    resolveFailedSequence(runtimeEnv,concurrentVoidInput)
+  ]);
+  if(voidA.outcome!=="VOIDED"||voidB.outcome!=="VOIDED"||
+     !voidA.resolution_id||voidA.resolution_id!==voidB.resolution_id||
+     voidA.checkpoint.last_resolved_seq_no!==4||voidB.checkpoint.last_resolved_seq_no!==4) {
+    throw new Error("CONCURRENT_RECOVERY_REQUEST_IDEMPOTENCY_FAILED");
+  }
+  const voidCount=await admin.query(
+    `SELECT COUNT(*)::integer AS count FROM terminal_sequence_resolutions
+      WHERE tenant_id=$1 AND terminal_id=$2 AND terminal_seq_no=4 AND disposition='VOID'`,
+    [tenantId,terminalId]
+  );
+  if(Number(voidCount.rows[0]?.count)!==1) throw new Error("CONCURRENT_VOID_CREATED_DUPLICATE_RESOLUTIONS");
   const recoveryAudit=await admin.query(
     `SELECT action FROM audit_logs WHERE tenant_id=$1
       AND action IN ('POS_TERMINAL_SEQUENCE_FAILED','POS_TERMINAL_SEQUENCE_RETRY_AUTHORIZED','POS_TERMINAL_SEQUENCE_VOIDED')`,
