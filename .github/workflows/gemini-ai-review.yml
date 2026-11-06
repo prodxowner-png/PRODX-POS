@@ -17,6 +17,7 @@ concurrency:
 jobs:
   review:
     name: Gemini advisory code, architecture & security review
+    if: github.event.pull_request.author_association == 'OWNER' || github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'COLLABORATOR'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

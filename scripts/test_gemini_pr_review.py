@@ -374,6 +374,8 @@ class GeminiReviewContractTests(unittest.TestCase):
         self.assertIn("group: gemini-ai-review-global", text)
         self.assertIn("cancel-in-progress: false", text)
         self.assertIn("non-gating", text)
+        self.assertIn("author_association == 'OWNER'", text)
+        self.assertIn("author_association == 'COLLABORATOR'", text)
         self.assertNotIn("workflow_dispatch", text)
 
 if __name__ == "__main__":
