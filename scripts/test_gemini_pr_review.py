@@ -1,4 +1,6 @@
 import unittest
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from gemini_pr_review import render_comment
 
@@ -209,6 +211,69 @@ class GeminiReviewContractTests(unittest.TestCase):
         self.assertEqual(len(calls), 2)
         self.assertEqual(calls[1][1]["method"], "PATCH")
         self.assertIn("/issues/comments/123", calls[1][0])
+
+    def test_same_complete_head_skips_duplicate_gemini_review(self):
+        import gemini_pr_review as review
+
+        head = "a" * 40
+        comment = {
+            "body": review.render_comment({
+                "verdict": "PASS", "coverage": "complete",
+                "summary": "No actionable findings.", "findings": [],
+            }, head),
+            "updated_at": "2026-11-06T08:00:00Z",
+        }
+        reason = review.review_throttle_reason(comment, head)
+        self.assertIn("already has a complete advisory review", reason)
+
+    def test_recent_review_throttles_new_head_for_ten_minutes(self):
+        import gemini_pr_review as review
+
+        now = datetime(2026, 11, 6, 8, 5, tzinfo=timezone.utc)
+        comment = {"body": "previous review", "updated_at": "2026-11-06T08:00:00Z"}
+        reason = review.review_throttle_reason(comment, "b" * 40, now=now)
+        self.assertIn("cooldown active", reason)
+        self.assertIsNone(review.review_throttle_reason(
+            comment, "b" * 40, now=now + timedelta(minutes=6)
+        ))
+
+    def test_missing_review_timestamp_fails_closed(self):
+        import gemini_pr_review as review
+
+        reason = review.review_throttle_reason({"body": "prior review"}, "c" * 40)
+        self.assertIn("timestamp is unavailable", reason)
+
+    def test_secret_bearing_workflow_has_no_branch_selectable_dispatch(self):
+        workflow = Path(__file__).parents[1] / ".github/workflows/gemini-ai-review.yml"
+        text = workflow.read_text()
+        self.assertNotIn("workflow_dispatch", text)
+        self.assertIn("pull-requests: read", text)
+        self.assertIn("issues: write", text)
+        self.assertNotIn("pull-requests: write", text)
+
+    def test_review_slot_is_persisted_before_billable_call(self):
+        import gemini_pr_review as review
+        from unittest.mock import patch
+
+        response = {"id": 456, "body": review.COMMENT_MARKER, "updated_at": "2026-11-06T08:00:00Z"}
+        with patch.object(review, "_request_json", return_value=response) as mocked:
+            result = review.reserve_review_slot("org/repo", 9, "token", "d" * 40, None)
+        self.assertEqual(result["id"], 456)
+        args, kwargs = mocked.call_args
+        self.assertEqual(kwargs["method"], "POST")
+        self.assertIn("reserved before calling Gemini", kwargs["payload"]["body"])
+
+    def test_existing_review_slot_is_updated_in_place(self):
+        import gemini_pr_review as review
+        from unittest.mock import patch
+
+        existing = {"id": 789}
+        response = {"id": 789, "body": review.COMMENT_MARKER, "updated_at": "2026-11-06T08:00:00Z"}
+        with patch.object(review, "_request_json", return_value=response) as mocked:
+            result = review.reserve_review_slot("org/repo", 9, "token", "e" * 40, existing)
+        self.assertEqual(result["id"], 789)
+        self.assertEqual(mocked.call_args.kwargs["method"], "PATCH")
+        self.assertIn("/issues/comments/789", mocked.call_args.args[0])
 
 if __name__ == "__main__":
     unittest.main()

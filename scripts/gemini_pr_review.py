@@ -10,7 +10,9 @@ from __future__ import annotations
 import html
 import json
 import os
+import re
 import sys
+from datetime import datetime, timedelta, timezone
 import urllib.error
 import urllib.request
 from typing import Any
@@ -19,6 +21,7 @@ GITHUB_API = "https://api.github.com"
 GEMINI_API = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
 MAX_DIFF_CHARS = 60_000
 MAX_FILES = 500
+REVIEW_COOLDOWN = timedelta(minutes=10)
 COMMENT_MARKER = "<!-- prodx-gemini-review -->"
 TARGET_BASE = "main"
 VERDICTS = {"PASS", "NEEDS_CHANGES", "BLOCKED"}
@@ -290,8 +293,7 @@ def render_comment(result: dict[str, Any], head_sha: str) -> str:
     )
 
 
-def post_comment(repo: str, number: int, token: str, body: str) -> None:
-    existing = None
+def find_existing_review_comment(repo: str, number: int, token: str) -> dict[str, Any] | None:
     for page in range(1, 11):
         comments_url = f"{GITHUB_API}/repos/{repo}/issues/{number}/comments?per_page=100&page={page}"
         comments = _request_json(comments_url, token=token)
@@ -304,9 +306,71 @@ def post_comment(repo: str, number: int, token: str, body: str) -> None:
             None,
         )
         if existing or len(comments) < 100:
-            break
-    if not existing and page == 10 and len(comments) == 100:
-        raise ReviewError("Could not locate the prior review comment within the pagination limit.")
+            return existing
+    raise ReviewError("Could not locate the prior review comment within the pagination limit.")
+
+
+def review_throttle_reason(
+    existing: dict[str, Any] | None, head_sha: str, *, now: datetime | None = None
+) -> str | None:
+    if not existing:
+        return None
+    body = existing.get("body") if isinstance(existing.get("body"), str) else ""
+    prior_head = re.search(r"Reviewed head:</strong>\s*<code>([0-9a-f]{40})</code>", body)
+    verdict = re.search(r"<h2>Gemini AI review — (PASS|NEEDS_CHANGES|BLOCKED)</h2>", body)
+    coverage = re.search(r"<strong>Coverage:</strong>\s*(complete|partial)", body)
+    if (prior_head and prior_head.group(1) == head_sha and verdict and
+            verdict.group(1) in {"PASS", "NEEDS_CHANGES"} and coverage and coverage.group(1) == "complete"):
+        return "This exact PR head already has a complete advisory review; duplicate Gemini call skipped."
+    updated_at = existing.get("updated_at")
+    try:
+        if not isinstance(updated_at, str):
+            raise ValueError("missing updated_at")
+        updated = datetime.fromisoformat(updated_at.replace("Z", "+00:00"))
+        if updated.tzinfo is None:
+            raise ValueError("timestamp is not timezone-aware")
+    except ValueError:
+        return "Prior review timestamp is unavailable; Gemini call skipped to fail closed on quota."
+    current = now or datetime.now(timezone.utc)
+    if updated > current + timedelta(minutes=5) or current - updated < REVIEW_COOLDOWN:
+        return "Gemini review cooldown active for this PR; retry after the 10-minute window."
+    return None
+
+
+def reserve_review_slot(
+    repo: str, number: int, token: str, head_sha: str, existing: dict[str, Any] | None
+) -> dict[str, Any]:
+    """Persist the per-PR cooldown before making a billable model request."""
+    reservation_body = render_comment({
+        "verdict": "BLOCKED",
+        "coverage": "partial",
+        "summary": (
+            "Advisory review started for this exact PR head. The slot is reserved before "
+            "calling Gemini to prevent rapid push events from multiplying API usage. "
+            "If the run is interrupted, retry after the 10-minute cooldown."
+        ),
+        "findings": [],
+    }, head_sha)
+    if existing:
+        result = _request_json(
+            f"{GITHUB_API}/repos/{repo}/issues/comments/{existing['id']}",
+            token=token, method="PATCH", payload={"body": reservation_body},
+        )
+    else:
+        result = _request_json(
+            f"{GITHUB_API}/repos/{repo}/issues/{number}/comments",
+            token=token, method="POST", payload={"body": reservation_body},
+        )
+    if not isinstance(result, dict) or not isinstance(result.get("id"), int):
+        raise ReviewError("GitHub did not confirm the advisory review reservation.")
+    return result
+
+
+def post_comment(
+    repo: str, number: int, token: str, body: str, existing: dict[str, Any] | None = None
+) -> None:
+    if existing is None:
+        existing = find_existing_review_comment(repo, number, token)
     if existing:
         _request_json(
             f"{GITHUB_API}/repos/{repo}/issues/comments/{existing['id']}",
@@ -339,6 +403,27 @@ def main() -> int:
         return 2
 
     head_sha = pr["head"]["sha"]
+    try:
+        existing_comment = find_existing_review_comment(repo, number, token)
+    except ReviewError as error:
+        print(f"Review blocked: {error}")
+        return 2
+    throttle_reason = review_throttle_reason(existing_comment, head_sha)
+    if throttle_reason:
+        print(json.dumps({
+            "pr": number,
+            "head_sha": head_sha,
+            "status": "SKIPPED_THROTTLED",
+            "reason": throttle_reason,
+        }, separators=(",", ":")))
+        return 0 if "already has a complete advisory review" in throttle_reason else 1
+
+    try:
+        existing_comment = reserve_review_slot(repo, number, token, head_sha, existing_comment)
+    except ReviewError as error:
+        print(f"Review blocked: {error}")
+        return 2
+
     if not api_key:
         result = {
             "verdict": "BLOCKED",
@@ -390,7 +475,7 @@ def main() -> int:
 
     comment = render_comment(result, head_sha)
     try:
-        post_comment(repo, number, token, comment)
+        post_comment(repo, number, token, comment, existing_comment)
     except ReviewError as error:
         print(f"Review result could not be recorded: {error}")
         return 2
