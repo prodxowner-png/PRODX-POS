@@ -4,7 +4,7 @@ const { spawnSync } = require('node:child_process');
 const path = require('node:path');
 const os = require('node:os');
 const fs = require('node:fs');
-const { isLoopbackHost, shellQuote } = require('./server.cjs');
+const { isLoopbackHost, customBrowserLauncher } = require('./server.cjs');
 
 test('only loopback addresses are accepted for the plaintext companion server', () => {
   for (const host of ['localhost', '127.0.0.1', '127.0.0.2', '::1', '[::1]']) {
@@ -15,18 +15,21 @@ test('only loopback addresses are accepted for the plaintext companion server', 
   }
 });
 
-test('custom browser launcher URL is shell-quoted as one literal argument', () => {
+test('custom browser launcher passes the bearer URL as a literal argv value', () => {
   const markerDir = fs.mkdtempSync(path.join(os.tmpdir(), 'brainstorm-shell-quote-'));
   const marker = path.join(markerDir, 'injected');
   const url = `http://localhost:1234/?key=$(touch ${marker}); echo 'pwned'`;
-  const command = `printf '%s' ${shellQuote(url)}`;
-  const result = spawnSync('sh', ['-c', command], { encoding: 'utf8' });
+  const launcher = customBrowserLauncher(process.execPath, url);
+  const result = spawnSync(launcher.bin, [
+    '-e',
+    'process.stdout.write(process.argv[1])',
+    ...launcher.args
+  ], { encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, url);
   assert.equal(fs.existsSync(marker), false);
   fs.rmSync(markerDir, { recursive: true, force: true });
 });
-
 test('server refuses a non-loopback HTTP bind before creating session files', () => {
   const sessionDir = fs.mkdtempSync(path.join(os.tmpdir(), 'brainstorm-remote-bind-'));
   const serverPath = path.join(__dirname, 'server.cjs');
