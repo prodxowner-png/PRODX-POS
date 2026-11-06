@@ -293,8 +293,8 @@ function isLoopbackHost(host) {
   return family === 6 && value === '::1';
 }
 
-function shellQuote(value) {
-  return "'" + String(value).replace(/'/g, "'\\''") + "'";
+function customBrowserLauncher(command, url) {
+  return { bin: command, args: [url] };
 }
 
 function companionUrl() {
@@ -549,9 +549,11 @@ function maybeOpenBrowser() {
   if (clients.size > 0) return; // the user already opened it
   const url = companionUrl(); // must carry the key or the gate 403s it
   const cp = require('child_process');
-  // Operator-provided launcher: run as given (this env var is trusted operator input).
+  // Custom launchers are executable paths, not shell command strings. Pass
+  // the bearer URL as one argv element so no shell expansion can occur.
   if (process.env.BRAINSTORM_OPEN_CMD) {
-    try { cp.exec(process.env.BRAINSTORM_OPEN_CMD + ' ' + shellQuote(url), () => {}); } catch (e) { /* best effort */ }
+    const custom = customBrowserLauncher(process.env.BRAINSTORM_OPEN_CMD, url);
+    try { cp.execFile(custom.bin, custom.args, () => {}); } catch (e) { /* best effort */ }
     return;
   }
   // Platform launchers: pass the URL as an argv element via execFile (no shell),
@@ -742,7 +744,7 @@ module.exports = {
   decodeFrame,
   browserLauncherForPlatform,
   isLoopbackHost,
-  shellQuote,
+  customBrowserLauncher,
   OPCODES,
   MAX_FRAME_PAYLOAD_BYTES
 };
