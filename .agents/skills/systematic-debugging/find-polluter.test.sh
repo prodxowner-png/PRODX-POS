@@ -22,7 +22,7 @@ printf '%s\n' 'test fixture' > "$ROOT/no-runner/tests/sample.test.js"
 # A failing configured test runner must also be inconclusive.
 mkdir -p "$ROOT/failing/tests"
 printf '%s\n' 'test fixture' > "$ROOT/failing/tests/sample.test.js"
-printf '%s\n' '{"scripts":{"test":"node -e 'process.exit(1)'"}}' > "$ROOT/failing/package.json"
+printf '%s\n' '{"scripts":{"test":"false"}}' > "$ROOT/failing/package.json"
 (
   cd "$ROOT/failing"
   set +e
