@@ -648,6 +648,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         localStorage.removeItem(STORAGE_KEY);
       } catch {}
+      // Publish the new bearer synchronously so an older in-flight renewal
+      // cannot mistake the replacement login for its own active session.
+      sessionRef.current = newSession;
       setSession(newSession);
       setIsLocked(false);
       lastActivityRef.current = Date.now();
