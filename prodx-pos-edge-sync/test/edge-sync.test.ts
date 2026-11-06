@@ -230,7 +230,8 @@ describe("PRODX Edge sync Durable Object", () => {
       terminal_failures:[{
         terminal_seq_no:1,sale_id:item.sale.sale_id,idempotency_key:item.sale.idempotency_key,
         receipt_id:item.receiptId,payload_hash:item.payloadHash,failure_code:"INSUFFICIENT_STOCK",
-        edge_received_at:item.edgeReceivedAt,outcome:"RETRY" as const
+        edge_received_at:item.edgeReceivedAt,resolution_id:"00000000-0000-4000-8000-000000000010",
+        outcome:"RETRY" as const
       }]
     };
     await runInDO(stub as any,async(instance:any)=>{
@@ -241,12 +242,45 @@ describe("PRODX Edge sync Durable Object", () => {
         expect(messages[0]?.body.receipt_id).toBe(item.receiptId);
         expect(messages[0]?.body.edge_received_at).toBe(item.edgeReceivedAt);
         expect(messages[0]?.body.payload_hash).toBe(item.payloadHash);
+        expect(messages[0]?.body.recovery_resolution_id).toBe("00000000-0000-4000-8000-000000000010");
       }});
       try { await instance.applyOriginCheckpoint(retryCheckpoint); }
       finally { Object.defineProperty(queue,"sendBatch",{configurable:true,value:original}); }
     });
     expect(resent).toBe(1);
     expect((await stub.getStatus(TENANT,TERMINAL,item.sale.idempotency_key)).status).toBe("queued");
+  });
+
+  it("ignores a late old-delivery failure after retry authorization and records failure of the current retry generation", async () => {
+    const stub=getStub("retry-generation-fencing");
+    const item=prepared("retry-generation-fencing-key","d".repeat(64),1);
+    await stub.submitBatch(submission([item]));
+    await stub.markFailed(TENANT,TERMINAL,item.sale.idempotency_key,"INSUFFICIENT_STOCK");
+    const resolutionId="00000000-0000-4000-8000-000000000012";
+    const retryCheckpoint={
+      last_committed_seq_no:0,last_hlc_physical_ms:0,last_hlc_logical:0,
+      last_resolved_seq_no:0,last_resolved_hlc_physical_ms:0,last_resolved_hlc_logical:0,
+      terminal_failures:[{
+        terminal_seq_no:1,sale_id:item.sale.sale_id,idempotency_key:item.sale.idempotency_key,
+        receipt_id:item.receiptId,payload_hash:item.payloadHash,failure_code:"INSUFFICIENT_STOCK",
+        edge_received_at:item.edgeReceivedAt,resolution_id:resolutionId,outcome:"RETRY" as const
+      }]
+    };
+    await stub.applyOriginCheckpoint(retryCheckpoint);
+    // A delayed original Queue/DLQ delivery has no retry-generation token and
+    // must not overwrite the newly re-enqueued receipt.
+    await stub.markFailed(TENANT,TERMINAL,item.sale.idempotency_key,"LATE_OLD_FAILURE");
+    expect((await stub.getStatus(TENANT,TERMINAL,item.sale.idempotency_key)).status).toBe("queued");
+
+    // A failure from the current authorized retry generation is accepted.
+    await stub.markFailed(TENANT,TERMINAL,item.sale.idempotency_key,"RETRY_ATTEMPT_FAILED",resolutionId);
+    expect((await stub.getStatus(TENANT,TERMINAL,item.sale.idempotency_key)).status).toBe("failed");
+    const failedCheckpoint={
+      ...retryCheckpoint,
+      terminal_failures:[{...retryCheckpoint.terminal_failures[0]!,failure_code:"RETRY_ATTEMPT_FAILED",outcome:"FAILED" as const}]
+    };
+    await stub.applyOriginCheckpoint(failedCheckpoint);
+    expect((await stub.getStatus(TENANT,TERMINAL,item.sale.idempotency_key)).status).toBe("failed");
   });
 
   it("reconciles an origin-authorized VOID without reporting a committed sale", async () => {
@@ -262,7 +296,8 @@ describe("PRODX Edge sync Durable Object", () => {
       terminal_failures:[{
         terminal_seq_no:1,sale_id:item.sale.sale_id,idempotency_key:item.sale.idempotency_key,
         receipt_id:item.receiptId,payload_hash:item.payloadHash,failure_code:"INSUFFICIENT_STOCK",
-        edge_received_at:item.edgeReceivedAt,outcome:"VOIDED" as const
+        edge_received_at:item.edgeReceivedAt,resolution_id:"00000000-0000-4000-8000-000000000011",
+        outcome:"VOIDED" as const
       }]
     };
     await runInDO(stub as any,async(instance:any)=>{
