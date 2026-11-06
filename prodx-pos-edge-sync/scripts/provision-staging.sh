@@ -87,8 +87,8 @@ verify_staging_access() {
       .aud == $aud and
       .type == "self_hosted" and
       .name == "PRODX POS Staging Operators" and
-      any(.policies[]?; .name == "POS Staging Auditor" and .decision == "allow") and
-      any(.policies[]?; .name == "POS Staging Recovery Admin" and .decision == "allow")
+      any(.policies[]?; .name == "POS Staging Auditor" and .decision == "allow" and (.include | length) > 0) and
+      any(.policies[]?; .name == "POS Staging Recovery Admin" and .decision == "allow" and (.include | length) > 0)
     )
   ' <<<"$apps" >/dev/null || {
     echo "ERROR: dedicated Staging Access app/policies are missing or do not match POS_STAGING_ACCESS_AUD." >&2
