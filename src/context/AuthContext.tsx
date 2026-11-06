@@ -50,6 +50,7 @@ import {
   writePersistedSession,
 } from './authSessionStorage';
 import { shouldReadMock } from '../adapters/env';
+import { isCurrentSessionRenewal } from './sessionRenewalGuard';
 import { createAuthDiagnosticRequest } from './authDiagnostics';
 
 export interface AddStaffPayload {
@@ -218,6 +219,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
   const lastActivityRef = useRef(Date.now());
   const webAuthnChallengesRef = useRef<Map<string, WebAuthnChallengeRecord>>(new Map());
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
 
   /**
    * Issues a cryptographically random, single-use WebAuthn challenge with a 60-second TTL.
@@ -703,20 +706,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return verification;
   };
 
-  const logout = async () => {
+  const logout = async (expectedToken?: string) => {
     const token = session?.token;
+    if (expectedToken && !isCurrentSessionRenewal(false, sessionRef.current?.token, expectedToken)) return;
     setIsLoading(true);
     try {
-      if (token) await authApi.logout(token);
+      if (token && (!expectedToken || token === expectedToken)) await authApi.logout(token);
     } catch (error) {
       console.error('[AuthContext] Server logout failed; local session was cleared.', error);
     } finally {
-      setSession(null);
-      setIsLocked(false);
-      try {
-        clearPersistedSession(sessionStorage);
-        localStorage.removeItem(STORAGE_KEY);
-      } catch {}
+      // A renewal response for an older bearer must never clear a newer login.
+      if (!expectedToken || isCurrentSessionRenewal(false, sessionRef.current?.token, expectedToken)) {
+        sessionRef.current = null;
+        setSession(null);
+        setIsLocked(false);
+        try {
+          clearPersistedSession(sessionStorage);
+          localStorage.removeItem(STORAGE_KEY);
+        } catch {}
+      }
       setIsLoading(false);
     }
   };
@@ -728,20 +736,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     let timer: ReturnType<typeof setTimeout> | undefined;
     const expiry = Date.parse(session.expiresAt);
     if (!Number.isFinite(expiry)) {
-      void logout();
+      void logout(session.token);
       return;
     }
 
     const attemptRenewal = async (): Promise<void> => {
       if (disposed) return;
       if (expiry - Date.now() <= 0) {
-        await logout();
+        await logout(session.token);
         return;
       }
 
       try {
         const renewed = await authApi.renewSession(session.token);
-        if (disposed) return;
+        if (!isCurrentSessionRenewal(disposed, sessionRef.current?.token, session.token)) return;
         if (renewed) {
           setSession((current) => current?.token === session.token
             ? applyOperationalScopeToSession(renewed, current.operationalScope ?? null)
@@ -753,7 +761,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           ? (error as { status?: unknown }).status
           : undefined;
         if (status === 401 || status === 403) {
-          await logout();
+          if (!isCurrentSessionRenewal(disposed, sessionRef.current?.token, session.token)) return;
+          await logout(session.token);
           return;
         }
         console.warn(
@@ -765,7 +774,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (disposed) return;
       const remaining = expiry - Date.now();
       if (remaining <= 0) {
-        await logout();
+        await logout(session.token);
         return;
       }
       timer = setTimeout(() => { void attemptRenewal(); }, Math.min(30_000, Math.max(1_000, remaining - 500)));
