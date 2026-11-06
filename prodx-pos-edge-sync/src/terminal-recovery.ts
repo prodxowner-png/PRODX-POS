@@ -162,7 +162,7 @@ export async function recordFailedSequence(
   env: Env,
   message: QueueSale,
   rawFailureCode: string
-): Promise<"recorded" | "committed" | "voided"> {
+): Promise<"recorded" | "committed" | "voided" | "retry"> {
   if (!UUID.test(message.tenant_id) || !UUID.test(message.terminal_id) ||
       !UUID.test(message.receipt_id) || message.idempotency_key !== message.sale?.idempotency_key ||
       !HASH.test(message.payload_hash) || message.sale?.payload_hash !== message.payload_hash) {
@@ -248,26 +248,35 @@ export async function recordFailedSequence(
 
     if (lastResolved >= message.sale.terminal_seq_no) {
       const priorFailure = await client.query<{
-        id: string; sale_id: string; idempotency_key: string; payload_hash: string;
+        id: string; sale_id: string; idempotency_key: string; receipt_id: string;
+        payload_hash: string; hlc_physical_ms: string; hlc_logical: number;
+        failure_metadata: { edge_received_at?: string };
       }>(
-        `SELECT id::text AS id,sale_id::text AS sale_id,idempotency_key,payload_hash
+        `SELECT id::text AS id,sale_id::text AS sale_id,idempotency_key,receipt_id::text AS receipt_id,
+                payload_hash,hlc_physical_ms::text AS hlc_physical_ms,hlc_logical,failure_metadata
            FROM terminal_sequence_failures
           WHERE tenant_id=$1 AND terminal_id=$2 AND terminal_seq_no=$3`,
         [message.tenant_id, message.terminal_id, message.sale.terminal_seq_no]
       );
-      if (priorFailure.rowCount &&
-          priorFailure.rows[0]!.sale_id === message.sale.sale_id &&
-          priorFailure.rows[0]!.idempotency_key === message.idempotency_key &&
-          priorFailure.rows[0]!.payload_hash.trim() === message.payload_hash) {
-        const voided = await client.query(
-          `SELECT 1 FROM terminal_sequence_resolutions
-            WHERE failure_id=$1 AND disposition='VOID' LIMIT 1`,
-          [priorFailure.rows[0]!.id]
+      const prior = priorFailure.rows[0];
+      if (prior && prior.sale_id === message.sale.sale_id &&
+          prior.idempotency_key === message.idempotency_key &&
+          prior.receipt_id === message.receipt_id &&
+          prior.payload_hash.trim() === message.payload_hash &&
+          Number(prior.hlc_physical_ms) === message.sale.hlc.physical_ms &&
+          prior.hlc_logical === message.sale.hlc.logical &&
+          prior.failure_metadata?.edge_received_at === message.edge_received_at) {
+        const latest = await client.query<{ disposition: string }>(
+          `SELECT disposition FROM terminal_sequence_resolutions
+            WHERE failure_id=$1
+            ORDER BY created_at DESC,resolution_id DESC LIMIT 1`,
+          [prior.id]
         );
-        if (voided.rowCount) {
-          await client.query("COMMIT");
-          return "voided";
-        }
+        await client.query("COMMIT");
+        if (latest.rows[0]?.disposition === "VOID") return "voided";
+        if (latest.rows[0]?.disposition === "RETRY") return "retry";
+        // The DLQ consumer can safely replay this exact durable failure record.
+        return "recorded";
       }
       throw new Error("TERMINAL_SEQUENCE_ALREADY_RESOLVED");
     }
