@@ -26,7 +26,7 @@ GRANT SELECT,INSERT ON sales TO prodx_pos_worker;
 GRANT INSERT ON sale_lines,inventory_ledger,audit_logs TO prodx_pos_worker;
 -- Edge Sync records and resolves origin-authoritative failed terminal sequences.
 -- Both tables are append-only; the Worker needs tenant-scoped SELECT + INSERT only.
-GRANT SELECT,INSERT ON terminal_sequence_failures,terminal_sequence_resolutions TO prodx_pos_worker;
+GRANT SELECT,INSERT ON terminal_sequence_failures,terminal_sequence_resolutions,terminal_sequence_retry_failures TO prodx_pos_worker;
 GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO prodx_pos_worker;
 -- Re-run the sequence GRANT after any later migration that adds a serial/bigserial column.
 
@@ -53,14 +53,14 @@ GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO prodx_inventory_admin;
 -- Read-only tenant-scoped role for RLS smoke tests; never use it as the Worker role.
 GRANT SELECT ON products,sales,sale_lines,pos_idempotency,inventory_ledger,
   inventory_balances,audit_logs,tenant_catalog_versions,terminal_sync_state,terminal_devices,
-  terminal_sequence_failures,terminal_sequence_resolutions
+  terminal_sequence_failures,terminal_sequence_resolutions,terminal_sequence_retry_failures
 TO prodx_rls_auditor;
 
 -- Privileged read-only reconciliation role. BYPASSRLS is intentional for cross-tenant
 -- audits only; keep its credentials out of Workers and application runtimes.
 GRANT SELECT ON products,sales,sale_lines,pos_idempotency,inventory_ledger,
   inventory_balances,audit_logs,tenant_catalog_versions,terminal_sync_state,terminal_devices,
-  terminal_sequence_failures,terminal_sequence_resolutions
+  terminal_sequence_failures,terminal_sequence_resolutions,terminal_sequence_retry_failures
 TO prodx_reconciliation_admin;
 
 -- Trigger functions are executable only by the roles that can cause their triggers.
