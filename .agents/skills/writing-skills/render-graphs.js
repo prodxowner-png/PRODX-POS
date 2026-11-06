@@ -133,6 +133,8 @@ function main() {
     fs.mkdirSync(outputDir);
   }
 
+  let renderFailed = false;
+
   if (combine) {
     // Combine all graphs into one
     const combined = combineGraphs(blocks, skillName);
@@ -148,6 +150,7 @@ function main() {
       console.log(`  Source: ${skillName}_combined.dot`);
     } else {
       console.error('  Failed to render combined diagram');
+      renderFailed = true;
     }
   } else {
     // Render each separately
@@ -159,11 +162,13 @@ function main() {
         console.log(`  Rendered: ${block.name}.svg`);
       } else {
         console.error(`  Failed: ${block.name}`);
+        renderFailed = true;
       }
     }
   }
 
   console.log(`\nOutput: ${outputDir}/`);
+  if (renderFailed) process.exitCode = 1;
 }
 
 main();
