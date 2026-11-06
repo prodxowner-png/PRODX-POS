@@ -428,8 +428,9 @@ export default {
           try {
             const doName = getDoName(saleMessage.tenant_id,saleMessage.terminal_id);
             const stub = env.IDEMPOTENCY.get(env.IDEMPOTENCY.idFromName(doName));
+            let recorded: "recorded" | "committed" | "voided" | "retry" | "retry_failed" | undefined;
             if (recoveryEligible) {
-              const recorded=await recordFailedSequence(env,saleMessage,reason);
+              recorded=await recordFailedSequence(env,saleMessage,reason);
               if (recorded === "committed") {
                 await stub.markCommitted(saleMessage.tenant_id,saleMessage.terminal_id,saleMessage.idempotency_key);
                 message.ack();
