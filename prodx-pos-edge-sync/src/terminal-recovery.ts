@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { Client } from "pg";
 import type { QueueSale, TerminalCheckpoint, TerminalFailureCheckpoint } from "./contracts";
 import { canonicalize, sha256Hex, assertSaleShape } from "./canonical";
+import { recoveryReplayOutcome } from "./recovery-outcome";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const HASH = /^[0-9a-f]{64}$/;
@@ -20,7 +21,7 @@ export interface TerminalSequenceRecoveryInput {
 
 export interface TerminalSequenceRecoveryResult {
   resolution_id: string | null;
-  outcome: "RETRY" | "VOIDED" | "COMMITTED";
+  outcome: "FAILED" | "RETRY" | "VOIDED" | "COMMITTED";
   checkpoint: TerminalCheckpoint;
 }
 
@@ -481,10 +482,10 @@ export async function resolveFailedSequence(
       const currentFailure = checkpoint.terminal_failures.find((failure) =>
         failure.terminal_seq_no === input.terminalSeqNo
       );
-      const outcome: TerminalSequenceRecoveryResult["outcome"] =
-        currentFailure?.outcome === "COMMITTED" ? "COMMITTED" :
-        currentFailure?.outcome === "VOIDED" ? "VOIDED" :
-        prior.disposition === "VOID" ? "VOIDED" : "RETRY";
+      const outcome = recoveryReplayOutcome(
+        prior.disposition as "RETRY" | "VOID",
+        currentFailure?.outcome
+      );
       await client.query("COMMIT");
       return { resolution_id: prior.resolution_id, outcome, checkpoint };
     }
