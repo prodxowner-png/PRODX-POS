@@ -165,3 +165,24 @@ test('trusted verifier rejects deletion of a migration merged after the pinned m
     await rm(trusted, { recursive: true, force: true });
   }
 });
+
+test('trusted verifier rejects a new migration that reuses an ID already present on the trusted base', async (t) => {
+  const candidate = await candidateFixtureCopy(t);
+  if (!candidate) return;
+  const trusted = await trustedRootWithPostBaselineMigration();
+  try {
+    const trustedMigration = 'db/migrations/0050_post_baseline_fixture.sql';
+    await cp(path.join(trusted, trustedMigration), path.join(candidate, trustedMigration));
+    await writeFile(
+      path.join(candidate, 'db/migrations/0050_duplicate_after_merge.sql'),
+      'SELECT 51;\n',
+    );
+    await assert.rejects(
+      verifyMigrationGovernance(candidate, trusted),
+      /Duplicate new migration ID 0050/,
+    );
+  } finally {
+    await rm(candidate, { recursive: true, force: true });
+    await rm(trusted, { recursive: true, force: true });
+  }
+});
