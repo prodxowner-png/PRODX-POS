@@ -44,6 +44,9 @@ jobs:
     - name: Server TypeScript check
       run: bun run server:check
 
+    - name: Verify migration governance
+      run: bun run db:migrations:check
+
     - name: Apply PostgreSQL migrations
       shell: bash
       run: |
