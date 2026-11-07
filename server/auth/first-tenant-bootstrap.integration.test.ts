@@ -43,7 +43,10 @@ const cleanup = async (): Promise<void> => {
 
 test('first-tenant PostgreSQL bootstrap is atomic, concurrent-safe, idempotent, and tenant-scoped', async (t) => {
   if (!pool || !repository) {
-    t.skip('PRODX_BOOTSTRAP_TEST_DATABASE_URL is not configured; run the isolated bootstrap PostgreSQL gate.');
+    if (process.env.PRODX_RUN_BOOTSTRAP_POSTGRES_INTEGRATION === '1') {
+      throw new Error('PRODX_BOOTSTRAP_TEST_DATABASE_URL is required when the bootstrap PostgreSQL integration gate is enabled.');
+    }
+    t.skip('Set PRODX_RUN_BOOTSTRAP_POSTGRES_INTEGRATION=1 with a dedicated PRODX_BOOTSTRAP_TEST_DATABASE_URL to run this isolated gate.');
     return;
   }
   t.after(async () => {
