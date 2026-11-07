@@ -45,8 +45,8 @@ export const registerSupervisorAuthorizationRoute = (app: Express, db: Transacti
       return;
     }
     try {
-      const { rows } = await db.query<{ id: string; email: string; name: string; role: string }>(
-        `SELECT id, username AS email, display_name AS name, role_key AS role
+      const { rows } = await db.query<{ id: string; username: string; name: string; role: string }>(
+        `SELECT id, username, display_name AS name, role_key AS role
            FROM (
              SELECT DISTINCT ON (u.id) u.id, u.username, u.display_name, r.role_key
                FROM prodx_store_memberships m

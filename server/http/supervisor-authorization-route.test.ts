@@ -261,7 +261,7 @@ test('supervisor directory returns only active, Supabase-mapped supervisors for 
     query: async <T extends Record<string, unknown>>(sql: string, parameters: readonly unknown[] = []) => {
       queryText = sql;
       queryParameters = parameters;
-      return { rows: [{ id: 'manager-1', email: 'manager@example.test', name: 'Store Manager', role: 'manager' }] as unknown as T[] };
+      return { rows: [{ id: 'manager-1', username: 'manager-login', name: 'Store Manager', role: 'manager' }] as unknown as T[] };
     },
     transaction: async () => { throw new Error('directory read must not open an explicit transaction'); },
   };
@@ -270,7 +270,7 @@ test('supervisor directory returns only active, Supabase-mapped supervisors for 
   try {
     const response = await fetch(`${server.baseUrl}/api/v1/authorizations/supervisors`);
     assert.equal(response.status, 200);
-    assert.deepEqual((await response.json() as { supervisors: unknown[] }).supervisors, [{ id: 'manager-1', email: 'manager@example.test', name: 'Store Manager', role: 'manager' }]);
+    assert.deepEqual((await response.json() as { supervisors: unknown[] }).supervisors, [{ id: 'manager-1', username: 'manager-login', name: 'Store Manager', role: 'manager' }]);
     assert.deepEqual(queryParameters, [principal.organizationId, principal.storeId]);
     assert.match(queryText, /u\.supabase_auth_user_id IS NOT NULL/i);
     assert.match(queryText, /m\.active = TRUE/i);

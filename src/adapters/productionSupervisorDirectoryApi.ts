@@ -2,7 +2,7 @@ import type { Role, User } from '../domain/auth';
 
 const API_BASE_URL = import.meta.env.VITE_AUTH_API_BASE_URL;
 
-type SupervisorDirectoryRow = { id: string; email: string; name: string; role: string };
+type SupervisorDirectoryRow = { id: string; username: string; name: string; role: string };
 
 export function createProductionSupervisorDirectoryApi(token: string) {
   return {
@@ -15,13 +15,13 @@ export function createProductionSupervisorDirectoryApi(token: string) {
       const body = await response.json().catch(() => null) as { supervisors?: unknown; error?: { message?: unknown } } | null;
       if (!response.ok) throw new Error(String(body?.error?.message ?? 'Unable to load eligible supervisors.'));
       if (!Array.isArray(body?.supervisors)) throw new Error('Supervisor directory response is invalid.');
-      return (body.supervisors as SupervisorDirectoryRow[]).filter((row) => row && typeof row.id === 'string' && typeof row.email === 'string' && typeof row.name === 'string' && (row.role === 'owner' || row.role === 'admin' || row.role === 'manager'))
+      return (body.supervisors as SupervisorDirectoryRow[]).filter((row) => row && typeof row.id === 'string' && typeof row.username === 'string' && typeof row.name === 'string' && (row.role === 'owner' || row.role === 'admin' || row.role === 'manager'))
         .map((row) => ({
           id: row.id,
           name: row.name,
-          email: row.email,
+          email: '',
           role: (row.role === 'owner' ? 'admin' : row.role) as Role,
-          employeeCode: row.email,
+          employeeCode: row.username,
           permissions: [],
           isActive: true,
         }));

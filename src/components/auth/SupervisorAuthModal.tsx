@@ -44,6 +44,7 @@ export const SupervisorAuthModal: React.FC<SupervisorAuthModalProps> = ({
   const { staffUsers, getStaffPin, session } = useAuth();
   const isProduction = hasProductionUrl();
   const [pin, setPin] = useState('');
+  const [supervisorEmail, setSupervisorEmail] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [selectedSupervisor, setSelectedSupervisor] = useState<User | null>(null);
   const [serverSupervisors, setServerSupervisors] = useState<User[]>([]);
@@ -63,6 +64,7 @@ export const SupervisorAuthModal: React.FC<SupervisorAuthModalProps> = ({
   useEffect(() => {
     if (!isOpen) return;
     setPin('');
+    setSupervisorEmail('');
     setErrorMsg(null);
     setSelectedSupervisor(null);
     if (isProduction) setServerSupervisors([]);
@@ -122,7 +124,7 @@ export const SupervisorAuthModal: React.FC<SupervisorAuthModalProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, pin, selectedSupervisor]);
+  }, [isOpen, pin, supervisorEmail, selectedSupervisor, isProduction]);
 
   const handleKeyPress = (num: string) => {
     playScannerSound('click');
@@ -146,15 +148,15 @@ export const SupervisorAuthModal: React.FC<SupervisorAuthModalProps> = ({
 
   const handleVerifyPin = async () => {
     if (isProduction) {
-      if (!selectedSupervisor || pin.trim().length < 4) {
-        setErrorMsg(language === 'th' ? 'กรุณาเลือกผู้จัดการและกรอกรหัสผ่านบัญชี' : 'Select a supervisor and enter their account password.');
+      if (!selectedSupervisor || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(supervisorEmail.trim()) || pin.trim().length < 4) {
+        setErrorMsg(language === 'th' ? 'กรุณาเลือกผู้จัดการ กรอกอีเมล Supabase และรหัสผ่านบัญชี' : 'Select a supervisor and enter their Supabase email and account password.');
         return;
       }
       setIsVerifyingPasskey(true);
       setErrorMsg(null);
       try {
-        const proof = await authenticateSupervisorWithSupabase(selectedSupervisor.email, pin);
-        await onAuthorized(selectedSupervisor, overrideReason || actionDescription, proof.accessToken);
+        const proof = await authenticateSupervisorWithSupabase(supervisorEmail.trim(), pin);
+        await onAuthorized({ ...selectedSupervisor, email: supervisorEmail.trim() }, overrideReason || actionDescription, proof.accessToken);
         onClose();
       } catch (error) {
         setErrorMsg(error instanceof Error ? error.message : 'Supervisor reauthentication failed.');
@@ -234,8 +236,8 @@ export const SupervisorAuthModal: React.FC<SupervisorAuthModalProps> = ({
       }
       description={
         language === 'th'
-          ? (isProduction ? 'รายการนี้ต้องได้รับการยืนยันด้วยรหัสผ่านบัญชีผู้จัดการ' : 'รายการนี้จำเป็นต้องได้รับการยืนยันรหัส PIN จากหัวหน้างานหรือผู้จัดการ')
-          : (isProduction ? 'This action requires the supervisor account password.' : 'This operational action requires supervisor approval with a valid security PIN.')
+          ? (isProduction ? 'รายการนี้ต้องได้รับการยืนยันด้วยอีเมลและรหัสผ่านบัญชีผู้จัดการ' : 'รายการนี้จำเป็นต้องได้รับการยืนยันรหัส PIN จากหัวหน้างานหรือผู้จัดการ')
+          : (isProduction ? 'This action requires the supervisor Supabase email and account password.' : 'This operational action requires supervisor approval with a valid security PIN.')
       }
       maxWidth="md"
       footer={
@@ -246,7 +248,7 @@ export const SupervisorAuthModal: React.FC<SupervisorAuthModalProps> = ({
           <Button
             variant="primary"
             size="sm"
-            disabled={!selectedSupervisor || isLoadingSupervisors || pin.length < 4 || isVerifyingPasskey}
+            disabled={!selectedSupervisor || isLoadingSupervisors || pin.length < 4 || (isProduction && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(supervisorEmail.trim())) || isVerifyingPasskey}
             onClick={() => void handleVerifyPin()}
             leftIcon={<ShieldCheck className="h-4 w-4" />}
           >
@@ -288,6 +290,8 @@ export const SupervisorAuthModal: React.FC<SupervisorAuthModalProps> = ({
                   type="button"
                   onClick={() => {
                     setSelectedSupervisor(sup);
+                    setSupervisorEmail('');
+                    setPin('');
                     setErrorMsg(null);
                   }}
                   className={`p-2.5 rounded-lg border text-left flex items-center justify-between cursor-pointer transition-all ${
@@ -313,7 +317,25 @@ export const SupervisorAuthModal: React.FC<SupervisorAuthModalProps> = ({
         </div>
 
         {isProduction ? (
-          <div className="space-y-2">
+          <div className="space-y-3">
+            <div className="space-y-2">
+              <label htmlFor="supervisor-account-email" className="text-xs font-semibold text-text/80 block">
+                {language === 'th' ? 'อีเมลบัญชีผู้จัดการ (Supabase Auth)' : 'Supervisor Account Email (Supabase Auth)'}
+              </label>
+              <input
+                id="supervisor-account-email"
+                type="email"
+                value={supervisorEmail}
+                disabled={!selectedSupervisor || isLoadingSupervisors || isVerifyingPasskey}
+                onChange={(event) => { setSupervisorEmail(event.target.value); setErrorMsg(null); }}
+                autoComplete="username"
+                autoCapitalize="none"
+                spellCheck={false}
+                className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm text-text focus:outline-none focus:ring-2 focus:ring-primary"
+                placeholder="name@example.com"
+              />
+            </div>
+            <div className="space-y-2">
             <label htmlFor="supervisor-account-password" className="text-xs font-semibold text-text/80 block">
               {language === 'th' ? 'รหัสผ่านบัญชีผู้จัดการ (Supabase Auth)' : 'Supervisor Account Password (Supabase Auth)'}
             </label>
@@ -323,14 +345,15 @@ export const SupervisorAuthModal: React.FC<SupervisorAuthModalProps> = ({
               value={pin}
               disabled={!selectedSupervisor || isLoadingSupervisors || isVerifyingPasskey}
               onChange={(event) => { setPin(event.target.value); setErrorMsg(null); }}
-              autoComplete="off"
+              autoComplete="current-password"
               autoCapitalize="none"
               spellCheck={false}
               className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm text-text focus:outline-none focus:ring-2 focus:ring-primary"
               placeholder={language === 'th' ? 'กรอกรหัสผ่านผู้จัดการ' : 'Enter supervisor account password'}
             />
             {errorMsg && <div className="text-xs font-semibold text-rose-600 dark:text-rose-400 flex items-center gap-1"><AlertCircle className="h-3.5 w-3.5" /><span>{errorMsg}</span></div>}
-            <p className="text-[11px] text-text/50">{language === 'th' ? 'เซิร์ฟเวอร์จะตรวจสอบรหัสผ่านและสิทธิ์อนุมัติทุกครั้ง' : 'The server verifies the password and approval permission for every request.'}</p>
+            <p className="text-[11px] text-text/50">{language === 'th' ? 'เซิร์ฟเวอร์จะตรวจสอบอีเมล รหัสผ่าน ตัวตน และสิทธิ์อนุมัติทุกครั้ง' : 'The server verifies the email, password, identity, and approval permission for every request.'}</p>
+            </div>
           </div>
         ) : (
           <>
@@ -368,7 +391,7 @@ export const SupervisorAuthModal: React.FC<SupervisorAuthModalProps> = ({
 
         {/* Biometric passkey is available only in the local mock flow; production
             authorization must use a server-verified Supabase identity proof. */}
-        {import.meta.env.DEV && <div className="pt-2 max-w-xs mx-auto">
+        {import.meta.env.DEV && !isProduction && <div className="pt-2 max-w-xs mx-auto">
           <button
             type="button"
             onClick={handlePasskeyOverride}
