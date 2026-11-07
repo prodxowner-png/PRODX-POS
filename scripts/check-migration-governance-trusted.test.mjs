@@ -11,6 +11,31 @@ const fixtureRoot = process.env.MIGRATION_CANDIDATE_ROOT
   ? path.resolve(process.env.MIGRATION_CANDIDATE_ROOT)
   : null;
 
+const extractPinnedConstant = (source, name) => {
+  const match = source.match(new RegExp(`(?:export\\s+)?const\\s+${name}\\s*=\\s*([^;]+);`));
+  assert.ok(match, `Expected ${name} to be declared in both migration verifiers.`);
+  return match[1].trim();
+};
+
+test('TypeScript and trusted migration verifiers keep immutable baseline pins synchronized', async () => {
+  const [typescriptVerifier, trustedVerifier] = await Promise.all([
+    readFile(path.join(trustedRoot, 'scripts/check-migration-governance.ts'), 'utf8'),
+    readFile(path.join(trustedRoot, 'scripts/check-migration-governance-trusted.mjs'), 'utf8'),
+  ]);
+  for (const name of [
+    'EXPECTED_MANIFEST_GIT_BLOB_SHA',
+    'EXPECTED_BASELINE_COMMIT',
+    'EXPECTED_BASELINE_FILE_COUNT',
+    'EXPECTED_LEGACY_DUPLICATE_IDS',
+  ]) {
+    assert.equal(
+      extractPinnedConstant(typescriptVerifier, name),
+      extractPinnedConstant(trustedVerifier, name),
+      `${name} must match between the standard and trusted verifiers.`,
+    );
+  }
+});
+
 async function temporaryCandidate() {
   const root = await mkdtemp(path.join(os.tmpdir(), 'prodx-migration-governance-'));
   await mkdir(path.join(root, 'db/migrations'), { recursive: true });
