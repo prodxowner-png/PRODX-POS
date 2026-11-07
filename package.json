@@ -20,7 +20,8 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "db:inspect-schema": "tsx scripts/validate-firestore-schema.ts",
     "telemetry:test": "node --import tsx --test src/services/devPerformanceTracker.test.ts",
-    "db:migrations:check": "tsx scripts/check-migration-governance.ts"
+    "db:migrations:check": "tsx scripts/check-migration-governance.ts",
+    "dependency:overrides:check": "node scripts/check-dependency-overrides.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

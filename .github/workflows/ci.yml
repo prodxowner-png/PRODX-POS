@@ -53,6 +53,9 @@ jobs:
     - name: Install dependencies from lockfile
       run: bun install --frozen-lockfile
 
+    - name: Verify dependency override parity across lockfiles
+      run: bun run dependency:overrides:check
+
 
     - name: Type check (TypeScript)
       run: bun run lint

@@ -51,6 +51,12 @@ jobs:
       - name: Install dependencies with lockfile and strict script policy
         run: npm ci --no-fund
 
+      - name: Verify dependency override parity across lockfiles
+        run: npm run dependency:overrides:check
+
+      - name: Verify npm registry signatures and provenance
+        run: npm audit signatures
+
       - name: Audit locked dependencies (no moderate or higher)
         run: npm audit --audit-level=moderate
 
