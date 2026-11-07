@@ -161,6 +161,28 @@ export async function verifyMigrationGovernance(candidateRoot, trustedRoot) {
     }
   }
 
+  // The pinned manifest protects only the original baseline. Every migration
+  // already present on the trusted base branch must also remain byte-for-byte
+  // immutable, including migrations merged after that manifest was created.
+  const trustedMigrationDir = path.join(trusted, 'db/migrations');
+  const trustedMigrationNames = (await readdir(trustedMigrationDir)).filter((name) => name.endsWith('.sql')).sort();
+  for (const name of trustedMigrationNames) {
+    const relativePath = path.posix.join('db/migrations', name);
+    if (!currentPaths.has(relativePath)) {
+      errors.push(`Base migration was removed: ${relativePath}`);
+      continue;
+    }
+    try {
+      const trustedContent = await readRegularFile(path.join(trusted, relativePath), 'trusted base migration');
+      const candidateContent = await readRegularFile(path.join(candidate, relativePath), 'candidate base migration');
+      if (gitBlobSha(candidateContent) !== gitBlobSha(trustedContent)) {
+        errors.push(`Base migration was modified: ${relativePath}`);
+      }
+    } catch (error) {
+      errors.push(error.message);
+    }
+  }
+
   const seenNewIds = new Map();
   for (const relativePath of currentPaths) {
     if (baselinePaths.has(relativePath)) continue;
