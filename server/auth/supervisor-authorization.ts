@@ -7,11 +7,16 @@ export type SupervisorAuthorizationRequest = {
   storeId: string;
   requesterUserId: string;
   requesterSessionId: string;
-  action: 'refund' | 'void';
-  orderId: string;
+  action: 'refund' | 'void' | 'discount';
+  orderId?: string;
+  checkoutIdempotencyKey?: string;
+  checkoutPayloadHash?: string;
+  policyThresholdBps?: number;
+  policyRequiresApproval?: boolean;
   supervisorUsername?: string;
   supervisorUserId?: string;
-  supervisorSecret: string;
+  supervisorSecret?: string;
+  supervisorIdentityVerified?: boolean;
 };
 
 export type SupervisorAuthorizationResult = {
@@ -27,8 +32,6 @@ export class SupervisorAuthorizationError extends Error {
 }
 
 const TTL_MS = 2 * 60 * 1000;
-const MAX_FAILED_ATTEMPTS = 5;
-const LOCKOUT_MS = 15 * 60 * 1000;
 
 export const hashAuthorizationToken = (token: string): string =>
   crypto.createHash('sha256').update(token, 'utf8').digest('hex');
@@ -38,68 +41,69 @@ const recordSecurityEvent = async (
   input: { organizationId: string; userId?: string | null; eventType: string; metadata: Record<string, unknown> },
 ): Promise<void> => {
   await db.query(
-    `INSERT INTO prodx_security_audit_events
-      (id, organization_id, user_id, event_type, metadata)
-     VALUES ($1, $2, $3, $4, $5::jsonb)`,
+    `SELECT public.prodx_record_security_audit_event($1, $2, $3, $4, $5::jsonb)`,
     [crypto.randomUUID(), input.organizationId, input.userId ?? null, input.eventType, JSON.stringify(input.metadata)],
   );
 };
 
 export const createSupervisorAuthorizationService = (db: SqlExecutor, now: () => Date = () => new Date()) => ({
   async authorize(input: SupervisorAuthorizationRequest): Promise<SupervisorAuthorizationResult> {
+    const identityVerified = input.supervisorIdentityVerified === true;
     if (!input.organizationId || !input.storeId || !input.requesterUserId || !input.requesterSessionId ||
-        !input.orderId || (!input.supervisorUsername?.trim() && !input.supervisorUserId?.trim()) || !input.supervisorSecret) {
+        (input.action === 'discount'
+          ? (!input.checkoutIdempotencyKey?.trim() || !/^[0-9a-f]{64}$/.test(input.checkoutPayloadHash ?? '') ||
+             !Number.isInteger(input.policyThresholdBps) || input.policyThresholdBps! < 0 || input.policyThresholdBps! > 10000 || input.policyRequiresApproval !== true)
+          : !input.orderId) ||
+        (identityVerified ? !input.supervisorUserId?.trim() : ((!input.supervisorUsername?.trim() && !input.supervisorUserId?.trim()) || !input.supervisorSecret))) {
       throw new SupervisorAuthorizationError('INVALID_CREDENTIALS');
     }
 
-    const credentials = await db.query<{
+    let supervisorUserId = input.supervisorUserId ?? null;
+    let credential: {
       userId: string; organizationId: string; status: 'active' | 'disabled';
       secretHash: string; failedAttempts: number; lockedUntil: Date | null;
-    }>(
-      `SELECT u.id AS "userId", u.organization_id AS "organizationId", u.status,
-              c.secret_hash AS "secretHash", c.failed_attempts AS "failedAttempts",
-              c.locked_until AS "lockedUntil"
-         FROM prodx_users u
-         JOIN prodx_user_credentials c ON c.user_id = u.id
-        WHERE u.organization_id = $1
-          AND (u.id::text = $2 OR lower(u.username) = lower($2))
-        LIMIT 1`,
-      [input.organizationId, (input.supervisorUserId ?? input.supervisorUsername ?? '').trim()],
-    );
-    const credential = credentials[0];
+    } | undefined;
     const current = now();
 
-    if (!credential || credential.status !== 'active' ||
-        (credential.lockedUntil && credential.lockedUntil > current)) {
-      await recordSecurityEvent(db, {
-        organizationId: input.organizationId,
-        userId: credential?.userId ?? null,
-        eventType: 'SUPERVISOR_AUTH_REJECTED',
-        metadata: { action: input.action, orderId: input.orderId, requesterUserId: input.requesterUserId, reason: 'invalid_or_locked' },
-      });
-      throw new SupervisorAuthorizationError('INVALID_CREDENTIALS');
-    }
-
-    const valid = await verifyPassword(input.supervisorSecret, credential.secretHash);
-    if (!valid) {
-      const lockUntil = new Date(current.getTime() + LOCKOUT_MS);
-      // Increment in SQL so concurrent failures cannot overwrite one another's count.
-      await db.query(
-        `UPDATE prodx_user_credentials
-            SET failed_attempts = failed_attempts + 1,
-                locked_until = CASE WHEN failed_attempts + 1 >= $2 THEN $3::timestamptz ELSE locked_until END,
-                updated_at = CURRENT_TIMESTAMP
-          WHERE user_id = $1
-            AND (locked_until IS NULL OR locked_until <= $4::timestamptz)`,
-        [credential.userId, MAX_FAILED_ATTEMPTS, lockUntil, current],
+    // Supabase-authenticated supervisors are reauthenticated in an isolated client;
+    // the server verifies that JWT and maps its subject to the POS identity. Legacy
+    // local-password credentials remain supported without granting table access.
+    if (!identityVerified) {
+      const credentials = await db.query<{
+        userId: string; organizationId: string; status: 'active' | 'disabled';
+        secretHash: string; failedAttempts: number; lockedUntil: Date | null;
+      }>(
+        `SELECT * FROM public.prodx_auth_find_supervisor_credential($1, $2, $3)`,
+        [input.organizationId, input.storeId, (input.supervisorUserId ?? input.supervisorUsername ?? '').trim()],
       );
-      await recordSecurityEvent(db, {
-        organizationId: input.organizationId,
-        userId: credential.userId,
-        eventType: 'SUPERVISOR_AUTH_FAILED',
-        metadata: { action: input.action, orderId: input.orderId, requesterUserId: input.requesterUserId },
-      });
-      throw new SupervisorAuthorizationError('INVALID_CREDENTIALS');
+      credential = credentials[0];
+      supervisorUserId = credential?.userId ?? null;
+
+      if (!credential || credential.status !== 'active' ||
+          (credential.lockedUntil && credential.lockedUntil > current)) {
+        await recordSecurityEvent(db, {
+          organizationId: input.organizationId,
+          userId: credential?.userId ?? null,
+          eventType: 'SUPERVISOR_AUTH_REJECTED',
+          metadata: { action: input.action, orderId: input.orderId, requesterUserId: input.requesterUserId, reason: 'invalid_or_locked' },
+        });
+        throw new SupervisorAuthorizationError('INVALID_CREDENTIALS');
+      }
+
+      const valid = await verifyPassword(input.supervisorSecret!, credential.secretHash);
+      if (!valid) {
+        await db.query(
+          `SELECT public.prodx_auth_record_failed_attempt($1, $2, $3)`,
+          [credential.userId, input.organizationId, crypto.randomUUID()],
+        );
+        await recordSecurityEvent(db, {
+          organizationId: input.organizationId,
+          userId: credential.userId,
+          eventType: 'SUPERVISOR_AUTH_FAILED',
+          metadata: { action: input.action, orderId: input.orderId, requesterUserId: input.requesterUserId },
+        });
+        throw new SupervisorAuthorizationError('INVALID_CREDENTIALS');
+      }
     }
 
     const allowed = await db.query<{ userId: string }>(
@@ -123,52 +127,56 @@ export const createSupervisorAuthorizationService = (db: SqlExecutor, now: () =>
           AND m.store_id = $2
           AND m.user_id = $3
           AND m.active = TRUE
-          AND p.permission_key = CASE WHEN $4 = 'void' THEN 'pos.void' ELSE 'pos.refund' END
+          AND p.permission_key = CASE WHEN $4 = 'void' THEN 'pos.void' WHEN $4 = 'discount' THEN 'pos.discount.approve' ELSE 'pos.refund' END
         LIMIT 1`,
-      [input.organizationId, input.storeId, credential.userId, input.action],
+      [input.organizationId, input.storeId, supervisorUserId, input.action],
     );
     if (!allowed[0]) {
       await recordSecurityEvent(db, {
         organizationId: input.organizationId,
-        userId: credential.userId,
+        userId: supervisorUserId,
         eventType: 'SUPERVISOR_AUTH_DENIED',
         metadata: { action: input.action, orderId: input.orderId, requesterUserId: input.requesterUserId, reason: 'store_permission_missing' },
       });
       throw new SupervisorAuthorizationError('SUPERVISOR_NOT_ALLOWED');
     }
 
-    await db.query(
-      `UPDATE prodx_user_credentials
-          SET failed_attempts = 0, locked_until = NULL,
-              last_authenticated_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-        WHERE user_id = $1`,
-      [credential.userId],
-    );
+    if (credential) {
+      await db.query(
+        `SELECT public.prodx_auth_reset_failed_attempts($1, $2, $3)`,
+        [credential.userId, input.organizationId, crypto.randomUUID()],
+      );
+    }
 
     const token = crypto.randomBytes(32).toString('base64url');
     const expiresAt = new Date(current.getTime() + TTL_MS);
     await db.query(
       `INSERT INTO prodx_supervisor_authorizations
         (id, organization_id, store_id, requester_user_id, requester_session_id,
-         supervisor_user_id, action_key, order_id, authorization_hash, expires_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+         supervisor_user_id, action_key, order_id, checkout_idempotency_key, checkout_payload_hash,
+         policy_threshold_bps, policy_requires_approval, authorization_hash, expires_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
       [crypto.randomUUID(), input.organizationId, input.storeId, input.requesterUserId,
-       input.requesterSessionId, credential.userId, input.action, input.orderId,
+       input.requesterSessionId, supervisorUserId, input.action, input.orderId ?? null,
+       input.checkoutIdempotencyKey ?? null, input.checkoutPayloadHash ?? null,
+       input.policyThresholdBps ?? null, input.policyRequiresApproval ?? null,
        hashAuthorizationToken(token), expiresAt],
     );
     await recordSecurityEvent(db, {
       organizationId: input.organizationId,
-      userId: credential.userId,
+      userId: supervisorUserId,
       eventType: 'SUPERVISOR_AUTHORIZATION_GRANTED',
       metadata: { action: input.action, orderId: input.orderId, requesterUserId: input.requesterUserId, requesterSessionId: input.requesterSessionId, expiresAt: expiresAt.toISOString() },
     });
 
-    return { authorizationToken: token, supervisorUserId: credential.userId, expiresAt: expiresAt.toISOString() };
+    return { authorizationToken: token, supervisorUserId: supervisorUserId!, expiresAt: expiresAt.toISOString() };
   },
 
   async consume(input: {
     token: string; organizationId: string; storeId: string; requesterUserId: string;
-    requesterSessionId: string; action: 'refund' | 'void'; orderId: string;
+    requesterSessionId: string; action: 'refund' | 'void' | 'discount'; orderId?: string;
+    checkoutIdempotencyKey?: string; checkoutPayloadHash?: string;
+    policyThresholdBps?: number; policyRequiresApproval?: boolean;
   }): Promise<{ supervisorUserId: string }> {
     if (!input.token.trim()) throw new SupervisorAuthorizationError('AUTHORIZATION_EXPIRED');
     const hash = hashAuthorizationToken(input.token);
@@ -181,14 +189,24 @@ export const createSupervisorAuthorizationService = (db: SqlExecutor, now: () =>
           AND requester_user_id = $4
           AND requester_session_id = $5
           AND action_key = $6
-          AND order_id = $7
+          AND order_id IS NOT DISTINCT FROM $7
+          AND checkout_idempotency_key IS NOT DISTINCT FROM $8
+          AND checkout_payload_hash IS NOT DISTINCT FROM $9
+          AND policy_threshold_bps IS NOT DISTINCT FROM $10
+          AND policy_requires_approval IS NOT DISTINCT FROM $11
           AND consumed_at IS NULL
           AND expires_at > CURRENT_TIMESTAMP
         RETURNING supervisor_user_id AS "supervisorUserId"`,
       [hash, input.organizationId, input.storeId, input.requesterUserId,
-       input.requesterSessionId, input.action, input.orderId],
+       input.requesterSessionId, input.action, input.orderId ?? null, input.checkoutIdempotencyKey ?? null,
+       input.checkoutPayloadHash ?? null, input.policyThresholdBps ?? null, input.policyRequiresApproval ?? null],
     );
-    if (rows[0]) return { supervisorUserId: rows[0].supervisorUserId };
+    if (rows[0]) {
+      await recordSecurityEvent(db, { organizationId: input.organizationId, userId: rows[0].supervisorUserId,
+        eventType: 'SUPERVISOR_AUTHORIZATION_CONSUMED',
+        metadata: { action: input.action, orderId: input.orderId ?? null, idempotencyKey: input.checkoutIdempotencyKey ?? null, requesterUserId: input.requesterUserId } });
+      return { supervisorUserId: rows[0].supervisorUserId };
+    }
 
     const state = await db.query<{ consumedAt: Date | null; expiresAt: Date }>(
       `SELECT consumed_at AS "consumedAt", expires_at AS "expiresAt"
@@ -199,12 +217,22 @@ export const createSupervisorAuthorizationService = (db: SqlExecutor, now: () =>
           AND requester_user_id = $4
           AND requester_session_id = $5
           AND action_key = $6
-          AND order_id = $7
+          AND order_id IS NOT DISTINCT FROM $7
+          AND checkout_idempotency_key IS NOT DISTINCT FROM $8
+          AND checkout_payload_hash IS NOT DISTINCT FROM $9
+          AND policy_threshold_bps IS NOT DISTINCT FROM $10
+          AND policy_requires_approval IS NOT DISTINCT FROM $11
         LIMIT 1`,
       [hash, input.organizationId, input.storeId, input.requesterUserId,
-       input.requesterSessionId, input.action, input.orderId],
+       input.requesterSessionId, input.action, input.orderId ?? null, input.checkoutIdempotencyKey ?? null,
+       input.checkoutPayloadHash ?? null, input.policyThresholdBps ?? null, input.policyRequiresApproval ?? null],
     );
-    if (state[0]?.consumedAt) throw new SupervisorAuthorizationError('AUTHORIZATION_REPLAYED');
+    if (state[0]?.consumedAt) {
+      await recordSecurityEvent(db, { organizationId: input.organizationId, userId: input.requesterUserId,
+        eventType: 'SUPERVISOR_AUTHORIZATION_REPLAYED',
+        metadata: { action: input.action, orderId: input.orderId ?? null, idempotencyKey: input.checkoutIdempotencyKey ?? null } });
+      throw new SupervisorAuthorizationError('AUTHORIZATION_REPLAYED');
+    }
     throw new SupervisorAuthorizationError('AUTHORIZATION_EXPIRED');
   },
 });

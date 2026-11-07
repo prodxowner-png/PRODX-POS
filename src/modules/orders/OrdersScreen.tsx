@@ -253,18 +253,18 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({ onNavigate }) => {
     setIsSupervisorVoidModalOpen(true);
   };
 
-  const handleSupervisorVoidAuthorized = async (supervisor: User, reasonNotes?: string, secret?: string) => {
+  const handleSupervisorVoidAuthorized = async (supervisor: User, reasonNotes?: string, proof?: string) => {
     if (!session || !selectedOrder) return;
     setIsVoiding(true);
     try {
-      if (!secret?.trim()) {
-        throw new Error('Production supervisor secret is required for order void.');
+      if (!proof) {
+        throw new Error('A verified Supabase supervisor session is required for order void.');
       }
       const authorization = await supervisorAuthorizationApi.authorize({
         action: 'void',
         orderId: selectedOrder.id,
         supervisorUserId: supervisor.id,
-        supervisorSecret: secret,
+        supervisorAccessToken: proof,
       });
       const voided = await voidApi.voidOrder({
         orderId: selectedOrder.id,
@@ -1192,10 +1192,10 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({ onNavigate }) => {
           isOpen={isSupervisorVoidModalOpen}
           onClose={() => setIsSupervisorVoidModalOpen(false)}
           title={language === 'th' ? `อนุมัติยกเลิกบิล #${selectedOrder.orderNumber}` : `Authorize Void Order #${selectedOrder.orderNumber}`}
-          actionDescription={language === 'th' ? 'กรุณาให้ผู้จัดการหรือแอดมินใส่รหัส PIN เพื่อยืนยันการยกเลิกคำสั่งซื้อ' : 'Please enter manager or administrator PIN to void this transaction.'}
+          actionDescription={language === 'th' ? 'กรุณาให้ผู้จัดการหรือแอดมินยืนยันด้วยรหัสผ่านบัญชี POS Auth เพื่อยกเลิกคำสั่งซื้อ' : 'A manager or administrator must reauthenticate with their POS Auth account.'}
           requiredRole="manager"
-          onAuthorized={(supervisor, reason, secret) => {
-            handleSupervisorVoidAuthorized(supervisor, reason, secret);
+          onAuthorized={(supervisor, reason, proof) => {
+            handleSupervisorVoidAuthorized(supervisor, reason, proof);
           }}
         />
       )}

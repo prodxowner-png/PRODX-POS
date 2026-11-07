@@ -1,6 +1,6 @@
 import type { Express, Request, Response } from 'express';
 import type { OutboxItem } from '../../src/domain/sync';
-import { createCheckoutService, CheckoutConflictError } from '../transactions/checkout-service';
+import { createCheckoutService, CheckoutConflictError, CheckoutAuthorizationError } from '../transactions/checkout-service';
 import { CheckoutValidationError, hasCheckoutDiscount, isCheckoutRequest } from '../transactions/checkout-validation';
 import { requirePermission } from './createApp';
 import type { TransactionalSqlExecutor } from '../db/transaction';
@@ -115,7 +115,15 @@ export const registerSyncRoute = (
         }
       }
 
-      const result = await checkout.checkout(checkoutRequest);
+      const sessionId = 'sessionId' in context.principal && typeof context.principal.sessionId === 'string' ? context.principal.sessionId : null;
+      if (hasCheckoutDiscount(checkoutRequest) && !sessionId) {
+        response.status(500).json({ error: { code: 'SESSION_CONTEXT_MISSING', message: 'Authenticated session context is required for discount authorization.', requestId: request.id } });
+        return;
+      }
+      const result = await checkout.checkout(
+        checkoutRequest,
+        sessionId ? { organizationId: context.principal.organizationId, storeId: context.principal.storeId, userId: context.principal.userId, sessionId } : undefined,
+      );
 
       response.status(result.idempotencyCached ? 200 : 201).json({
         confirmedOrder: result.order,
@@ -126,6 +134,10 @@ export const registerSyncRoute = (
     } catch (error) {
       if (error instanceof CheckoutValidationError) {
         response.status(400).json({ error: { code: error.code, message: error.message, requestId: request.id } });
+        return;
+      }
+      if (error instanceof CheckoutAuthorizationError) {
+        response.status(error.code === 'DISCOUNT_SUPERVISOR_APPROVAL_REQUIRED' ? 403 : 409).json({ error: { code: error.code, message: 'Supervisor approval is required and must match the current checkout and store policy.', requestId: request.id } });
         return;
       }
       if (error instanceof CheckoutConflictError) {

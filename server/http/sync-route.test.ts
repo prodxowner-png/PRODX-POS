@@ -262,3 +262,41 @@ test('sync route rejects malformed checkout payloads before database or idempote
     await server.close();
   }
 });
+
+test('offline replay rejects over-threshold discount without supervisor authorization', async () => {
+  const base = request('offline-over-threshold');
+  const payload: CheckoutRequest = {
+    ...base,
+    items: [{ ...base.items[0], discountBps: 1600, lineSubtotal: { amountInCents: 840, currency: 'THB' }, lineTotal: { amountInCents: 840, currency: 'THB' } }],
+    totals: { grossSubtotal: { amountInCents: 1000, currency: 'THB' }, itemDiscounts: { amountInCents: 160, currency: 'THB' }, orderDiscount: { amountInCents: 0, currency: 'THB' }, netSubtotal: { amountInCents: 840, currency: 'THB' }, totalTax: { amountInCents: 0, currency: 'THB' }, grandTotal: { amountInCents: 840, currency: 'THB' }, totalItemsCount: 1 },
+    payments: [{ ...base.payments[0], amount: { amountInCents: 840, currency: 'THB' }, tenderedCash: { amountInCents: 840, currency: 'THB' } }],
+  };
+  const queries: string[] = [];
+  const scopedDb: TransactionalSqlExecutor = {
+    query: async () => { throw new Error('direct query must not be used'); },
+    transaction: async (work) => work({ query: async <T extends Record<string, unknown>>(sql: string) => {
+      queries.push(sql);
+      if (sql.startsWith('SELECT * FROM prodx_orders')) return { rows: [] as T[] };
+      if (sql.includes('FROM prodx_shifts')) return { rows: [{ id: 'shift-1' }] as unknown as T[] };
+      if (sql.includes('FROM prodx_products WHERE')) return { rows: [{ id: '00000000-0000-4000-8000-000000003007', store_id: principal.storeId, price_amount: '10.00', currency: 'THB', tax_rate_bps: 0, current_stock: 10, active: true }] as unknown as T[] };
+      if (sql.includes('FROM prodx_discount_policies')) return { rows: [{ require_supervisor_approval: true, max_discount_without_approval_bps: 1500 }] as unknown as T[] };
+      return { rows: [] as T[] };
+    } }),
+  };
+  const app = createApp({
+    authenticateRequest: () => principal,
+    authorizeRequest: (_context, permission) => permission === 'pos.sell' || permission === 'pos.discount',
+    configureRoutes: (configuredApp) => registerSyncRoute(configuredApp, scopedDb),
+  });
+  const server = await start(app);
+  try {
+    const response = await fetch(`${server.baseUrl}/api/v1/sync/commands`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ item: { id: 'outbox-over-threshold', type: 'order_transaction', idempotencyKey: payload.idempotencyKey, payload, createdAt: '2026-11-01T00:00:00.000Z', attempts: 1, syncState: 'queued' } }),
+    });
+    assert.equal(response.status, 403);
+    assert.equal((await response.json()).error.code, 'DISCOUNT_SUPERVISOR_APPROVAL_REQUIRED');
+    assert.ok(queries.some((sql) => sql.includes('FROM prodx_discount_policies')));
+    assert.equal(queries.some((sql) => sql.startsWith('INSERT INTO prodx_orders')), false);
+  } finally { await server.close(); }
+});

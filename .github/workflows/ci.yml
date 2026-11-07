@@ -63,9 +63,9 @@ jobs:
         DATABASE_URL=postgresql://prodx:prodx@127.0.0.1:5432/prodx_migration_runner_test bun run db:migrate
         psql postgresql://prodx:prodx@127.0.0.1:5432/prodx_migration_runner_test -v ON_ERROR_STOP=1 -Atc "
           SELECT CASE
-            WHEN count(*) = 55
+            WHEN count(*) = 56
              AND (SELECT count(*) FROM prodx_schema_migrations WHERE version LIKE '004%') = 6
-             AND (SELECT count(*) FROM prodx_schema_migrations WHERE version LIKE '005%') = 8
+             AND (SELECT count(*) FROM prodx_schema_migrations WHERE version LIKE '005%') = 9
              AND (SELECT count(*) FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
                   JOIN pg_namespace n ON n.oid = c.relnamespace
                   WHERE n.nspname = 'public'
