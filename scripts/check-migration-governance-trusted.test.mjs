@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { cp, lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { cp, lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -17,13 +17,22 @@ async function temporaryCandidate() {
   return root;
 }
 
+async function trustedRootWithPostBaselineMigration() {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'prodx-trusted-migration-base-'));
+  await cp(path.join(trustedRoot, 'db/migrations'), path.join(root, 'db/migrations'), { recursive: true });
+  await writeFile(path.join(root, 'db/migrations/0050_post_baseline_fixture.sql'), 'SELECT 50;\n');
+  return root;
+}
+
 async function candidateFixtureCopy(t) {
   if (!fixtureRoot) {
+    if (process.env.CI === 'true') throw new Error('MIGRATION_CANDIDATE_ROOT must be set in CI; refusing to skip candidate verifier tests.');
     t.skip('MIGRATION_CANDIDATE_ROOT is not set; no full candidate fixture was supplied.');
     return null;
   }
   const fixtureManifest = path.join(fixtureRoot, 'db/migrations/manifest.json');
   if (!await lstat(fixtureManifest).then(() => true).catch(() => false)) {
+    if (process.env.CI === 'true') throw new Error('Candidate migration manifest is required in CI; refusing to skip verifier tests.');
     t.skip('Candidate does not yet contain the migration baseline manifest.');
     return null;
   }
@@ -116,5 +125,43 @@ test('trusted verifier rejects migration IDs at or below the immutable baseline 
     );
   } finally {
     await rm(candidate, { recursive: true, force: true });
+  }
+});
+
+test('trusted verifier rejects modification of a migration merged after the pinned manifest baseline', async (t) => {
+  const candidate = await candidateFixtureCopy(t);
+  if (!candidate) return;
+  const trusted = await trustedRootWithPostBaselineMigration();
+  try {
+    const relativePath = 'db/migrations/0050_post_baseline_fixture.sql';
+    await cp(path.join(trusted, relativePath), path.join(candidate, relativePath));
+    const filePath = path.join(candidate, relativePath);
+    const original = await readFile(filePath, 'utf8');
+    await writeFile(filePath, `${original}-- tampered after merge\n`);
+    await assert.rejects(
+      verifyMigrationGovernance(candidate, trusted),
+      /Base migration was modified/,
+    );
+  } finally {
+    await rm(candidate, { recursive: true, force: true });
+    await rm(trusted, { recursive: true, force: true });
+  }
+});
+
+test('trusted verifier rejects deletion of a migration merged after the pinned manifest baseline', async (t) => {
+  const candidate = await candidateFixtureCopy(t);
+  if (!candidate) return;
+  const trusted = await trustedRootWithPostBaselineMigration();
+  try {
+    const relativePath = 'db/migrations/0050_post_baseline_fixture.sql';
+    await cp(path.join(trusted, relativePath), path.join(candidate, relativePath));
+    await rm(path.join(candidate, relativePath));
+    await assert.rejects(
+      verifyMigrationGovernance(candidate, trusted),
+      /Base migration was removed/,
+    );
+  } finally {
+    await rm(candidate, { recursive: true, force: true });
+    await rm(trusted, { recursive: true, force: true });
   }
 });
