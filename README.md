@@ -13,6 +13,8 @@ Production-oriented point-of-sale system foundation.
 
 ## Development
 
+Use **Node.js 24.12.0** for local development, matching the pinned CI runtime and the minimum engine requirement of the locked Firebase dependencies. The repository's `.node-version` file is the version-manager pin. Use npm **11.21.2** when installing from `package-lock.json` (`npm ci`), or Bun **1.4.3** with `bun install --frozen-lockfile`; do not bypass the strict lifecycle-script policy.
+
 Changes are developed through pull requests and validated by the repository CI gates before merging to `main`.
 
 See `docs/architecture/` and `docs/` for the current engineering and database foundations.
