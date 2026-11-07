@@ -25,7 +25,8 @@ const parsePostgresTarget = (rawUrl: string, variableName: string): DatabaseTarg
     throw new Error(variableName + ' must use the postgres:// or postgresql:// protocol.');
   }
 
-  const database = decodeURIComponent(parsed.pathname.replace(/^\\/+/, ''));
+  const databasePath = parsed.pathname.startsWith('/') ? parsed.pathname.slice(1) : parsed.pathname;
+  const database = decodeURIComponent(databasePath);
   if (!database) {
     throw new Error(variableName + ' must include a database name.');
   }
