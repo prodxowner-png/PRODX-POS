@@ -43,6 +43,37 @@ test('enforces explicit trusted proxy configuration', () => {
   }
 });
 
+test('returns a controlled 400 for malformed JSON before authentication and preserves request correlation', async () => {
+  let authenticationCalls = 0;
+  const app = createApp({
+    authenticateRequest: () => {
+      authenticationCalls += 1;
+      return principal;
+    },
+  });
+  const server = await start(app);
+
+  try {
+    const response = await fetch(`${server.baseUrl}/api/v1/orders/checkout`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-request-id': 'malformed-json-001' },
+      body: '{"items":',
+    });
+    assert.equal(response.status, 400);
+    assert.equal(response.headers.get('x-request-id'), 'malformed-json-001');
+    assert.deepEqual(await response.json(), {
+      error: {
+        code: 'INVALID_JSON',
+        message: 'Request body must be valid JSON.',
+        requestId: 'malformed-json-001',
+      },
+    });
+    assert.equal(authenticationCalls, 0);
+  } finally {
+    await server.close();
+  }
+});
+
 test('rejects requests when backend authentication does not produce a verified principal', async () => {
   const app = createApp({ authenticateRequest: () => null });
   const server = await start(app);

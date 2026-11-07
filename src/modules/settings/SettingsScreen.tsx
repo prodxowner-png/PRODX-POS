@@ -44,6 +44,8 @@ import { Badge } from '../../components/common/Badge';
 import { Button } from '../../components/common/Button';
 import { GraphicIcon, GraphicIconColor } from '../../components/common/GraphicIcon';
 import { RbacGuard, useRbac } from '../../components/auth/RbacGuard';
+import { hasProductionUrl } from '../../adapters/env';
+import { createProductionDiscountPolicyApi } from '../../adapters/productionDiscountPolicyApi';
 
 import {
   SettingsTabId,
@@ -786,7 +788,7 @@ export const SettingsScreen: React.FC = () => {
 
   // 4. Security Policies State
   const initialSecurityState = useMemo<SecurityPoliciesState>(() => {
-    const saved = localStorage.getItem('prodx_pos_security_policies');
+    const saved = hasProductionUrl() ? null : localStorage.getItem('prodx_pos_security_policies');
     if (saved) {
       try {
         return JSON.parse(saved);
@@ -807,6 +809,8 @@ export const SettingsScreen: React.FC = () => {
   }, []);
 
   const [securityPolicies, setSecurityPolicies] = useState<SecurityPoliciesState>(initialSecurityState);
+  const [securityBaseline, setSecurityBaseline] = useState<SecurityPoliciesState>(initialSecurityState);
+  const [isDiscountPolicyLoaded, setIsDiscountPolicyLoaded] = useState(!hasProductionUrl());
 
   useEffect(() => {
     setStoreForm(initialStoreState);
@@ -815,6 +819,26 @@ export const SettingsScreen: React.FC = () => {
   useEffect(() => {
     setTaxForm(initialTaxState);
   }, [initialTaxState]);
+
+  useEffect(() => {
+    if (!hasProductionUrl()) { setIsDiscountPolicyLoaded(true); return; }
+    if (!session?.token) { setIsDiscountPolicyLoaded(false); return; }
+    let active = true;
+    setIsDiscountPolicyLoaded(false);
+    void createProductionDiscountPolicyApi(session.token).getPolicy()
+      .then((policy) => {
+        if (!active) return;
+        const next = { ...initialSecurityState, requirePinForDiscount: policy.requireSupervisorApproval, maxDiscountWithoutApproval: policy.maxDiscountWithoutApprovalBps / 100 };
+        setSecurityPolicies(next);
+        setSecurityBaseline(next);
+        localStorage.setItem('prodx_pos_security_policies', JSON.stringify(next)); // UI mirror only; API remains authoritative.
+        setIsDiscountPolicyLoaded(true);
+      })
+      .catch((error) => {
+        if (active) addToast({ title: language === 'th' ? 'โหลดนโยบายส่วนลดไม่สำเร็จ' : 'Discount Policy Load Failed', message: String(error), type: 'error' });
+      });
+    return () => { active = false; };
+  }, [session?.token, initialSecurityState, addToast, language]);
 
   // Dirty State Calculation
   const isStoreDirty = useMemo(() => {
@@ -830,8 +854,8 @@ export const SettingsScreen: React.FC = () => {
   }, [cfdConfig, initialCfdState]);
 
   const isSecurityDirty = useMemo(() => {
-    return JSON.stringify(securityPolicies) !== JSON.stringify(initialSecurityState);
-  }, [securityPolicies, initialSecurityState]);
+    return JSON.stringify(securityPolicies) !== JSON.stringify(securityBaseline);
+  }, [securityPolicies, securityBaseline]);
 
   const isDirty = isStoreDirty || isTaxDirty || isCfdDirty || isSecurityDirty;
 
@@ -848,6 +872,10 @@ export const SettingsScreen: React.FC = () => {
   const handleSaveAll = useCallback(async () => {
     setIsSaving(true);
     try {
+      if (hasProductionUrl() && isSecurityDirty && !isDiscountPolicyLoaded) throw new Error('Server discount policy has not been loaded; refusing to overwrite an unknown policy.');
+      const savedPolicy = hasProductionUrl() && isSecurityDirty
+        ? await createProductionDiscountPolicyApi(session?.token ?? '').updatePolicy({ requireSupervisorApproval: securityPolicies.requirePinForDiscount, maxDiscountWithoutApprovalBps: Math.round(securityPolicies.maxDiscountWithoutApproval * 100) })
+        : null;
       updateStoreProfile({
         name: storeForm.storeName,
         code: storeForm.storeCode,
@@ -874,7 +902,14 @@ export const SettingsScreen: React.FC = () => {
       localStorage.setItem('prodx_pos_pay_split', String(taxForm.enableSplitPayment));
 
       localStorage.setItem('prodx_pos_cfd_config', JSON.stringify(cfdConfig));
-      localStorage.setItem('prodx_pos_security_policies', JSON.stringify(securityPolicies));
+      if (!hasProductionUrl()) {
+        localStorage.setItem('prodx_pos_security_policies', JSON.stringify(securityPolicies));
+      } else if (savedPolicy) {
+        const persisted = { ...securityPolicies, requirePinForDiscount: savedPolicy.requireSupervisorApproval, maxDiscountWithoutApproval: savedPolicy.maxDiscountWithoutApprovalBps / 100 };
+        setSecurityPolicies(persisted);
+        setSecurityBaseline(persisted);
+        localStorage.setItem('prodx_pos_security_policies', JSON.stringify(persisted));
+      }
 
       await new Promise((resolve) => setTimeout(resolve, 350));
 
@@ -899,6 +934,9 @@ export const SettingsScreen: React.FC = () => {
     taxForm,
     cfdConfig,
     securityPolicies,
+    isSecurityDirty,
+    isDiscountPolicyLoaded,
+    session?.token,
     updateStoreProfile,
     addToast,
     language,
@@ -908,13 +946,13 @@ export const SettingsScreen: React.FC = () => {
     setStoreForm(initialStoreState);
     setTaxForm(initialTaxState);
     setCfdConfig(initialCfdState);
-    setSecurityPolicies(initialSecurityState);
+    setSecurityPolicies(securityBaseline);
     addToast({
       title: language === 'th' ? 'ยกเลิกการแก้ไขแล้ว' : 'Changes Discarded',
       message: language === 'th' ? 'คืนค่าฟอร์มกลับเป็นข้อมูลเดิม' : 'Reverted all unsaved changes.',
       type: 'info',
     });
-  }, [initialStoreState, initialTaxState, initialCfdState, initialSecurityState, addToast, language]);
+  }, [initialStoreState, initialTaxState, initialCfdState, securityBaseline, addToast, language]);
 
   // Global Keyboard Shortcuts
   useEffect(() => {

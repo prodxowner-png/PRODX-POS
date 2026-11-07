@@ -14,9 +14,12 @@ const start = async (app: ReturnType<typeof createApp>) => {
 
 test("void route is permissioned and uses server-authorized supervisor plus atomic reversal path", async () => {
   let voidInsertParameters: readonly unknown[] | undefined;
+  const securityAuditEvents: string[] = [];
   const query = async <T extends QueryResultRow>(sql: string, parameters: readonly unknown[] = []) => {
     if (sql.includes("FROM prodx_orders") && sql.includes("FOR UPDATE")) return { rows: [{ id: "order-1", organization_id: principal.organizationId, store_id: principal.storeId, order_number: "ORD-1", register_id: "register-1", shift_id: "shift-1", status: "server_confirmed", currency: "THB", grand_total_amount: "10.00" }] as unknown as T[] };
     if (sql.includes("FROM prodx_voids")) return { rows: [] as unknown as T[] };
+    if (sql.includes("prodx_record_security_audit_event")) { securityAuditEvents.push(String(parameters[3])); return { rows: [] as unknown as T[] }; }
+    if (sql.includes("prodx_record_security_audit_event")) { securityAuditEvents.push(String(parameters[3])); return { rows: [] as unknown as T[] }; }
     if (sql.includes("UPDATE prodx_supervisor_authorizations")) return { rows: [{ supervisorUserId: "supervisor-1" }] as unknown as T[] };
     if (sql.includes("FROM prodx_store_memberships")) return { rows: [{ id: "membership-1" }] as unknown as T[] };
     if (sql.includes("FROM prodx_payments")) return { rows: [{ method: "cash", amount: "10.00", currency: "THB", status: "captured" }] as unknown as T[] };
@@ -43,6 +46,7 @@ test("void route is permissioned and uses server-authorized supervisor plus atom
     assert.ok(voidInsertParameters);
     assert.equal(voidInsertParameters?.[5], "supervisor-1");
     assert.equal(voidInsertParameters?.[6], principal.userId);
+    assert.deepEqual(securityAuditEvents, ["SUPERVISOR_AUTHORIZATION_CONSUMED"]);
   } finally { await server.close(); }
 });
 
@@ -61,11 +65,13 @@ test("card and QR voids fail closed before recording void or inventory/cash reve
   let transactionCalls = 0;
   let activeMethod: "card" | "qr_digital" = "card";
   const sideEffectStatements: string[] = [];
-  const query = async <T extends QueryResultRow>(sql: string) => {
+  const securityAuditEvents: string[] = [];
+  const query = async <T extends QueryResultRow>(sql: string, parameters: readonly unknown[] = []) => {
     if (sql.includes("FROM prodx_orders") && sql.includes("FOR UPDATE")) {
       return { rows: [{ id: "order-1", organization_id: principal.organizationId, store_id: principal.storeId, order_number: "ORD-1", register_id: "register-1", shift_id: "shift-1", status: "server_confirmed", currency: "THB", grand_total_amount: "10.00" }] as unknown as T[] };
     }
     if (sql.includes("FROM prodx_voids")) return { rows: [] as unknown as T[] };
+    if (sql.includes("prodx_record_security_audit_event")) { securityAuditEvents.push(String(parameters[3])); return { rows: [] as unknown as T[] }; }
     if (sql.includes("UPDATE prodx_supervisor_authorizations")) return { rows: [{ supervisorUserId: "supervisor-1" }] as unknown as T[] };
     if (sql.includes("FROM prodx_store_memberships")) return { rows: [{ id: "membership-1" }] as unknown as T[] };
     if (sql.includes("FROM prodx_payments")) {
@@ -110,6 +116,7 @@ test("card and QR voids fail closed before recording void or inventory/cash reve
     }
     assert.equal(transactionCalls, 2, "each request must run the provider guard inside the transaction");
     assert.deepEqual(sideEffectStatements, [], "unsupported provider voids must not record financial or inventory reversal effects");
+    assert.deepEqual(securityAuditEvents, ["SUPERVISOR_AUTHORIZATION_CONSUMED", "SUPERVISOR_AUTHORIZATION_CONSUMED"]);
   } finally {
     await server.close();
   }
