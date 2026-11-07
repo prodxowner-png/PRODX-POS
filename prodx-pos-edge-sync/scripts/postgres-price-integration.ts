@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { Client } from "pg";
 import { canonicalize, sha256Hex } from "../src/canonical.js";
 import { signCatalogPriceProofs } from "../src/catalog-crypto.js";
-import { commitSale } from "../src/postgres.js";
+import { commitSale, PermanentDataError } from "../src/postgres.js";
+import { recordFailedSequence, resolveFailedSequence } from "../src/terminal-recovery.js";
 import { verifyTerminalCertificate } from "../src/auth.js";
 import type { OfflineSale, QueueSale } from "../src/contracts.js";
 
@@ -34,6 +35,12 @@ try{
   await admin.query(
     `INSERT INTO terminal_devices(tenant_id,terminal_id,cert_fingerprint_sha256,active)
      VALUES($1,$2,$3,true)`,[tenantId,terminalId,certificateFingerprint]
+  );
+  // Seed stock through the immutable ledger path; direct balance writes are forbidden.
+  await admin.query(
+    `INSERT INTO inventory_ledger(tenant_id,product_id,reference_id,quantity_delta,reason)
+     VALUES($1,$2,$3,2,'OPENING_BALANCE')`,
+    [tenantId,productId,randomUUID()]
   );
   const versionResult=await admin.query(
     `SELECT catalog_version FROM tenant_catalog_versions WHERE tenant_id=$1`,[tenantId]
@@ -110,8 +117,277 @@ try{
       WHERE b.tenant_id=$1 AND b.product_id=$3`,[tenantId,saleId,productId]
   );
   if(Number(signedAudit?.signed_unit_price_minor)!==10000||
-     Number(stock.rows[0]?.balance)!==-2||Number(stock.rows[0]?.quantity_delta)!==-2||Number(stock.rows[0]?.row_count)!==1){
+     Number(stock.rows[0]?.balance)!==0||Number(stock.rows[0]?.quantity_delta)!==-2||Number(stock.rows[0]?.row_count)!==1){
     throw new Error("AUDIT_OR_INVENTORY_INTEGRITY_ASSERTION_FAILED");
+  }
+
+  // Exercise origin-authoritative permanent-failure recovery through the NOBYPASSRLS runtime role.
+  async function makeRecoveryMessage(sequence:number):Promise<QueueSale> {
+    const recoverySale:OfflineSale={
+      idempotency_key:`recovery-${sequence}-${randomUUID()}`,payload_hash:"0".repeat(64),
+      sale_id:randomUUID(),terminal_seq_no:sequence,
+      hlc:{physical_ms:sale.hlc.physical_ms+sequence,logical:0},catalog_version:catalogVersion,
+      signed_price_proofs:proofs,client_recorded_at:new Date().toISOString(),currency:"THB",
+      lines:[{product_id:productId,quantity:1,unit_price_minor:10000,tax_bps:700}]
+    };
+    const {payload_hash:_ignored,...hashableRecoverySale}=recoverySale;
+    recoverySale.payload_hash=await sha256Hex(canonicalize({
+      tenant_id:tenantId,terminal_id:terminalId,sale:hashableRecoverySale
+    }));
+    return {
+      tenant_id:tenantId,terminal_id:terminalId,idempotency_key:recoverySale.idempotency_key,
+      payload_hash:recoverySale.payload_hash,do_name:`${tenantId}:${terminalId}`,
+      sale:recoverySale,edge_received_at:new Date().toISOString(),receipt_id:randomUUID()
+    };
+  }
+  async function expectRecoverableStockFailure(message:QueueSale):Promise<void> {
+    let failure:unknown;
+    try { await commitSale(runtimeEnv,message); }
+    catch (error) { failure=error; }
+    if (!(failure instanceof PermanentDataError) || !failure.sequenceFailureEligible ||
+        failure.message!=="INSUFFICIENT_STOCK") {
+      throw new Error("RECOVERY_FIXTURE_DID_NOT_FAIL_WITH_ELIGIBLE_INSUFFICIENT_STOCK");
+    }
+    const recorded=await recordFailedSequence(runtimeEnv,message,failure.message);
+    if(recorded!=="recorded") throw new Error("FAILED_SEQUENCE_WAS_NOT_DURABLY_RECORDED");
+    // The same envelope is delivered again by the DLQ consumer after the main
+    // Queue consumer has already persisted the failure. This must be idempotent.
+    const duplicateFailure=await recordFailedSequence(runtimeEnv,message,failure.message);
+    if(duplicateFailure!=="recorded") throw new Error("DUPLICATE_DLQ_FAILURE_RECORD_WAS_NOT_IDEMPOTENT");
+  }
+
+  const retryMessage=await makeRecoveryMessage(2);
+  await expectRecoverableStockFailure(retryMessage);
+  const retryInput={tenantId,terminalId,terminalSeqNo:2,disposition:"RETRY" as const,
+    requestId:randomUUID(),actorSubject:"integration-recovery-admin",reason:"Retry after replenishing the test stock"};
+  const retryResolution=await resolveFailedSequence(runtimeEnv,retryInput);
+  if(retryResolution.outcome!=="RETRY"||retryResolution.checkpoint.last_committed_seq_no!==1||
+     retryResolution.checkpoint.last_resolved_seq_no!==1) {
+    throw new Error("FAILED_SEQUENCE_RETRY_CHECKPOINT_ASSERTION_FAILED");
+  }
+  // A delayed duplicate DLQ delivery after an operator RETRY must not mark the
+  // already re-enqueued DO receipt failed again.
+  const delayedDlqReplay=await recordFailedSequence(runtimeEnv,retryMessage,"INSUFFICIENT_STOCK");
+  if(delayedDlqReplay!=="retry") throw new Error("AUTHORIZED_RETRY_WAS_NOT_PRESERVED_DURING_DLQ_REPLAY");
+  if(!retryResolution.resolution_id) throw new Error("RETRY_RESOLUTION_ID_MISSING");
+  retryMessage.recovery_resolution_id=retryResolution.resolution_id;
+  const failedRetryAttempt=await recordFailedSequence(runtimeEnv,retryMessage,"INSUFFICIENT_STOCK");
+  const duplicateFailedRetryAttempt=await recordFailedSequence(runtimeEnv,retryMessage,"INSUFFICIENT_STOCK");
+  if(failedRetryAttempt!=="retry_failed"||duplicateFailedRetryAttempt!=="retry_failed") {
+    throw new Error("AUTHORIZED_RETRY_FAILURE_WAS_NOT_DURABLY_AUDITED_IDEMPOTENTLY");
+  }
+  const retryAuditSnapshot=await admin.query(
+    `SELECT
+       (SELECT COUNT(*)::int FROM terminal_sequence_resolutions
+         WHERE tenant_id=$1 AND terminal_id=$2 AND terminal_seq_no=2
+           AND resolution_id=$3) AS resolutions,
+       (SELECT COUNT(*)::int FROM terminal_sequence_retry_failures
+         WHERE tenant_id=$1 AND terminal_id=$2 AND terminal_seq_no=2
+           AND resolution_id=$3) AS retry_failures,
+       (SELECT COUNT(*)::int FROM audit_logs
+         WHERE tenant_id=$1 AND action='POS_TERMINAL_SEQUENCE_RETRY_FAILED'
+           AND metadata->>'resolution_id'=$3::text) AS retry_failure_audits`,
+    [tenantId,terminalId,retryResolution.resolution_id]
+  );
+  const failedRetryCheckpoint=await resolveFailedSequence(runtimeEnv,retryInput);
+  if(failedRetryCheckpoint.outcome!=="FAILED"||
+     failedRetryCheckpoint.resolution_id!==retryResolution.resolution_id||
+     failedRetryCheckpoint.checkpoint.terminal_failures.find((failure)=>failure.terminal_seq_no===2)?.outcome!=="FAILED") {
+    throw new Error("IDEMPOTENT_RETRY_REQUEST_DID_NOT_REPORT_CURRENT_FAILED_OUTCOME");
+  }
+  const failedRetryReplay=await resolveFailedSequence(runtimeEnv,retryInput);
+  const retryAuditAfterReplay=await admin.query(
+    `SELECT
+       (SELECT COUNT(*)::int FROM terminal_sequence_resolutions
+         WHERE tenant_id=$1 AND terminal_id=$2 AND terminal_seq_no=2
+           AND resolution_id=$3) AS resolutions,
+       (SELECT COUNT(*)::int FROM terminal_sequence_retry_failures
+         WHERE tenant_id=$1 AND terminal_id=$2 AND terminal_seq_no=2
+           AND resolution_id=$3) AS retry_failures,
+       (SELECT COUNT(*)::int FROM audit_logs
+         WHERE tenant_id=$1 AND action='POS_TERMINAL_SEQUENCE_RETRY_FAILED'
+           AND metadata->>'resolution_id'=$3::text) AS retry_failure_audits`,
+    [tenantId,terminalId,retryResolution.resolution_id]
+  );
+  if(failedRetryReplay.outcome!=="FAILED"||
+     failedRetryReplay.resolution_id!==retryResolution.resolution_id||
+     JSON.stringify(retryAuditAfterReplay.rows[0])!==JSON.stringify(retryAuditSnapshot.rows[0])||
+     Number(retryAuditAfterReplay.rows[0].resolutions)!==1||
+     Number(retryAuditAfterReplay.rows[0].retry_failures)!==1||
+     Number(retryAuditAfterReplay.rows[0].retry_failure_audits)!==1) {
+    throw new Error("FAILED_REQUEST_REPLAY_CREATED_DUPLICATE_RESOLUTION_OR_AUDIT");
+  }
+  const retryAgainInput={...retryInput,requestId:randomUUID(),reason:"Retry again after confirming the replenishment operation"};
+  const retryAgainResolution=await resolveFailedSequence(runtimeEnv,retryAgainInput);
+  if(retryAgainResolution.outcome!=="RETRY"||
+     retryAgainResolution.checkpoint.terminal_failures.find((failure)=>failure.terminal_seq_no===2)?.outcome!=="RETRY") {
+    throw new Error("SECOND_RETRY_AUTHORIZATION_DID_NOT_SUPERSEDE_FAILED_ATTEMPT");
+  }
+  if(!retryAgainResolution.resolution_id) throw new Error("SECOND_RETRY_RESOLUTION_ID_MISSING");
+  const staleRetryDelivery=await recordFailedSequence(runtimeEnv,retryMessage,"INSUFFICIENT_STOCK");
+  if(staleRetryDelivery!=="retry") throw new Error("STALE_RETRY_GENERATION_WAS_NOT_FENCED");
+  retryMessage.recovery_resolution_id=retryAgainResolution.resolution_id;
+  await admin.query("BEGIN");
+  await admin.query("SELECT set_config('app.current_tenant_id',$1,true)",[tenantId]);
+  await admin.query(
+    `INSERT INTO inventory_ledger(tenant_id,product_id,reference_id,quantity_delta,reason)
+     VALUES($1,$2,$3,1,'OPENING_BALANCE')`,[tenantId,productId,randomUUID()]
+  );
+  await admin.query("COMMIT");
+  const retryCommit=await commitSale(runtimeEnv,retryMessage);
+  if(retryCommit!=="committed") throw new Error("ORIGIN_AUTHORIZED_RETRY_DID_NOT_COMMIT");
+  const retryReplay=await resolveFailedSequence(runtimeEnv,retryInput);
+  if(retryReplay.outcome!=="COMMITTED"||retryReplay.resolution_id!==retryResolution.resolution_id||
+     retryReplay.checkpoint.last_committed_seq_no!==2||retryReplay.checkpoint.last_resolved_seq_no!==2) {
+    throw new Error("IDEMPOTENT_RETRY_REQUEST_DID_NOT_REPORT_CURRENT_COMMITTED_OUTCOME");
+  }
+
+  const voidMessage=await makeRecoveryMessage(3);
+  await expectRecoverableStockFailure(voidMessage);
+  const voidResolution=await resolveFailedSequence(runtimeEnv,{
+    tenantId,terminalId,terminalSeqNo:3,disposition:"VOID",requestId:randomUUID(),
+    actorSubject:"integration-recovery-admin",reason:"Void the permanently rejected test sale"
+  });
+  if(voidResolution.outcome!=="VOIDED"||voidResolution.checkpoint.last_committed_seq_no!==2||
+     voidResolution.checkpoint.last_resolved_seq_no!==3||
+     voidResolution.checkpoint.terminal_failures.find((failure)=>failure.terminal_seq_no===3)?.outcome!=="VOIDED") {
+    throw new Error("ORIGIN_AUTHORIZED_VOID_CHECKPOINT_ASSERTION_FAILED");
+  }
+  if(await commitSale(runtimeEnv,voidMessage)!=="voided"||
+     await recordFailedSequence(runtimeEnv,voidMessage,"INSUFFICIENT_STOCK")!=="voided") {
+    throw new Error("VOIDED_SEQUENCE_REPLAY_WAS_NOT_IDEMPOTENT");
+  }
+
+  // Negative scope checks must not reveal another tenant's failure or permit
+  // a recovery request against a terminal with no matching durable failure.
+  for (const [wrongTenant,wrongTerminal] of [
+    [randomUUID(),terminalId],
+    [tenantId,randomUUID()]
+  ] as const) {
+    let notFound=false;
+    try {
+      await resolveFailedSequence(runtimeEnv,{
+        tenantId:wrongTenant,terminalId:wrongTerminal,terminalSeqNo:3,
+        disposition:"VOID",requestId:randomUUID(),
+        actorSubject:"integration-recovery-admin",reason:"Negative scope test"
+      });
+    } catch (error) {
+      notFound=error instanceof Error&&error.message==="TERMINAL_SEQUENCE_FAILURE_NOT_FOUND";
+    }
+    if(!notFound) throw new Error("RECOVERY_SCOPE_MISMATCH_WAS_NOT_REJECTED");
+  }
+  let emptyReasonRejected=false;
+  try {
+    await resolveFailedSequence(runtimeEnv,{
+      tenantId,terminalId,terminalSeqNo:3,disposition:"VOID",requestId:randomUUID(),
+      actorSubject:"integration-recovery-admin",reason:"   "
+    });
+  } catch (error) {
+    emptyReasonRejected=error instanceof Error&&error.message==="INVALID_TERMINAL_SEQUENCE_RECOVERY_REQUEST";
+  }
+  if(!emptyReasonRejected) throw new Error("EMPTY_RECOVERY_REASON_WAS_ACCEPTED");
+
+  // Reusing a request ID with changed intent must fail closed, even after the
+  // original RETRY has committed its sale.
+  let requestConflictRejected=false;
+  try {
+    await resolveFailedSequence(runtimeEnv,{
+      ...retryInput,reason:"Changed reason under an already-used request ID"
+    });
+  } catch (error) {
+    requestConflictRejected=error instanceof Error&&
+      error.message==="TERMINAL_SEQUENCE_RECOVERY_REQUEST_ID_CONFLICT";
+  }
+  if(!requestConflictRejected) throw new Error("RECOVERY_REQUEST_ID_CONFLICT_WAS_NOT_REJECTED");
+
+  // Two concurrent identical VOID requests must serialize on the origin
+  // checkpoint and converge on one immutable resolution/audit identity.
+  const concurrentVoidMessage=await makeRecoveryMessage(4);
+  await expectRecoverableStockFailure(concurrentVoidMessage);
+  const concurrentVoidInput={
+    tenantId,terminalId,terminalSeqNo:4,disposition:"VOID" as const,
+    requestId:randomUUID(),actorSubject:"integration-recovery-admin",
+    reason:"Concurrent idempotent operator VOID"
+  };
+  const [voidA,voidB]=await Promise.all([
+    resolveFailedSequence(runtimeEnv,concurrentVoidInput),
+    resolveFailedSequence(runtimeEnv,concurrentVoidInput)
+  ]);
+  if(voidA.outcome!=="VOIDED"||voidB.outcome!=="VOIDED"||
+     !voidA.resolution_id||voidA.resolution_id!==voidB.resolution_id||
+     voidA.checkpoint.last_resolved_seq_no!==4||voidB.checkpoint.last_resolved_seq_no!==4) {
+    throw new Error("CONCURRENT_RECOVERY_REQUEST_IDEMPOTENCY_FAILED");
+  }
+  const voidCount=await admin.query(
+    `SELECT COUNT(*)::integer AS count FROM terminal_sequence_resolutions
+      WHERE tenant_id=$1 AND terminal_id=$2 AND terminal_seq_no=4 AND disposition='VOID'`,
+    [tenantId,terminalId]
+  );
+  if(Number(voidCount.rows[0]?.count)!==1) throw new Error("CONCURRENT_VOID_CREATED_DUPLICATE_RESOLUTIONS");
+  const recoveryAudit=await admin.query(
+    `SELECT action FROM audit_logs WHERE tenant_id=$1
+      AND action IN ('POS_TERMINAL_SEQUENCE_FAILED','POS_TERMINAL_SEQUENCE_RETRY_AUTHORIZED',
+                    'POS_TERMINAL_SEQUENCE_RETRY_FAILED','POS_TERMINAL_SEQUENCE_VOIDED')`,
+    [tenantId]
+  );
+  const recoveryActions=recoveryAudit.rows.map((row)=>row.action);
+  for(const action of ["POS_TERMINAL_SEQUENCE_FAILED","POS_TERMINAL_SEQUENCE_RETRY_AUTHORIZED","POS_TERMINAL_SEQUENCE_RETRY_FAILED","POS_TERMINAL_SEQUENCE_VOIDED"]) {
+    if(!recoveryActions.includes(action)) throw new Error(`TERMINAL_RECOVERY_AUDIT_MISSING:${action}`);
+  }
+
+  // Two independent inventory adjustments race to consume the final unit.
+  // The same ledger trigger protects POS sales and all other stock-out movements.
+  const raceProductId=randomUUID();
+  await admin.query("BEGIN");
+  await admin.query("SELECT set_config('app.current_tenant_id',$1,true)",[tenantId]);
+  await admin.query(
+    `INSERT INTO products(id,tenant_id,sku,name,unit_price_minor,tax_bps,version,active)
+     VALUES($1,$2,$3,'Concurrent stock fixture',10000,700,1,true)`,
+    [raceProductId,tenantId,`RACE-${raceProductId.slice(0,8)}`]
+  );
+  await admin.query(
+    `INSERT INTO inventory_ledger(tenant_id,product_id,reference_id,quantity_delta,reason)
+     VALUES($1,$2,$3,1,'OPENING_BALANCE')`,
+    [tenantId,raceProductId,randomUUID()]
+  );
+  await admin.query("COMMIT");
+
+  async function attemptFinalUnit(referenceId:string):Promise<"committed"|"rejected"> {
+    const client=new Client({connectionString:runtimeUrl});
+    await client.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT set_config('app.current_tenant_id',$1,true)",[tenantId]);
+      await client.query(
+        `INSERT INTO inventory_ledger(tenant_id,product_id,reference_id,quantity_delta,reason)
+         VALUES($1,$2,$3,-1,'STOCK_ADJUSTMENT')`,
+        [tenantId,raceProductId,referenceId]
+      );
+      await client.query("COMMIT");
+      return "committed";
+    } catch (error) {
+      await client.query("ROLLBACK").catch(()=>undefined);
+      if (typeof error==="object"&&error!==null&&"code" in error&&(error as {code?:string}).code==="PZ001") return "rejected";
+      throw error;
+    } finally {
+      await client.end().catch(()=>undefined);
+    }
+  }
+  const raceResults=await Promise.all([
+    attemptFinalUnit(randomUUID()),
+    attemptFinalUnit(randomUUID())
+  ]);
+  const raceBalance=await admin.query(
+    `SELECT b.quantity,
+            (SELECT COUNT(*) FROM inventory_ledger l WHERE l.tenant_id=$1 AND l.product_id=$2 AND l.reason='STOCK_ADJUSTMENT') AS adjustment_count
+       FROM inventory_balances b WHERE b.tenant_id=$1 AND b.product_id=$2`,
+    [tenantId,raceProductId]
+  );
+  if(raceResults.filter((value)=>value==="committed").length!==1||
+     raceResults.filter((value)=>value==="rejected").length!==1||
+     Number(raceBalance.rows[0]?.quantity)!==0||
+     Number(raceBalance.rows[0]?.adjustment_count)!==1){
+    throw new Error("CONCURRENT_INVENTORY_OVERSALE_GUARD_FAILED");
   }
 
   const rlsClient=new Client({connectionString:runtimeUrl});
@@ -129,7 +405,8 @@ try{
   console.log(JSON.stringify({
     result:"PASS",tenant_id:tenantId,terminal_id:terminalId,sale_id:saleId,
     committed_price_minor:10000,current_database_price_minor:20000,
-    total_minor:21400,duplicate_result:duplicate,inventory_balance_after_ledger_trigger:-2,
+    total_minor:21400,duplicate_result:duplicate,inventory_balance_after_ledger_trigger:0,
+    concurrent_last_unit_results:raceResults,concurrent_inventory_balance:0,
     audit_catalog_version:catalogVersion,rls_cross_tenant_read:"blocked",mtls_certificate_mapping:"pass"
   },null,2));
 }catch(error){
