@@ -176,9 +176,46 @@ try{
   if(failedRetryAttempt!=="retry_failed"||duplicateFailedRetryAttempt!=="retry_failed") {
     throw new Error("AUTHORIZED_RETRY_FAILURE_WAS_NOT_DURABLY_AUDITED_IDEMPOTENTLY");
   }
+  const retryAuditSnapshot=await admin.query(
+    `SELECT
+       (SELECT COUNT(*)::int FROM terminal_sequence_resolutions
+         WHERE tenant_id=$1 AND terminal_id=$2 AND terminal_seq_no=2
+           AND resolution_id=$3) AS resolutions,
+       (SELECT COUNT(*)::int FROM terminal_sequence_retry_failures
+         WHERE tenant_id=$1 AND terminal_id=$2 AND terminal_seq_no=2
+           AND resolution_id=$3) AS retry_failures,
+       (SELECT COUNT(*)::int FROM audit_logs
+         WHERE tenant_id=$1 AND action='POS_TERMINAL_SEQUENCE_RETRY_FAILED'
+           AND metadata->>'resolution_id'=$3::text) AS retry_failure_audits`,
+    [tenantId,terminalId,retryResolution.resolution_id]
+  );
   const failedRetryCheckpoint=await resolveFailedSequence(runtimeEnv,retryInput);
-  if(failedRetryCheckpoint.checkpoint.terminal_failures.find((failure)=>failure.terminal_seq_no===2)?.outcome!=="FAILED") {
-    throw new Error("FAILED_RETRY_GENERATION_WAS_NOT_REPORTED_AS_FAILED");
+  if(failedRetryCheckpoint.outcome!=="FAILED"||
+     failedRetryCheckpoint.resolution_id!==retryResolution.resolution_id||
+     failedRetryCheckpoint.checkpoint.terminal_failures.find((failure)=>failure.terminal_seq_no===2)?.outcome!=="FAILED") {
+    throw new Error("IDEMPOTENT_RETRY_REQUEST_DID_NOT_REPORT_CURRENT_FAILED_OUTCOME");
+  }
+  const failedRetryReplay=await resolveFailedSequence(runtimeEnv,retryInput);
+  const retryAuditAfterReplay=await admin.query(
+    `SELECT
+       (SELECT COUNT(*)::int FROM terminal_sequence_resolutions
+         WHERE tenant_id=$1 AND terminal_id=$2 AND terminal_seq_no=2
+           AND resolution_id=$3) AS resolutions,
+       (SELECT COUNT(*)::int FROM terminal_sequence_retry_failures
+         WHERE tenant_id=$1 AND terminal_id=$2 AND terminal_seq_no=2
+           AND resolution_id=$3) AS retry_failures,
+       (SELECT COUNT(*)::int FROM audit_logs
+         WHERE tenant_id=$1 AND action='POS_TERMINAL_SEQUENCE_RETRY_FAILED'
+           AND metadata->>'resolution_id'=$3::text) AS retry_failure_audits`,
+    [tenantId,terminalId,retryResolution.resolution_id]
+  );
+  if(failedRetryReplay.outcome!=="FAILED"||
+     failedRetryReplay.resolution_id!==retryResolution.resolution_id||
+     JSON.stringify(retryAuditAfterReplay.rows[0])!==JSON.stringify(retryAuditSnapshot.rows[0])||
+     Number(retryAuditAfterReplay.rows[0].resolutions)!==1||
+     Number(retryAuditAfterReplay.rows[0].retry_failures)!==1||
+     Number(retryAuditAfterReplay.rows[0].retry_failure_audits)!==1) {
+    throw new Error("FAILED_REQUEST_REPLAY_CREATED_DUPLICATE_RESOLUTION_OR_AUDIT");
   }
   const retryAgainInput={...retryInput,requestId:randomUUID(),reason:"Retry again after confirming the replenishment operation"};
   const retryAgainResolution=await resolveFailedSequence(runtimeEnv,retryAgainInput);
