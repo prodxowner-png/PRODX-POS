@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { runWithRequestContext } from '../http/request-context-storage';
 import { createPostgresPool, resolveConfiguredDatabaseUrl } from '../db/postgres';
 import { createTransactionalPostgresExecutor } from '../db/transaction';
 import { createCheckoutService } from './checkout-service';
@@ -204,9 +205,11 @@ test('PostgreSQL refund is atomic, idempotent, bounded by order total, and resto
   const stockBeforeDiscountedOrder = (await pool.query(
     'SELECT current_stock FROM prodx_products WHERE id=$1', [id.product],
   )).rows[0].current_stock;
-  const discountedOrder = await createCheckoutService(db).checkout(
-    request('refund-order-discount', 1000, id.discountedPayment),
-  );
+  const discountRequestContext = { requestId: 'refund-discount-integration', principal: { userId: id.user, organizationId: id.org, storeId: id.store } };
+  const discountAuthorizationContext = { organizationId: id.org, storeId: id.store, userId: id.user, sessionId: '00000000-0000-4000-8000-000000002014' };
+  const discountedOrder = await runWithRequestContext(discountRequestContext, () => createCheckoutService(db).checkout(
+    request('refund-order-discount', 1000, id.discountedPayment), discountAuthorizationContext,
+  ));
   assert.equal(discountedOrder.order.totals.grandTotal.amountInCents, 1800);
   const firstDiscountedRefund = await refund.refund({
     storeId: id.store, orderId: discountedOrder.order.id,
@@ -250,7 +253,7 @@ test('PostgreSQL refund is atomic, idempotent, bounded by order total, and resto
     totals:{grossSubtotal:{amountInCents:3000,currency:'THB'},itemDiscounts:{amountInCents:0,currency:'THB'},orderDiscount:{amountInCents:100,currency:'THB'},netSubtotal:{amountInCents:2900,currency:'THB'},totalTax:{amountInCents:0,currency:'THB'},grandTotal:{amountInCents:2900,currency:'THB'},totalItemsCount:3},
     payments:[{...request('refund-multi-line-discount').payments[0],id:id.multiPayment,amount:{amountInCents:2900,currency:'THB'},tenderedCash:{amountInCents:2900,currency:'THB'},changeGiven:{amountInCents:0,currency:'THB'}}],
   };
-  const multiLineOrder=await createCheckoutService(db).checkout(multiLineRequest);
+  const multiLineOrder=await runWithRequestContext(discountRequestContext,()=>createCheckoutService(db).checkout(multiLineRequest,discountAuthorizationContext));
   assert.equal(multiLineOrder.order.totals.orderDiscount.amountInCents,100);
   const multiLineRefund=await refund.refund({
     storeId:id.store,orderId:multiLineOrder.order.id,

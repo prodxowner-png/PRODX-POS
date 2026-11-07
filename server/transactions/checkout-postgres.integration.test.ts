@@ -70,18 +70,20 @@ test('PostgreSQL checkout proves atomicity, authoritative pricing, idempotency a
  const stockAfterRace=(await pool.query('SELECT id,current_stock FROM prodx_products WHERE id=ANY($1::uuid[]) ORDER BY id',[[id.product,id.product2]])).rows;
  assert.deepEqual(stockAfterRace.map((r:any)=>Number(r.current_stock)),stockBeforeRace.map((r:any)=>Number(r.current_stock)-2));
  assert.equal((await pool.query('SELECT count(*)::int n FROM prodx_orders WHERE idempotency_key IN ($1,$2)',['opposite-order-a','opposite-order-b'])).rows[0].n,2);
+ const requestContext={requestId:randomUUID(),principal:{userId:id.user,organizationId:id.org,storeId:id.store}};
+ const authorizationContext={organizationId:id.org,storeId:id.store,userId:id.user,sessionId:id.session};
  const discountedRequest=req('order-discount',{
    orderDiscountBps:1000,
    totals:{...req('order-discount').totals,orderDiscount:{amountInCents:200,currency:'THB'},netSubtotal:{amountInCents:1800,currency:'THB'},grandTotal:{amountInCents:1800,currency:'THB'}},
    payments:[{...req('order-discount').payments[0],id:'00000000-0000-4000-8000-000000001013',amount:{amountInCents:1800,currency:'THB'},tenderedCash:{amountInCents:1800,currency:'THB'},changeGiven:{amountInCents:0,currency:'THB'}}],
  });
- const discounted=await service.checkout(discountedRequest);
+ const discounted=await runWithRequestContext(requestContext,()=>service.checkout(discountedRequest,authorizationContext));
  assert.equal(discounted.order.totals.orderDiscount.amountInCents,200);
  assert.equal(discounted.order.totals.grandTotal.amountInCents,1800);
  // Three equal lines and a 1.00 discount create tied largest remainders; the database refund guard must use deterministic UUID tie-breaking.
  const multiLines=[id.product,id.product2,id.product3].map((productId,index)=>({...req('multi-line-discount').items[0],lineId:`multi-${index}`,product:{...req('multi-line-discount').items[0].product,id:productId,sku:`PG-${index+1}`,barcode:`PG-${index+1}`,name:`PG Product ${index+1}`},quantity:1,lineSubtotal:{amountInCents:1000,currency:'THB'},lineTotal:{amountInCents:1000,currency:'THB'}}));
  const multiTotals={grossSubtotal:{amountInCents:3000,currency:'THB'},itemDiscounts:{amountInCents:0,currency:'THB'},orderDiscount:{amountInCents:100,currency:'THB'},netSubtotal:{amountInCents:2900,currency:'THB'},totalTax:{amountInCents:0,currency:'THB'},grandTotal:{amountInCents:2900,currency:'THB'},totalItemsCount:3};
- const multi=await service.checkout(req('multi-line-discount',{items:multiLines,orderDiscountBps:333,totals:multiTotals,payments:[{...req('multi-line-discount').payments[0],id:'00000000-0000-4000-8000-000000001020',amount:{amountInCents:2900,currency:'THB'},tenderedCash:{amountInCents:2900,currency:'THB'},changeGiven:{amountInCents:0,currency:'THB'}}]}));
+ const multi=await runWithRequestContext(requestContext,()=>service.checkout(req('multi-line-discount',{items:multiLines,orderDiscountBps:333,totals:multiTotals,payments:[{...req('multi-line-discount').payments[0],id:'00000000-0000-4000-8000-000000001020',amount:{amountInCents:2900,currency:'THB'},tenderedCash:{amountInCents:2900,currency:'THB'},changeGiven:{amountInCents:0,currency:'THB'}}]}),authorizationContext));
  assert.equal(multi.order.totals.orderDiscount.amountInCents,100);
  assert.equal((await pool.query('SELECT count(*)::int n FROM prodx_order_items WHERE order_id=$1',[multi.order.id])).rows[0].n,3);
  // Server policy is authoritative: exactly 15% is permitted, while 15.01% is
@@ -94,8 +96,6 @@ test('PostgreSQL checkout proves atomicity, authoritative pricing, idempotency a
    totals:{grossSubtotal:{amountInCents:2000,currency:'THB'},itemDiscounts:{amountInCents:discount,currency:'THB'},orderDiscount:{amountInCents:0,currency:'THB'},netSubtotal:{amountInCents:grand,currency:'THB'},totalTax:{amountInCents:0,currency:'THB'},grandTotal:{amountInCents:grand,currency:'THB'},totalItemsCount:2},
    payments:[{...base.payments[0],id:randomUUID(),amount:{amountInCents:grand,currency:'THB'},tenderedCash:{amountInCents:grand,currency:'THB'},changeGiven:{amountInCents:0,currency:'THB'}}]};
  };
- const requestContext={requestId:randomUUID(),principal:{userId:id.user,organizationId:id.org,storeId:id.store}};
- const authorizationContext={organizationId:id.org,storeId:id.store,userId:id.user,sessionId:id.session};
  const exact=await runWithRequestContext(requestContext,()=>service.checkout(discountedRequestForPolicy('exact-threshold',1500),authorizationContext));
  assert.equal(exact.order.totals.grandTotal.amountInCents,1700);
  const stockAfterExact=(await pool.query('SELECT current_stock FROM prodx_products WHERE id=$1',[id.product])).rows[0].current_stock;
