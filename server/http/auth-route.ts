@@ -345,6 +345,38 @@ export const registerAuthRoutes = (
     response.status(200).json(context);
   }));
 
+  app.post('/auth/supabase/renew', asyncRoute(async (request, response) => {
+    const posToken = bearerToken(request);
+    const supabaseHeader = request.header('x-supabase-authorization')?.trim() ?? '';
+    const bearerPrefix = 'Bearer ';
+    const hasBearerPrefix = supabaseHeader.slice(0, bearerPrefix.length).toLowerCase() === bearerPrefix.toLowerCase();
+    const supabaseToken = hasBearerPrefix ? supabaseHeader.slice(bearerPrefix.length).trim() : '';
+    if (!posToken || !supabaseToken) {
+      sendUnauthenticated(request, response, 'Both POS and Supabase bearer tokens are required.');
+      return;
+    }
+
+    const renewed = await sessions.renewSupabaseSession({ supabaseToken, posToken });
+    if (!renewed) {
+      sendUnauthenticated(request, response, 'Authentication session cannot be renewed.');
+      return;
+    }
+
+    const principal = await sessions.authenticateBearer(posToken);
+    if (!principal) {
+      sendUnauthenticated(request, response, 'Authentication session is invalid.');
+      return;
+    }
+    const context = await withPrincipalContext(request, principal, () =>
+      loadSessionContext(db, principal, posToken, renewed.expiresAt));
+    if (!context) {
+      sendUnauthenticated(request, response, 'Session scope could not be established.');
+      return;
+    }
+    response.setHeader('Cache-Control', 'private, no-store');
+    response.status(200).json(context);
+  }));
+
   const handleCredentialLogin = (forceAdminRole: boolean) => async (request: Request, response: Response): Promise<void> => {
     const body = readLoginBody(request.body);
     if (!body) {

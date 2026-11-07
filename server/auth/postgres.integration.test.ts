@@ -148,6 +148,81 @@ test('M2 PostgreSQL authentication enforces credential, tenant, session, token-h
   assert.notEqual(persisted.rows[0].token_hash, result.token);
   assert.equal(persisted.rows[0].revoked_at, null);
 
+  const renewalSession = await authentication.authenticateCredentials({
+    username: 'm2-user-a',
+    password: 'correct-password',
+    deviceId: ids.deviceA,
+  });
+  assert.ok(renewalSession);
+  const initialShortExpiry = new Date(Date.now() + 15 * 60 * 1000);
+  await pool.query('UPDATE prodx_sessions SET expires_at = $1 WHERE id = $2', [
+    initialShortExpiry,
+    renewalSession.sessionId,
+  ]);
+  const earlierRenewalExpiry = new Date(Date.now() + 30 * 60 * 1000);
+  const laterRenewalExpiry = new Date(Date.now() + 60 * 60 * 1000);
+  const concurrentRenewals = await Promise.all([
+    identityRepository.renewSession({
+      sessionId: renewalSession.sessionId,
+      tokenHash: hashSessionToken(renewalSession.token),
+      supabaseUserId: ids.supabaseUserA,
+      expiresAt: earlierRenewalExpiry,
+    }),
+    identityRepository.renewSession({
+      sessionId: renewalSession.sessionId,
+      tokenHash: hashSessionToken(renewalSession.token),
+      supabaseUserId: ids.supabaseUserA,
+      expiresAt: laterRenewalExpiry,
+    }),
+  ]);
+  assert.ok(concurrentRenewals.every((expiry) => expiry instanceof Date));
+  const persistedRenewal = await pool.query<{ expires_at: Date; revoked_at: Date | null }>(
+    'SELECT expires_at, revoked_at FROM prodx_sessions WHERE id = $1',
+    [renewalSession.sessionId],
+  );
+  assert.equal(persistedRenewal.rows[0].expires_at.getTime(), laterRenewalExpiry.getTime());
+  assert.equal(persistedRenewal.rows[0].revoked_at, null);
+
+  const renewalAudit = await pool.query<{
+    organization_id: string;
+    user_id: string;
+    metadata: { session_id: string; expires_at: string };
+  }>(
+    `SELECT organization_id, user_id, metadata
+       FROM prodx_security_audit_events
+      WHERE organization_id = $1
+        AND user_id = $2
+        AND event_type = 'POS_SESSION_RENEWED'
+        AND metadata->>'session_id' = $3
+      ORDER BY occurred_at`,
+    [ids.organizationA, ids.userA, renewalSession.sessionId],
+  );
+  assert.equal(renewalAudit.rows.length, 2, 'each successful renewal must append one audit event');
+  for (const event of renewalAudit.rows) {
+    assert.equal(event.organization_id, ids.organizationA);
+    assert.equal(event.user_id, ids.userA);
+    assert.equal(event.metadata.session_id, renewalSession.sessionId);
+  }
+
+  assert.equal(await authentication.revokeBearer(renewalSession.token), true);
+  assert.equal(await identityRepository.renewSession({
+    sessionId: renewalSession.sessionId,
+    tokenHash: hashSessionToken(renewalSession.token),
+    supabaseUserId: ids.supabaseUserA,
+    expiresAt: new Date(Date.now() + 90 * 60 * 1000),
+  }), null, 'a revoked POS bearer must never be revived');
+  const auditAfterRejectedRenewal = await pool.query<{ count: number }>(
+    `SELECT COUNT(*)::int AS count
+       FROM prodx_security_audit_events
+      WHERE organization_id = $1
+        AND user_id = $2
+        AND event_type = 'POS_SESSION_RENEWED'
+        AND metadata->>'session_id' = $3`,
+    [ids.organizationA, ids.userA, renewalSession.sessionId],
+  );
+  assert.equal(auditAfterRejectedRenewal.rows[0]?.count, 2,
+    'a rejected renewal must not append an audit event');
+
   const beforeTouch = await pool.query<{ last_seen_at: Date | null }>(
     'SELECT last_seen_at FROM prodx_sessions WHERE id = $1',
     [result.sessionId],
@@ -181,6 +256,7 @@ test('M2 PostgreSQL authentication enforces credential, tenant, session, token-h
     `SELECT event_type, organization_id, user_id, metadata
        FROM prodx_security_audit_events
       WHERE organization_id = $1
+        AND event_type = 'AUTH_LOCKOUT'
       ORDER BY occurred_at DESC`,
     [ids.organizationA],
   );
@@ -210,7 +286,9 @@ test('M2 PostgreSQL authentication enforces credential, tenant, session, token-h
   assert.equal(resetState.rows[0].locked_until, null);
   const resetAudit = await pool.query<{ event_type: string; metadata: { previous_failed_attempts: number } }>(
     `SELECT event_type, metadata FROM prodx_security_audit_events
-      WHERE organization_id = $1 ORDER BY occurred_at ASC`,
+      WHERE organization_id = $1
+        AND event_type IN ('AUTH_LOCKOUT', 'AUTH_LOCKOUT_RESET')
+      ORDER BY occurred_at ASC`,
     [ids.organizationA],
   );
   assert.equal(resetAudit.rows.length, 2);
