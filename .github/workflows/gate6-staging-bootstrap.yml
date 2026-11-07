@@ -1,0 +1,294 @@
+name: PRODX POS — Gate 6 Cloudflare Staging Verification
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_ref:
+        description: "Exact PR branch to verify"
+        required: true
+        type: string
+        default: "fix/edge-sync-p1-integrity-remediation"
+      expected_head_sha:
+        description: "Expected 40-character commit SHA for the target branch"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prodx-pos-gate6-staging
+  cancel-in-progress: false
+
+jobs:
+  staging:
+    name: Provision, Deploy & Verify Cloudflare Staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # The workflow definition itself must come from the protected default branch.
+    # The target PR is checked out separately by its exact SHA below.
+    if: github.ref == 'refs/heads/main' && github.ref_protected
+    environment: staging
+    defaults:
+      run:
+        shell: bash
+        working-directory: prodx-pos-edge-sync
+    steps:
+      - name: Enforce protected default-branch dispatch
+        working-directory: .
+        env:
+          DISPATCH_REF: ${{ github.ref }}
+          DISPATCH_REF_PROTECTED: ${{ github.ref_protected }}
+        run: |
+          set -euo pipefail
+          [[ "$DISPATCH_REF" == "refs/heads/main" && "$DISPATCH_REF_PROTECTED" == "true" ]] || {
+            echo "::error::Gate 6 workflow must be dispatched from protected main; refusing to expose Staging credentials."
+            exit 1
+          }
+
+      - name: Validate requested target
+        working-directory: .
+        env:
+          TARGET_REF: ${{ inputs.target_ref }}
+          EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$TARGET_REF" == "fix/edge-sync-p1-integrity-remediation" ]] || {
+            echo "::error::Only the explicitly reviewed Edge Sync integrity-remediation branch is permitted."
+            exit 1
+          }
+          [[ "$EXPECTED_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "::error::expected_head_sha must be a full 40-character lowercase SHA."
+            exit 1
+          }
+
+      - name: Checkout exact reviewed PR head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.target_ref }}
+
+      - name: Verify exact checked-out commit
+        env:
+          EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          [[ "$actual" == "$EXPECTED_HEAD_SHA" ]] || {
+            echo "::error::Target branch moved: expected $EXPECTED_HEAD_SHA, got $actual."
+            exit 1
+          }
+          echo "Verified exact target commit: $actual"
+
+      - name: Verify owner-signed immutable target commit before exposing Staging credentials
+        working-directory: .
+        env:
+          EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          commit_json="$(curl --fail --silent --show-error \
+            --header "Authorization: Bearer $GITHUB_TOKEN" \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/commits/$EXPECTED_HEAD_SHA")"
+          jq -e '
+            .commit.verification.verified == true and
+            .commit.verification.reason == "valid" and
+            .author.login == "prodxowner-png" and
+            .committer.login == "prodxowner-png"
+          ' <<<"$commit_json" >/dev/null || {
+            echo "::error::Target commit must have a valid GitHub-verified signature from the repository owner."
+            exit 1
+          }
+          echo "Verified owner-signed target commit: $EXPECTED_HEAD_SHA"
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: prodx-pos-edge-sync/package-lock.json
+
+      - name: Preflight — require isolated Staging credentials and E2E fixture
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.PRODX_STAGING_CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.PRODX_STAGING_CLOUDFLARE_ACCOUNT_ID }}
+          STAGING_DATABASE_URL: ${{ secrets.PRODX_STAGING_DATABASE_URL }}
+          STAGING_RECONCILIATION_DATABASE_URL: ${{ secrets.PRODX_STAGING_RECONCILIATION_DATABASE_URL }}
+          POS_STAGING_ACCESS_AUD: ${{ secrets.PRODX_STAGING_ACCESS_AUD }}
+          POS_STAGING_SYNC_URL: ${{ secrets.PRODX_STAGING_SYNC_URL }}
+          POS_STAGING_ACCESS_JWT: ${{ secrets.PRODX_STAGING_ACCESS_JWT }}
+          POS_STAGING_OPS_JWT: ${{ secrets.PRODX_STAGING_OPS_JWT }}
+          POS_STAGING_MTLS_CERT_PEM: ${{ secrets.PRODX_STAGING_MTLS_CERT_PEM }}
+          POS_STAGING_MTLS_KEY_PEM: ${{ secrets.PRODX_STAGING_MTLS_KEY_PEM }}
+          POS_STAGING_E2E_PAYLOAD_B64: ${{ secrets.PRODX_STAGING_E2E_PAYLOAD_B64 }}
+          POS_STAGING_TERMINAL_IDS_JSON: ${{ secrets.PRODX_STAGING_TERMINAL_IDS_JSON }}
+          CATALOG_SIGNING_KEY: ${{ secrets.PRODX_STAGING_CATALOG_SIGNING_KEY }}
+          EXPECTED_STAGING_DATABASE_HOST: ${{ vars.PRODX_STAGING_DATABASE_HOST }}
+          EXPECTED_STAGING_DATABASE_NAME: ${{ vars.PRODX_STAGING_DATABASE_NAME }}
+          EXPECTED_STAGING_RECONCILIATION_DATABASE_HOST: ${{ vars.PRODX_STAGING_RECONCILIATION_DATABASE_HOST }}
+          EXPECTED_STAGING_RECONCILIATION_DATABASE_NAME: ${{ vars.PRODX_STAGING_RECONCILIATION_DATABASE_NAME }}
+          EXPECTED_POS_STAGING_SYNC_HOST: ${{ vars.PRODX_STAGING_SYNC_HOST }}
+        run: |
+          set -euo pipefail
+          required=(CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID STAGING_DATABASE_URL
+            STAGING_RECONCILIATION_DATABASE_URL POS_STAGING_ACCESS_AUD POS_STAGING_SYNC_URL
+            POS_STAGING_ACCESS_JWT POS_STAGING_OPS_JWT POS_STAGING_MTLS_CERT_PEM
+            POS_STAGING_MTLS_KEY_PEM POS_STAGING_E2E_PAYLOAD_B64
+            POS_STAGING_TERMINAL_IDS_JSON CATALOG_SIGNING_KEY
+            EXPECTED_STAGING_DATABASE_HOST EXPECTED_STAGING_DATABASE_NAME
+            EXPECTED_STAGING_RECONCILIATION_DATABASE_HOST
+            EXPECTED_STAGING_RECONCILIATION_DATABASE_NAME EXPECTED_POS_STAGING_SYNC_HOST)
+          for name in "${required[@]}"; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::Missing GitHub Environment 'staging' secret/variable: $name"
+              exit 1
+            fi
+          done
+          node -e 'const k=process.env.CATALOG_SIGNING_KEY; if(typeof k!=="string" || k.length<32 || Buffer.byteLength(k,"utf8")<32) { console.error("CATALOG_SIGNING_KEY must contain at least 32 UTF-8 bytes before provisioning"); process.exit(1); } console.log("Catalog signing key length preflight: PASS")'
+          node <<'NODE'
+          const assert = require('node:assert/strict');
+          function parseDatabaseUrl(raw, expectedHost, expectedDatabase, label) {
+            const url = new URL(raw);
+            assert.ok(['postgres:', 'postgresql:'].includes(url.protocol), label + ' must use PostgreSQL');
+            assert.equal(url.hostname.toLowerCase(), expectedHost.toLowerCase(), label + ' host is not the approved Staging host');
+            assert.equal(decodeURIComponent(url.pathname.slice(1)), expectedDatabase, label + ' database is not the approved Staging database');
+          }
+          const syncUrl = new URL(process.env.POS_STAGING_SYNC_URL);
+          assert.equal(syncUrl.protocol, 'https:', 'Staging sync endpoint must use HTTPS');
+          assert.equal(syncUrl.hostname.toLowerCase(), process.env.EXPECTED_POS_STAGING_SYNC_HOST.toLowerCase(),
+            'Staging sync hostname is not the approved Staging hostname');
+          parseDatabaseUrl(process.env.STAGING_DATABASE_URL,
+            process.env.EXPECTED_STAGING_DATABASE_HOST, process.env.EXPECTED_STAGING_DATABASE_NAME,
+            'STAGING_DATABASE_URL');
+          parseDatabaseUrl(process.env.STAGING_RECONCILIATION_DATABASE_URL,
+            process.env.EXPECTED_STAGING_RECONCILIATION_DATABASE_HOST,
+            process.env.EXPECTED_STAGING_RECONCILIATION_DATABASE_NAME,
+            'STAGING_RECONCILIATION_DATABASE_URL');
+          console.log('Both PostgreSQL URLs and the sync endpoint match exact Staging allowlists.');
+          NODE
+          node -e 'const p=JSON.parse(Buffer.from(process.env.POS_STAGING_E2E_PAYLOAD_B64,"base64").toString("utf8")); if(!p || !Array.isArray(p.sales) || p.sales.length<10 || p.sales.length>50) process.exit(1); console.log("E2E fixture shape valid:",p.sales.length,"sales")'
+          node -e 'const ids=JSON.parse(process.env.POS_STAGING_TERMINAL_IDS_JSON); if(!Array.isArray(ids)||!ids.length||ids.some(x=>typeof x!=="string")) process.exit(1); console.log("DO health terminal IDs valid:",ids.length)'
+          mkdir -p artifacts/logs
+
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund --legacy-peer-deps
+
+      - name: Provision isolated Staging Queues and Hyperdrive
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.PRODX_STAGING_CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.PRODX_STAGING_CLOUDFLARE_ACCOUNT_ID }}
+          STAGING_DATABASE_URL: ${{ secrets.PRODX_STAGING_DATABASE_URL }}
+          STAGING_DATABASE_HOST_EXPECTED: ${{ vars.PRODX_STAGING_DATABASE_HOST }}
+          STAGING_DATABASE_NAME_EXPECTED: ${{ vars.PRODX_STAGING_DATABASE_NAME }}
+          POS_STAGING_ACCESS_AUD: ${{ secrets.PRODX_STAGING_ACCESS_AUD }}
+        run: |
+          chmod +x scripts/provision-staging.sh
+          ./scripts/provision-staging.sh provision
+
+      - name: Generate Staging Wrangler bindings
+        run: npx wrangler types
+
+      - name: Deploy Worker to Cloudflare Staging only
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.PRODX_STAGING_CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.PRODX_STAGING_CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler deploy --env staging
+
+      - name: Set Staging-only catalog signing secret
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.PRODX_STAGING_CLOUDFLARE_API_TOKEN }}
+          CATALOG_SIGNING_KEY: ${{ secrets.PRODX_STAGING_CATALOG_SIGNING_KEY }}
+        run: ./scripts/provision-staging.sh set-secret
+
+      - name: Prepare mTLS client certificate
+        env:
+          POS_STAGING_MTLS_CERT_PEM: ${{ secrets.PRODX_STAGING_MTLS_CERT_PEM }}
+          POS_STAGING_MTLS_KEY_PEM: ${{ secrets.PRODX_STAGING_MTLS_KEY_PEM }}
+        run: |
+          printf '%s\n' "$POS_STAGING_MTLS_CERT_PEM" > /tmp/prodx-staging-client.crt
+          printf '%s\n' "$POS_STAGING_MTLS_KEY_PEM" > /tmp/prodx-staging-client.key
+          chmod 600 /tmp/prodx-staging-client.crt /tmp/prodx-staging-client.key
+
+      - name: Gate 6.1 — Edge to DO to Queue to Hyperdrive E2E
+        env:
+          POS_STAGING_SYNC_URL: ${{ secrets.PRODX_STAGING_SYNC_URL }}
+          POS_STAGING_ACCESS_JWT: ${{ secrets.PRODX_STAGING_ACCESS_JWT }}
+          POS_STAGING_E2E_PAYLOAD_B64: ${{ secrets.PRODX_STAGING_E2E_PAYLOAD_B64 }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$POS_STAGING_E2E_PAYLOAD_B64" | base64 --decode > /tmp/prodx-staging-e2e.json
+          http_code="$(curl --silent --show-error --output /tmp/prodx-staging-accepted.json \
+            --write-out '%{http_code}' --request POST \
+            --url "${POS_STAGING_SYNC_URL%/}/api/v1/pos/sync-batch" \
+            --header "cf-access-jwt-assertion: $POS_STAGING_ACCESS_JWT" \
+            --header "content-type: application/json" \
+            --cert /tmp/prodx-staging-client.crt --key /tmp/prodx-staging-client.key \
+            --data-binary @/tmp/prodx-staging-e2e.json)"
+          jq -e 'type == "object" and (.accepted_count | type == "number") and (.has_sequence_gaps | type == "boolean")' /tmp/prodx-staging-accepted.json >/dev/null
+          jq '{accepted_count,duplicate_count,committed_count,has_sequence_gaps}' /tmp/prodx-staging-accepted.json
+          [[ "$http_code" == "202" ]] || { echo "Expected HTTP 202 from Edge, got $http_code"; exit 1; }
+          expected="$(jq '.sales | length' /tmp/prodx-staging-e2e.json)"
+          accepted="$(jq '.accepted_count' /tmp/prodx-staging-accepted.json)"
+          [[ "$accepted" == "$expected" ]] || { echo "Expected $expected newly accepted sales, got $accepted"; exit 1; }
+          [[ "$(jq -r '.has_sequence_gaps' /tmp/prodx-staging-accepted.json)" == "false" ]] || {
+            echo "Staging E2E batch contains terminal sequence gaps"; exit 1;
+          }
+
+          jq -r '.sales[].idempotency_key' /tmp/prodx-staging-e2e.json > /tmp/prodx-staging-keys.txt
+          while IFS= read -r key; do
+            committed=false
+            for attempt in $(seq 1 60); do
+              status_code="$(curl --silent --show-error --output /tmp/prodx-staging-status.json \
+                --write-out '%{http_code}' --request GET \
+                --url "${POS_STAGING_SYNC_URL%/}/api/v1/pos/receipt-status?idempotency_key=$key" \
+                --header "cf-access-jwt-assertion: $POS_STAGING_ACCESS_JWT" \
+                --cert /tmp/prodx-staging-client.crt --key /tmp/prodx-staging-client.key)"
+              status="$(jq -r '.status // "unknown"' /tmp/prodx-staging-status.json)"
+              if [[ "$status_code" == "200" && "$status" == "committed" ]]; then committed=true; break; fi
+              if [[ "$status_code" == "409" || "$status" == "failed" ]]; then
+                echo "Staging sale reached FAILED state (HTTP $status_code)"
+                exit 1
+              fi
+              sleep 5
+            done
+            [[ "$committed" == "true" ]] || { echo "Timed out waiting for committed receipt"; exit 1; }
+          done < /tmp/prodx-staging-keys.txt
+          echo "PASS: every E2E sale was committed through the Staging Queue consumer and PostgreSQL."
+
+      - name: Gate 6.2 — Export real Durable Object checkpoint and outbox state
+        env:
+          POS_SYNC_URL: ${{ secrets.PRODX_STAGING_SYNC_URL }}
+          POS_OPS_TOKEN: ${{ secrets.PRODX_STAGING_OPS_JWT }}
+          POS_TERMINAL_IDS: ${{ secrets.PRODX_STAGING_TERMINAL_IDS_JSON }}
+          POS_DO_HEALTH_CSV: do-outbox-export.csv
+        run: npm run export:do-health 2>&1 | tee artifacts/logs/export-do-health.log
+
+      - name: Gate 6.3 — Reconcile Cloudflare DO export against Staging PostgreSQL
+        env:
+          DATABASE_URL: ${{ secrets.PRODX_STAGING_RECONCILIATION_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          test -s do-outbox-export.csv
+          psql "$DATABASE_URL" --set=ON_ERROR_STOP=1 --file scripts/reconcile.sql \
+            2>&1 | tee artifacts/logs/staging-reconcile.log
+          grep -q 'RECONCILIATION_PASS' artifacts/logs/staging-reconcile.log
+
+      - name: Upload Gate 6 evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: prodx-pos-gate6-staging-evidence
+          path: |
+            prodx-pos-edge-sync/artifacts/logs/
+            prodx-pos-edge-sync/do-outbox-export.csv
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Remove temporary credentials and raw E2E payloads
+        if: always()
+        run: |
+          set -euo pipefail
+          rm -f /tmp/prodx-staging-client.crt /tmp/prodx-staging-client.key
+          rm -f /tmp/prodx-staging-e2e.json /tmp/prodx-staging-accepted.json
+          rm -f /tmp/prodx-staging-status.json /tmp/prodx-staging-keys.txt
