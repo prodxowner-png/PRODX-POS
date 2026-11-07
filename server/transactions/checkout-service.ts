@@ -84,7 +84,7 @@ export const createCheckoutService=(db:TransactionalSqlExecutor)=>({
  const orderDiscountBps=validateBasisPoints((request as CheckoutRequest & {orderDiscountBps?:number}).orderDiscountBps??0,'Order discount');
  const payloadHash=checkoutFingerprint(request);
  const authorizationPayloadHash=checkoutAuthorizationFingerprint(request);
- return db.transaction(async tx=>{
+ const transactionResult = await db.transaction(async tx=>{
   const existing=(await tx.query(`SELECT * FROM prodx_orders WHERE store_id=$1 AND idempotency_key=$2 LIMIT 1`,[request.storeId,request.idempotencyKey])).rows[0];if(existing){if(existing.idempotency_payload_hash!==payloadHash)throw new CheckoutConflictError('Idempotency key was already used for a different checkout payload.');return orderFromDb(tx,existing,true);}
   const shift=(await tx.query(`SELECT sh.id FROM prodx_shifts sh JOIN prodx_registers r ON r.id=sh.register_id AND r.store_id=sh.store_id WHERE sh.store_id=$1 AND sh.register_id=$2 AND sh.cashier_id=$3 AND sh.status='open' AND r.status='active' FOR UPDATE`,[request.storeId,request.registerId,request.cashierId])).rows[0];if(!shift)throw new CheckoutConflictError('An active shift for this register and cashier is required.');
   const ids=request.items.map(i=>i.product.id);if(new Set(ids).size!==ids.length)throw new CheckoutValidationError('Duplicate product lines are not allowed.');
@@ -120,21 +120,24 @@ export const createCheckoutService=(db:TransactionalSqlExecutor)=>({
       const committed = (await tx.query(`SELECT * FROM prodx_orders WHERE store_id=$1 AND idempotency_key=$2 FOR UPDATE`, [request.storeId, request.idempotencyKey])).rows[0] as DbRow | undefined;
       if (committed) {
        if (committed.idempotency_payload_hash !== payloadHash) {
-        await db.query(`SELECT public.prodx_record_security_audit_event($1, $2, $3, 'SUPERVISOR_AUTHORIZATION_REJECTED', $4::jsonb)`, [
+        await tx.query(`SELECT public.prodx_record_security_audit_event($1, $2, $3, 'SUPERVISOR_AUTHORIZATION_REJECTED', $4::jsonb)`, [
          crypto.randomUUID(), authorizationContext.organizationId, authorizationContext.userId,
          JSON.stringify({ action: 'discount', idempotencyKey: request.idempotencyKey, reason: 'IDEMPOTENCY_PAYLOAD_MISMATCH' }),
         ]);
-        throw new CheckoutConflictError('Idempotency key was reused with a different checkout payload.');
+        // Return a rejection marker so the audit commits on this same connection;
+        // the public error is raised only after the transaction releases its lock.
+        return { authorizationRejection: 'IDEMPOTENCY_PAYLOAD_MISMATCH' } as const;
        }
        return orderFromDb(tx, committed, true);
       }
-      // The checkout transaction must roll back, but a rejected grant still
-      // needs a durable audit record outside that rollback boundary.
-      await db.query(`SELECT public.prodx_record_security_audit_event($1, $2, $3, 'SUPERVISOR_AUTHORIZATION_REJECTED', $4::jsonb)`, [
+      // A rejected grant has no financial writes to preserve. Record its audit
+      // in this transaction and return a marker so it commits without opening a
+      // second pool connection while shift/product locks are held.
+      await tx.query(`SELECT public.prodx_record_security_audit_event($1, $2, $3, 'SUPERVISOR_AUTHORIZATION_REJECTED', $4::jsonb)`, [
        crypto.randomUUID(), authorizationContext.organizationId, authorizationContext.userId,
        JSON.stringify({ action: 'discount', idempotencyKey: request.idempotencyKey, reason: error.code }),
       ]);
-      throw new CheckoutAuthorizationError('DISCOUNT_SUPERVISOR_AUTHORIZATION_INVALID');
+      return { authorizationRejection: 'SUPERVISOR_AUTHORIZATION_INVALID' } as const;
      }
      throw error;
     }
@@ -147,4 +150,11 @@ export const createCheckoutService=(db:TransactionalSqlExecutor)=>({
   for(const p of request.payments){const a=cents(p.amount,`payment ${p.id}`);await tx.query(`INSERT INTO prodx_payments(id,organization_id,store_id,order_id,method,amount,tendered_cash,change_given,auth_code,card_last_four,terminal_reference,currency) VALUES($1,(SELECT organization_id FROM prodx_orders WHERE id=$2),$3,$2,$4,$5,$6,$7,$8,$9,$10,$11)`,[p.id,ins.id,request.storeId,p.method,numeric(a),p.tenderedCash?numeric(cents(p.tenderedCash,'tendered cash')):null,p.changeGiven?numeric(cents(p.changeGiven,'change given')):null,p.authCode??null,p.cardLastFour??null,p.terminalReference??null,currency]);if(p.method==='cash'){const t=p.tenderedCash?cents(p.tenderedCash,'tendered cash'):a,c=p.changeGiven?cents(p.changeGiven,'change given'):0n;await tx.query(`INSERT INTO prodx_cash_movements(id,organization_id,store_id,shift_id,type,amount,reason,performed_by_user_id,currency) VALUES($1,(SELECT organization_id FROM prodx_orders WHERE id=$2),$3,$4,'cash_sale',$5,'POS sale',$6,$7)`,[crypto.randomUUID(),ins.id,request.storeId,shift.id,numeric(t-c),request.cashierId,currency]);}}
   await tx.query(`INSERT INTO prodx_audit_log(id,organization_id,store_id,register_id,user_id,action,severity,details) VALUES($1,(SELECT organization_id FROM prodx_orders WHERE id=$2),$3,$4,$5,'order_checkout_committed','info',$6::jsonb)`,[crypto.randomUUID(),ins.id,request.storeId,request.registerId,request.cashierId,JSON.stringify({orderId:ins.id,idempotencyKey:request.idempotencyKey,grandTotal:numeric(grand),supervisorUserId})]);return orderFromDb(tx,ins,false);
  });
+ if ('authorizationRejection' in transactionResult) {
+  if (transactionResult.authorizationRejection === 'IDEMPOTENCY_PAYLOAD_MISMATCH') {
+   throw new CheckoutConflictError('Idempotency key was reused with a different checkout payload.');
+  }
+  throw new CheckoutAuthorizationError('DISCOUNT_SUPERVISOR_AUTHORIZATION_INVALID');
+ }
+ return transactionResult;
 }});

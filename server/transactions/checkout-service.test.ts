@@ -187,3 +187,42 @@ test('invalid or replayed discount token is rejected and audited outside the rol
  );
  assert.ok(queries.some((sql) => sql.includes('SUPERVISOR_AUTHORIZATION_REJECTED')));
 });
+
+test('authorization rejection audits through the held transaction connection without opening a second pool connection', async () => {
+ const observed: string[] = [];
+ const inner = checkoutDb(1501, false, observed);
+ let transactionActive = false;
+ let nestedStandaloneQuery = false;
+ let transactionCommitted = false;
+ // Model the Vercel pool contract: max=1 means the active transaction owns
+ // the only connection, so a standalone db.query from inside it cannot proceed.
+ const db: TransactionalSqlExecutor = {
+  query: async <T extends Record<string, unknown>>(sql: string, parameters: readonly unknown[] = []) => {
+   if (transactionActive) {
+    nestedStandaloneQuery = true;
+    throw new Error('POOL_EXHAUSTED: max=1 connection is held by checkout transaction');
+   }
+   return inner.query<T>(sql, parameters);
+  },
+  transaction: async <T>(work: (tx: SqlQueryExecutor) => Promise<T>) => {
+   transactionActive = true;
+   try {
+    const result = await inner.transaction(work);
+    transactionCommitted = true;
+    return result;
+   } finally {
+    transactionActive = false;
+   }
+  },
+ };
+ const payload = { ...discountedRequest(1501), supervisorAuthorizationToken: 'expired-one-time-token' };
+ await assert.rejects(
+  createCheckoutService(db).checkout(payload, {
+   organizationId: 'org-1', storeId: 'store-1', userId: 'user-1', sessionId: 'session-1',
+  }),
+  (error: unknown) => error instanceof CheckoutAuthorizationError && error.code === 'DISCOUNT_SUPERVISOR_AUTHORIZATION_INVALID',
+ );
+ assert.equal(nestedStandaloneQuery, false);
+ assert.equal(transactionCommitted, true);
+ assert.ok(observed.some((sql) => sql.includes('SUPERVISOR_AUTHORIZATION_REJECTED')));
+});
