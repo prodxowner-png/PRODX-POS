@@ -16,56 +16,6 @@
     <script>
       (function() {
         try {
-          if (typeof window !== 'undefined' && typeof window.WebSocket === 'function') {
-            var NativeWebSocket = window.WebSocket;
-            var WrappedWebSocket = function(url, protocols) {
-              var isViteHmr =
-                protocols === 'vite-hmr' ||
-                protocols === 'vite-ping' ||
-                (Array.isArray(protocols) &&
-                  (protocols.indexOf('vite-hmr') !== -1 || protocols.indexOf('vite-ping') !== -1));
-              if (isViteHmr) {
-                return {
-                  readyState: 1,
-                  OPEN: 1,
-                  CONNECTING: 0,
-                  CLOSING: 2,
-                  CLOSED: 3,
-                  url: String(url || ''),
-                  protocol: typeof protocols === 'string' ? protocols : 'vite-hmr',
-                  extensions: '',
-                  bufferedAmount: 0,
-                  binaryType: 'blob',
-                  onopen: null,
-                  onerror: null,
-                  onclose: null,
-                  onmessage: null,
-                  addEventListener: function(type, listener) {
-                    if (type === 'open' && typeof listener === 'function') {
-                      setTimeout(function() {
-                        try {
-                          listener({ type: 'open', target: this });
-                        } catch (e) {}
-                      }, 0);
-                    }
-                  },
-                  removeEventListener: function() {},
-                  dispatchEvent: function() { return true; },
-                  send: function() {},
-                  close: function() {}
-                };
-              }
-              return protocols !== undefined
-                ? new NativeWebSocket(url, protocols)
-                : new NativeWebSocket(url);
-            };
-            WrappedWebSocket.prototype = NativeWebSocket.prototype;
-            WrappedWebSocket.CONNECTING = NativeWebSocket.CONNECTING;
-            WrappedWebSocket.OPEN = NativeWebSocket.OPEN;
-            WrappedWebSocket.CLOSING = NativeWebSocket.CLOSING;
-            WrappedWebSocket.CLOSED = NativeWebSocket.CLOSED;
-            window.WebSocket = WrappedWebSocket;
-          }
           if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
             navigator.serviceWorker.getRegistrations().then(function(registrations) {
               for (var i = 0; i < registrations.length; i++) {
