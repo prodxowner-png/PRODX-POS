@@ -26,6 +26,7 @@ jobs:
           --health-retries 20
     env:
       DATABASE_URL: postgresql://prodx:prodx@127.0.0.1:5432/prodx_test
+      PRODX_BOOTSTRAP_TEST_DATABASE_URL: postgresql://prodx:prodx@127.0.0.1:5432/prodx_bootstrap_test
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -69,10 +70,21 @@ jobs:
       - name: M2 PostgreSQL authentication integration
         run: npm run server:test:integration
 
+      - name: Prepare isolated first-tenant bootstrap database
+        env:
+          PGPASSWORD: prodx
+        shell: bash
+        run: |
+          set -euo pipefail
+          createdb --host 127.0.0.1 --username prodx prodx_bootstrap_test
+          test -n "$PRODX_BOOTSTRAP_TEST_DATABASE_URL"
+          for migration in db/migrations/*.sql; do
+            psql "$PRODX_BOOTSTRAP_TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration"
+          done
+
       - name: First-tenant bootstrap PostgreSQL integration
         env:
           PRODX_RUN_BOOTSTRAP_POSTGRES_INTEGRATION: '1'
-          PRODX_BOOTSTRAP_TEST_DATABASE_URL: ${{ env.DATABASE_URL }}
         run: node --import tsx --test server/auth/first-tenant-bootstrap.integration.test.ts
 
       - name: Reject direct mock auth wiring
