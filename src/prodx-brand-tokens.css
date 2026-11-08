@@ -1,0 +1,159 @@
+/* PRODX Brand Tokens — Green × Cream × Orange
+ *
+ * Additive and opt-in: existing components do not consume these roles yet.
+ * Importing this file registers tokens without changing current screen styles.
+ *
+ * Raw palette values are the approved brand palette only. Components should
+ * consume semantic roles. Dark mode follows .dark / [data-theme="dark"].
+ */
+
+:root {
+  /* Raw palette — approved values */
+  --brand-green-900: #0f2a22;
+  --brand-green-800: #183d32;
+  --brand-green-700: #245a47;
+  --brand-green-600: #2f6f58;
+  --brand-green-100: #dcebe3;
+  --brand-green-50: #eef5f1;
+
+  --brand-cream-50: #fbf8f3;
+  --brand-cream-100: #f7f1e8;
+  --brand-cream-200: #ede4d5;
+  --brand-cream-300: #ddd0bc;
+
+  --brand-ink-900: #20242b;
+  --brand-ink-700: #3a404a;
+  --brand-ink-500: #5a616d;
+  --brand-ink-400: #7e8590;
+  --brand-ink-300: #a3a9b3;
+  --brand-ink-200: #d2d6dc;
+
+  --brand-orange-500: #e8894a;
+  --brand-orange-hover: #ee9659;
+  --brand-orange-600: #d97a3b;
+  --brand-orange-800: #a84c1a;
+  --brand-orange-100: #fce9db;
+
+  --brand-gold-500: #d5a64a;
+  --brand-gold-800: #7a5a12;
+  --brand-gold-100: #f6ead0;
+
+  --brand-success-600: #1a7f4f;
+  --brand-success-800: #12633d;
+  --brand-success-100: #ddf3e7;
+  --brand-warning-500: #d69a2d;
+  --brand-warning-800: #7a4e0a;
+  --brand-warning-100: #fbefd2;
+  --brand-danger-600: #c62f2f;
+  --brand-danger-800: #9b1c1c;
+  --brand-danger-100: #fbe1e1;
+  --brand-info-600: #2b6cb0;
+  --brand-info-800: #1e4e85;
+  --brand-info-100: #dcebf8;
+
+  --brand-night-bg: #12171a;
+  --brand-night-surface-1: #1b2227;
+  --brand-night-surface-2: #243038;
+  --brand-night-text: #f2ede4;
+  --brand-night-text-2: #b5bbc4;
+  --brand-night-border: #3c4a54;
+  --brand-night-border-strong: #6f7e8a;
+
+  /* Semantic roles — light */
+  --brand-bg: var(--brand-cream-100);
+  --brand-surface: var(--brand-cream-50);
+  --brand-surface-raised: var(--brand-cream-50);
+  --brand-surface-muted: var(--brand-cream-200);
+  --brand-surface-selected: var(--brand-green-100);
+  --brand-surface-hover: var(--brand-green-50);
+
+  --brand-text: var(--brand-ink-900);
+  --brand-text-secondary: var(--brand-ink-700);
+  --brand-text-muted: var(--brand-ink-500);
+  --brand-text-disabled: var(--brand-ink-300);
+  --brand-text-accent: var(--brand-orange-800);
+  --brand-text-gold: var(--brand-gold-800);
+  --brand-text-link: var(--brand-green-800);
+
+  --brand-border: var(--brand-ink-200);
+  --brand-border-strong: var(--brand-ink-400);
+  --brand-border-decorative: var(--brand-cream-300);
+
+  --brand-primary: var(--brand-green-800);
+  --brand-primary-hover: var(--brand-green-700);
+  --brand-primary-pressed: var(--brand-green-600);
+  --brand-primary-text: var(--brand-cream-100);
+
+  /* CTA / payment only. Never use white text on orange. */
+  --brand-cta: var(--brand-orange-500);
+  --brand-cta-hover: var(--brand-orange-hover);
+  --brand-cta-pressed: var(--brand-orange-600);
+  --brand-cta-text: var(--brand-ink-900);
+  --brand-cta-subtle: var(--brand-orange-100);
+
+  /* Gold is restricted to icons/badges on dark green or decoration. */
+  --brand-gold: var(--brand-gold-500);
+  --brand-gold-subtle: var(--brand-gold-100);
+
+  /* Status: pair text roles with their subtle surfaces; do not use colour alone. */
+  --brand-success: var(--brand-success-600);
+  --brand-success-text: var(--brand-success-800);
+  --brand-success-subtle: var(--brand-success-100);
+  --brand-warning: var(--brand-warning-500);
+  --brand-warning-text: var(--brand-warning-800);
+  --brand-warning-subtle: var(--brand-warning-100);
+  --brand-danger: var(--brand-danger-600);
+  --brand-danger-text: var(--brand-danger-800);
+  --brand-danger-subtle: var(--brand-danger-100);
+  --brand-info: var(--brand-info-600);
+  --brand-info-text: var(--brand-info-800);
+  --brand-info-subtle: var(--brand-info-100);
+}
+
+/* Semantic roles — dark. No extra/unapproved colour values are introduced. */
+:root.dark,
+.dark,
+[data-theme="dark"] {
+  --brand-bg: var(--brand-night-bg);
+  --brand-surface: var(--brand-night-surface-1);
+  --brand-surface-raised: var(--brand-night-surface-2);
+  --brand-surface-muted: var(--brand-night-surface-2);
+  --brand-surface-selected: var(--brand-night-surface-2);
+  --brand-surface-hover: var(--brand-night-surface-1);
+
+  --brand-text: var(--brand-night-text);
+  --brand-text-secondary: var(--brand-night-text-2);
+  --brand-text-muted: var(--brand-night-text-2);
+  --brand-text-disabled: var(--brand-night-text-2);
+  /* Orange/gold are not used as dark-surface text; gold remains decoration
+     or an icon/badge on a dark-green component surface only. */
+  --brand-text-accent: var(--brand-night-text);
+  --brand-text-gold: var(--brand-night-text-2);
+  --brand-text-link: var(--brand-night-text);
+
+  --brand-border: var(--brand-night-border);
+  --brand-border-strong: var(--brand-night-border-strong);
+  --brand-border-decorative: var(--brand-night-border);
+
+  --brand-primary: var(--brand-green-600);
+  --brand-primary-hover: var(--brand-green-700);
+  --brand-primary-pressed: var(--brand-green-800);
+  --brand-primary-text: var(--brand-cream-100);
+
+  --brand-cta: var(--brand-orange-500);
+  --brand-cta-hover: var(--brand-orange-hover);
+  --brand-cta-pressed: var(--brand-orange-600);
+  --brand-cta-text: var(--brand-ink-900);
+  --brand-cta-subtle: var(--brand-orange-100);
+
+  /* Status labels use readable neutral text on the dark surface.
+     Status hue is carried by the approved status icon/border/fill token. */
+  --brand-success-text: var(--brand-night-text);
+  --brand-success-subtle: var(--brand-night-surface-1);
+  --brand-warning-text: var(--brand-night-text);
+  --brand-warning-subtle: var(--brand-night-surface-1);
+  --brand-danger-text: var(--brand-night-text);
+  --brand-danger-subtle: var(--brand-night-surface-1);
+  --brand-info-text: var(--brand-night-text);
+  --brand-info-subtle: var(--brand-night-surface-1);
+}
