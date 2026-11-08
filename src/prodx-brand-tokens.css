@@ -1,0 +1,155 @@
+/* PRODX Brand Tokens — Green × Cream × Orange
+ *
+ * Additive and opt-in: no existing component reads these variables, so importing
+ * this file does not change any current screen. It follows the same pattern as
+ * premium-design-system.css (plain custom properties, imported from main.tsx).
+ *
+ * Naming: raw palette uses --brand-<hue>-<step>; semantic roles use --brand-<role>.
+ * Components should consume the semantic roles; raw values are for reference.
+ * Dark mode follows the repo convention (.dark class, also [data-theme="dark"]).
+ *
+ * Contrast (WCAG 2.x) calculated for the key pairs; text >= 4.5:1, UI borders >= 3:1.
+ * See docs/design/brand-tokens.md for the full table and usage rules.
+ */
+
+:root {
+  /* ---------- Raw palette ---------- */
+  --brand-green-900: #0f2a22;
+  --brand-green-800: #183d32; /* primary */
+  --brand-green-700: #245a47;
+  --brand-green-600: #2f6f58;
+  --brand-green-100: #dcebe3;
+  --brand-green-50: #eef5f1;
+
+  --brand-cream-50: #fbf8f3;
+  --brand-cream-100: #f7f1e8; /* base background */
+  --brand-cream-200: #ede4d5;
+  --brand-cream-300: #ddd0bc; /* decorative only */
+
+  --brand-ink-900: #20242b;
+  --brand-ink-700: #3a404a;
+  --brand-ink-500: #5a616d;
+  --brand-ink-400: #7e8590; /* input / outlined-button borders */
+  --brand-ink-300: #a3a9b3; /* disabled only */
+  --brand-ink-200: #d2d6dc; /* hairline dividers */
+
+  --brand-orange-500: #e8894a; /* CTA fill */
+  --brand-orange-hover: #ee9659;
+  --brand-orange-600: #d97a3b; /* CTA pressed */
+  --brand-orange-800: #a84c1a; /* orange text on cream */
+  --brand-orange-100: #fce9db;
+
+  --brand-gold-500: #d5a64a; /* icons/badges on dark green only */
+  --brand-gold-800: #7a5a12; /* gold text on cream */
+  --brand-gold-100: #f6ead0;
+
+  --brand-success-600: #1a7f4f;
+  --brand-success-800: #12633d;
+  --brand-success-100: #ddf3e7;
+  --brand-warning-500: #d69a2d;
+  --brand-warning-800: #7a4e0a;
+  --brand-warning-100: #fbefd2;
+  --brand-danger-600: #c62f2f;
+  --brand-danger-800: #9b1c1c;
+  --brand-danger-100: #fbe1e1;
+  --brand-info-600: #2b6cb0;
+  --brand-info-800: #1e4e85;
+  --brand-info-100: #dceaf8;
+
+  --brand-night-bg: #12171a;
+  --brand-night-surface-1: #1b2227;
+  --brand-night-surface-2: #243038;
+  --brand-night-text: #f2ede4;
+  --brand-night-text-2: #b5bbc4;
+  --brand-night-text-muted: #98a0aa;
+  --brand-night-border: #3c4a54;
+  --brand-night-border-strong: #6f7e8a;
+
+  /* ---------- Semantic roles (light) ---------- */
+  --brand-bg: var(--brand-cream-100);
+  --brand-surface: var(--brand-cream-50);
+  --brand-surface-raised: #ffffff;
+  --brand-surface-muted: var(--brand-cream-200);
+  --brand-surface-selected: var(--brand-green-100);
+  --brand-surface-hover: var(--brand-green-50);
+
+  --brand-text: var(--brand-ink-900); /* 13.9:1 on bg */
+  --brand-text-secondary: var(--brand-ink-700); /* 9.3:1 */
+  --brand-text-muted: var(--brand-ink-500); /* 5.6:1 */
+  --brand-text-disabled: var(--brand-ink-300);
+  --brand-text-accent: var(--brand-orange-800); /* 5.0:1 */
+  --brand-text-gold: var(--brand-gold-800); /* 5.7:1 */
+  --brand-text-link: var(--brand-green-800); /* 10.7:1 */
+
+  --brand-border: var(--brand-ink-200);
+  --brand-border-strong: var(--brand-ink-400); /* 3.3:1 on cream */
+  --brand-border-decorative: var(--brand-cream-300);
+
+  --brand-primary: var(--brand-green-800);
+  --brand-primary-hover: var(--brand-green-700);
+  --brand-primary-pressed: var(--brand-green-600);
+  --brand-primary-text: var(--brand-cream-100); /* 10.7:1 on primary */
+
+  /* CTA / payment: label MUST be ink-900, never white (white on orange = 2.6:1) */
+  --brand-cta: var(--brand-orange-500);
+  --brand-cta-hover: var(--brand-orange-hover);
+  --brand-cta-pressed: var(--brand-orange-600);
+  --brand-cta-text: var(--brand-ink-900); /* 6.0:1 on cta, 5.0:1 on pressed */
+  --brand-cta-subtle: var(--brand-orange-100);
+
+  /* Gold: icons/badges on dark green, or decorative lines only */
+  --brand-gold: var(--brand-gold-500); /* 5.4:1 on green-800 */
+  --brand-gold-subtle: var(--brand-gold-100);
+
+  /* Status: fill (white text, except warning = ink-900) / text / subtle background */
+  --brand-success: var(--brand-success-600); /* white text 5.0:1 */
+  --brand-success-text: var(--brand-success-800);
+  --brand-success-subtle: var(--brand-success-100);
+  --brand-warning: var(--brand-warning-500); /* ink-900 text 6.3:1 */
+  --brand-warning-text: var(--brand-warning-800);
+  --brand-warning-subtle: var(--brand-warning-100);
+  --brand-danger: var(--brand-danger-600); /* white text 5.5:1 */
+  --brand-danger-text: var(--brand-danger-800);
+  --brand-danger-subtle: var(--brand-danger-100);
+  --brand-info: var(--brand-info-600); /* white text 5.4:1 */
+  --brand-info-text: var(--brand-info-800);
+  --brand-info-subtle: var(--brand-info-100);
+}
+
+/* ---------- Semantic roles (dark) ---------- */
+:root.dark,
+.dark,
+[data-theme="dark"] {
+  --brand-bg: var(--brand-night-bg);
+  --brand-surface: var(--brand-night-surface-1);
+  --brand-surface-raised: var(--brand-night-surface-2);
+  --brand-surface-muted: var(--brand-night-surface-2);
+  --brand-surface-selected: #1f3a30;
+  --brand-surface-hover: #1a2c26;
+
+  --brand-text: var(--brand-night-text); /* 13.8:1 on surface */
+  --brand-text-secondary: var(--brand-night-text-2); /* 8.3:1 */
+  --brand-text-muted: var(--brand-night-text-muted); /* 6.1:1 */
+  --brand-text-disabled: #5b6670;
+  --brand-text-accent: var(--brand-orange-500); /* 6.2:1 on surface */
+  --brand-text-gold: var(--brand-gold-500); /* 7.2:1 */
+  --brand-text-link: var(--brand-gold-500);
+
+  --brand-border: var(--brand-night-border);
+  --brand-border-strong: var(--brand-night-border-strong); /* 3.9:1 on surface */
+  --brand-border-decorative: var(--brand-night-border);
+
+  --brand-primary: var(--brand-green-600);
+  --brand-primary-hover: var(--brand-green-700);
+  --brand-primary-pressed: var(--brand-green-800);
+  --brand-primary-text: var(--brand-cream-100); /* 5.3:1 on green-600 */
+
+  --brand-success-text: #4cc38a; /* 7.3:1 on surface */
+  --brand-success-subtle: #16301f;
+  --brand-warning-text: #e8b04a; /* 8.2:1 */
+  --brand-warning-subtle: #33270f;
+  --brand-danger-text: #f07878; /* 5.9:1 */
+  --brand-danger-subtle: #3a1a1a;
+  --brand-info-text: #6db0f0; /* 7.0:1 */
+  --brand-info-subtle: #15283a;
+}
