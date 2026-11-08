@@ -217,3 +217,14 @@ No numeric proposal or role scope is production policy until explicitly approved
 - Feature flag is off by default and staged rollout/rollback are verified.
 
 This design does not authorize changing production authentication behavior.
+
+
+## Approved Decision Record — D1 (2026-11-09)
+
+**Status: APPROVED**
+
+**Decision:** Use a hybrid factor strategy. A Supabase-authenticated identity may satisfy the PRODX POS MFA requirement only when the backend validates the signed JWT and accepts `aal2` together with an explicitly allowlisted `amr` combination. If claims are absent, malformed, unknown, contradictory, or fail verification, Supabase is treated as first-factor-only and the request must continue through the PRODX pre-authentication flow. Never trust client-supplied AAL/AMR/MFA-complete flags.
+
+PRODX remains authoritative for effective POS MFA policy, session issuance, assurance provenance, permissions, tenant/store scope, revocation, and step-up authorization. The accepted Supabase assurance must be represented in the PRODX session contract and bound to the verified identity and authentication transaction. PRODX-owned TOTP remains the fallback factor. Passkeys/WebAuthn may be considered later as an optional factor under a separate reviewed decision; D1 does not require them.
+
+D1 does not approve D2–D7. Challenge/retry policy, backup codes, recovery, role coverage, offline behavior, and audit retention/notifications remain pending. The production MFA implementation gate stays closed until those decisions and all required quality/security gates are complete.
