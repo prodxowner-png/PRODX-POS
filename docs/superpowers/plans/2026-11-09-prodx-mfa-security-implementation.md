@@ -18,7 +18,8 @@
 - No raw password, PIN, OTP, TOTP secret, backup code, access token, refresh token, or private key may enter logs or audit payloads.
 - PostgreSQL is authoritative for durable security state; Redis locks are not the sole replay/concurrency control.
 - Existing migrations are immutable; new migration IDs must follow the current integrated migration-governance manifest.
-- No production behavior changes until D1–D7 and release approval are recorded.
+- D1 is approved: accept server-verified Supabase `aal2` only with an explicit allowlisted `amr` mapping; otherwise continue PRODX pre-authentication and require a PRODX-owned factor. PRODX remains authoritative for POS session assurance and authorization.
+- D2–D7 remain pending; no production behavior changes until those decisions and release approval are recorded.
 - Shared POS device identity, employee identity, login MFA, and manager transaction approval remain separate.
 - Offline mode cannot create a new MFA-required authenticated session.
 
@@ -169,7 +170,9 @@
 - All auth responses carrying tokens or pre-auth handles set `Cache-Control: no-store`.
 
 - [ ] Add route tests for `/auth/login`, `/auth/admin/login`, `/auth/supabase/session`, and `/auth/supabase/bootstrap`.
-- [ ] Ensure Supabase JWT verification returns only verified assurance claims; never trust browser-provided AAL/AMR flags.
+- [ ] Extend Supabase JWT verification to return typed, verified assurance claims (`aal`, `amr`) only after signature/issuer/audience/subject/expiry validation.
+- [ ] Enforce the approved D1 allowlist for `aal2` + approved `amr`; reject unknown or contradictory claims and ignore all client-supplied assurance flags.
+- [ ] Map accepted Supabase assurance into PRODX-owned session provenance and policy version; otherwise require the PRODX pre-authentication flow.
 - [ ] Define and test first-tenant bootstrap enrollment policy to avoid a bootstrap deadlock or reusable bypass.
 - [ ] Verify pre-auth handles cannot call protected API routes.
 - [ ] Rotate/create a new POS session only after all required factors succeed.
