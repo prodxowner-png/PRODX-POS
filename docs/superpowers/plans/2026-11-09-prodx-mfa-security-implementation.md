@@ -19,7 +19,7 @@
 - PostgreSQL is authoritative for durable security state; Redis locks are not the sole replay/concurrency control.
 - Existing migrations are immutable; new migration IDs must follow the current integrated migration-governance manifest.
 - D1 is approved: accept server-verified Supabase `aal2` only with an explicit allowlisted `amr` mapping; otherwise continue PRODX pre-authentication and require a PRODX-owned factor. PRODX remains authoritative for POS session assurance and authorization.
-- D2–D7 remain pending; no production behavior changes until those decisions and release approval are recorded.
+- D2 is approved: challenge TTL 5 minutes, maximum 5 attempts per challenge, Supabase MFA freshness 5 minutes, TOTP current time step ±1, and durable cross-challenge replay rejection. D3–D7 remain pending; no production behavior changes until those decisions and release approval are recorded.
 - Shared POS device identity, employee identity, login MFA, and manager transaction approval remain separate.
 - Offline mode cannot create a new MFA-required authenticated session.
 
@@ -107,10 +107,13 @@
 **Interfaces:**
 - Produces `verifyAndConsumeTotp({ factorId, challengeId, submittedCode, now }): Promise<boolean>`.
 
-- [ ] Test valid/invalid codes, expiry windows, clock drift bounds, and secret-decryption failure.
+- [ ] Test valid/invalid codes, 5-minute challenge expiry, maximum 5 attempts (reject attempt 6), clock drift bounds (current TOTP step ±1), and secret-decryption failure.
+- [ ] Test Supabase AMR factor timestamp freshness: accept only when no older than 5 minutes at new POS session issuance; reject missing, malformed, stale, or invalid timestamps.
 - [ ] Test replay of the same accepted time step across different challenges.
-- [ ] Implement a vetted TOTP verifier with server time and approved time-step window.
-- [ ] Atomically advance `last_used_timestep`; require exactly one affected row.
+- [ ] Test challenge attempt consumption and challenge completion are atomic; concurrent completion yields at most one success.
+- [ ] Verify MFA challenge attempt counters are independent from the existing password lockout counter.
+- [ ] Implement a vetted TOTP verifier with server time and the approved current-step ±1 window.
+- [ ] Atomically advance `last_used_timestep`; require exactly one affected row. Reject any timestep already consumed for that factor, even on a different challenge.
 - [ ] Consume challenge, TOTP time step, create session, complete auth transaction, and append audit evidence within a consistent database transaction.
 - [ ] Test 2+ concurrent requests using the same TOTP time step; at most one succeeds.
 
