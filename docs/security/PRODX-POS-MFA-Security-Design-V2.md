@@ -197,7 +197,7 @@ Payloads contain actor/subject, tenant/store, device/session/auth transaction re
 ## 11. Decisions required — D1–D7
 
 - **D1 Factor strategy:** TOTP, passkeys, or both; role enrollment scope; Supabase MFA delegation or PRODX-owned MFA.
-- **D2 Challenge policy:** lifetime, per-challenge attempts, per-account/IP/device rate limits, lockout behavior, TOTP time-step window.
+- **D2 Challenge policy:** APPROVED — challenge TTL 5 minutes; maximum 5 verification attempts per challenge; Supabase MFA freshness 5 minutes for new POS session issuance; TOTP accepts current time step ±1 step; reject TOTP time-step replay across all challenges for the same factor. MFA challenge counters remain distinct from password lockout.
 - **D3 Backup codes:** enablement, quantity, storage, display, regeneration and invalidation.
 - **D4 Recovery assurance:** identity proofing, approval, notifications, factor/session revocation, restricted session duration.
 - **D5 Enforcement scope:** Owner/Admin, Manager, Cashier, organization/store overrides.
@@ -228,3 +228,25 @@ This design does not authorize changing production authentication behavior.
 PRODX remains authoritative for effective POS MFA policy, session issuance, assurance provenance, permissions, tenant/store scope, revocation, and step-up authorization. The accepted Supabase assurance must be represented in the PRODX session contract and bound to the verified identity and authentication transaction. PRODX-owned TOTP remains the fallback factor. Passkeys/WebAuthn may be considered later as an optional factor under a separate reviewed decision; D1 does not require them.
 
 D1 does not approve D2–D7. Challenge/retry policy, backup codes, recovery, role coverage, offline behavior, and audit retention/notifications remain pending. The production MFA implementation gate stays closed until those decisions and all required quality/security gates are complete.
+
+
+## Approved Decision Record — D2 (2026-11-09)
+
+**Status: APPROVED**
+
+| Control | Approved policy |
+|---|---|
+| MFA challenge lifetime | 5 minutes from server-side creation |
+| Verification attempts | Maximum 5 attempts per challenge; enforce atomically on the server |
+| Supabase MFA freshness | The accepted AMR factor timestamp must be no older than 5 minutes when issuing a new POS session; missing, invalid, or stale timestamps fail closed |
+| TOTP time-step window | Current time step ±1 step |
+| TOTP replay | Reject a previously accepted time step for the same factor, including across different challenges and concurrent requests |
+
+Implementation requirements:
+- Challenge expiry and attempt consumption are server-authoritative and atomic; the sixth attempt is rejected.
+- Challenge handles are single-use. Concurrent completion requests must yield at most one successful completion.
+- Persist and atomically advance the factor's last accepted TOTP time step; an in-memory or Redis-only replay check is insufficient.
+- Keep MFA challenge attempts separate from the existing password failed-attempt/lockout counter. D2 does not silently change the existing password lockout policy.
+- Add tests for expiry boundary, attempt limit, stale Supabase AMR timestamp, ±1 TOTP drift, same-step replay across distinct challenges, and concurrent verification.
+
+D2 does not approve D3–D7. Backup codes, recovery, role enforcement, offline behavior, and audit retention/notification policy remain pending. Production MFA implementation remains gated until all remaining decisions and quality/security gates are complete.
