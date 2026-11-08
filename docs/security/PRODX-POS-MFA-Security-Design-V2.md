@@ -250,3 +250,22 @@ Implementation requirements:
 - Add tests for expiry boundary, attempt limit, stale Supabase AMR timestamp, ±1 TOTP drift, same-step replay across distinct challenges, and concurrent verification.
 
 D2 does not approve D3–D7. Backup codes, recovery, role enforcement, offline behavior, and audit retention/notification policy remain pending. Production MFA implementation remains gated until all remaining decisions and quality/security gates are complete.
+
+
+## Approved Decision Record — D3 (2026-11-09)
+
+**Status: APPROVED**
+
+**Decision:** Enable a set of 10 backup codes per user for MFA recovery.
+
+Requirements:
+- Generate each code using a cryptographically secure random generator.
+- Persist only salted hashes of backup codes; never store or log plaintext codes.
+- Display the generated set to the user once only. The application must not be able to retrieve or display the plaintext set again.
+- Consume each code atomically and exactly once. Concurrent attempts to redeem the same code must yield at most one success.
+- Regenerating a set invalidates every code in the previous set immediately and atomically with creation of the new set.
+- Emit the approved backup-code generation and redemption audit events without including code material.
+
+The exact code format and entropy parameters remain implementation details to be selected and documented during the cryptographic implementation review; this decision does not authorize a weaker random source or reversible storage.
+
+D3 does not approve D4–D7. Recovery assurance, enforcement scope, offline behavior, and audit/notification assurance remain pending. Production MFA implementation remains gated until all decisions and release gates are complete.
