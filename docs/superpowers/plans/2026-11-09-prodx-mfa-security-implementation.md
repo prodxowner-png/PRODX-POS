@@ -19,7 +19,7 @@
 - PostgreSQL is authoritative for durable security state; Redis locks are not the sole replay/concurrency control.
 - Existing migrations are immutable; new migration IDs must follow the current integrated migration-governance manifest.
 - D1 is approved: accept server-verified Supabase `aal2` only with an explicit allowlisted `amr` mapping; otherwise continue PRODX pre-authentication and require a PRODX-owned factor. PRODX remains authoritative for POS session assurance and authorization.
-- D2 is approved: challenge TTL 5 minutes, maximum 5 attempts per challenge, Supabase MFA freshness 5 minutes, TOTP current time step ±1, and durable cross-challenge replay rejection. D3–D7 remain pending; no production behavior changes until those decisions and release approval are recorded.
+- D2 is approved: challenge TTL 5 minutes, maximum 5 attempts per challenge, Supabase MFA freshness 5 minutes, TOTP current time step ±1, and durable cross-challenge replay rejection. D3 is approved: 10 cryptographically random one-time backup codes, salted hashes only, one-time display, atomic consume, and atomic prior-set invalidation on regeneration. D4–D7 remain pending; no production behavior changes until those decisions and release approval are recorded.
 - Shared POS device identity, employee identity, login MFA, and manager transaction approval remain separate.
 - Offline mode cannot create a new MFA-required authenticated session.
 
@@ -151,7 +151,7 @@
 
 - [ ] Test enrollment cannot activate before proof verification.
 - [ ] Test pending enrollment expiry leaves factor inactive.
-- [ ] If D3 approves backup codes, test high entropy, one-time display contract, atomic consume, and set regeneration invalidation.
+- [ ] Implement the approved D3 backup-code policy: 10 cryptographically random codes, salted hashes only, one-time display, atomic one-time consume, and atomic invalidation of the prior set on regeneration. Select and document exact format/entropy parameters during cryptographic implementation review.
 - [ ] Test recovery cannot call checkout, refund, cash management, RBAC, or other privileged operations.
 - [ ] Revoke the lost factor and affected sessions according to D4.
 - [ ] Require new factor enrollment before normal assurance is issued.
