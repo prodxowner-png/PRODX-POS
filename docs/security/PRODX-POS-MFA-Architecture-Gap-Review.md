@@ -209,7 +209,7 @@ Required enforcement conditions:
 - If the assurance evidence fails validation or does not meet the allowlist, treat Supabase authentication as first-factor-only and continue through the PRODX pre-authentication flow; do not issue a full POS session.
 - PRODX-owned TOTP remains the fallback factor. Passkeys/WebAuthn may be added later as an optional PRODX factor after separate design and implementation review; they are not required by this D1 decision.
 
-**Not decided by D1:** challenge TTL/attempt policy, backup codes, recovery restrictions, role coverage, offline behavior, audit retention/notification policy (D2–D7). These remain pending and must not be inferred as approved.
+**D2 is also approved:** challenge TTL 5 minutes, maximum 5 attempts per challenge, Supabase MFA freshness 5 minutes, TOTP current time step ±1, and cross-challenge TOTP replay rejection. D3–D7 remain pending: backup codes, recovery restrictions, role coverage, offline behavior, and audit retention/notification policy.
 
 ## 8. Gate decision
 
@@ -223,3 +223,17 @@ Next implementation must:
 5. Add the security test matrix and run exact-head PostgreSQL 16 CI.
 
 No production authentication behavior or database schema was changed by this review.
+
+
+## 8. Approved Decision Record — D2 (2026-11-09)
+
+**Status: APPROVED**
+
+- Challenge TTL: 5 minutes from server-side creation.
+- Maximum verification attempts: 5 per challenge, atomically enforced; attempt 6 is rejected.
+- Supabase MFA freshness: accepted AMR factor timestamp must be no older than 5 minutes at new POS session issuance. Missing, malformed, stale, or invalid timestamps fail closed.
+- TOTP time window: current server time step ±1 step.
+- Replay: a TOTP time step accepted once for a factor cannot be accepted again on another challenge; enforce across concurrent requests with an atomic durable database transition.
+- MFA attempts are independent from the existing password failed-attempt and lockout counter.
+
+Required regression coverage includes expiry, attempt boundary, stale Supabase factor timestamp, TOTP drift, replay across challenges, and concurrent verification. D3–D7 remain pending; no production implementation is authorized by D1/D2 alone.
