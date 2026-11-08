@@ -237,3 +237,14 @@ No production authentication behavior or database schema was changed by this rev
 - MFA attempts are independent from the existing password failed-attempt and lockout counter.
 
 Required regression coverage includes expiry, attempt boundary, stale Supabase factor timestamp, TOTP drift, replay across challenges, and concurrent verification. D3–D7 remain pending; no production implementation is authorized by D1/D2 alone.
+
+
+## 9. Approved Decision Record — D3 (2026-11-09)
+
+**Status: APPROVED**
+
+**Decision:** Enable 10 backup codes per user. Generate codes using a cryptographically secure random generator; persist only salted hashes; display plaintext codes once and never retrieve or redisplay them. Redeem each code through an atomic one-time consume operation so concurrent attempts can produce at most one success. Regeneration must atomically invalidate the entire previous set immediately when the new set is created. Audit generation and redemption without recording code material.
+
+The exact code format and entropy parameters are implementation details for the cryptographic implementation review; this decision does not permit weak randomness or reversible storage.
+
+D4–D7 remain pending: recovery assurance, role enforcement scope, offline behavior, and audit retention/notification policy. No production MFA implementation is authorized by D1–D3 alone.
