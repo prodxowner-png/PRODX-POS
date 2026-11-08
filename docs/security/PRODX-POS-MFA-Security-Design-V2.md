@@ -17,7 +17,7 @@ Extend the existing authentication/session architecture. Do not create a paralle
 - Device identity, employee identity, login MFA, and manager transaction approval remain separate.
 - Offline mode cannot create a new MFA-required session.
 
-**Gate:** HOLD — design ready for review; implementation and production enforcement remain blocked pending D1–D7 approval and exact-head verification.
+**Gate:** HOLD — design ready for review; implementation and production enforcement remain blocked pending D4–D7 approval and exact-head verification.
 
 ## 2. Trust and authority boundaries
 
@@ -198,13 +198,13 @@ Payloads contain actor/subject, tenant/store, device/session/auth transaction re
 
 - **D1 Factor strategy:** TOTP, passkeys, or both; role enrollment scope; Supabase MFA delegation or PRODX-owned MFA.
 - **D2 Challenge policy:** APPROVED — challenge TTL 5 minutes; maximum 5 verification attempts per challenge; Supabase MFA freshness 5 minutes for new POS session issuance; TOTP accepts current time step ±1 step; reject TOTP time-step replay across all challenges for the same factor. MFA challenge counters remain distinct from password lockout.
-- **D3 Backup codes:** enablement, quantity, storage, display, regeneration and invalidation.
+- **D3 Backup codes: APPROVED** — 10 cryptographically random one-time codes; salted hashes only; display once; atomic single-use redemption; regeneration atomically invalidates the prior set. Exact format and entropy parameters are implementation-review details.
 - **D4 Recovery assurance:** identity proofing, approval, notifications, factor/session revocation, restricted session duration.
 - **D5 Enforcement scope:** Owner/Admin, Manager, Cashier, organization/store overrides.
 - **D6 Offline authentication:** max duration, operation allowlist, device/user/store binding, revocation reconciliation.
 - **D7 Audit/notification assurance:** retention, tamper evidence, event completeness, notification retries and alerts.
 
-No numeric proposal or role scope is production policy until explicitly approved.
+No unapproved numeric proposal or role scope is production policy. D2 and D3 numeric controls are approved design decisions only.
 
 ## 12. Release gate
 
@@ -227,7 +227,7 @@ This design does not authorize changing production authentication behavior.
 
 PRODX remains authoritative for effective POS MFA policy, session issuance, assurance provenance, permissions, tenant/store scope, revocation, and step-up authorization. The accepted Supabase assurance must be represented in the PRODX session contract and bound to the verified identity and authentication transaction. PRODX-owned TOTP remains the fallback factor. Passkeys/WebAuthn may be considered later as an optional factor under a separate reviewed decision; D1 does not require them.
 
-D1 does not approve D2–D7. Challenge/retry policy, backup codes, recovery, role coverage, offline behavior, and audit retention/notifications remain pending. The production MFA implementation gate stays closed until those decisions and all required quality/security gates are complete.
+D1 does not approve D2–D7. D2 and D3 have since been approved in their own decision records; D4–D7 remain pending. The production MFA implementation gate stays closed until those decisions and all required quality/security gates are complete.
 
 
 ## Approved Decision Record — D2 (2026-11-09)
@@ -249,7 +249,7 @@ Implementation requirements:
 - Keep MFA challenge attempts separate from the existing password failed-attempt/lockout counter. D2 does not silently change the existing password lockout policy.
 - Add tests for expiry boundary, attempt limit, stale Supabase AMR timestamp, ±1 TOTP drift, same-step replay across distinct challenges, and concurrent verification.
 
-D2 does not approve D3–D7. Backup codes, recovery, role enforcement, offline behavior, and audit retention/notification policy remain pending. Production MFA implementation remains gated until all remaining decisions and quality/security gates are complete.
+D2 does not approve D3–D7. D3 has since been approved in its own decision record; D4–D7 remain pending. Production MFA implementation remains gated until all remaining decisions and quality/security gates are complete.
 
 
 ## Approved Decision Record — D3 (2026-11-09)
