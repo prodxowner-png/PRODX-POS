@@ -51,7 +51,7 @@ test('bootstrap database guard rejects non-loopback hosts', () => {
 test('bootstrap database guard requires the dedicated database name', () => {
   const env = validEnvironment();
   env.PRODX_BOOTSTRAP_TEST_DATABASE_URL =
-    'postgresql://prodx:prodx@127.0.0.1:5432/prodx_test';
+    'postgresql://prodx:prodx@127.0.0.1:5432/prodx_other_test';
   assert.throws(
     () => resolveBootstrapIntegrationDatabaseUrl(env),
     /dedicated prodx_bootstrap_test database/,
