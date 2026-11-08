@@ -38,8 +38,9 @@ jobs:
 
       - name: Pin npm 11 and verify strict lifecycle policy
         run: |
+          set -euo pipefail
           npm install --global npm@11.21.2
-        test "$(npm --version)" = "11.21.2"
+          test "$(npm --version)" = "11.21.2"
           npm --version
           test "$(npm config get strict-allow-scripts)" = "true"
 
