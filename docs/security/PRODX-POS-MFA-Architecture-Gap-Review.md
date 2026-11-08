@@ -4,7 +4,7 @@
 **Repository:** `prodxowner-png/PRODX-POS`  
 **Reviewed ref:** `main` at `c3329c99cf0d0c8095ad9d732a3cfca5a23d69ec`  
 **Review type:** Static source and migration review  
-**Status:** **HOLD — MFA implementation gate remains closed**
+**Status:** **HOLD — D1 approved; D2–D7 pending; implementation gate remains closed**
 
 ## 1. Executive finding
 
@@ -194,13 +194,30 @@ Do not merge or build MFA on top of these historical branches independently. Con
 | PostgreSQL migrations executed in this review | **NOT RUN** |
 | Production runtime behavior | **NOT TESTED** |
 
-## 7. Gate decision
+## 7. Approved decision record
+
+### D1 — Factor strategy: APPROVED
+
+**Decision:** Accept verified Supabase MFA as satisfying the PRODX POS MFA factor requirement when, and only when, the backend validates the signed Supabase JWT and its assurance claims against an explicit PRODX trust policy.
+
+Required enforcement conditions:
+- Validate signature/JWKS, issuer, audience, subject, expiry, and the exact supported assurance claims on the server.
+- Require `aal2` and an explicitly allowlisted `amr` combination; reject missing, malformed, unknown, or contradictory assurance claims.
+- Bind the accepted assurance result to the verified token and authenticated identity; never accept browser/client-supplied AAL, AMR, or “MFA complete” flags.
+- Map the verified result into a PRODX-owned assurance contract and persist its provenance on the POS session (method, assurance level, authenticated-at, auth transaction, and policy version).
+- PRODX remains authoritative for effective POS policy, session issuance, role/store authorization, revocation, and step-up requirements. A valid Supabase AAL2 result does not grant POS permissions by itself.
+- If the assurance evidence fails validation or does not meet the allowlist, treat Supabase authentication as first-factor-only and continue through the PRODX pre-authentication flow; do not issue a full POS session.
+- PRODX-owned TOTP remains the fallback factor. Passkeys/WebAuthn may be added later as an optional PRODX factor after separate design and implementation review; they are not required by this D1 decision.
+
+**Not decided by D1:** challenge TTL/attempt policy, backup codes, recovery restrictions, role coverage, offline behavior, audit retention/notification policy (D2–D7). These remain pending and must not be inferred as approved.
+
+## 8. Gate decision
 
 **HOLD — DESIGN REVIEW ONLY.**
 
 Next implementation must:
 1. Reconcile shared auth/session PRs onto current main.
-2. Approve D1–D7 in the MFA Security Design V2.
+2. Approve the remaining D2–D7 decisions in the MFA Security Design V2 (D1 is approved; see above).
 3. Implement pre-authentication and session assurance before factor UI.
 4. Add database state transitions, RLS, fixed functions, and audit events.
 5. Add the security test matrix and run exact-head PostgreSQL 16 CI.
