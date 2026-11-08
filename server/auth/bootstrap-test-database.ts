@@ -67,12 +67,8 @@ export const resolveBootstrapIntegrationDatabaseUrl = (
     );
   }
 
-  if (dedicatedTarget.database !== 'prodx_bootstrap_test') {
-    throw new Error(
-      'PRODX_BOOTSTRAP_TEST_DATABASE_URL must target the dedicated prodx_bootstrap_test database.',
-    );
-  }
-
+  // Detect overlap before validating the dedicated database name so callers
+  // receive the stronger shared-database safety error for an aliased target.
   const sharedUrl = env.DATABASE_URL?.trim();
   if (sharedUrl) {
     const sharedTarget = parsePostgresTarget(sharedUrl, 'DATABASE_URL');
@@ -86,6 +82,12 @@ export const resolveBootstrapIntegrationDatabaseUrl = (
         'PRODX_BOOTSTRAP_TEST_DATABASE_URL must not target the same database as DATABASE_URL.',
       );
     }
+  }
+
+  if (dedicatedTarget.database !== 'prodx_bootstrap_test') {
+    throw new Error(
+      'PRODX_BOOTSTRAP_TEST_DATABASE_URL must target the dedicated prodx_bootstrap_test database.',
+    );
   }
 
   return rawDedicatedUrl;
