@@ -227,3 +227,19 @@
 - No Production MFA enforcement before D1–D7 approval.
 - No full session before required MFA.
 - No client-side MFA bypass, factor status, role, or assurance authority.
+
+
+## Approved Decision Record — D3 (2026-11-09)
+
+**Status: APPROVED**
+
+- Enable 10 backup codes per user.
+- Generate each code with a cryptographically secure random generator.
+- Store only salted hashes; never persist or log plaintext backup codes.
+- Display the generated set once only; do not provide a retrieval or redisplay path.
+- Redeem each code atomically and exactly once; concurrent redemption of the same code must yield at most one success.
+- Regenerating codes atomically invalidates the entire previous set immediately when the new set is created.
+- Audit generation and redemption events without code material.
+- Select and document the exact code format and entropy parameters during cryptographic implementation review; do not weaken randomness or use reversible storage.
+
+D3 is approved. D4–D7 remain pending. This approval is design-only and does not authorize runtime implementation or production enforcement.
