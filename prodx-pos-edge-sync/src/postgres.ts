@@ -17,6 +17,7 @@ interface WriteCteResult {
   prior_status: string | null;
   prior_sale_id: string | null;
   prior_sequence_sale_id: string | null;
+  terminal_store_valid: number;
 }
 
 function moneyFromLines(lines: SaleLine[]): number {
@@ -53,11 +54,18 @@ WITH
  tenant_ctx AS MATERIALIZED (
    SELECT set_config('app.current_tenant_id', $1::uuid::text, true) AS tenant_id
  ),
+ terminal_store_guard AS MATERIALIZED (
+   SELECT 1 FROM terminal_devices
+    WHERE tenant_id=$1 AND terminal_id=$2 AND store_id=$17
+      AND active=true AND revoked_at IS NULL AND not_before<=now()
+      AND (not_after IS NULL OR not_after>now())
+ ),
  checkpoint_lock AS MATERIALIZED (
    SELECT last_committed_seq_no,last_hlc_physical_ms,last_hlc_logical
      FROM terminal_sync_state
     WHERE tenant_id=$1 AND terminal_id=$2
       AND EXISTS (SELECT 1 FROM tenant_ctx)
+      AND EXISTS (SELECT 1 FROM terminal_store_guard)
     FOR UPDATE
  ),
  checkpoint_state AS MATERIALIZED (
@@ -148,11 +156,12 @@ WITH
  ),
  checkpoint_update AS (
    INSERT INTO terminal_sync_state
-     (tenant_id,terminal_id,last_committed_seq_no,last_hlc_physical_ms,last_hlc_logical,updated_at)
-   SELECT $1,$2,$7,$11,$12,now()
+     (tenant_id,terminal_id,store_id,last_committed_seq_no,last_hlc_physical_ms,last_hlc_logical,updated_at)
+   SELECT $1,$2,$17,$7,$11,$12,now()
      FROM audit_insert
    ON CONFLICT (tenant_id,terminal_id) DO UPDATE
-     SET last_committed_seq_no=EXCLUDED.last_committed_seq_no,
+     SET store_id=EXCLUDED.store_id,
+         last_committed_seq_no=EXCLUDED.last_committed_seq_no,
          last_hlc_physical_ms=EXCLUDED.last_hlc_physical_ms,
          last_hlc_logical=EXCLUDED.last_hlc_logical,
          updated_at=now()
@@ -170,7 +179,8 @@ SELECT
   (SELECT payload_hash FROM prior_idempotency LIMIT 1) AS prior_payload_hash,
   (SELECT status FROM prior_idempotency LIMIT 1) AS prior_status,
   (SELECT sale_id FROM prior_idempotency LIMIT 1) AS prior_sale_id,
-  (SELECT sale_id FROM prior_sequence_sale LIMIT 1) AS prior_sequence_sale_id
+  (SELECT sale_id FROM prior_sequence_sale LIMIT 1) AS prior_sequence_sale_id,
+  (SELECT COUNT(*)::integer FROM terminal_store_guard) AS terminal_store_valid
 `;
 
 export async function commitSale(env: Env, message: QueueSale): Promise<"committed" | "duplicate"> {
@@ -258,6 +268,9 @@ export async function commitSale(env: Env, message: QueueSale): Promise<"committ
 
     const row = result.rows[0] as WriteCteResult | undefined;
     if (!row) throw new Error("POSTGRES_CTE_RETURNED_NO_STATUS");
+    if (Number(row.terminal_store_valid) !== 1) {
+      throw new PermanentDataError("TERMINAL_STORE_MAPPING_MISMATCH");
+    }
 
     if (Number(row.claimed) === 0) {
       const existing = row.prior_payload_hash ? {
