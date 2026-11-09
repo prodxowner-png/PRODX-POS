@@ -17,6 +17,8 @@ interface WriteCteResult {
   prior_status: string | null;
   prior_sale_id: string | null;
   prior_sequence_sale_id: string | null;
+  terminal_store_valid: number;
+  resolved_store_id: string | null;
 }
 
 function moneyFromLines(lines: SaleLine[]): number {
@@ -53,11 +55,21 @@ WITH
  tenant_ctx AS MATERIALIZED (
    SELECT set_config('app.current_tenant_id', $1::uuid::text, true) AS tenant_id
  ),
+ terminal_store_guard AS MATERIALIZED (
+   -- This verifies the Store binding, not live certificate status. The Worker
+   -- already authenticated the request before Queue acceptance; revocation blocks
+   -- new ingress but does not discard sales already accepted into the durable outbox.
+   SELECT DISTINCT d.store_id FROM terminal_devices d
+    JOIN pos_stores st ON st.tenant_id=d.tenant_id AND st.id=d.store_id
+    WHERE d.tenant_id=$1 AND d.terminal_id=$2 AND ($17::uuid IS NULL OR d.store_id=$17)
+      AND EXISTS (SELECT 1 FROM tenant_ctx)
+ ),
  checkpoint_lock AS MATERIALIZED (
    SELECT last_committed_seq_no,last_hlc_physical_ms,last_hlc_logical
      FROM terminal_sync_state
     WHERE tenant_id=$1 AND terminal_id=$2
       AND EXISTS (SELECT 1 FROM tenant_ctx)
+      AND EXISTS (SELECT 1 FROM terminal_store_guard)
     FOR UPDATE
  ),
  checkpoint_state AS MATERIALIZED (
@@ -96,9 +108,9 @@ WITH
  ),
  sales_insert AS (
    INSERT INTO sales
-     (sale_id,tenant_id,terminal_id,terminal_seq_no,currency,total_minor,catalog_version,
+     (sale_id,tenant_id,terminal_id,store_id,terminal_seq_no,currency,total_minor,catalog_version,
       hlc_physical_ms,hlc_logical,client_recorded_at,edge_received_at,committed_at)
-   SELECT $6,$1,$2,$7,$8,$9,$10,$11,$12,$13,$14,now()
+   SELECT $6,$1,$2,(SELECT store_id FROM terminal_store_guard),$7,$8,$9,$10,$11,$12,$13,$14,now()
      FROM idempotency_claim
      CROSS JOIN checkpoint_guard
    RETURNING sale_id
@@ -116,9 +128,9 @@ WITH
  ),
  sale_lines_insert AS (
    INSERT INTO sale_lines
-     (tenant_id,sale_id,product_id,quantity,unit_price_minor,tax_bps,tax_minor,
+     (tenant_id,store_id,sale_id,product_id,quantity,unit_price_minor,tax_bps,tax_minor,
       catalog_version,signed_unit_price_minor,signed_price_verified)
-   SELECT $1,s.sale_id,l.product_id,l.quantity,l.unit_price_minor,l.tax_bps,l.tax_minor,
+   SELECT $1,(SELECT store_id FROM terminal_store_guard),s.sale_id,l.product_id,l.quantity,l.unit_price_minor,l.tax_bps,l.tax_minor,
           $10,l.signed_unit_price_minor,true
      FROM sales_insert s
      CROSS JOIN input_lines l
@@ -132,8 +144,8 @@ WITH
  ),
  inventory_insert AS (
    INSERT INTO inventory_ledger
-     (tenant_id,product_id,sale_id,terminal_id,reference_id,quantity_delta,reason,created_at)
-   SELECT $1,i.product_id,$6,$2,$6,(-i.quantity)::integer,'POS_SALE',now()
+     (tenant_id,store_id,product_id,sale_id,terminal_id,reference_id,quantity_delta,reason,created_at)
+   SELECT $1,(SELECT store_id FROM terminal_store_guard),i.product_id,$6,$2,$6,(-i.quantity)::integer,'POS_SALE',now()
      FROM inventory_totals i
    RETURNING 1 AS inserted
  ),
@@ -141,18 +153,20 @@ WITH
    INSERT INTO audit_logs
      (tenant_id,actor_type,actor_id,action,entity_type,entity_id,
       payload_hash,catalog_version,metadata,created_at)
-   SELECT $1,'POS_TERMINAL',$2,'POS_SALE_COMMITTED','SALE',$6,$5,$10,$16::jsonb,now()
+   SELECT $1,'POS_TERMINAL',$2,'POS_SALE_COMMITTED','SALE',$6,$5,$10,
+          jsonb_set($16::jsonb,'{store_id}',to_jsonb((SELECT store_id FROM terminal_store_guard))),now()
      FROM sales_insert
     WHERE EXISTS (SELECT 1 FROM inventory_insert)
    RETURNING 1 AS inserted
  ),
  checkpoint_update AS (
    INSERT INTO terminal_sync_state
-     (tenant_id,terminal_id,last_committed_seq_no,last_hlc_physical_ms,last_hlc_logical,updated_at)
-   SELECT $1,$2,$7,$11,$12,now()
+     (tenant_id,terminal_id,store_id,last_committed_seq_no,last_hlc_physical_ms,last_hlc_logical,updated_at)
+   SELECT $1,$2,(SELECT store_id FROM terminal_store_guard),$7,$11,$12,now()
      FROM audit_insert
    ON CONFLICT (tenant_id,terminal_id) DO UPDATE
-     SET last_committed_seq_no=EXCLUDED.last_committed_seq_no,
+     SET store_id=EXCLUDED.store_id,
+         last_committed_seq_no=EXCLUDED.last_committed_seq_no,
          last_hlc_physical_ms=EXCLUDED.last_hlc_physical_ms,
          last_hlc_logical=EXCLUDED.last_hlc_logical,
          updated_at=now()
@@ -170,7 +184,9 @@ SELECT
   (SELECT payload_hash FROM prior_idempotency LIMIT 1) AS prior_payload_hash,
   (SELECT status FROM prior_idempotency LIMIT 1) AS prior_status,
   (SELECT sale_id FROM prior_idempotency LIMIT 1) AS prior_sale_id,
-  (SELECT sale_id FROM prior_sequence_sale LIMIT 1) AS prior_sequence_sale_id
+  (SELECT sale_id FROM prior_sequence_sale LIMIT 1) AS prior_sequence_sale_id,
+  (SELECT COUNT(*)::integer FROM terminal_store_guard) AS terminal_store_valid,
+  (SELECT store_id::text FROM terminal_store_guard LIMIT 1) AS resolved_store_id
 `;
 
 export async function commitSale(env: Env, message: QueueSale): Promise<"committed" | "duplicate"> {
@@ -213,6 +229,7 @@ export async function commitSale(env: Env, message: QueueSale): Promise<"committ
     }));
     const auditMetadata = {
       receipt_id: message.receipt_id,
+      store_id: message.store_id,
       terminal_seq_no: message.sale.terminal_seq_no,
       hlc: message.sale.hlc,
       catalog_version: message.sale.catalog_version,
@@ -251,12 +268,12 @@ export async function commitSale(env: Env, message: QueueSale): Promise<"committ
       message.sale.client_recorded_at,
       message.edge_received_at,
       JSON.stringify(lineRecords),
-      JSON.stringify(auditMetadata)
+      JSON.stringify(auditMetadata),
+      message.store_id
     ]);
 
     const row = result.rows[0] as WriteCteResult | undefined;
     if (!row) throw new Error("POSTGRES_CTE_RETURNED_NO_STATUS");
-
     if (Number(row.claimed) === 0) {
       const existing = row.prior_payload_hash ? {
         payload_hash: row.prior_payload_hash,
@@ -269,6 +286,9 @@ export async function commitSale(env: Env, message: QueueSale): Promise<"committ
         }
         if (existing.status === "COMMITTED") return "duplicate";
         throw new Error("IDEMPOTENCY_INCOMPLETE_RETRY");
+      }
+      if (Number(row.terminal_store_valid) !== 1 || !row.resolved_store_id) {
+        throw new PermanentDataError("TERMINAL_STORE_MAPPING_MISMATCH");
       }
       const lastSequence = Number(row.last_committed_seq_no ?? 0);
       if (message.sale.terminal_seq_no > lastSequence + 1) {
@@ -286,6 +306,10 @@ export async function commitSale(env: Env, message: QueueSale): Promise<"committ
       // A concurrent INSERT ... ON CONFLICT may have committed after this
       // statement snapshot. Retry once to resolve it from a fresh snapshot.
       throw new Error("IDEMPOTENCY_CONFLICT_RETRY");
+    }
+
+    if (Number(row.terminal_store_valid) !== 1 || !row.resolved_store_id) {
+      throw new PermanentDataError("TERMINAL_STORE_MAPPING_MISMATCH");
     }
 
     if (Number(row.inserted_sales) !== 1 || Number(row.completed_idempotency) !== 1) {
@@ -306,6 +330,12 @@ export async function commitSale(env: Env, message: QueueSale): Promise<"committ
     }
 
     return "committed";
+  } catch (error) {
+    const databaseError = error as { code?: string; message?: string };
+    if (databaseError.code === "23514" && String(databaseError.message).includes("INSUFFICIENT_STOCK")) {
+      throw new PermanentDataError("INSUFFICIENT_STOCK");
+    }
+    throw error;
   } finally {
     await client.end().catch(() => undefined);
   }

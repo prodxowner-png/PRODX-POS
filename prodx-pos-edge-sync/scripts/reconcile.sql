@@ -11,34 +11,40 @@ HAVING s.total_minor <> COALESCE(SUM(sl.quantity::numeric * sl.unit_price_minor 
 
 -- 2) Inventory balance must equal the sum of all immutable inventory deltas.
 WITH ledger AS (
-  SELECT tenant_id,product_id,SUM(quantity_delta::bigint) AS ledger_qty
-  FROM inventory_ledger GROUP BY tenant_id,product_id
+  SELECT tenant_id,store_id,product_id,SUM(quantity_delta::bigint) AS ledger_qty
+  FROM inventory_ledger GROUP BY tenant_id,store_id,product_id
 ), keys AS (
-  SELECT tenant_id,product_id FROM ledger
-  UNION SELECT tenant_id,product_id FROM inventory_balances
+  SELECT tenant_id,store_id,product_id FROM ledger
+  UNION SELECT tenant_id,store_id,product_id FROM inventory_balances
 )
 SELECT k.tenant_id,k.product_id,COALESCE(l.ledger_qty,0) AS ledger_qty,
        COALESCE(b.quantity,0) AS balance_qty
 FROM keys k
-LEFT JOIN ledger l USING (tenant_id,product_id)
-LEFT JOIN inventory_balances b USING (tenant_id,product_id)
+LEFT JOIN ledger l USING (tenant_id,store_id,product_id)
+LEFT JOIN inventory_balances b USING (tenant_id,store_id,product_id)
 WHERE COALESCE(l.ledger_qty,0) <> COALESCE(b.quantity,0);
 
 
--- 2b) Each sale/product has exactly one POS_SALE inventory delta, and it equals
+-- 2a) Negative balances are permitted only for Stores with explicit backorder policy.
+SELECT b.tenant_id,b.store_id,b.product_id,b.quantity
+FROM inventory_balances b
+JOIN store_inventory_settings cfg ON cfg.tenant_id=b.tenant_id AND cfg.store_id=b.store_id
+WHERE b.quantity < 0 AND cfg.allow_negative_stock=false;
+
+-- 2b) Each sale/store/product has exactly one POS_SALE inventory delta, and it equals
 -- the negative sum of sold quantities (duplicate ledger writes are not allowed).
 WITH expected AS (
-  SELECT tenant_id,sale_id,product_id,-SUM(quantity::bigint) AS expected_delta
-  FROM sale_lines GROUP BY tenant_id,sale_id,product_id
+  SELECT tenant_id,store_id,sale_id,product_id,-SUM(quantity::bigint) AS expected_delta
+  FROM sale_lines GROUP BY tenant_id,store_id,sale_id,product_id
 ), actual AS (
-  SELECT tenant_id,sale_id,product_id,reason,COUNT(*) AS row_count,
+  SELECT tenant_id,store_id,sale_id,product_id,reason,COUNT(*) AS row_count,
          SUM(quantity_delta::bigint) AS actual_delta
   FROM inventory_ledger WHERE reason='POS_SALE'
-  GROUP BY tenant_id,sale_id,product_id,reason
+  GROUP BY tenant_id,store_id,sale_id,product_id,reason
 )
 SELECT e.tenant_id,e.sale_id,e.product_id,e.expected_delta,
        COALESCE(a.actual_delta,0) AS actual_delta,COALESCE(a.row_count,0) AS ledger_rows
-FROM expected e FULL OUTER JOIN actual a USING (tenant_id,sale_id,product_id)
+FROM expected e FULL OUTER JOIN actual a USING (tenant_id,store_id,sale_id,product_id)
 WHERE e.expected_delta IS NULL OR a.actual_delta IS NULL
    OR e.expected_delta <> a.actual_delta OR COALESCE(a.row_count,0) <> 1;
 
@@ -132,28 +138,34 @@ BEGIN
 
   IF EXISTS (
     WITH ledger AS (
-      SELECT tenant_id,product_id,SUM(quantity_delta::bigint) AS ledger_qty
-      FROM inventory_ledger GROUP BY tenant_id,product_id
+      SELECT tenant_id,store_id,product_id,SUM(quantity_delta::bigint) AS ledger_qty
+      FROM inventory_ledger GROUP BY tenant_id,store_id,product_id
     ), keys AS (
-      SELECT tenant_id,product_id FROM ledger
-      UNION SELECT tenant_id,product_id FROM inventory_balances
+      SELECT tenant_id,store_id,product_id FROM ledger
+      UNION SELECT tenant_id,store_id,product_id FROM inventory_balances
     )
     SELECT 1 FROM keys k
-    LEFT JOIN ledger l USING (tenant_id,product_id)
-    LEFT JOIN inventory_balances b USING (tenant_id,product_id)
+    LEFT JOIN ledger l USING (tenant_id,store_id,product_id)
+    LEFT JOIN inventory_balances b USING (tenant_id,store_id,product_id)
     WHERE COALESCE(l.ledger_qty,0) <> COALESCE(b.quantity,0)
   ) THEN RAISE EXCEPTION 'RECONCILIATION_FAILED: inventory_balance_mismatch'; END IF;
 
   IF EXISTS (
+    SELECT 1 FROM inventory_balances b
+    JOIN store_inventory_settings cfg ON cfg.tenant_id=b.tenant_id AND cfg.store_id=b.store_id
+    WHERE b.quantity < 0 AND cfg.allow_negative_stock=false
+  ) THEN RAISE EXCEPTION 'RECONCILIATION_FAILED: negative_stock_policy_violation'; END IF;
+
+  IF EXISTS (
     WITH expected AS (
-      SELECT tenant_id,sale_id,product_id,-SUM(quantity::bigint) AS expected_delta
-      FROM sale_lines GROUP BY tenant_id,sale_id,product_id
+      SELECT tenant_id,store_id,sale_id,product_id,-SUM(quantity::bigint) AS expected_delta
+      FROM sale_lines GROUP BY tenant_id,store_id,sale_id,product_id
     ), actual AS (
-      SELECT tenant_id,sale_id,product_id,COUNT(*) AS row_count,SUM(quantity_delta::bigint) AS actual_delta
+      SELECT tenant_id,store_id,sale_id,product_id,COUNT(*) AS row_count,SUM(quantity_delta::bigint) AS actual_delta
       FROM inventory_ledger WHERE reason='POS_SALE'
-      GROUP BY tenant_id,sale_id,product_id
+      GROUP BY tenant_id,store_id,sale_id,product_id
     )
-    SELECT 1 FROM expected e FULL OUTER JOIN actual a USING (tenant_id,sale_id,product_id)
+    SELECT 1 FROM expected e FULL OUTER JOIN actual a USING (tenant_id,store_id,sale_id,product_id)
     WHERE e.expected_delta IS NULL OR a.actual_delta IS NULL
        OR e.expected_delta <> a.actual_delta OR a.row_count <> 1
   ) THEN RAISE EXCEPTION 'RECONCILIATION_FAILED: sale_inventory_ledger_mismatch'; END IF;
