@@ -55,10 +55,11 @@ WITH
    SELECT set_config('app.current_tenant_id', $1::uuid::text, true) AS tenant_id
  ),
  terminal_store_guard AS MATERIALIZED (
-   SELECT 1 FROM terminal_devices
-    WHERE tenant_id=$1 AND terminal_id=$2 AND store_id=$17
-      AND active=true AND revoked_at IS NULL AND not_before<=now()
-      AND (not_after IS NULL OR not_after>now())
+   SELECT 1 FROM terminal_devices d
+    JOIN pos_stores st ON st.tenant_id=d.tenant_id AND st.id=d.store_id AND st.active=true
+    WHERE d.tenant_id=$1 AND d.terminal_id=$2 AND d.store_id=$17
+      AND d.active=true AND d.revoked_at IS NULL AND d.not_before<=now()
+      AND (d.not_after IS NULL OR d.not_after>now())
       AND EXISTS (SELECT 1 FROM tenant_ctx)
  ),
  checkpoint_lock AS MATERIALIZED (
