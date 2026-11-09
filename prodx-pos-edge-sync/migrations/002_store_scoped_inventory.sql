@@ -24,20 +24,22 @@ CREATE TABLE IF NOT EXISTS store_inventory_settings (
   allow_negative_stock boolean NOT NULL DEFAULT false,
   updated_at timestamptz NOT NULL DEFAULT now(),
   updated_by uuid,
-  last_change_hash char(64) CHECK (last_change_hash ~ '^[0-9a-f]{64}
+  last_change_hash char(64) CHECK (last_change_hash ~ '^[0-9a-f]{64}$'),
+  last_change_id uuid,
+  PRIMARY KEY (tenant_id, store_id),
   FOREIGN KEY (tenant_id, store_id) REFERENCES pos_stores(tenant_id, id)
 );
 
 CREATE OR REPLACE FUNCTION initialize_store_inventory_settings()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
-SET search_path=pg_catalog,public,pg_temp AS $
+SET search_path=pg_catalog,public,pg_temp AS $$
 BEGIN
   INSERT INTO public.store_inventory_settings(tenant_id,store_id,allow_negative_stock)
   VALUES(NEW.tenant_id,NEW.id,false)
   ON CONFLICT (tenant_id,store_id) DO NOTHING;
   RETURN NEW;
 END;
-$;
+$$;
 REVOKE ALL ON FUNCTION initialize_store_inventory_settings() FROM PUBLIC;
 DROP TRIGGER IF EXISTS trg_initialize_store_inventory_settings ON pos_stores;
 CREATE TRIGGER trg_initialize_store_inventory_settings
