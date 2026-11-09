@@ -35,7 +35,7 @@ Each sale contains `terminal_seq_no` and `hlc: { physical_ms, logical }`. DO tra
 
 ### Database migration / RLS
 
-Apply `migrations/001_pos_ledger.sql` followed by `migrations/002_store_scoped_inventory.sql` with a migration/admin role. It creates a monotonic tenant catalog revision, signed-price columns, HLC columns, immutable-ledger triggers, and `ENABLE` + `FORCE ROW LEVEL SECURITY` policies. Configure separate runtime roles with `NOBYPASSRLS`, least-privilege grants, and no ownership/superuser privileges. Product-catalog writers cannot directly modify `tenant_catalog_versions`; a protected trigger function advances it when product data changes. Run `scripts/rls-smoke.sql` as `prodx_rls_auditor` (NOBYPASSRLS), not as the Worker role.
+Apply `migrations/001_pos_ledger.sql` followed by `migrations/002_store_scoped_inventory.sql` with a migration/admin role. The second migration backfills existing tenant-wide stock into one Default Store per tenant; it cannot infer historical per-branch quantities that were never stored. It creates Store policy, terminal/store binding, store-scoped balances, atomic inventory enforcement and audited policy changes. The first migration creates the tenant catalog revision, signed-price/HLC columns, immutable-ledger triggers and base `ENABLE` + `FORCE ROW LEVEL SECURITY` policies. Configure separate runtime roles with `NOBYPASSRLS`, least-privilege grants, and no ownership/superuser privileges. Product-catalog writers cannot directly modify `tenant_catalog_versions`; a protected trigger function advances it when product data changes. Run `scripts/rls-smoke.sql` as `prodx_rls_auditor` (NOBYPASSRLS), not as the Worker role.
 
 Existing deployments should back up and review the migration before applying it. `CREATE TABLE IF NOT EXISTS` does not retrofit all old schema constraints; the included `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` covers the new sale columns, but operators must verify prior table definitions and indexes before production rollout.
 
@@ -45,7 +45,7 @@ Existing deployments should back up and review the migration before applying it.
 2. `npm install`.
 3. Create Hyperdrive DIRECT (caching disabled) and CACHED (short TTL) configurations; set the real IDs in `wrangler.jsonc`. The connected Cloudflare account currently has no Hyperdrive configs or Queues, so these resources still need provisioning.
 4. Create DLQ `prodx-pos-ingest-dlq` first, then Queue `prodx-pos-ingest` with that DLQ configured.
-5. Apply `migrations/001_pos_ledger.sql` followed by `migrations/002_store_scoped_inventory.sql`, create the six non-owner `LOGIN` roles, and run `scripts/grant-runtime-role.sql` as the database administrator. Register each POS client certificate fingerprint with `scripts/register-terminal-device.sql`, providing the assigned `store_id`; revoke devices with `scripts/revoke-terminal-device.sql`. Use a separate tenant-scoped `prodx_device_admin` role for enrollment management, and `prodx_inventory_admin` for audited opening-stock/adjustment ledger entries.
+5. Apply `migrations/001_pos_ledger.sql` followed by `migrations/002_store_scoped_inventory.sql`, create the six non-owner `LOGIN` roles, and run `scripts/grant-runtime-role.sql` as the database administrator. Register each POS client certificate fingerprint with `scripts/register-terminal-device.sql`, providing the assigned `store_id`; revoke devices with `scripts/revoke-terminal-device.sql`. Before moving a terminal to another Store, drain and reconcile its Edge/Queue backlog; new queued sales are bound to the Store identity verified at ingestion. Use a separate tenant-scoped `prodx_device_admin` role for enrollment management, and `prodx_inventory_admin` for audited opening-stock/adjustment ledger entries.
 6. Set the HMAC secret locally in `.dev.vars` and remotely with `npx wrangler secret put CATALOG_SIGNING_KEY`. Generate at least 32 random bytes; do not commit the value.
 7. Create a dedicated Cloudflare Access application for POS terminals with trusted `tenant_id` and `terminal_id` JWT claims, plus a separate trusted `role=POS_SYNC_AUDITOR` claim for the tenant-scoped diagnostics endpoint; enforce WAF mTLS for the sync endpoint. The connected account currently has an `All Workers` Access app whose policy is limited to account members; do not reuse it for POS terminals. `ACCESS_TEAM_DOMAIN` is populated from the connected Zero Trust organization's `auth_domain`; replace `ACCESS_AUD` with the audience of the dedicated POS application.
 8. Run `npx wrangler types` to generate `worker-configuration.d.ts`.
@@ -59,6 +59,7 @@ npx wrangler types
 npm run typecheck
 npm run test:edge
 npm run integration:postgres
+npm run integration:inventory
 npx wrangler dev
 npx wrangler deploy --dry-run
 npx wrangler deploy
