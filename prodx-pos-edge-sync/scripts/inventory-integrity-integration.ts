@@ -56,10 +56,6 @@ try{
     [storeId,tenantId,otherStoreId]
   );
   await admin.query(
-    `INSERT INTO store_inventory_settings(tenant_id,store_id,allow_negative_stock)
-     VALUES($1,$2,false),($1,$3,false)`,[tenantId,storeId,otherStoreId]
-  );
-  await admin.query(
     `INSERT INTO products(id,tenant_id,sku,name,unit_price_minor,tax_bps,version,active)
      VALUES($1,$2,$3,'Inventory concurrency fixture',100,0,1,true)`,
     [productId,tenantId,"INV-"+productId.slice(0,12)]
