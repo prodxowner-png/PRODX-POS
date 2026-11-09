@@ -28,6 +28,22 @@ CREATE TABLE IF NOT EXISTS store_inventory_settings (
   FOREIGN KEY (tenant_id, store_id) REFERENCES pos_stores(tenant_id, id)
 );
 
+CREATE OR REPLACE FUNCTION initialize_store_inventory_settings()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
+SET search_path=pg_catalog,public,pg_temp AS $
+BEGIN
+  INSERT INTO public.store_inventory_settings(tenant_id,store_id,allow_negative_stock)
+  VALUES(NEW.tenant_id,NEW.id,false)
+  ON CONFLICT (tenant_id,store_id) DO NOTHING;
+  RETURN NEW;
+END;
+$;
+REVOKE ALL ON FUNCTION initialize_store_inventory_settings() FROM PUBLIC;
+DROP TRIGGER IF EXISTS trg_initialize_store_inventory_settings ON pos_stores;
+CREATE TRIGGER trg_initialize_store_inventory_settings
+AFTER INSERT ON pos_stores
+FOR EACH ROW EXECUTE FUNCTION initialize_store_inventory_settings();
+
 -- Bootstrap one default store per tenant represented in any existing business table.
 WITH tenant_ids AS (
   SELECT tenant_id FROM products
@@ -95,6 +111,12 @@ ALTER TABLE inventory_ledger
 ALTER TABLE inventory_balances
   ADD CONSTRAINT inventory_balances_tenant_store_fk
   FOREIGN KEY (tenant_id,store_id) REFERENCES pos_stores(tenant_id,id);
+ALTER TABLE inventory_ledger
+  ADD CONSTRAINT inventory_ledger_store_policy_fk
+  FOREIGN KEY (tenant_id,store_id) REFERENCES store_inventory_settings(tenant_id,store_id);
+ALTER TABLE inventory_balances
+  ADD CONSTRAINT inventory_balances_store_policy_fk
+  FOREIGN KEY (tenant_id,store_id) REFERENCES store_inventory_settings(tenant_id,store_id);
 
 -- A sale line and its POS ledger rows must remain attached to the exact store
 -- recorded on the parent sale, not merely to another store in the same tenant.
