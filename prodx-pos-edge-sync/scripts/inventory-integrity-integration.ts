@@ -15,7 +15,6 @@ const runtimeB=new Client({connectionString:runtimeUrl});
 const runtimeC=new Client({connectionString:runtimeUrl});
 
 async function beginTenant(client:Client):Promise<void>{
-  await client.connect();
   await client.query("BEGIN");
   await client.query("SELECT set_config('app.current_tenant_id',$1,true)",[tenantId]);
 }
@@ -50,6 +49,7 @@ try{
     [tenantId,storeId,productId,randomUUID()]
   );
   await admin.query("COMMIT");
+  await Promise.all([runtimeA.connect(),runtimeB.connect(),runtimeC.connect()]);
 
   await beginTenant(runtimeA);
   await beginTenant(runtimeB);
