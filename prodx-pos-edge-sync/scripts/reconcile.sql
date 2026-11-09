@@ -165,7 +165,7 @@ BEGIN
       FROM inventory_ledger WHERE reason='POS_SALE'
       GROUP BY tenant_id,store_id,sale_id,product_id
     )
-    SELECT 1 FROM expected e FULL OUTER JOIN actual a USING (tenant_id,sale_id,product_id)
+    SELECT 1 FROM expected e FULL OUTER JOIN actual a USING (tenant_id,store_id,sale_id,product_id)
     WHERE e.expected_delta IS NULL OR a.actual_delta IS NULL
        OR e.expected_delta <> a.actual_delta OR a.row_count <> 1
   ) THEN RAISE EXCEPTION 'RECONCILIATION_FAILED: sale_inventory_ledger_mismatch'; END IF;
