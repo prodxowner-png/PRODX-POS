@@ -96,9 +96,9 @@ WITH
  ),
  sales_insert AS (
    INSERT INTO sales
-     (sale_id,tenant_id,terminal_id,terminal_seq_no,currency,total_minor,catalog_version,
+     (sale_id,tenant_id,terminal_id,store_id,terminal_seq_no,currency,total_minor,catalog_version,
       hlc_physical_ms,hlc_logical,client_recorded_at,edge_received_at,committed_at)
-   SELECT $6,$1,$2,$7,$8,$9,$10,$11,$12,$13,$14,now()
+   SELECT $6,$1,$2,$17,$7,$8,$9,$10,$11,$12,$13,$14,now()
      FROM idempotency_claim
      CROSS JOIN checkpoint_guard
    RETURNING sale_id
@@ -116,9 +116,9 @@ WITH
  ),
  sale_lines_insert AS (
    INSERT INTO sale_lines
-     (tenant_id,sale_id,product_id,quantity,unit_price_minor,tax_bps,tax_minor,
+     (tenant_id,store_id,sale_id,product_id,quantity,unit_price_minor,tax_bps,tax_minor,
       catalog_version,signed_unit_price_minor,signed_price_verified)
-   SELECT $1,s.sale_id,l.product_id,l.quantity,l.unit_price_minor,l.tax_bps,l.tax_minor,
+   SELECT $1,$17,s.sale_id,l.product_id,l.quantity,l.unit_price_minor,l.tax_bps,l.tax_minor,
           $10,l.signed_unit_price_minor,true
      FROM sales_insert s
      CROSS JOIN input_lines l
@@ -132,8 +132,8 @@ WITH
  ),
  inventory_insert AS (
    INSERT INTO inventory_ledger
-     (tenant_id,product_id,sale_id,terminal_id,reference_id,quantity_delta,reason,created_at)
-   SELECT $1,i.product_id,$6,$2,$6,(-i.quantity)::integer,'POS_SALE',now()
+     (tenant_id,store_id,product_id,sale_id,terminal_id,reference_id,quantity_delta,reason,created_at)
+   SELECT $1,$17,i.product_id,$6,$2,$6,(-i.quantity)::integer,'POS_SALE',now()
      FROM inventory_totals i
    RETURNING 1 AS inserted
  ),
@@ -213,6 +213,7 @@ export async function commitSale(env: Env, message: QueueSale): Promise<"committ
     }));
     const auditMetadata = {
       receipt_id: message.receipt_id,
+      store_id: message.store_id,
       terminal_seq_no: message.sale.terminal_seq_no,
       hlc: message.sale.hlc,
       catalog_version: message.sale.catalog_version,
@@ -251,7 +252,8 @@ export async function commitSale(env: Env, message: QueueSale): Promise<"committ
       message.sale.client_recorded_at,
       message.edge_received_at,
       JSON.stringify(lineRecords),
-      JSON.stringify(auditMetadata)
+      JSON.stringify(auditMetadata),
+      message.store_id
     ]);
 
     const row = result.rows[0] as WriteCteResult | undefined;
