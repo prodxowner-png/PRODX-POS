@@ -25,7 +25,13 @@ LEFT JOIN inventory_balances b USING (tenant_id,store_id,product_id)
 WHERE COALESCE(l.ledger_qty,0) <> COALESCE(b.quantity,0);
 
 
--- 2b) Each sale/product has exactly one POS_SALE inventory delta, and it equals
+-- 2a) Negative balances are permitted only for Stores with explicit backorder policy.
+SELECT b.tenant_id,b.store_id,b.product_id,b.quantity
+FROM inventory_balances b
+JOIN store_inventory_settings cfg ON cfg.tenant_id=b.tenant_id AND cfg.store_id=b.store_id
+WHERE b.quantity < 0 AND cfg.allow_negative_stock=false;
+
+-- 2b) Each sale/store/product has exactly one POS_SALE inventory delta, and it equals
 -- the negative sum of sold quantities (duplicate ledger writes are not allowed).
 WITH expected AS (
   SELECT tenant_id,store_id,sale_id,product_id,-SUM(quantity::bigint) AS expected_delta
@@ -143,6 +149,12 @@ BEGIN
     LEFT JOIN inventory_balances b USING (tenant_id,store_id,product_id)
     WHERE COALESCE(l.ledger_qty,0) <> COALESCE(b.quantity,0)
   ) THEN RAISE EXCEPTION 'RECONCILIATION_FAILED: inventory_balance_mismatch'; END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM inventory_balances b
+    JOIN store_inventory_settings cfg ON cfg.tenant_id=b.tenant_id AND cfg.store_id=b.store_id
+    WHERE b.quantity < 0 AND cfg.allow_negative_stock=false
+  ) THEN RAISE EXCEPTION 'RECONCILIATION_FAILED: negative_stock_policy_violation'; END IF;
 
   IF EXISTS (
     WITH expected AS (
