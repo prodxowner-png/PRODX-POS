@@ -24,7 +24,7 @@ const runtimeEnv={HYPERDRIVE_DIRECT:{connectionString:runtimeUrl},CATALOG_SIGNIN
 async function makeSale(store:string,terminal:string,proofs:Awaited<ReturnType<typeof signCatalogPriceProofs>>,catalogVersion:number,quantity=1):Promise<QueueSale>{
   const sale:OfflineSale={
     idempotency_key:"inventory-"+randomUUID(),payload_hash:"0".repeat(64),sale_id:randomUUID(),
-    terminal_seq_no:1,hlc:{physical_ms:Date.now(),logical:0},catalog_version,
+    terminal_seq_no:1,hlc:{physical_ms:Date.now(),logical:0},catalog_version:catalogVersion,
     signed_price_proofs:proofs,client_recorded_at:new Date().toISOString(),currency:"THB",
     lines:[{product_id:productId,quantity,unit_price_minor:100,tax_bps:0}]
   };
