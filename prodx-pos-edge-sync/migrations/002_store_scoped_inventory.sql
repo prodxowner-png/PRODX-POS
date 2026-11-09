@@ -89,7 +89,7 @@ UPDATE inventory_balances b SET store_id=s.id
 
 -- Do not silently bless historical negative stock or a pre-existing ledger/balance
 -- mismatch with the new default-false Store policy. The whole migration rolls back.
-DO $
+DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM inventory_balances WHERE quantity < 0) THEN
     RAISE EXCEPTION 'STORE_MIGRATION_BLOCKED: legacy_negative_balance_requires_policy_review';
@@ -109,9 +109,9 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'STORE_MIGRATION_BLOCKED: legacy_ledger_balance_mismatch';
   END IF;
-END $;
+END $$;
 
-DO $
+DO $$
 DECLARE t text;
 BEGIN
   FOREACH t IN ARRAY ARRAY['terminal_devices','terminal_sync_state','sales','sale_lines','inventory_ledger','inventory_balances'] LOOP
