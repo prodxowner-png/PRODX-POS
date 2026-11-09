@@ -137,17 +137,13 @@ try{
     [tenantId,storeId,terminalA,randomUUID().replace(/-/g,"")+randomUUID().replace(/-/g,"").slice(0,32),randomUUID()]
   );
   await admin.query("COMMIT");
-  const inventoryAdmin=new Client({connectionString:runtimeUrl});
-  await inventoryAdmin.connect();
-  try{
-    await inventoryAdmin.query("BEGIN");
-    await inventoryAdmin.query("SELECT set_config('app.current_tenant_id',$1,true)",[tenantId]);
-    await inventoryAdmin.query(
-      `INSERT INTO inventory_ledger(tenant_id,store_id,product_id,reference_id,quantity_delta,reason)
-       VALUES($1,$2,$3,$4,1,'PURCHASE_RECEIPT')`,[tenantId,storeId,productId,randomUUID()]
-    );
-    await inventoryAdmin.query("COMMIT");
-  }finally{await inventoryAdmin.end().catch(()=>undefined);}
+  await admin.query("BEGIN");
+  await admin.query("SELECT set_config('app.current_tenant_id',$1,true)",[tenantId]);
+  await admin.query(
+    `INSERT INTO inventory_ledger(tenant_id,store_id,product_id,reference_id,quantity_delta,reason)
+     VALUES($1,$2,$3,$4,1,'PURCHASE_RECEIPT')`,[tenantId,storeId,productId,randomUUID()]
+  );
+  await admin.query("COMMIT");
 
   // A second Store has no opening stock; it cannot consume the first Store's unit.
   const crossStoreSale=await makeSale(otherStoreId,terminalOtherStore,proofs,catalogVersion);
