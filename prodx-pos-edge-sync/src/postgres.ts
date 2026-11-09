@@ -56,11 +56,12 @@ WITH
    SELECT set_config('app.current_tenant_id', $1::uuid::text, true) AS tenant_id
  ),
  terminal_store_guard AS MATERIALIZED (
+   -- This verifies the Store binding, not live certificate status. The Worker
+   -- already authenticated the request before Queue acceptance; revocation blocks
+   -- new ingress but does not discard sales already accepted into the durable outbox.
    SELECT DISTINCT d.store_id FROM terminal_devices d
-    JOIN pos_stores st ON st.tenant_id=d.tenant_id AND st.id=d.store_id AND st.active=true
+    JOIN pos_stores st ON st.tenant_id=d.tenant_id AND st.id=d.store_id
     WHERE d.tenant_id=$1 AND d.terminal_id=$2 AND ($17::uuid IS NULL OR d.store_id=$17)
-      AND d.active=true AND d.revoked_at IS NULL AND d.not_before<=now()
-      AND (d.not_after IS NULL OR d.not_after>now())
       AND EXISTS (SELECT 1 FROM tenant_ctx)
  ),
  checkpoint_lock AS MATERIALIZED (
