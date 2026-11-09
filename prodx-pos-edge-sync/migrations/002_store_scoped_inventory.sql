@@ -169,7 +169,7 @@ FOR EACH ROW EXECUTE FUNCTION apply_inventory_ledger_delta();
 -- current Store, even if a caller bypasses the TypeScript checkout orchestration.
 CREATE OR REPLACE FUNCTION enforce_sale_terminal_store()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
-SET search_path=pg_catalog,public,pg_temp AS $
+SET search_path=pg_catalog,public,pg_temp AS $$
 BEGIN
   IF NOT EXISTS (
     SELECT 1
@@ -187,7 +187,7 @@ BEGIN
   END IF;
   RETURN NEW;
 END;
-$;
+$$;
 REVOKE ALL ON FUNCTION enforce_sale_terminal_store() FROM PUBLIC;
 DROP TRIGGER IF EXISTS trg_enforce_sale_terminal_store ON sales;
 CREATE TRIGGER trg_enforce_sale_terminal_store
@@ -197,7 +197,7 @@ FOR EACH ROW EXECUTE FUNCTION enforce_sale_terminal_store();
 -- Store policy changes require an actor and payload hash and automatically append
 -- an immutable audit event in the same transaction.
 CREATE OR REPLACE FUNCTION require_store_inventory_policy_audit()
-RETURNS trigger LANGUAGE plpgsql AS $
+RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
   IF NEW.updated_by IS NULL OR NEW.last_change_hash IS NULL OR NEW.last_change_id IS NULL THEN
     RAISE EXCEPTION 'STORE_INVENTORY_POLICY_CHANGE_REQUIRES_AUDIT_CONTEXT'
@@ -205,7 +205,7 @@ BEGIN
   END IF;
   RETURN NEW;
 END;
-$;
+$$;
 REVOKE ALL ON FUNCTION require_store_inventory_policy_audit() FROM PUBLIC;
 DROP TRIGGER IF EXISTS trg_require_store_inventory_policy_audit ON store_inventory_settings;
 CREATE TRIGGER trg_require_store_inventory_policy_audit
@@ -214,7 +214,7 @@ FOR EACH ROW EXECUTE FUNCTION require_store_inventory_policy_audit();
 
 CREATE OR REPLACE FUNCTION audit_store_inventory_policy_change()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
-SET search_path=pg_catalog,public,pg_temp AS $
+SET search_path=pg_catalog,public,pg_temp AS $$
 BEGIN
   INSERT INTO public.audit_logs(
       tenant_id,actor_type,actor_id,action,entity_type,entity_id,
@@ -231,7 +231,7 @@ BEGIN
     );
   RETURN NEW;
 END;
-$;
+$$;
 REVOKE ALL ON FUNCTION audit_store_inventory_policy_change() FROM PUBLIC;
 DROP TRIGGER IF EXISTS trg_audit_store_inventory_policy_change ON store_inventory_settings;
 CREATE TRIGGER trg_audit_store_inventory_policy_change
