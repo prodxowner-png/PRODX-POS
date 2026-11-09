@@ -54,7 +54,7 @@ export interface OfflineSale {
 
 export interface SyncBatch { batch_id: string; sales: OfflineSale[]; }
 export interface QueueSale {
-  tenant_id: string; terminal_id: string; store_id: string; idempotency_key: string;
+  tenant_id: string; terminal_id: string; store_id?: string; idempotency_key: string;
   payload_hash: string; do_name: string; sale: OfflineSale;
   edge_received_at: string; receipt_id: string;
 }
