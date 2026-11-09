@@ -67,10 +67,6 @@ async function runCiMode(): Promise<void> {
       [storeId,tenantId]
     );
     await admin.query(
-      `INSERT INTO store_inventory_settings(tenant_id,store_id,allow_negative_stock) VALUES($1,$2,false)`,
-      [tenantId,storeId]
-    );
-    await admin.query(
       `INSERT INTO products(id,tenant_id,sku,name,unit_price_minor,tax_bps,version,active)
        VALUES($1,$2,$3,'CI chaos fixture',10000,700,1,true)`,
       [productId, tenantId, `CI-${productId.slice(0, 12)}`]
