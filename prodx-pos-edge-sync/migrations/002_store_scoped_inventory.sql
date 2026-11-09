@@ -200,7 +200,7 @@ CREATE OR REPLACE FUNCTION require_store_inventory_policy_audit()
 RETURNS trigger LANGUAGE plpgsql AS $
 BEGIN
   IF NEW.allow_negative_stock IS DISTINCT FROM OLD.allow_negative_stock
-     AND (NEW.updated_by IS NULL OR NEW.last_change_hash IS NULL) THEN
+     AND (NEW.updated_by IS NULL OR NEW.last_change_hash IS NULL OR NEW.last_change_id IS NULL) THEN
     RAISE EXCEPTION 'STORE_INVENTORY_POLICY_CHANGE_REQUIRES_AUDIT_CONTEXT'
       USING ERRCODE='23514';
   END IF;
@@ -227,7 +227,8 @@ BEGIN
       jsonb_build_object(
         'store_id',NEW.store_id,
         'previous_allow_negative_stock',OLD.allow_negative_stock,
-        'allow_negative_stock',NEW.allow_negative_stock
+        'allow_negative_stock',NEW.allow_negative_stock,
+        'change_id',NEW.last_change_id
       )
     );
   END IF;
