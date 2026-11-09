@@ -1,14 +1,60 @@
 import crypto from 'node:crypto';
 import type { CheckoutRequest, CheckoutResponse } from '../../src/adapters/types';
 import type { SqlQueryExecutor, TransactionalSqlExecutor } from '../db/transaction';
+import { assertCheckoutRequest, CheckoutValidationError, hasCheckoutDiscount } from './checkout-validation';
+import { createSupervisorAuthorizationService, SupervisorAuthorizationError } from '../auth/supervisor-authorization';
 
-export class CheckoutValidationError extends Error { readonly code='CHECKOUT_VALIDATION_FAILED'; }
+export { CheckoutValidationError } from './checkout-validation';
 export class CheckoutConflictError extends Error { readonly code='CHECKOUT_CONFLICT'; }
+export class CheckoutAuthorizationError extends Error {
+ readonly code: 'DISCOUNT_SUPERVISOR_APPROVAL_REQUIRED' | 'DISCOUNT_SUPERVISOR_AUTHORIZATION_INVALID';
+ constructor(code: 'DISCOUNT_SUPERVISOR_APPROVAL_REQUIRED' | 'DISCOUNT_SUPERVISOR_AUTHORIZATION_INVALID') { super(code); this.code = code; }
+}
+export type CheckoutAuthorizationContext = { organizationId: string; storeId: string; userId: string; sessionId: string };
 
 type DbRow=Record<string, any>;
-const cents=(v:unknown,field:string):bigint=>{const n=BigInt((v as any)?.amountInCents??-1);if(n<0n)throw new CheckoutValidationError(`${field} must be a non-negative integer minor-unit amount.`);return n;};
+const cents=(v:unknown,field:string):bigint=>{
+ const amount = v && typeof v === 'object' && !Array.isArray(v)
+  ? (v as Record<string, unknown>).amountInCents
+  : undefined;
+ if(typeof amount !== 'number' || !Number.isSafeInteger(amount) || amount < 0 || amount > 999_999_999_999) {
+  throw new CheckoutValidationError(`${field} must be a non-negative safe integer minor-unit amount.`);
+ }
+ return BigInt(amount);
+};
 const numeric=(n:bigint)=>`${n/100n}.${(n%100n).toString().padStart(2,'0')}`;
 const dbCents=(v:unknown)=>{const m=/^(\d+)\.(\d{2})$/.exec(String(v));if(!m)throw new CheckoutValidationError('Database monetary value is invalid.');return BigInt(m[1])*100n+BigInt(m[2]);};
+export const checkoutFingerprint=(request:CheckoutRequest):string=>{
+ const orderDiscountBps=(request as CheckoutRequest & {orderDiscountBps?:number}).orderDiscountBps??0;
+ const canonical={
+  storeId:request.storeId,registerId:request.registerId,cashierId:request.cashierId,grandTotalCurrency:request.totals.grandTotal.currency,
+  orderDiscountBps,notes:request.notes??null,
+  items:[...request.items].map(i=>({productId:i.product.id,quantity:i.quantity,discountBps:i.discountBps,currency:i.unitPrice.currency})).sort((a,b)=>a.productId.localeCompare(b.productId)),
+  payments:[...request.payments].map(p=>({id:p.id,method:p.method,amountInCents:p.amount.amountInCents,currency:p.amount.currency,tenderedCashInCents:p.tenderedCash?.amountInCents??null,tenderedCashCurrency:p.tenderedCash?.currency??null,changeGivenInCents:p.changeGiven?.amountInCents??null,changeGivenCurrency:p.changeGiven?.currency??null,authCode:p.authCode??null,cardLastFour:p.cardLastFour??null,terminalReference:p.terminalReference??null})).sort((a,b)=>a.id.localeCompare(b.id)),
+ };
+ return crypto.createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
+};
+
+// Authorization binding is deliberately stricter than the legacy idempotency
+// fingerprint so changing any checkout detail cannot reuse a supervisor grant.
+export const checkoutAuthorizationFingerprint=(request:CheckoutRequest):string=>{
+ const canonical={
+  storeId:request.storeId,registerId:request.registerId,cashierId:request.cashierId,
+  customer:request.customer??null,notes:request.notes??null,isOfflineSubmission:request.isOfflineSubmission??false,
+  orderDiscountBps:request.orderDiscountBps??0,
+  totals:{grossSubtotal:request.totals.grossSubtotal,itemDiscounts:request.totals.itemDiscounts,orderDiscount:request.totals.orderDiscount,
+    netSubtotal:request.totals.netSubtotal,totalTax:request.totals.totalTax,grandTotal:request.totals.grandTotal,totalItemsCount:request.totals.totalItemsCount},
+  items:[...request.items].map(i=>({lineId:i.lineId,productId:i.product.id,quantity:i.quantity,discountBps:i.discountBps,unitPrice:i.unitPrice,lineSubtotal:i.lineSubtotal,lineTax:i.lineTax,lineTotal:i.lineTotal})).sort((a,b)=>a.lineId.localeCompare(b.lineId)),
+  payments:[...request.payments].map(p=>({id:p.id,method:p.method,amount:p.amount,tenderedCash:p.tenderedCash??null,changeGiven:p.changeGiven??null,
+    timestamp:p.timestamp,authCode:p.authCode??null,cardLastFour:p.cardLastFour??null,terminalReference:p.terminalReference??null})).sort((a,b)=>a.id.localeCompare(b.id)),
+ };
+ return crypto.createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
+};
+
+const validateBasisPoints=(value:unknown,field:string):number=>{
+ if(typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > 10000)throw new CheckoutValidationError(`${field} must be an integer between 0 and 10000 basis points.`);
+ return value;
+};
 const orderFromDb=async(db:SqlQueryExecutor,o:DbRow,cached:boolean):Promise<CheckoutResponse>=>{
  const items=(await db.query(`SELECT oi.*,p.sku,p.barcode,p.name,p.category_id,p.cost_price_amount::text,p.tax_rate_bps,p.reorder_point,p.unit_of_measure,p.current_stock FROM prodx_order_items oi JOIN prodx_products p ON p.id=oi.product_id AND p.store_id=oi.store_id WHERE oi.order_id=$1 ORDER BY oi.id`,[o.id])).rows;
  const payments=(await db.query(`SELECT id,method,amount::text,tendered_cash::text,change_given::text,auth_code,card_last_four,terminal_reference,currency,created_at FROM prodx_payments WHERE order_id=$1 ORDER BY created_at,id`,[o.id])).rows;
@@ -16,21 +62,99 @@ const orderFromDb=async(db:SqlQueryExecutor,o:DbRow,cached:boolean):Promise<Chec
  return {success:true,serverConfirmed:true,idempotencyCached:cached,message:cached?'Checkout already committed; returning the existing transaction.':'Checkout committed.',order:{id:o.id,orderNumber:o.order_number,idempotencyKey:o.idempotency_key,storeId:o.store_id,registerId:o.register_id,cashierId:o.cashier_id,cashierName:'',items:items.map((i:any)=>({lineId:i.id,product:{id:i.product_id,storeId:o.store_id,sku:i.sku,barcode:i.barcode,name:i.name,categoryId:i.category_id,price:money(i.unit_price_amount),costPrice:money(i.cost_price_amount),taxRateBps:i.tax_rate_bps,currentStock:i.current_stock,reorderPoint:i.reorder_point,unitOfMeasure:i.unit_of_measure},quantity:i.quantity,unitPrice:money(i.unit_price_amount),discountBps:i.item_discount_bps,lineSubtotal:money(i.line_subtotal_amount),lineTax:money(i.line_tax_amount),lineTotal:money(i.line_total_amount)})),totals:{grossSubtotal:money(o.gross_subtotal_amount),itemDiscounts:money(o.item_discounts_amount),orderDiscount:money(o.order_discount_amount),netSubtotal:money(o.net_subtotal_amount),totalTax:money(o.total_tax_amount),grandTotal:money(o.grand_total_amount),totalItemsCount:o.total_items_count},payments:payments.map((p:any)=>({id:p.id,method:p.method,amount:money(p.amount),tenderedCash:p.tendered_cash===null?undefined:money(p.tendered_cash),changeGiven:p.change_given===null?undefined:money(p.change_given),authCode:p.auth_code??undefined,cardLastFour:p.card_last_four??undefined,terminalReference:p.terminal_reference??undefined,timestamp:new Date(p.created_at).toISOString()})),status:o.status,serverCommittedAt:new Date(o.server_committed_at).toISOString(),createdAt:new Date(o.created_at).toISOString()}} as CheckoutResponse;
 };
 
-export const createCheckoutService=(db:TransactionalSqlExecutor)=>({async checkout(request:CheckoutRequest):Promise<CheckoutResponse>{
- if(!request.idempotencyKey?.trim()||!request.storeId||!request.registerId||!request.cashierId)throw new CheckoutValidationError('Idempotency key, store, register and cashier are required.');
+export const createCheckoutService=(db:TransactionalSqlExecutor)=>({
+ async resolveCommittedReplay(request: CheckoutRequest, scope: { organizationId: string; storeId: string; cashierId: string }): Promise<CheckoutResponse | null> {
+  assertCheckoutRequest(request);
+  if(request.items.length===0)throw new CheckoutValidationError('At least one item is required.');
+  for(const item of request.items)validateBasisPoints(item.discountBps,`Discount for product ${item.product.id}`);
+  validateBasisPoints((request as CheckoutRequest & {orderDiscountBps?:number}).orderDiscountBps??0,'Order discount');
+  if(request.storeId!==scope.storeId || request.cashierId!==scope.cashierId)throw new CheckoutConflictError('Checkout replay scope does not match the authenticated principal.');
+  const payloadHash=checkoutFingerprint(request);
+  return db.transaction(async tx=>{
+   const existing=(await tx.query(`SELECT * FROM prodx_orders WHERE organization_id=$1 AND store_id=$2 AND cashier_id=$3 AND idempotency_key=$4 LIMIT 1`,[scope.organizationId,scope.storeId,scope.cashierId,request.idempotencyKey])).rows[0];
+   if(!existing)return null;
+   if(existing.idempotency_payload_hash!==payloadHash)throw new CheckoutConflictError('Idempotency key was already used for a different checkout payload.');
+   return orderFromDb(tx,existing,true);
+  });
+ },
+ async checkout(request:CheckoutRequest, authorizationContext?: CheckoutAuthorizationContext):Promise<CheckoutResponse>{
+ assertCheckoutRequest(request);
  if(request.items.length===0)throw new CheckoutValidationError('At least one item is required.');
- return db.transaction(async tx=>{
-  const existing=(await tx.query(`SELECT * FROM prodx_orders WHERE store_id=$1 AND idempotency_key=$2 LIMIT 1`,[request.storeId,request.idempotencyKey])).rows[0];if(existing)return orderFromDb(tx,existing,true);
+ for(const item of request.items)validateBasisPoints(item.discountBps,`Discount for product ${item.product.id}`);
+ const orderDiscountBps=validateBasisPoints((request as CheckoutRequest & {orderDiscountBps?:number}).orderDiscountBps??0,'Order discount');
+ const payloadHash=checkoutFingerprint(request);
+ const authorizationPayloadHash=checkoutAuthorizationFingerprint(request);
+ const transactionResult = await db.transaction(async tx=>{
+  const existing=(await tx.query(`SELECT * FROM prodx_orders WHERE store_id=$1 AND idempotency_key=$2 LIMIT 1`,[request.storeId,request.idempotencyKey])).rows[0];if(existing){if(existing.idempotency_payload_hash!==payloadHash)throw new CheckoutConflictError('Idempotency key was already used for a different checkout payload.');return orderFromDb(tx,existing,true);}
   const shift=(await tx.query(`SELECT sh.id FROM prodx_shifts sh JOIN prodx_registers r ON r.id=sh.register_id AND r.store_id=sh.store_id WHERE sh.store_id=$1 AND sh.register_id=$2 AND sh.cashier_id=$3 AND sh.status='open' AND r.status='active' FOR UPDATE`,[request.storeId,request.registerId,request.cashierId])).rows[0];if(!shift)throw new CheckoutConflictError('An active shift for this register and cashier is required.');
   const ids=request.items.map(i=>i.product.id);if(new Set(ids).size!==ids.length)throw new CheckoutValidationError('Duplicate product lines are not allowed.');
-  const products=(await tx.query(`SELECT * FROM prodx_products WHERE store_id=$1 AND active=true AND id=ANY($2::uuid[]) FOR UPDATE`,[request.storeId,ids])).rows;if(products.length!==ids.length)throw new CheckoutValidationError('One or more products are unavailable in this store.');
+  const sortedIds=[...ids].sort();
+  const products=(await tx.query(`SELECT * FROM prodx_products WHERE store_id=$1 AND active=true AND id=ANY($2::uuid[]) ORDER BY id FOR UPDATE`,[request.storeId,sortedIds])).rows;if(products.length!==ids.length)throw new CheckoutValidationError('One or more products are unavailable in this store.');
   const currency=products[0].currency;let gross=0n,discounts=0n,net=0n,tax=0n,totalItems=0;
   for(const item of request.items){if(!Number.isInteger(item.quantity)||item.quantity<=0)throw new CheckoutValidationError('Quantity must be positive.');if(item.unitPrice.currency!==currency)throw new CheckoutValidationError('Item currency mismatch.');const p=products.find(x=>x.id===item.product.id);if(!p)throw new CheckoutValidationError('Product scope violation.');const unit=dbCents(p.price_amount),raw=unit*BigInt(item.quantity),disc=(raw*BigInt(item.discountBps)+5000n)/10000n,after=raw-disc,lt=p.tax_rate_bps>0?(after*BigInt(p.tax_rate_bps)+BigInt(10000+p.tax_rate_bps)/2n)/BigInt(10000+p.tax_rate_bps):0n;gross+=raw;discounts+=disc;net+=after-lt;tax+=lt;totalItems+=item.quantity;}
-  const orderDiscountBps=(request as CheckoutRequest & {orderDiscountBps?:number}).orderDiscountBps??0;const pre=gross-discounts,od=(pre*BigInt(orderDiscountBps)+5000n)/10000n,grand=pre-od,adjNet=pre===0n?0n:(net*grand+pre/2n)/pre,adjTax=grand-adjNet;if(cents(request.totals.grandTotal,'client grand total')!==grand)throw new CheckoutConflictError('Client total does not match server-authoritative total.');
-  let paid=0n;for(const p of request.payments){if(p.amount.currency!==currency)throw new CheckoutValidationError('Payment currency must match order currency.');const a=cents(p.amount,`payment ${p.id}`);paid+=a;if(p.method==='cash'){const t=p.tenderedCash?cents(p.tenderedCash,'tendered cash'):a,c=p.changeGiven?cents(p.changeGiven,'change given'):0n;if(t<a||c!==t-a)throw new CheckoutValidationError('Cash tender and change do not match payment amount.');}}if(paid!==grand)throw new CheckoutConflictError('Payment total does not match server-authoritative total.');
-  const orderId=crypto.randomUUID(),number=`ORD-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${crypto.randomInt(100000,999999)}`;const ins=(await tx.query(`INSERT INTO prodx_orders(id,organization_id,store_id,register_id,cashier_id,shift_id,order_number,idempotency_key,gross_subtotal_amount,item_discounts_amount,order_discount_amount,net_subtotal_amount,total_tax_amount,grand_total_amount,currency,total_items_count,notes) SELECT $1,organization_id,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16 FROM prodx_stores WHERE id=$2 ON CONFLICT(store_id,idempotency_key) DO NOTHING RETURNING *`,[orderId,request.storeId,request.registerId,request.cashierId,shift.id,number,request.idempotencyKey,numeric(gross),numeric(discounts),numeric(od),numeric(adjNet),numeric(adjTax),numeric(grand),currency,totalItems,request.notes??null])).rows[0];if(!ins){const concurrent=(await tx.query(`SELECT * FROM prodx_orders WHERE store_id=$1 AND idempotency_key=$2`,[request.storeId,request.idempotencyKey])).rows[0];if(!concurrent)throw new CheckoutConflictError('Idempotency conflict could not be resolved.');return orderFromDb(tx,concurrent,true);}
+  const pre=gross-discounts,od=(pre*BigInt(orderDiscountBps)+5000n)/10000n,grand=pre-od,adjNet=pre===0n?0n:(net*grand+pre/2n)/pre,adjTax=grand-adjNet;if(request.totals.grandTotal.currency!==currency)throw new CheckoutValidationError('Grand total currency must match order currency.');if(cents(request.totals.grandTotal,'client grand total')!==grand)throw new CheckoutConflictError('Client total does not match server-authoritative total.');
+  let paid=0n;for(const p of request.payments){if(p.amount.currency!==currency)throw new CheckoutValidationError('Payment currency must match order currency.');if(p.tenderedCash&&p.tenderedCash.currency!==currency)throw new CheckoutValidationError('Tendered cash currency must match order currency.');if(p.changeGiven&&p.changeGiven.currency!==currency)throw new CheckoutValidationError('Change given currency must match order currency.');const a=cents(p.amount,`payment ${p.id}`);paid+=a;if(p.method==='cash'){const t=p.tenderedCash?cents(p.tenderedCash,'tendered cash'):a,c=p.changeGiven?cents(p.changeGiven,'change given'):0n;if(t<a||c!==t-a)throw new CheckoutValidationError('Cash tender and change do not match payment amount.');}}if(paid!==grand)throw new CheckoutConflictError('Payment total does not match server-authoritative total.');
+  let supervisorUserId: string | null = null;
+  if (hasCheckoutDiscount(request)) {
+   if (!authorizationContext || authorizationContext.storeId !== request.storeId || authorizationContext.userId !== request.cashierId) throw new CheckoutAuthorizationError('DISCOUNT_SUPERVISOR_APPROVAL_REQUIRED');
+   const policy = (await tx.query(`SELECT require_supervisor_approval, max_discount_without_approval_bps FROM prodx_discount_policies WHERE organization_id=$1 AND store_id=$2 FOR SHARE`, [authorizationContext.organizationId, request.storeId])).rows[0] as DbRow | undefined;
+   if (!policy) throw new CheckoutConflictError('Authoritative discount policy is missing for this store.');
+   const effectiveDiscountBps = gross > 0n ? Number(((gross - grand) * 10000n + gross / 2n) / gross) : 0;
+   const maxDiscountBps = Math.max(effectiveDiscountBps, orderDiscountBps, ...request.items.map((item) => item.discountBps));
+   const approvalRequired = policy.require_supervisor_approval === true && maxDiscountBps > Number(policy.max_discount_without_approval_bps);
+   if (approvalRequired) {
+    if (!request.supervisorAuthorizationToken) throw new CheckoutAuthorizationError('DISCOUNT_SUPERVISOR_APPROVAL_REQUIRED');
+    try {
+     const supervisor = await createSupervisorAuthorizationService({ query: async <T extends Record<string, unknown>>(sql: string, parameters: readonly unknown[] = []) => (await tx.query<T>(sql, parameters)).rows }).consume({
+      token: request.supervisorAuthorizationToken, organizationId: authorizationContext.organizationId, storeId: request.storeId,
+      requesterUserId: authorizationContext.userId, requesterSessionId: authorizationContext.sessionId, action: 'discount',
+      checkoutIdempotencyKey: request.idempotencyKey, checkoutPayloadHash: authorizationPayloadHash,
+      policyThresholdBps: Number(policy.max_discount_without_approval_bps), policyRequiresApproval: true,
+     });
+     supervisorUserId = supervisor.supervisorUserId;
+    } catch (error) {
+     if (error instanceof SupervisorAuthorizationError) {
+      // A concurrent retry can lose the one-time token race after the winning
+      // transaction commits. Resolve the idempotency key before treating that as
+      // a replay: same command returns the committed order, changed command conflicts.
+      const committed = (await tx.query(`SELECT * FROM prodx_orders WHERE store_id=$1 AND idempotency_key=$2 FOR UPDATE`, [request.storeId, request.idempotencyKey])).rows[0] as DbRow | undefined;
+      if (committed) {
+       if (committed.idempotency_payload_hash !== payloadHash) {
+        await tx.query(`SELECT public.prodx_record_security_audit_event($1, $2, $3, 'SUPERVISOR_AUTHORIZATION_REJECTED', $4::jsonb)`, [
+         crypto.randomUUID(), authorizationContext.organizationId, authorizationContext.userId,
+         JSON.stringify({ action: 'discount', idempotencyKey: request.idempotencyKey, reason: 'IDEMPOTENCY_PAYLOAD_MISMATCH' }),
+        ]);
+        // Return a rejection marker so the audit commits on this same connection;
+        // the public error is raised only after the transaction releases its lock.
+        return { authorizationRejection: 'IDEMPOTENCY_PAYLOAD_MISMATCH' } as const;
+       }
+       return orderFromDb(tx, committed, true);
+      }
+      // A rejected grant has no financial writes to preserve. Record its audit
+      // in this transaction and return a marker so it commits without opening a
+      // second pool connection while shift/product locks are held.
+      await tx.query(`SELECT public.prodx_record_security_audit_event($1, $2, $3, 'SUPERVISOR_AUTHORIZATION_REJECTED', $4::jsonb)`, [
+       crypto.randomUUID(), authorizationContext.organizationId, authorizationContext.userId,
+       JSON.stringify({ action: 'discount', idempotencyKey: request.idempotencyKey, reason: error.code }),
+      ]);
+      return { authorizationRejection: 'SUPERVISOR_AUTHORIZATION_INVALID' } as const;
+     }
+     throw error;
+    }
+   } else if (request.supervisorAuthorizationToken) {
+    throw new CheckoutAuthorizationError('DISCOUNT_SUPERVISOR_AUTHORIZATION_INVALID');
+   }
+  }
+  const orderId=crypto.randomUUID(),number=`ORD-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${crypto.randomInt(100000,999999)}`;const ins=(await tx.query(`INSERT INTO prodx_orders(id,organization_id,store_id,register_id,cashier_id,shift_id,order_number,idempotency_key,idempotency_payload_hash,gross_subtotal_amount,item_discounts_amount,order_discount_amount,net_subtotal_amount,total_tax_amount,grand_total_amount,currency,total_items_count,notes) SELECT $1,organization_id,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17 FROM prodx_stores WHERE id=$2 ON CONFLICT(store_id,idempotency_key) DO NOTHING RETURNING *`,[orderId,request.storeId,request.registerId,request.cashierId,shift.id,number,request.idempotencyKey,payloadHash,numeric(gross),numeric(discounts),numeric(od),numeric(adjNet),numeric(adjTax),numeric(grand),currency,totalItems,request.notes??null])).rows[0];if(!ins){const concurrent=(await tx.query(`SELECT * FROM prodx_orders WHERE store_id=$1 AND idempotency_key=$2`,[request.storeId,request.idempotencyKey])).rows[0];if(!concurrent)throw new CheckoutConflictError('Idempotency conflict could not be resolved.');if(concurrent.idempotency_payload_hash!==payloadHash)throw new CheckoutConflictError('Idempotency key was already used for a different checkout payload.');return orderFromDb(tx,concurrent,true);}
   for(const item of request.items){const p=products.find(x=>x.id===item.product.id)!;const unit=dbCents(p.price_amount),raw=unit*BigInt(item.quantity),disc=(raw*BigInt(item.discountBps)+5000n)/10000n,after=raw-disc,lt=p.tax_rate_bps>0?(after*BigInt(p.tax_rate_bps)+BigInt(10000+p.tax_rate_bps)/2n)/BigInt(10000+p.tax_rate_bps):0n;const stock=(await tx.query(`UPDATE prodx_products SET current_stock=current_stock-$1,updated_at=CURRENT_TIMESTAMP WHERE id=$2 AND store_id=$3 AND current_stock>=$1 RETURNING current_stock`,[item.quantity,item.product.id,request.storeId])).rows[0];if(!stock)throw new CheckoutConflictError(`Insufficient stock for product ${item.product.id}.`);await tx.query(`INSERT INTO prodx_order_items(id,organization_id,store_id,order_id,product_id,quantity,unit_price_amount,item_discount_bps,line_subtotal_amount,line_tax_amount,line_total_amount,currency) VALUES($1,(SELECT organization_id FROM prodx_orders WHERE id=$2),$3,$2,$4,$5,$6,$7,$8,$9,$10,$11)`,[crypto.randomUUID(),ins.id,request.storeId,item.product.id,item.quantity,numeric(unit),item.discountBps,numeric(after-lt),numeric(lt),numeric(after),currency]);await tx.query(`INSERT INTO prodx_inventory_ledger(id,organization_id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id) VALUES($1,(SELECT organization_id FROM prodx_orders WHERE id=$2),$3,$4,$5,$6,'sale_deduction',$2,$7)`,[crypto.randomUUID(),ins.id,request.storeId,item.product.id,-item.quantity,stock.current_stock,request.cashierId]);}
   for(const p of request.payments){const a=cents(p.amount,`payment ${p.id}`);await tx.query(`INSERT INTO prodx_payments(id,organization_id,store_id,order_id,method,amount,tendered_cash,change_given,auth_code,card_last_four,terminal_reference,currency) VALUES($1,(SELECT organization_id FROM prodx_orders WHERE id=$2),$3,$2,$4,$5,$6,$7,$8,$9,$10,$11)`,[p.id,ins.id,request.storeId,p.method,numeric(a),p.tenderedCash?numeric(cents(p.tenderedCash,'tendered cash')):null,p.changeGiven?numeric(cents(p.changeGiven,'change given')):null,p.authCode??null,p.cardLastFour??null,p.terminalReference??null,currency]);if(p.method==='cash'){const t=p.tenderedCash?cents(p.tenderedCash,'tendered cash'):a,c=p.changeGiven?cents(p.changeGiven,'change given'):0n;await tx.query(`INSERT INTO prodx_cash_movements(id,organization_id,store_id,shift_id,type,amount,reason,performed_by_user_id,currency) VALUES($1,(SELECT organization_id FROM prodx_orders WHERE id=$2),$3,$4,'cash_sale',$5,'POS sale',$6,$7)`,[crypto.randomUUID(),ins.id,request.storeId,shift.id,numeric(t-c),request.cashierId,currency]);}}
-  await tx.query(`INSERT INTO prodx_audit_log(id,organization_id,store_id,register_id,user_id,action,severity,details) VALUES($1,(SELECT organization_id FROM prodx_orders WHERE id=$2),$3,$4,$5,'order_checkout_committed','info',$6::jsonb)`,[crypto.randomUUID(),ins.id,request.storeId,request.registerId,request.cashierId,JSON.stringify({orderId:ins.id,idempotencyKey:request.idempotencyKey,grandTotal:numeric(grand)})]);return orderFromDb(tx,ins,false);
+  await tx.query(`INSERT INTO prodx_audit_log(id,organization_id,store_id,register_id,user_id,action,severity,details) VALUES($1,(SELECT organization_id FROM prodx_orders WHERE id=$2),$3,$4,$5,'order_checkout_committed','info',$6::jsonb)`,[crypto.randomUUID(),ins.id,request.storeId,request.registerId,request.cashierId,JSON.stringify({orderId:ins.id,idempotencyKey:request.idempotencyKey,grandTotal:numeric(grand),supervisorUserId})]);return orderFromDb(tx,ins,false);
  });
+ if ('authorizationRejection' in transactionResult) {
+  if (transactionResult.authorizationRejection === 'IDEMPOTENCY_PAYLOAD_MISMATCH') {
+   throw new CheckoutConflictError('Idempotency key was reused with a different checkout payload.');
+  }
+  throw new CheckoutAuthorizationError('DISCOUNT_SUPERVISOR_AUTHORIZATION_INVALID');
+ }
+ return transactionResult;
 }});

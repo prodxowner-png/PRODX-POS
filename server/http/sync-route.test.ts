@@ -75,6 +75,32 @@ test('sync route rejects idempotency mismatch before database work', async () =>
   }
 });
 
+test('sync route rejects discounted offline orders without pos.discount permission', async () => {
+  const replayLookupDb: TransactionalSqlExecutor = {
+    query: async () => ({ rows: [] }),
+    transaction: async (work) => work({ query: async () => ({ rows: [] }) }),
+  };
+  const app = createApp({
+    authenticateRequest: () => principal,
+    authorizeRequest: (_context, permission) => permission === 'pos.sell',
+    configureRoutes: (configuredApp) => registerSyncRoute(configuredApp, replayLookupDb),
+  });
+  const server = await start(app);
+  try {
+    const validPayload = request('sync-discount-1');
+    const payload = { ...validPayload, items: validPayload.items.map((line) => ({ ...line, discountBps: 500 })) };
+    const response = await fetch(`${server.baseUrl}/api/v1/sync/commands`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ item: { id: 'outbox-discount-1', type: 'order_transaction', idempotencyKey: 'sync-discount-1', payload, createdAt: '2026-10-30T00:00:00.000Z', attempts: 0, syncState: 'queued' } }),
+    });
+    assert.equal(response.status, 403);
+    assert.equal((await response.json()).error.code, 'DISCOUNT_NOT_AUTHORIZED');
+  } finally {
+    await server.close();
+  }
+});
+
 test('sync route denies unauthorized access before database work', async () => {
   const app = createApp({
     authenticateRequest: () => principal,
@@ -132,21 +158,145 @@ test('production sync HTTP path commits once and returns cached result on replay
     await pool.query("INSERT INTO prodx_shifts(id,organization_id,store_id,register_id,cashier_id,opening_float_amount,currency) VALUES($1,$2,$3,$4,$5,0,'THB')", [ids.shift, ids.org, ids.store, ids.register, ids.user]);
     await pool.query('INSERT INTO prodx_categories(id,organization_id,store_id,name,slug) VALUES($1,$2,$3,$4,$5)', [ids.category, ids.org, ids.store, 'Sync Category', 'sync-category']);
     await pool.query("INSERT INTO prodx_products(id,organization_id,store_id,category_id,sku,barcode,name,price_amount,cost_price_amount,currency,tax_rate_bps,current_stock,reorder_point,unit_of_measure) VALUES($1,$2,$3,$4,'SYNC-1','SYNC-1','Sync Product',10.00,5.00,'THB',0,10,1,'each')", [ids.product, ids.org, ids.store, ids.category]);
-    const app = createApp({ authenticateRequest: () => ({ userId: ids.user, organizationId: ids.org, storeId: ids.store, sessionId: 'sync-http-session' }), authorizeRequest: (_context, permission) => permission === 'pos.sell', configureRoutes: (configuredApp) => registerSyncRoute(configuredApp, db) });
+    let discountAuthorized = true;
+    const app = createApp({ authenticateRequest: () => ({ userId: ids.user, organizationId: ids.org, storeId: ids.store, sessionId: 'sync-http-session' }), authorizeRequest: (_context, permission) => permission === 'pos.sell' || (permission === 'pos.discount' && discountAuthorized), configureRoutes: (configuredApp) => registerSyncRoute(configuredApp, db) });
     const server = await start(app);
     try {
-      const item = { id: 'offline-sync-1', type: 'order_transaction' as const, idempotencyKey: 'offline-sync-key', payload: request('offline-sync-key'), createdAt: '2026-10-05T00:00:00.000Z', attempts: 0, syncState: 'queued' as const };
+      const basePayload = request('offline-sync-key');
+      const discountedPayload: CheckoutRequest = {
+        ...basePayload,
+        items: basePayload.items.map((line) => ({ ...line, discountBps: 500 })),
+        totals: { ...basePayload.totals, itemDiscounts: { amountInCents: 50, currency: 'THB' }, netSubtotal: { amountInCents: 950, currency: 'THB' }, grandTotal: { amountInCents: 950, currency: 'THB' } },
+        payments: basePayload.payments.map((payment) => ({ ...payment, amount: { amountInCents: 950, currency: 'THB' }, tenderedCash: { amountInCents: 950, currency: 'THB' }, changeGiven: { amountInCents: 0, currency: 'THB' } })),
+      };
+      const item = { id: 'offline-sync-1', type: 'order_transaction' as const, idempotencyKey: 'offline-sync-key', payload: discountedPayload, createdAt: '2026-10-05T00:00:00.000Z', attempts: 0, syncState: 'queued' as const };
       const first = await fetch(`${server.baseUrl}/api/v1/sync/commands`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ item }) });
       assert.equal(first.status, 201);
       const firstBody = await first.json() as { confirmedOrder: { id: string }; serverConfirmed: boolean; idempotencyCached: boolean };
       assert.equal(firstBody.serverConfirmed, true); assert.equal(firstBody.idempotencyCached, false);
+      discountAuthorized = false;
       const replay = await fetch(`${server.baseUrl}/api/v1/sync/commands`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ item: { ...item, attempts: 1 } }) });
       assert.equal(replay.status, 200);
       const replayBody = await replay.json() as { confirmedOrder: { id: string }; serverConfirmed: boolean; idempotencyCached: boolean };
       assert.equal(replayBody.serverConfirmed, true); assert.equal(replayBody.idempotencyCached, true); assert.equal(replayBody.confirmedOrder.id, firstBody.confirmedOrder.id);
+      const changedPayload = { ...discountedPayload, notes: 'altered payload must not replay' };
+      const changedReplay = await fetch(`${server.baseUrl}/api/v1/sync/commands`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ item: { ...item, payload: changedPayload, attempts: 2 } }) });
+      assert.equal(changedReplay.status, 409);
+      assert.equal((await changedReplay.json()).error.code, 'CHECKOUT_CONFLICT');
       assert.equal((await pool.query('SELECT count(*)::int AS count FROM prodx_orders WHERE store_id=$1 AND idempotency_key=$2', [ids.store, item.idempotencyKey])).rows[0].count, 1);
       assert.equal((await pool.query('SELECT current_stock FROM prodx_products WHERE id=$1', [ids.product])).rows[0].current_stock, 9);
+      assert.equal((await pool.query('SELECT grand_total_amount::text FROM prodx_orders WHERE id=$1', [firstBody.confirmedOrder.id])).rows[0].grand_total_amount, '9.50');
       assert.equal((await pool.query('SELECT count(*)::int AS count FROM prodx_payments WHERE store_id=$1 AND order_id=$2', [ids.store, firstBody.confirmedOrder.id])).rows[0].count, 1);
     } finally { await server.close(); }
   } finally { await clean(); await pool.end(); }
+});
+
+
+test('sync route rejects malformed checkout payloads before database or idempotency work', async () => {
+  let databaseCalls = 0;
+  const noDatabase: TransactionalSqlExecutor = {
+    query: async () => { databaseCalls += 1; throw new Error('database must not be reached'); },
+    transaction: async () => { databaseCalls += 1; throw new Error('transaction must not be reached'); },
+  };
+  const app = createApp({
+    authenticateRequest: () => principal,
+    authorizeRequest: (_context, permission) => permission === 'pos.sell',
+    configureRoutes: (configuredApp) => registerSyncRoute(configuredApp, noDatabase),
+  });
+  const server = await start(app);
+  const valid = request('sync-validation-1');
+  const invalidPayloads = [
+    { ...valid, items: undefined },
+    { ...valid, items: null },
+    { ...valid, items: [null] },
+    { ...valid, items: [{ ...valid.items[0], product: null }] },
+    { ...valid, payments: [null] },
+    { ...valid, totals: null },
+    { ...valid, payments: [{ ...valid.payments[0], amount: { amountInCents: 1.25, currency: 'THB' } }] },
+    { ...valid, payments: [{ ...valid.payments[0], amount: { amountInCents: Number.MAX_SAFE_INTEGER + 1, currency: 'THB' } }] },
+    { ...valid, payments: [{ ...valid.payments[0], amount: { amountInCents: 1_000_000_000_000, currency: 'THB' } }] },
+    { ...valid, payments: [{ ...valid.payments[0], amount: { amountInCents: '1000', currency: 'THB' } }] },
+    { ...valid, items: [{ ...valid.items[0], quantity: Number.MAX_SAFE_INTEGER + 1 }] },
+    { ...valid, items: [{ ...valid.items[0], quantity: 2_147_483_648 }] },
+    { ...valid, items: [{ ...valid.items[0], discountBps: 10001 }] },
+  ];
+
+  try {
+    for (const payload of invalidPayloads) {
+      const item = {
+        id: 'sync-validation-command',
+        type: 'order_transaction' as const,
+        idempotencyKey: 'sync-validation-1',
+        payload,
+        createdAt: '2026-11-01T00:00:00.000Z',
+        attempts: 0,
+        syncState: 'queued' as const,
+      };
+      const response = await fetch(`${server.baseUrl}/api/v1/sync/commands`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ item }),
+      });
+      assert.equal(response.status, 400);
+      assert.equal((await response.json()).error.code, 'SYNC_PAYLOAD_INVALID');
+    }
+
+    const malformedMetadata = await fetch(`${server.baseUrl}/api/v1/sync/commands`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        item: {
+          id: 'sync-invalid-metadata',
+          type: 'order_transaction',
+          idempotencyKey: 123,
+          payload: { idempotencyKey: 123 },
+          createdAt: 'not-a-date',
+          attempts: 0,
+          syncState: 'queued',
+        },
+      }),
+    });
+    assert.equal(malformedMetadata.status, 400);
+    assert.equal(databaseCalls, 0, 'invalid outbox commands must not start a query or transaction');
+  } finally {
+    await server.close();
+  }
+});
+
+test('offline replay rejects over-threshold discount without supervisor authorization', async () => {
+  const base = request('offline-over-threshold');
+  const payload: CheckoutRequest = {
+    ...base,
+    items: [{ ...base.items[0], discountBps: 1600, lineSubtotal: { amountInCents: 840, currency: 'THB' }, lineTotal: { amountInCents: 840, currency: 'THB' } }],
+    totals: { grossSubtotal: { amountInCents: 1000, currency: 'THB' }, itemDiscounts: { amountInCents: 160, currency: 'THB' }, orderDiscount: { amountInCents: 0, currency: 'THB' }, netSubtotal: { amountInCents: 840, currency: 'THB' }, totalTax: { amountInCents: 0, currency: 'THB' }, grandTotal: { amountInCents: 840, currency: 'THB' }, totalItemsCount: 1 },
+    payments: [{ ...base.payments[0], amount: { amountInCents: 840, currency: 'THB' }, tenderedCash: { amountInCents: 840, currency: 'THB' } }],
+  };
+  const queries: string[] = [];
+  const scopedDb: TransactionalSqlExecutor = {
+    query: async () => { throw new Error('direct query must not be used'); },
+    transaction: async (work) => work({ query: async <T extends Record<string, unknown>>(sql: string) => {
+      queries.push(sql);
+      if (sql.startsWith('SELECT * FROM prodx_orders')) return { rows: [] as T[] };
+      if (sql.includes('FROM prodx_shifts')) return { rows: [{ id: 'shift-1' }] as unknown as T[] };
+      if (sql.includes('FROM prodx_products WHERE')) return { rows: [{ id: '00000000-0000-4000-8000-000000003007', store_id: principal.storeId, price_amount: '10.00', currency: 'THB', tax_rate_bps: 0, current_stock: 10, active: true }] as unknown as T[] };
+      if (sql.includes('FROM prodx_discount_policies')) return { rows: [{ require_supervisor_approval: true, max_discount_without_approval_bps: 1500 }] as unknown as T[] };
+      return { rows: [] as T[] };
+    } }),
+  };
+  const app = createApp({
+    authenticateRequest: () => principal,
+    authorizeRequest: (_context, permission) => permission === 'pos.sell' || permission === 'pos.discount',
+    configureRoutes: (configuredApp) => registerSyncRoute(configuredApp, scopedDb),
+  });
+  const server = await start(app);
+  try {
+    const response = await fetch(`${server.baseUrl}/api/v1/sync/commands`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ item: { id: 'outbox-over-threshold', type: 'order_transaction', idempotencyKey: payload.idempotencyKey, payload, createdAt: '2026-11-01T00:00:00.000Z', attempts: 1, syncState: 'queued' } }),
+    });
+    assert.equal(response.status, 403);
+    assert.equal((await response.json()).error.code, 'DISCOUNT_SUPERVISOR_APPROVAL_REQUIRED');
+    assert.ok(queries.some((sql) => sql.includes('FROM prodx_discount_policies')));
+    assert.equal(queries.some((sql) => sql.startsWith('INSERT INTO prodx_orders')), false);
+  } finally { await server.close(); }
 });

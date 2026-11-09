@@ -29,6 +29,7 @@ const start = async (app: ReturnType<typeof createApp>) => {
 
 test("refund route derives the authorizing user from the authenticated principal", async () => {
   let refundInsertParameters: readonly unknown[] | undefined;
+  const securityAuditEvents: string[] = [];
   const query = async <T extends QueryResultRow>(
     sql: string,
     parameters: readonly unknown[] = [],
@@ -52,6 +53,7 @@ test("refund route derives the authorizing user from the authenticated principal
         ] as unknown as T[],
       };
     }
+    if (sql.includes("prodx_record_security_audit_event")) { securityAuditEvents.push(String(parameters[3])); return { rows: [] as unknown as T[] }; }
     if (sql.includes("UPDATE prodx_supervisor_authorizations"))
       return { rows: [{ supervisorUserId: "supervisor-1" }] as unknown as T[] };
     if (sql.includes("FROM prodx_store_memberships"))
@@ -117,6 +119,7 @@ test("refund route derives the authorizing user from the authenticated principal
     assert.equal(refundInsertParameters?.[9], "supervisor-1");
     assert.equal(refundInsertParameters?.[10], principal.userId);
     assert.notEqual(refundInsertParameters?.[9], "browser-supplied-attacker");
+    assert.deepEqual(securityAuditEvents, ["SUPERVISOR_AUTHORIZATION_CONSUMED"]);
   } finally {
     await server.close();
   }
