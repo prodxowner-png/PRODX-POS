@@ -96,6 +96,17 @@ ALTER TABLE inventory_balances
   ADD CONSTRAINT inventory_balances_tenant_store_fk
   FOREIGN KEY (tenant_id,store_id) REFERENCES pos_stores(tenant_id,id);
 
+-- A sale line and its POS ledger rows must remain attached to the exact store
+-- recorded on the parent sale, not merely to another store in the same tenant.
+ALTER TABLE sales ADD CONSTRAINT sales_tenant_sale_store_uq
+  UNIQUE (tenant_id,sale_id,store_id);
+ALTER TABLE sale_lines ADD CONSTRAINT sale_lines_parent_sale_store_fk
+  FOREIGN KEY (tenant_id,sale_id,store_id)
+  REFERENCES sales(tenant_id,sale_id,store_id);
+ALTER TABLE inventory_ledger ADD CONSTRAINT inventory_ledger_parent_sale_store_fk
+  FOREIGN KEY (tenant_id,sale_id,store_id)
+  REFERENCES sales(tenant_id,sale_id,store_id);
+
 -- Every historical sale line inherits the store recorded on its parent sale.
 UPDATE sale_lines l SET store_id=s.store_id
   FROM sales s
