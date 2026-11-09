@@ -194,15 +194,18 @@ BEGIN
       USING ERRCODE='23514';
   END IF;
 
+  -- Ensure the key exists first. ON CONFLICT waits for any concurrent creator;
+  -- the following UPDATE is a new READ COMMITTED command and sees its committed value.
   INSERT INTO public.inventory_balances(tenant_id,store_id,product_id,quantity,updated_at)
-  SELECT NEW.tenant_id,NEW.store_id,NEW.product_id,NEW.quantity_delta,now()
-   WHERE allow_negative OR NEW.quantity_delta >= 0
-  ON CONFLICT (tenant_id,store_id,product_id)
-  DO UPDATE SET quantity=public.inventory_balances.quantity+EXCLUDED.quantity,
-                updated_at=now()
-    WHERE allow_negative
-       OR NEW.quantity_delta >= 0
-       OR public.inventory_balances.quantity + EXCLUDED.quantity >= 0
+  VALUES(NEW.tenant_id,NEW.store_id,NEW.product_id,0,now())
+  ON CONFLICT (tenant_id,store_id,product_id) DO NOTHING;
+
+  UPDATE public.inventory_balances
+     SET quantity=quantity+NEW.quantity_delta,updated_at=now()
+   WHERE tenant_id=NEW.tenant_id
+     AND store_id=NEW.store_id
+     AND product_id=NEW.product_id
+     AND (allow_negative OR NEW.quantity_delta >= 0 OR quantity+NEW.quantity_delta >= 0)
   RETURNING quantity INTO resulting_quantity;
 
   IF NOT FOUND THEN
