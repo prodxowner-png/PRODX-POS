@@ -31,9 +31,6 @@ try{
     `INSERT INTO pos_stores(id,tenant_id,name,is_default) VALUES($1,$2,'Integration Store',true)`,[storeId,tenantId]
   );
   await admin.query(
-    `INSERT INTO store_inventory_settings(tenant_id,store_id,allow_negative_stock) VALUES($1,$2,false)`,[tenantId,storeId]
-  );
-  await admin.query(
     `INSERT INTO products(id,tenant_id,sku,name,unit_price_minor,tax_bps,version,active)
      VALUES($1,$2,$3,'Offline price fixture',10000,700,1,true)`,
     [productId,tenantId,`OFFLINE-${productId.slice(0,8)}`]
