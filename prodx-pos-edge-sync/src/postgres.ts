@@ -280,7 +280,7 @@ export async function commitSale(env: Env, message: QueueSale): Promise<"committ
         sale_id: row.prior_sale_id
       } : undefined;
       if (existing) {
-        if (existing.payload_hash !== message.payload_hash || existing.sale_id !== message.sale_id) {
+        if (existing.payload_hash !== message.payload_hash || existing.sale_id !== message.sale.sale_id) {
           throw new PermanentDataError("IDEMPOTENCY_PAYLOAD_MISMATCH");
         }
         if (existing.status === "COMMITTED") return "duplicate";
