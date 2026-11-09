@@ -97,7 +97,7 @@ try{
   const committed=race.filter(x=>x.status==="fulfilled"&&x.value==="committed").length;
   const rejected=race.filter(x=>x.status==="rejected"&&x.reason instanceof PermanentDataError&&x.reason.message==="INSUFFICIENT_STOCK").length;
   if(committed!==1||rejected!==1) throw new Error("CONCURRENT_CHECKOUT_DID_NOT_ENFORCE_SINGLE_FINAL_UNIT");
-  const winner=race[0].status==="fulfilled"&&race[0].value==="committed"?saleA:saleB;
+  const winner=race[0]!.status==="fulfilled"&&race[0].value==="committed"?saleA:saleB;
   if(await commitSale(runtimeEnv,winner)!=="duplicate") throw new Error("WINNING_SALE_REPLAY_NOT_IDEMPOTENT");
 
   const afterRace=await admin.query(
