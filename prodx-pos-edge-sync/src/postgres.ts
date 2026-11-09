@@ -18,6 +18,7 @@ interface WriteCteResult {
   prior_sale_id: string | null;
   prior_sequence_sale_id: string | null;
   terminal_store_valid: number;
+  resolved_store_id: string | null;
 }
 
 function moneyFromLines(lines: SaleLine[]): number {
@@ -55,9 +56,9 @@ WITH
    SELECT set_config('app.current_tenant_id', $1::uuid::text, true) AS tenant_id
  ),
  terminal_store_guard AS MATERIALIZED (
-   SELECT 1 FROM terminal_devices d
+   SELECT d.store_id FROM terminal_devices d
     JOIN pos_stores st ON st.tenant_id=d.tenant_id AND st.id=d.store_id AND st.active=true
-    WHERE d.tenant_id=$1 AND d.terminal_id=$2 AND d.store_id=$17
+    WHERE d.tenant_id=$1 AND d.terminal_id=$2 AND ($17::uuid IS NULL OR d.store_id=$17)
       AND d.active=true AND d.revoked_at IS NULL AND d.not_before<=now()
       AND (d.not_after IS NULL OR d.not_after>now())
       AND EXISTS (SELECT 1 FROM tenant_ctx)
@@ -108,7 +109,7 @@ WITH
    INSERT INTO sales
      (sale_id,tenant_id,terminal_id,store_id,terminal_seq_no,currency,total_minor,catalog_version,
       hlc_physical_ms,hlc_logical,client_recorded_at,edge_received_at,committed_at)
-   SELECT $6,$1,$2,$17,$7,$8,$9,$10,$11,$12,$13,$14,now()
+   SELECT $6,$1,$2,(SELECT store_id FROM terminal_store_guard),$7,$8,$9,$10,$11,$12,$13,$14,now()
      FROM idempotency_claim
      CROSS JOIN checkpoint_guard
    RETURNING sale_id
@@ -128,7 +129,7 @@ WITH
    INSERT INTO sale_lines
      (tenant_id,store_id,sale_id,product_id,quantity,unit_price_minor,tax_bps,tax_minor,
       catalog_version,signed_unit_price_minor,signed_price_verified)
-   SELECT $1,$17,s.sale_id,l.product_id,l.quantity,l.unit_price_minor,l.tax_bps,l.tax_minor,
+   SELECT $1,(SELECT store_id FROM terminal_store_guard),s.sale_id,l.product_id,l.quantity,l.unit_price_minor,l.tax_bps,l.tax_minor,
           $10,l.signed_unit_price_minor,true
      FROM sales_insert s
      CROSS JOIN input_lines l
@@ -143,7 +144,7 @@ WITH
  inventory_insert AS (
    INSERT INTO inventory_ledger
      (tenant_id,store_id,product_id,sale_id,terminal_id,reference_id,quantity_delta,reason,created_at)
-   SELECT $1,$17,i.product_id,$6,$2,$6,(-i.quantity)::integer,'POS_SALE',now()
+   SELECT $1,(SELECT store_id FROM terminal_store_guard),i.product_id,$6,$2,$6,(-i.quantity)::integer,'POS_SALE',now()
      FROM inventory_totals i
    RETURNING 1 AS inserted
  ),
@@ -151,7 +152,8 @@ WITH
    INSERT INTO audit_logs
      (tenant_id,actor_type,actor_id,action,entity_type,entity_id,
       payload_hash,catalog_version,metadata,created_at)
-   SELECT $1,'POS_TERMINAL',$2,'POS_SALE_COMMITTED','SALE',$6,$5,$10,$16::jsonb,now()
+   SELECT $1,'POS_TERMINAL',$2,'POS_SALE_COMMITTED','SALE',$6,$5,$10,
+          jsonb_set($16::jsonb,'{store_id}',to_jsonb((SELECT store_id FROM terminal_store_guard))),now()
      FROM sales_insert
     WHERE EXISTS (SELECT 1 FROM inventory_insert)
    RETURNING 1 AS inserted
@@ -159,7 +161,7 @@ WITH
  checkpoint_update AS (
    INSERT INTO terminal_sync_state
      (tenant_id,terminal_id,store_id,last_committed_seq_no,last_hlc_physical_ms,last_hlc_logical,updated_at)
-   SELECT $1,$2,$17,$7,$11,$12,now()
+   SELECT $1,$2,(SELECT store_id FROM terminal_store_guard),$7,$11,$12,now()
      FROM audit_insert
    ON CONFLICT (tenant_id,terminal_id) DO UPDATE
      SET store_id=EXCLUDED.store_id,
@@ -182,7 +184,8 @@ SELECT
   (SELECT status FROM prior_idempotency LIMIT 1) AS prior_status,
   (SELECT sale_id FROM prior_idempotency LIMIT 1) AS prior_sale_id,
   (SELECT sale_id FROM prior_sequence_sale LIMIT 1) AS prior_sequence_sale_id,
-  (SELECT COUNT(*)::integer FROM terminal_store_guard) AS terminal_store_valid
+  (SELECT COUNT(*)::integer FROM terminal_store_guard) AS terminal_store_valid,
+  (SELECT store_id::text FROM terminal_store_guard LIMIT 1) AS resolved_store_id
 `;
 
 export async function commitSale(env: Env, message: QueueSale): Promise<"committed" | "duplicate"> {
@@ -270,7 +273,7 @@ export async function commitSale(env: Env, message: QueueSale): Promise<"committ
 
     const row = result.rows[0] as WriteCteResult | undefined;
     if (!row) throw new Error("POSTGRES_CTE_RETURNED_NO_STATUS");
-    if (Number(row.terminal_store_valid) !== 1) {
+    if (Number(row.terminal_store_valid) !== 1 || !row.resolved_store_id) {
       throw new PermanentDataError("TERMINAL_STORE_MAPPING_MISMATCH");
     }
 
