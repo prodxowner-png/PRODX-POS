@@ -33,7 +33,8 @@ GRANT SELECT,INSERT,UPDATE ON tenant_catalog_versions TO prodx_catalog_writer;
 
 -- Device enrollment/revocation runs separately and must set app.current_tenant_id.
 GRANT SELECT,INSERT,UPDATE ON terminal_devices TO prodx_device_admin;
-GRANT SELECT,INSERT,UPDATE ON pos_stores,store_inventory_settings TO prodx_device_admin;
+GRANT SELECT,INSERT,UPDATE ON pos_stores TO prodx_device_admin;
+GRANT SELECT,UPDATE ON store_inventory_settings TO prodx_device_admin;
 GRANT INSERT ON audit_logs TO prodx_device_admin;
 GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO prodx_device_admin;
 
