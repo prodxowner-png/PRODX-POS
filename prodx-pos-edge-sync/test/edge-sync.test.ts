@@ -7,6 +7,7 @@ import type { PreparedSale, IdempotencySubmission, OfflineSale } from "../src/co
 
 const TENANT = "11111111-1111-4111-8111-111111111111";
 const TERMINAL = "22222222-2222-4222-8222-222222222222";
+const STORE = "33333333-3333-4333-8333-333333333333";
 const SECRET = "test-only-signing-secret-at-least-32-characters";
 const runInDO = runInDurableObject as unknown as (
   stub: unknown,
@@ -32,7 +33,7 @@ function prepared(key: string, hash: string, seq: number): PreparedSale {
   return { sale, payloadHash: hash, edgeReceivedAt: new Date().toISOString(), receiptId: crypto.randomUUID() };
 }
 function submission(sales: PreparedSale[]): IdempotencySubmission {
-  return { tenantId: TENANT, terminalId: TERMINAL, doName: `${TENANT}:${TERMINAL}`, sales };
+  return { tenantId: TENANT, terminalId: TERMINAL, storeId: STORE, doName: `${TENANT}:${TERMINAL}`, sales };
 }
 function getStub(label: string) {
   const id = env.IDEMPOTENCY.idFromName(`${TENANT}:${TERMINAL}:${label}`);
@@ -151,7 +152,7 @@ describe("PRODX Edge sync Durable Object", () => {
     });
     const next=prepared("checkpoint-recovery-key","7".repeat(64),11);
     const result=await stub.submitBatch(submission([next]),{
-      last_committed_seq_no:10,last_hlc_physical_ms:1000,last_hlc_logical:2
+      store_id:STORE,last_committed_seq_no:10,last_hlc_physical_ms:1000,last_hlc_logical:2
     });
     expect(result.last_contiguous_seq_no).toBe(11);
     expect(result.sequence_gaps).toHaveLength(0);
