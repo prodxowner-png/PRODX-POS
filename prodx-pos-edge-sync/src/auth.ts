@@ -69,6 +69,7 @@ export async function verifyTerminalCertificate(request: Request, env: Env, auth
               COALESCE(s.last_hlc_physical_ms,0)::text AS last_hlc_physical_ms,
               COALESCE(s.last_hlc_logical,0) AS last_hlc_logical
          FROM terminal_devices d
+         JOIN pos_stores st ON st.tenant_id=d.tenant_id AND st.id=d.store_id AND st.active=true
          LEFT JOIN terminal_sync_state s ON s.tenant_id=d.tenant_id AND s.terminal_id=d.terminal_id
         WHERE d.tenant_id=$1 AND d.terminal_id=$2 AND d.cert_fingerprint_sha256=$3::char(64)
           AND d.active=true AND d.revoked_at IS NULL AND d.not_before<=now()
