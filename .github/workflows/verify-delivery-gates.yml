@@ -68,19 +68,34 @@ jobs:
       - name: Generate per-run CI credentials
         run: |
           set -euo pipefail
-          ci_role_password="$(openssl rand -hex 32)"
+          worker_role_password="$(openssl rand -hex 32)"
+          catalog_writer_role_password="$(openssl rand -hex 32)"
+          device_admin_role_password="$(openssl rand -hex 32)"
+          inventory_admin_role_password="$(openssl rand -hex 32)"
+          rls_auditor_role_password="$(openssl rand -hex 32)"
+          reconciliation_admin_role_password="$(openssl rand -hex 32)"
           catalog_signing_key="$(openssl rand -hex 32)"
-          runtime_database_url="postgres://prodx_pos_worker:${ci_role_password}@localhost:5432/prodx_pos_ci"
-          rls_audit_database_url="postgres://prodx_rls_auditor:${ci_role_password}@localhost:5432/prodx_pos_ci"
-          reconciliation_database_url="postgres://prodx_reconciliation_admin:${ci_role_password}@localhost:5432/prodx_pos_ci"
+          runtime_database_url="postgres://prodx_pos_worker:${worker_role_password}@localhost:5432/prodx_pos_ci"
+          rls_audit_database_url="postgres://prodx_rls_auditor:${rls_auditor_role_password}@localhost:5432/prodx_pos_ci"
+          reconciliation_database_url="postgres://prodx_reconciliation_admin:${reconciliation_admin_role_password}@localhost:5432/prodx_pos_ci"
           {
-            printf 'CI_ROLE_PASSWORD=%s\n' "$ci_role_password"
+            printf 'CI_WORKER_ROLE_PASSWORD=%s\n' "$worker_role_password"
+            printf 'CI_CATALOG_WRITER_ROLE_PASSWORD=%s\n' "$catalog_writer_role_password"
+            printf 'CI_DEVICE_ADMIN_ROLE_PASSWORD=%s\n' "$device_admin_role_password"
+            printf 'CI_INVENTORY_ADMIN_ROLE_PASSWORD=%s\n' "$inventory_admin_role_password"
+            printf 'CI_RLS_AUDITOR_ROLE_PASSWORD=%s\n' "$rls_auditor_role_password"
+            printf 'CI_RECONCILIATION_ADMIN_ROLE_PASSWORD=%s\n' "$reconciliation_admin_role_password"
             printf 'CATALOG_SIGNING_KEY=%s\n' "$catalog_signing_key"
             printf 'RUNTIME_DATABASE_URL=%s\n' "$runtime_database_url"
             printf 'RLS_AUDIT_DATABASE_URL=%s\n' "$rls_audit_database_url"
             printf 'RECONCILIATION_DATABASE_URL=%s\n' "$reconciliation_database_url"
           } >> "$GITHUB_ENV"
-          echo "::add-mask::$ci_role_password"
+          echo "::add-mask::$worker_role_password"
+          echo "::add-mask::$catalog_writer_role_password"
+          echo "::add-mask::$device_admin_role_password"
+          echo "::add-mask::$inventory_admin_role_password"
+          echo "::add-mask::$rls_auditor_role_password"
+          echo "::add-mask::$reconciliation_admin_role_password"
           echo "::add-mask::$catalog_signing_key"
           echo "::add-mask::$runtime_database_url"
           echo "::add-mask::$rls_audit_database_url"
@@ -121,7 +136,15 @@ jobs:
 
       - name: Gate 4.2 — Create isolated CI database roles
         id: create_roles
-        run: psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 -v ci_role_password="$CI_ROLE_PASSWORD" -f scripts/create-ci-roles.sql 2>&1 | tee artifacts/logs/create-ci-roles.log
+        run: |
+          psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 \
+            -v worker_role_password="$CI_WORKER_ROLE_PASSWORD" \
+            -v catalog_writer_role_password="$CI_CATALOG_WRITER_ROLE_PASSWORD" \
+            -v device_admin_role_password="$CI_DEVICE_ADMIN_ROLE_PASSWORD" \
+            -v inventory_admin_role_password="$CI_INVENTORY_ADMIN_ROLE_PASSWORD" \
+            -v rls_auditor_role_password="$CI_RLS_AUDITOR_ROLE_PASSWORD" \
+            -v reconciliation_admin_role_password="$CI_RECONCILIATION_ADMIN_ROLE_PASSWORD" \
+            -f scripts/create-ci-roles.sql 2>&1 | tee artifacts/logs/create-ci-roles.log
 
       - name: Gate 4.3 — Grant least-privilege runtime permissions
         id: grants
