@@ -117,20 +117,18 @@ ALTER TABLE inventory_balances DROP CONSTRAINT inventory_balances_pkey;
 ALTER TABLE inventory_balances ADD CONSTRAINT inventory_balances_pkey
   PRIMARY KEY (tenant_id,store_id,product_id);
 
-CREATE OR REPLACE FUNCTION enforce_store_inventory_policy()
+-- The BEFORE INSERT trigger applies the balance delta with one atomic UPSERT.
+-- The conflict row lock and conditional UPDATE prevent concurrent oversell even
+-- when the balance row is absent at statement start. If the ledger insert later
+-- fails, PostgreSQL rolls the balance change back with the same statement.
+CREATE OR REPLACE FUNCTION apply_inventory_ledger_delta()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
 SET search_path=pg_catalog,public,pg_temp AS $$
 DECLARE
-  current_quantity bigint;
   allow_negative boolean;
+  resulting_quantity bigint;
 BEGIN
-  -- Serialize all ledger writers for the same tenant/store/product, including the
-  -- first write when no balance row exists yet.
-  PERFORM pg_advisory_xact_lock(hashtextextended(
-    NEW.tenant_id::text || ':' || NEW.store_id::text || ':' || NEW.product_id::text, 0
-  ));
-
-  SELECT COALESCE(cfg.allow_negative_stock,false)
+  SELECT cfg.allow_negative_stock
     INTO allow_negative
     FROM public.store_inventory_settings cfg
    WHERE cfg.tenant_id=NEW.tenant_id AND cfg.store_id=NEW.store_id;
@@ -139,43 +137,32 @@ BEGIN
       USING ERRCODE='23514';
   END IF;
 
-  SELECT b.quantity INTO current_quantity
-    FROM public.inventory_balances b
-   WHERE b.tenant_id=NEW.tenant_id
-     AND b.store_id=NEW.store_id
-     AND b.product_id=NEW.product_id
-   FOR UPDATE;
-  current_quantity := COALESCE(current_quantity,0);
-
-  IF NOT allow_negative AND NEW.quantity_delta < 0 AND current_quantity + NEW.quantity_delta < 0 THEN
-    RAISE EXCEPTION 'INSUFFICIENT_STOCK'
-      USING ERRCODE='23514',
-            DETAIL=format('tenant=%s store=%s product=%s available=%s delta=%s',
-              NEW.tenant_id,NEW.store_id,NEW.product_id,current_quantity,NEW.quantity_delta);
-  END IF;
-  RETURN NEW;
-END;
-$$;
-REVOKE ALL ON FUNCTION enforce_store_inventory_policy() FROM PUBLIC;
-
-DROP TRIGGER IF EXISTS trg_enforce_store_inventory_policy ON inventory_ledger;
-CREATE TRIGGER trg_enforce_store_inventory_policy
-BEFORE INSERT ON inventory_ledger
-FOR EACH ROW EXECUTE FUNCTION enforce_store_inventory_policy();
-
-CREATE OR REPLACE FUNCTION apply_inventory_ledger_delta()
-RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
-SET search_path=pg_catalog,public,pg_temp AS $$
-BEGIN
   INSERT INTO public.inventory_balances(tenant_id,store_id,product_id,quantity,updated_at)
   VALUES(NEW.tenant_id,NEW.store_id,NEW.product_id,NEW.quantity_delta,now())
   ON CONFLICT (tenant_id,store_id,product_id)
   DO UPDATE SET quantity=public.inventory_balances.quantity+EXCLUDED.quantity,
-                updated_at=now();
+                updated_at=now()
+    WHERE allow_negative
+       OR NEW.quantity_delta >= 0
+       OR public.inventory_balances.quantity + EXCLUDED.quantity >= 0
+  RETURNING quantity INTO resulting_quantity;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'INSUFFICIENT_STOCK'
+      USING ERRCODE='23514',
+            DETAIL=format('tenant=%s store=%s product=%s delta=%s',
+              NEW.tenant_id,NEW.store_id,NEW.product_id,NEW.quantity_delta);
+  END IF;
   RETURN NEW;
 END;
 $$;
 REVOKE ALL ON FUNCTION apply_inventory_ledger_delta() FROM PUBLIC;
+
+DROP TRIGGER IF EXISTS trg_enforce_store_inventory_policy ON inventory_ledger;
+DROP TRIGGER IF EXISTS trg_apply_inventory_ledger_delta ON inventory_ledger;
+CREATE TRIGGER trg_apply_inventory_ledger_delta
+BEFORE INSERT ON inventory_ledger
+FOR EACH ROW EXECUTE FUNCTION apply_inventory_ledger_delta();
 
 ALTER TABLE pos_stores ENABLE ROW LEVEL SECURITY;
 ALTER TABLE pos_stores FORCE ROW LEVEL SECURITY;
