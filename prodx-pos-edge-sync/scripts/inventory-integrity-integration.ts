@@ -127,6 +127,8 @@ try{
   );
   await admin.query("COMMIT");
   const backorder=await makeSale(storeId,terminalBackorder,proofs,catalogVersion);
+  // Simulate a pre-migration Durable Object payload without store_id; origin resolves it from terminal_devices.
+  delete backorder.store_id;
   if(await commitSale(runtimeEnv,backorder)!=="committed") throw new Error("EXPLICIT_BACKORDER_NOT_COMMITTED");
   const negative=await admin.query(
     `SELECT quantity FROM inventory_balances WHERE tenant_id=$1 AND store_id=$2 AND product_id=$3`,
