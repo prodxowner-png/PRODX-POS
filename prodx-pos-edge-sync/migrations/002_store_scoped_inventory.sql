@@ -150,6 +150,12 @@ DECLARE
   allow_negative boolean;
   resulting_quantity bigint;
 BEGIN
+  IF NEW.reason <> 'POS_SALE'
+     AND session_user NOT IN ('prodx_inventory_admin','postgres') THEN
+    RAISE EXCEPTION 'INVENTORY_ADMIN_ROLE_REQUIRED'
+      USING ERRCODE='42501';
+  END IF;
+
   SELECT cfg.allow_negative_stock
     INTO allow_negative
     FROM public.store_inventory_settings cfg
