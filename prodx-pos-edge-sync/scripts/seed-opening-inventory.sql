@@ -4,7 +4,7 @@
 BEGIN;
 SELECT set_config('app.current_tenant_id', :'tenant_id', true);
 INSERT INTO inventory_ledger(
-  tenant_id,product_id,sale_id,terminal_id,reference_id,quantity_delta,reason
+  tenant_id,store_id,product_id,sale_id,terminal_id,reference_id,quantity_delta,reason
 ) VALUES (
   :'tenant_id'::uuid,:'store_id'::uuid,:'product_id'::uuid,NULL,NULL,:'adjustment_id'::uuid,
   :'quantity_delta'::integer,'OPENING_BALANCE'
