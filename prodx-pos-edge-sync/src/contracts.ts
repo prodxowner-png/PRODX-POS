@@ -54,12 +54,13 @@ export interface OfflineSale {
 
 export interface SyncBatch { batch_id: string; sales: OfflineSale[]; }
 export interface QueueSale {
-  tenant_id: string; terminal_id: string; idempotency_key: string;
+  tenant_id: string; terminal_id: string; store_id: string; idempotency_key: string;
   payload_hash: string; do_name: string; sale: OfflineSale;
   edge_received_at: string; receipt_id: string;
 }
 export interface AuthContext { tenantId: string; terminalId: string; subject: string; }
 export interface TerminalCheckpoint {
+  store_id: string;
   last_committed_seq_no: number;
   last_hlc_physical_ms: number;
   last_hlc_logical: number;
@@ -68,7 +69,7 @@ export interface PreparedSale {
   sale: OfflineSale; payloadHash: string; edgeReceivedAt: string; receiptId: string;
 }
 export interface IdempotencySubmission {
-  tenantId: string; terminalId: string; doName: string; sales: PreparedSale[];
+  tenantId: string; terminalId: string; storeId: string; doName: string; sales: PreparedSale[];
 }
 export interface IdempotencyBatchResult {
   results: IdempotencyResultItem[];
