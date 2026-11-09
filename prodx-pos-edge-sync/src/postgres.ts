@@ -56,7 +56,7 @@ WITH
    SELECT set_config('app.current_tenant_id', $1::uuid::text, true) AS tenant_id
  ),
  terminal_store_guard AS MATERIALIZED (
-   SELECT d.store_id FROM terminal_devices d
+   SELECT DISTINCT d.store_id FROM terminal_devices d
     JOIN pos_stores st ON st.tenant_id=d.tenant_id AND st.id=d.store_id AND st.active=true
     WHERE d.tenant_id=$1 AND d.terminal_id=$2 AND ($17::uuid IS NULL OR d.store_id=$17)
       AND d.active=true AND d.revoked_at IS NULL AND d.not_before<=now()
@@ -273,10 +273,6 @@ export async function commitSale(env: Env, message: QueueSale): Promise<"committ
 
     const row = result.rows[0] as WriteCteResult | undefined;
     if (!row) throw new Error("POSTGRES_CTE_RETURNED_NO_STATUS");
-    if (Number(row.terminal_store_valid) !== 1 || !row.resolved_store_id) {
-      throw new PermanentDataError("TERMINAL_STORE_MAPPING_MISMATCH");
-    }
-
     if (Number(row.claimed) === 0) {
       const existing = row.prior_payload_hash ? {
         payload_hash: row.prior_payload_hash,
@@ -284,11 +280,14 @@ export async function commitSale(env: Env, message: QueueSale): Promise<"committ
         sale_id: row.prior_sale_id
       } : undefined;
       if (existing) {
-        if (existing.payload_hash !== message.payload_hash || existing.sale_id !== message.sale.sale_id) {
+        if (existing.payload_hash !== message.payload_hash || existing.sale_id !== message.sale_id) {
           throw new PermanentDataError("IDEMPOTENCY_PAYLOAD_MISMATCH");
         }
         if (existing.status === "COMMITTED") return "duplicate";
         throw new Error("IDEMPOTENCY_INCOMPLETE_RETRY");
+      }
+      if (Number(row.terminal_store_valid) !== 1 || !row.resolved_store_id) {
+        throw new PermanentDataError("TERMINAL_STORE_MAPPING_MISMATCH");
       }
       const lastSequence = Number(row.last_committed_seq_no ?? 0);
       if (message.sale.terminal_seq_no > lastSequence + 1) {
@@ -306,6 +305,10 @@ export async function commitSale(env: Env, message: QueueSale): Promise<"committ
       // A concurrent INSERT ... ON CONFLICT may have committed after this
       // statement snapshot. Retry once to resolve it from a fresh snapshot.
       throw new Error("IDEMPOTENCY_CONFLICT_RETRY");
+    }
+
+    if (Number(row.terminal_store_valid) !== 1 || !row.resolved_store_id) {
+      throw new PermanentDataError("TERMINAL_STORE_MAPPING_MISMATCH");
     }
 
     if (Number(row.inserted_sales) !== 1 || Number(row.completed_idempotency) !== 1) {
