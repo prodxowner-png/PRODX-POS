@@ -87,7 +87,31 @@ UPDATE inventory_ledger l SET store_id=s.id
 UPDATE inventory_balances b SET store_id=s.id
   FROM pos_stores s WHERE s.tenant_id=b.tenant_id AND s.is_default AND b.store_id IS NULL;
 
-DO $$
+-- Do not silently bless historical negative stock or a pre-existing ledger/balance
+-- mismatch with the new default-false Store policy. The whole migration rolls back.
+DO $
+BEGIN
+  IF EXISTS (SELECT 1 FROM inventory_balances WHERE quantity < 0) THEN
+    RAISE EXCEPTION 'STORE_MIGRATION_BLOCKED: legacy_negative_balance_requires_policy_review';
+  END IF;
+  IF EXISTS (
+    WITH ledger AS (
+      SELECT tenant_id,product_id,SUM(quantity_delta::bigint) AS ledger_qty
+        FROM inventory_ledger GROUP BY tenant_id,product_id
+    ), keys AS (
+      SELECT tenant_id,product_id FROM ledger
+      UNION SELECT tenant_id,product_id FROM inventory_balances
+    )
+    SELECT 1 FROM keys k
+      LEFT JOIN ledger l USING (tenant_id,product_id)
+      LEFT JOIN inventory_balances b USING (tenant_id,product_id)
+     WHERE COALESCE(l.ledger_qty,0) <> COALESCE(b.quantity,0)
+  ) THEN
+    RAISE EXCEPTION 'STORE_MIGRATION_BLOCKED: legacy_ledger_balance_mismatch';
+  END IF;
+END $;
+
+DO $
 DECLARE t text;
 BEGIN
   FOREACH t IN ARRAY ARRAY['terminal_devices','terminal_sync_state','sales','sale_lines','inventory_ledger','inventory_balances'] LOOP
