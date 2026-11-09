@@ -70,14 +70,7 @@ try{
   try{await verifyTerminalCertificate(certRequest,runtimeEnv,{tenantId,terminalId,subject:"integration-test"});}
   catch(error){revokedCertificateRejected=error instanceof Response&&error.status===403;}
   if(!revokedCertificateRejected) throw new Error("REVOKED_MTLS_CERTIFICATE_WAS_ACCEPTED");
-  // Restore this isolated fixture terminal after proving revocation rejection;
-  // the sale-origin database guard independently requires an active enrollment.
-  await admin.query("BEGIN");
-  await admin.query("SELECT set_config('app.current_tenant_id',$1,true)",[tenantId]);
-  await admin.query(`UPDATE terminal_devices SET active=true,revoked_at=NULL,not_before=now()
-    WHERE tenant_id=$1 AND terminal_id=$2 AND cert_fingerprint_sha256=$3`,
-    [tenantId,terminalId,certificateFingerprint]);
-  await admin.query("COMMIT");
+  // A previously accepted Queue sale may commit after revocation while its Store binding is unchanged.
   const proofs=await signCatalogPriceProofs(catalogVersion,[
     {product_id:productId,unit_price_minor:10000,tax_bps:700}
   ],signingKey,86400);
