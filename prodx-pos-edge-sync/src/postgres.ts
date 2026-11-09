@@ -59,6 +59,7 @@ WITH
     WHERE tenant_id=$1 AND terminal_id=$2 AND store_id=$17
       AND active=true AND revoked_at IS NULL AND not_before<=now()
       AND (not_after IS NULL OR not_after>now())
+      AND EXISTS (SELECT 1 FROM tenant_ctx)
  ),
  checkpoint_lock AS MATERIALIZED (
    SELECT last_committed_seq_no,last_hlc_physical_ms,last_hlc_logical
@@ -321,6 +322,12 @@ export async function commitSale(env: Env, message: QueueSale): Promise<"committ
     }
 
     return "committed";
+  } catch (error) {
+    const databaseError = error as { code?: string; message?: string };
+    if (databaseError.code === "23514" && String(databaseError.message).includes("INSUFFICIENT_STOCK")) {
+      throw new PermanentDataError("INSUFFICIENT_STOCK");
+    }
+    throw error;
   } finally {
     await client.end().catch(() => undefined);
   }
