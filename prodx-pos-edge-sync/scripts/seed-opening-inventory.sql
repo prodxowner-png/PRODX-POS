@@ -9,7 +9,7 @@ INSERT INTO inventory_ledger(
   :'tenant_id'::uuid,:'store_id'::uuid,:'product_id'::uuid,NULL,NULL,:'adjustment_id'::uuid,
   :'quantity_delta'::integer,'OPENING_BALANCE'
 );
--- AFTER INSERT trigger applies the ledger delta to inventory_balances in this transaction.
+-- BEFORE INSERT trigger applies the ledger delta to inventory_balances in this transaction.
 INSERT INTO audit_logs(
   tenant_id,actor_type,actor_id,action,entity_type,entity_id,payload_hash,catalog_version,metadata
 ) VALUES (
