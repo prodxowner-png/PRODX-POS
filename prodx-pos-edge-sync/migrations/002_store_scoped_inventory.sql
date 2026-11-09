@@ -199,8 +199,7 @@ FOR EACH ROW EXECUTE FUNCTION enforce_sale_terminal_store();
 CREATE OR REPLACE FUNCTION require_store_inventory_policy_audit()
 RETURNS trigger LANGUAGE plpgsql AS $
 BEGIN
-  IF NEW.allow_negative_stock IS DISTINCT FROM OLD.allow_negative_stock
-     AND (NEW.updated_by IS NULL OR NEW.last_change_hash IS NULL OR NEW.last_change_id IS NULL) THEN
+  IF NEW.updated_by IS NULL OR NEW.last_change_hash IS NULL OR NEW.last_change_id IS NULL THEN
     RAISE EXCEPTION 'STORE_INVENTORY_POLICY_CHANGE_REQUIRES_AUDIT_CONTEXT'
       USING ERRCODE='23514';
   END IF;
@@ -217,8 +216,7 @@ CREATE OR REPLACE FUNCTION audit_store_inventory_policy_change()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
 SET search_path=pg_catalog,public,pg_temp AS $
 BEGIN
-  IF NEW.allow_negative_stock IS DISTINCT FROM OLD.allow_negative_stock THEN
-    INSERT INTO public.audit_logs(
+  INSERT INTO public.audit_logs(
       tenant_id,actor_type,actor_id,action,entity_type,entity_id,
       payload_hash,catalog_version,metadata
     ) VALUES (
