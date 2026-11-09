@@ -101,7 +101,9 @@ jobs:
       # ─────────────────────────────────────────────────────────────
       - name: Gate 4.1 — Apply PostgreSQL migration
         id: migration
-        run: psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/001_pos_ledger.sql 2>&1 | tee artifacts/logs/migration.log
+        run: |
+          psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/001_pos_ledger.sql 2>&1 | tee artifacts/logs/migration-001.log
+          psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/002_store_scoped_inventory.sql 2>&1 | tee artifacts/logs/migration-002.log
 
       - name: Gate 4.2 — Create isolated CI database roles
         id: create_roles
@@ -118,6 +120,10 @@ jobs:
       - name: Gate 4.5 — PostgreSQL 16 signed offline price & CTE integration
         id: postgres_integration
         run: npm run integration:postgres 2>&1 | tee artifacts/logs/postgres-integration.log
+
+      - name: Gate 4.6 — Store-scoped inventory and concurrent oversell integration
+        id: inventory_integration
+        run: npm run integration:inventory 2>&1 | tee artifacts/logs/inventory-integration.log
 
       # No opening-stock seed is needed here: the CI chaos harness creates a
       # disposable tenant/product and records its opening quantity through the
