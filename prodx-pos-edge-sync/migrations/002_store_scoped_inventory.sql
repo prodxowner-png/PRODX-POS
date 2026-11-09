@@ -141,6 +141,9 @@ ALTER TABLE inventory_balances DROP CONSTRAINT inventory_balances_pkey;
 ALTER TABLE inventory_balances ADD CONSTRAINT inventory_balances_pkey
   PRIMARY KEY (tenant_id,store_id,product_id);
 
+CREATE INDEX IF NOT EXISTS idx_inventory_ledger_store_product
+  ON inventory_ledger(tenant_id,store_id,product_id,id);
+
 -- The BEFORE INSERT trigger applies the balance delta with one atomic UPSERT.
 -- The conflict row lock and conditional UPDATE prevent concurrent oversell even
 -- when the balance row is absent at statement start. If the ledger insert later
