@@ -147,7 +147,7 @@ BEGIN
    FOR UPDATE;
   current_quantity := COALESCE(current_quantity,0);
 
-  IF NOT allow_negative AND current_quantity + NEW.quantity_delta < 0 THEN
+  IF NOT allow_negative AND NEW.quantity_delta < 0 AND current_quantity + NEW.quantity_delta < 0 THEN
     RAISE EXCEPTION 'INSUFFICIENT_STOCK'
       USING ERRCODE='23514',
             DETAIL=format('tenant=%s store=%s product=%s available=%s delta=%s',
