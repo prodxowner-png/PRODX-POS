@@ -119,8 +119,9 @@ try{
   await admin.query("BEGIN");
   await admin.query("SELECT set_config('app.current_tenant_id',$1,true)",[tenantId]);
   await admin.query(
-    `UPDATE store_inventory_settings SET allow_negative_stock=true,updated_at=now()
-      WHERE tenant_id=$1 AND store_id=$2`,[tenantId,storeId]
+    `UPDATE store_inventory_settings SET allow_negative_stock=true,updated_at=now(),updated_by=$3,
+       last_change_hash=$4,last_change_id=$5 WHERE tenant_id=$1 AND store_id=$2`,
+    [tenantId,storeId,terminalA,randomUUID().replace(/-/g,"")+randomUUID().replace(/-/g,"").slice(0,32),randomUUID()]
   );
   await admin.query("COMMIT");
   const backorder=await makeSale(storeId,terminalBackorder,proofs,catalogVersion);
@@ -135,8 +136,9 @@ try{
   await admin.query("BEGIN");
   await admin.query("SELECT set_config('app.current_tenant_id',$1,true)",[tenantId]);
   await admin.query(
-    `UPDATE store_inventory_settings SET allow_negative_stock=false,updated_at=now()
-      WHERE tenant_id=$1 AND store_id=$2`,[tenantId,storeId]
+    `UPDATE store_inventory_settings SET allow_negative_stock=false,updated_at=now(),updated_by=$3,
+       last_change_hash=$4,last_change_id=$5 WHERE tenant_id=$1 AND store_id=$2`,
+    [tenantId,storeId,terminalA,randomUUID().replace(/-/g,"")+randomUUID().replace(/-/g,"").slice(0,32),randomUUID()]
   );
   await admin.query("COMMIT");
   const inventoryAdmin=new Client({connectionString:runtimeUrl});
