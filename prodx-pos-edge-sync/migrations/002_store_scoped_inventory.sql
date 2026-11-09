@@ -168,10 +168,10 @@ ALTER TABLE inventory_balances ADD CONSTRAINT inventory_balances_pkey
 CREATE INDEX IF NOT EXISTS idx_inventory_ledger_store_product
   ON inventory_ledger(tenant_id,store_id,product_id,id);
 
--- The BEFORE INSERT trigger applies the balance delta with one atomic UPSERT.
--- The conflict row lock and conditional UPDATE prevent concurrent oversell even
--- when the balance row is absent at statement start. If the ledger insert later
--- fails, PostgreSQL rolls the balance change back with the same statement.
+-- The BEFORE INSERT trigger creates a zero balance row with conflict serialization,
+-- then performs a conditional UPDATE. The row lock prevents concurrent oversell even
+-- when the balance row is absent at statement start. If the ledger insert later fails,
+-- PostgreSQL rolls both balance operations back with the ledger statement.
 CREATE OR REPLACE FUNCTION apply_inventory_ledger_delta()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
 SET search_path=pg_catalog,public,pg_temp AS $$
