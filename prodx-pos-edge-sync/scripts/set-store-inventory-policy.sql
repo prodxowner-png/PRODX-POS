@@ -5,27 +5,14 @@ BEGIN;
 SELECT set_config('app.current_tenant_id', :'tenant_id', true);
 SELECT set_config('app.inventory_store_id', :'store_id', true);
 SELECT set_config('app.inventory_change_id', :'change_id', true);
-WITH changed AS (
-  UPDATE store_inventory_settings
-     SET allow_negative_stock=:'allow_negative_stock'::boolean,
-         updated_at=now(),
-         updated_by=:'actor_id'::uuid
-   WHERE tenant_id=:'tenant_id'::uuid
-     AND store_id=:'store_id'::uuid
-  RETURNING tenant_id,store_id,allow_negative_stock
-)
-INSERT INTO audit_logs(
-  tenant_id,actor_type,actor_id,action,entity_type,entity_id,
-  payload_hash,catalog_version,metadata
-)
-SELECT tenant_id,'USER',:'actor_id'::uuid,'STORE_INVENTORY_POLICY_UPDATED',
-       'STORE_INVENTORY_SETTINGS',store_id,lower(:'payload_hash'),NULL,
-       jsonb_build_object(
-         'store_id',store_id,
-         'allow_negative_stock',allow_negative_stock,
-         'change_id',:'change_id'::uuid
-       )
-FROM changed;
+UPDATE store_inventory_settings
+   SET allow_negative_stock=:'allow_negative_stock'::boolean,
+       updated_at=now(),
+       updated_by=:'actor_id'::uuid,
+       last_change_hash=lower(:'payload_hash'),
+       last_change_id=:'change_id'::uuid
+ WHERE tenant_id=:'tenant_id'::uuid
+   AND store_id=:'store_id'::uuid;
 
 DO $$
 BEGIN
