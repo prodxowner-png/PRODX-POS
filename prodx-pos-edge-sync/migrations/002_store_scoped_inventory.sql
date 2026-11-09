@@ -226,7 +226,9 @@ BEFORE INSERT ON inventory_ledger
 FOR EACH ROW EXECUTE FUNCTION apply_inventory_ledger_delta();
 
 -- A POS sale cannot be inserted for a Store other than its enrolled terminal's
--- current Store, even if a caller bypasses the TypeScript checkout orchestration.
+-- recorded Store, even if a caller bypasses the TypeScript checkout orchestration. The
+-- active/revoked certificate check remains at Edge ingress so already-accepted Queue
+-- sales can finish after a later revocation, provided the terminal/store binding is unchanged.
 CREATE OR REPLACE FUNCTION enforce_sale_terminal_store()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
 SET search_path=pg_catalog,public,pg_temp AS $$
@@ -238,9 +240,6 @@ BEGIN
      WHERE d.tenant_id=NEW.tenant_id
        AND d.terminal_id=NEW.terminal_id
        AND d.store_id=NEW.store_id
-       AND d.active=true AND d.revoked_at IS NULL
-       AND d.not_before<=now() AND (d.not_after IS NULL OR d.not_after>now())
-       AND st.active=true
   ) THEN
     RAISE EXCEPTION 'TERMINAL_STORE_MAPPING_MISMATCH'
       USING ERRCODE='23514';
