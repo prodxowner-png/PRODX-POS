@@ -103,13 +103,19 @@ try{
   const afterRace=await admin.query(
     `SELECT b.quantity,
             (SELECT COUNT(*) FROM sales WHERE tenant_id=$1) AS sales,
-            (SELECT COUNT(*) FROM inventory_ledger WHERE tenant_id=$1 AND reason='POS_SALE') AS sale_ledger
+            (SELECT COUNT(*) FROM sale_lines WHERE tenant_id=$1) AS sale_lines,
+            (SELECT COUNT(*) FROM inventory_ledger WHERE tenant_id=$1 AND reason='POS_SALE') AS sale_ledger,
+            (SELECT COUNT(*) FROM pos_idempotency WHERE tenant_id=$1) AS idempotency,
+            (SELECT COUNT(*) FROM audit_logs WHERE tenant_id=$1 AND action='POS_SALE_COMMITTED') AS sale_audit
        FROM inventory_balances b
       WHERE b.tenant_id=$1 AND b.store_id=$2 AND b.product_id=$3`,
     [tenantId,storeId,productId]
   );
-  if(Number(afterRace.rows[0]?.quantity)!==0||Number(afterRace.rows[0]?.sales)!==1||
-     Number(afterRace.rows[0]?.sale_ledger)!==1) throw new Error("LOSING_CHECKOUT_LEFT_PARTIAL_WRITES");
+  const row=afterRace.rows[0];
+  if(Number(row?.quantity)!==0||Number(row?.sales)!==1||Number(row?.sale_lines)!==1||
+     Number(row?.sale_ledger)!==1||Number(row?.idempotency)!==1||Number(row?.sale_audit)!==1) {
+    throw new Error("LOSING_CHECKOUT_LEFT_PARTIAL_WRITES");
+  }
 
   // Backorders are permitted only after the trusted Store setting is enabled.
   await admin.query("BEGIN");
