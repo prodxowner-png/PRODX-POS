@@ -138,7 +138,8 @@ BEGIN
   END IF;
 
   INSERT INTO public.inventory_balances(tenant_id,store_id,product_id,quantity,updated_at)
-  VALUES(NEW.tenant_id,NEW.store_id,NEW.product_id,NEW.quantity_delta,now())
+  SELECT NEW.tenant_id,NEW.store_id,NEW.product_id,NEW.quantity_delta,now()
+   WHERE allow_negative OR NEW.quantity_delta >= 0
   ON CONFLICT (tenant_id,store_id,product_id)
   DO UPDATE SET quantity=public.inventory_balances.quantity+EXCLUDED.quantity,
                 updated_at=now()
