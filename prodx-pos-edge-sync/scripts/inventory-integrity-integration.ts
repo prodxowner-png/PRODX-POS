@@ -137,6 +137,25 @@ try{
     [tenantId,storeId,terminalA,randomUUID().replace(/-/g,"")+randomUUID().replace(/-/g,"").slice(0,32),randomUUID()]
   );
   await admin.query("COMMIT");
+  const workerClient=new Client({connectionString:runtimeUrl});
+  await workerClient.connect();
+  let unauthorizedReceiptRejected=false;
+  try{
+    await workerClient.query("BEGIN");
+    await workerClient.query("SELECT set_config('app.current_tenant_id',$1,true)",[tenantId]);
+    await workerClient.query(
+      `INSERT INTO inventory_ledger(tenant_id,store_id,product_id,reference_id,quantity_delta,reason)
+       VALUES($1,$2,$3,$4,1,'PURCHASE_RECEIPT')`,[tenantId,storeId,productId,randomUUID()]
+    );
+  }catch(error){
+    const e=error as {code?:string;message?:string};
+    unauthorizedReceiptRejected=e.code==="42501"&&String(e.message).includes("INVENTORY_ADMIN_ROLE_REQUIRED");
+  }finally{
+    await workerClient.query("ROLLBACK").catch(()=>undefined);
+    await workerClient.end().catch(()=>undefined);
+  }
+  if(!unauthorizedReceiptRejected) throw new Error("POS_WORKER_CAN_INJECT_INVENTORY_RECEIPTS");
+
   await admin.query("BEGIN");
   await admin.query("SELECT set_config('app.current_tenant_id',$1,true)",[tenantId]);
   await admin.query(
@@ -154,6 +173,12 @@ try{
     [tenantId,storeId,productId]
   );
   if(Number(final.rows[0]?.quantity)!==0) throw new Error("FINAL_STORE_BALANCE_MISMATCH");
+  const policyAudit=await admin.query(
+    `SELECT COUNT(*)::integer AS count FROM audit_logs
+      WHERE tenant_id=$1 AND entity_id=$2 AND action='STORE_INVENTORY_POLICY_UPDATED'`,
+    [tenantId,storeId]
+  );
+  if(Number(policyAudit.rows[0]?.count)!==2) throw new Error("STORE_POLICY_CHANGE_AUDIT_MISSING");
 
   console.log(JSON.stringify({
     result:"PASS",
@@ -163,6 +188,8 @@ try{
     allow_negative_stock:"enabled per Store only",
     cross_store_inventory:"isolated",
     positive_receipt_after_policy_disabled:"accepted",
+    pos_worker_cannot_inject_receipts:unauthorizedReceiptRejected,
+    store_policy_changes_audited:2,
     final_balance:0
   },null,2));
 }catch(error){
