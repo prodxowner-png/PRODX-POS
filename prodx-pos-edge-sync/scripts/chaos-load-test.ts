@@ -47,6 +47,7 @@ async function runCiMode(): Promise<void> {
   }
 
   const tenantId = randomUUID();
+  const storeId = randomUUID();
   const productId = randomUUID();
   const admin = new Client({ connectionString: adminUrl });
   const runtimeEnv = {
@@ -62,6 +63,14 @@ async function runCiMode(): Promise<void> {
     await admin.query("BEGIN");
     await admin.query("SELECT set_config('app.current_tenant_id',$1,true)", [tenantId]);
     await admin.query(
+      `INSERT INTO pos_stores(id,tenant_id,name,is_default) VALUES($1,$2,'CI Chaos Store',true)`,
+      [storeId,tenantId]
+    );
+    await admin.query(
+      `INSERT INTO store_inventory_settings(tenant_id,store_id,allow_negative_stock) VALUES($1,$2,false)`,
+      [tenantId,storeId]
+    );
+    await admin.query(
       `INSERT INTO products(id,tenant_id,sku,name,unit_price_minor,tax_bps,version,active)
        VALUES($1,$2,$3,'CI chaos fixture',10000,700,1,true)`,
       [productId, tenantId, `CI-${productId.slice(0, 12)}`]
@@ -73,10 +82,17 @@ async function runCiMode(): Promise<void> {
     const catalogVersion = Number(versionResult.rows[0]!.catalog_version);
     // Opening stock is recorded through the immutable ledger; its trigger updates balances.
     await admin.query(
-      `INSERT INTO inventory_ledger(tenant_id,product_id,reference_id,quantity_delta,reason)
-       VALUES($1,$2,$3,15000,'OPENING_BALANCE')`,
-      [tenantId, productId, randomUUID()]
+      `INSERT INTO inventory_ledger(tenant_id,store_id,product_id,reference_id,quantity_delta,reason)
+       VALUES($1,$2,$3,$4,15000,'OPENING_BALANCE')`,
+      [tenantId, storeId, productId, randomUUID()]
     );
+    for (const terminalId of terminalIds) {
+      const fingerprint = randomUUID().replace(/-/g, "") + randomUUID().replace(/-/g, "").slice(0, 32);
+      await admin.query(
+        `INSERT INTO terminal_devices(tenant_id,terminal_id,store_id,cert_fingerprint_sha256,active)
+         VALUES($1,$2,$3,$4,true)`, [tenantId,terminalId,storeId,fingerprint]
+      );
+    }
     await admin.query("COMMIT");
 
     const proofs = await signCatalogPriceProofs(catalogVersion, [
@@ -106,6 +122,7 @@ async function runCiMode(): Promise<void> {
         const message: QueueSale = {
           tenant_id: tenantId,
           terminal_id: terminalId,
+          store_id: storeId,
           idempotency_key: sale.idempotency_key,
           payload_hash: sale.payload_hash,
           do_name: `${tenantId}:${terminalId}`,
@@ -136,8 +153,8 @@ async function runCiMode(): Promise<void> {
          (SELECT COUNT(*) FROM sale_lines WHERE tenant_id=$1) AS sale_lines,
          (SELECT COUNT(*) FROM audit_logs WHERE tenant_id=$1 AND action='POS_SALE_COMMITTED') AS audit_rows,
          (SELECT COUNT(*) FROM inventory_ledger WHERE tenant_id=$1 AND reason='POS_SALE') AS sale_ledger_rows,
-         (SELECT quantity FROM inventory_balances WHERE tenant_id=$1 AND product_id=$2) AS stock_balance`,
-      [tenantId, productId]
+         (SELECT quantity FROM inventory_balances WHERE tenant_id=$1 AND store_id=$3 AND product_id=$2) AS stock_balance`,
+      [tenantId, productId, storeId]
     );
     const row = checks.rows[0]!;
     const expected = { sales: 15000, idempotency: 15000, sale_lines: 15000, audit_rows: 15000, sale_ledger_rows: 15000, stock_balance: 0 };
