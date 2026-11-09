@@ -229,7 +229,6 @@ BEGIN
         'change_id',NEW.last_change_id
       )
     );
-  END IF;
   RETURN NEW;
 END;
 $;
