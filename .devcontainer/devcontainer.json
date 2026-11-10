@@ -16,7 +16,7 @@
       "onAutoForward": "openBrowser"
     }
   },
-  "postCreateCommand": "npm install --global npm@11.21.2 && test \"$(npm --version)\" = \"11.21.2\" && curl -fsSL https://bun.sh/install | bash && echo 'export BUN_INSTALL=\\"$HOME/.bun\\"' >> ~/.bashrc && echo 'export PATH=\\"$BUN_INSTALL/bin:$PATH\\"' >> ~/.bashrc && $HOME/.bun/bin/bun install --frozen-lockfile && bash .devcontainer/install-ai-clis.sh",
+  "postCreateCommand": "npm install --global npm@11.21.2 && test \"$(npm --version)\" = \"11.21.2\" && curl -fsSL https://bun.sh/install | bash && echo 'export BUN_INSTALL=\"$HOME/.bun\"' >> ~/.bashrc && echo 'export PATH=\"$BUN_INSTALL/bin:$PATH\"' >> ~/.bashrc && $HOME/.bun/bin/bun install --frozen-lockfile && bash .devcontainer/install-ai-clis.sh",
   "remoteEnv": {
     "DATABASE_URL": "postgresql://prodx:prodx@127.0.0.1:5432/prodx_test"
   },
