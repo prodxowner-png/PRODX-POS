@@ -12,6 +12,7 @@ type DatabaseTarget = {
 };
 
 const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]']);
+const FORBIDDEN_TARGET_QUERY_PARAMETERS = new Set(['host', 'port']);
 
 const parsePostgresTarget = (rawUrl: string, variableName: string): DatabaseTarget => {
   let parsed: URL;
@@ -23,6 +24,15 @@ const parsePostgresTarget = (rawUrl: string, variableName: string): DatabaseTarg
 
   if (parsed.protocol !== 'postgres:' && parsed.protocol !== 'postgresql:') {
     throw new Error(variableName + ' must use the postgres:// or postgresql:// protocol.');
+  }
+
+  const overriddenTargetParameter = Array.from(parsed.searchParams.keys()).find((key) =>
+    FORBIDDEN_TARGET_QUERY_PARAMETERS.has(key.toLowerCase()),
+  );
+  if (overriddenTargetParameter) {
+    throw new Error(
+      variableName + ' must not override the database host or port through query parameters.',
+    );
   }
 
   const databasePath = parsed.pathname.startsWith('/') ? parsed.pathname.slice(1) : parsed.pathname;

@@ -48,6 +48,18 @@ test('bootstrap database guard rejects non-loopback hosts', () => {
   );
 });
 
+test('bootstrap database guard rejects query parameters that can override the target host or port', () => {
+  for (const override of ['host=remote.example', 'port=6543', 'HOST=remote.example', 'PORT=6543']) {
+    const env = validEnvironment();
+    env.PRODX_BOOTSTRAP_TEST_DATABASE_URL += '?' + override;
+    assert.throws(
+      () => resolveBootstrapIntegrationDatabaseUrl(env),
+      /must not override the database host or port through query parameters/,
+      override,
+    );
+  }
+});
+
 test('bootstrap database guard requires the dedicated database name', () => {
   const env = validEnvironment();
   env.PRODX_BOOTSTRAP_TEST_DATABASE_URL =
