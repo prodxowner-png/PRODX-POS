@@ -77,9 +77,10 @@ export default {
       return json({ service: "prodx-oci-bridge", status: "ready", integration: "read-only" });
     if (request.method !== "GET") return json({ error: "method_not_allowed" }, 405);
     if (url.pathname !== "/v1/oci/tenancy") return json({ error: "not_found" }, 404);
+    if (url.search.length > 0) return json({ error: "query_not_allowed" }, 400);
     const token = /^Bearer (.+)$/i.exec(request.headers.get("authorization") ?? "")?.[1] ?? "";
     if (!(await bearerMatches(token, env.BRIDGE_AUTH_TOKEN ?? ""))) return json({ error: "unauthorized" }, 401);
     try { return await readTenancy(env); }
     catch { return json({ error: "bridge_configuration_invalid" }, 503); }
   }
-} satisfies ExportedHandler<Env>;
+};
