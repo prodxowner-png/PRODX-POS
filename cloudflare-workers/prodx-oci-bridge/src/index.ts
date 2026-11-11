@@ -83,6 +83,8 @@ function validate(env: Env): void {
 async function authorization(env: Env, host: string, path: string, date: string): Promise<string> {
   const key = await crypto.subtle.importKey("pkcs8", pemBytes(env.OCI_PRIVATE_KEY_PEM),
     { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]);
+  const rsaAlgorithm = key.algorithm as RsaHashedKeyAlgorithm;
+  if (rsaAlgorithm.modulusLength < 2048) throw new Error("OCI_PRIVATE_KEY_RSA_MINIMUM_2048_BITS");
   const signingString = "(request-target): get " + path + "\nhost: " + host + "\ndate: " + date;
   const signature = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(signingString));
   const keyId = [env.OCI_TENANCY_OCID, env.OCI_USER_OCID, env.OCI_FINGERPRINT].join("/");
@@ -98,7 +100,7 @@ async function readTenancy(env: Env): Promise<Response> {
   const timeout = setTimeout(() => controller.abort(), 10000);
   try {
     const response = await fetch("https://" + host + path, {
-      method: "GET", headers: { authorization: auth, date, accept: "application/json" }, signal: controller.signal
+      method: "GET", headers: { authorization: auth, date, accept: "application/json" }, signal: controller.signal, redirect: "manual"
     });
     if (!response.ok) return json({ error: "OCI_UPSTREAM_REJECTED", upstream_status: response.status }, 502);
     const data = await response.json() as Record<string, unknown>;
