@@ -16,7 +16,7 @@ function pemBytes(pem: string): Uint8Array {
   if (!clean.startsWith("-----BEGIN PRIVATE KEY-----") || !clean.endsWith("-----END PRIVATE KEY-----")) {
     throw new Error("OCI_PRIVATE_KEY_MUST_BE_PKCS8_PEM");
   }
-  const binary = atob(clean.replace("-----BEGIN PRIVATE KEY-----", "").replace("-----END PRIVATE KEY-----", "").replace(/\\s/g, ""));
+  const binary = atob(clean.replace("-----BEGIN PRIVATE KEY-----", "").replace("-----END PRIVATE KEY-----", "").replace(/\s/g, ""));
   return Uint8Array.from(binary, c => c.charCodeAt(0));
 }
 function b64(bytes: Uint8Array): string {
@@ -41,21 +41,21 @@ function validate(env: Env): void {
 async function authorization(env: Env, host: string, path: string, date: string): Promise<string> {
   const key = await crypto.subtle.importKey("pkcs8", pemBytes(env.OCI_PRIVATE_KEY_PEM),
     { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]);
-  const signingString = `(request-target): get ${path}\\nhost: ${host}\\ndate: ${date}`;
+  const signingString = "(request-target): get " + path + "\nhost: " + host + "\ndate: " + date;
   const signature = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(signingString));
-  const keyId = `${env.OCI_TENANCY_OCID}/${env.OCI_USER_OCID}/${env.OCI_FINGERPRINT}`;
-  return `Signature version="1",keyId="${keyId}",algorithm="rsa-sha256",headers="(request-target) host date",signature="${b64(new Uint8Array(signature))}"`;
+  const keyId = [env.OCI_TENANCY_OCID, env.OCI_USER_OCID, env.OCI_FINGERPRINT].join("/");
+  return 'Signature version="1",keyId="' + keyId + '",algorithm="rsa-sha256",headers="(request-target) host date",signature="' + b64(new Uint8Array(signature)) + '"';
 }
 async function readTenancy(env: Env): Promise<Response> {
   validate(env);
-  const host = `identity.${REGION}.oraclecloud.com`;
-  const path = `/${API_VERSION}/tenancies/${encodeURIComponent(env.OCI_TENANCY_OCID)}`;
+  const host = "identity." + REGION + ".oraclecloud.com";
+  const path = "/" + API_VERSION + "/tenancies/" + encodeURIComponent(env.OCI_TENANCY_OCID);
   const date = new Date().toUTCString();
   const auth = await authorization(env, host, path, date);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10000);
   try {
-    const response = await fetch(`https://${host}${path}`, {
+    const response = await fetch("https://" + host + path, {
       method: "GET", headers: { authorization: auth, date, accept: "application/json" }, signal: controller.signal
     });
     if (!response.ok) return json({ error: "OCI_UPSTREAM_REJECTED", upstream_status: response.status }, 502);
