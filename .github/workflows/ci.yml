@@ -44,6 +44,9 @@ jobs:
     - name: Type check (TypeScript)
       run: bun run lint
 
+    - name: Bundle OCI Bridge with Wrangler (dry run)
+      run: npx --yes wrangler@4.45.0 deploy --dry-run --config cloudflare-workers/prodx-oci-bridge/wrangler.jsonc
+
     - name: Server TypeScript check
       run: bun run server:check
 
