@@ -149,3 +149,49 @@ test("supports unencrypted OCI RSA PKCS#1 PEM keys", async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+test("rejects RSA signing keys below OCI's 2048-bit minimum", async () => {
+  const keyPair = generateKeyPairSync("rsa", {
+    modulusLength: 1024,
+    privateKeyEncoding: { type: "pkcs1", format: "pem" },
+    publicKeyEncoding: { type: "spki", format: "pem" }
+  });
+  const originalFetch = globalThis.fetch;
+  let called = false;
+  globalThis.fetch = (async () => {
+    called = true;
+    return new Response(JSON.stringify({ id: tenancyId, name: "Should Not Be Reached" }), { status: 200 });
+  }) as typeof fetch;
+  try {
+    const response = await worker.fetch(new Request("https://bridge.example/v1/oci/tenancy", {
+      headers: { authorization: "Bearer " + token }
+    }), { ...env, OCI_PRIVATE_KEY_PEM: keyPair.privateKey });
+    assert.equal(response.status, 503);
+    assert.equal(called, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("does not follow OCI redirects while carrying a signed Authorization header", async () => {
+  const originalFetch = globalThis.fetch;
+  let callCount = 0;
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    callCount += 1;
+    assert.equal(init?.redirect, "manual");
+    return new Response(null, {
+      status: 302,
+      headers: { location: "https://attacker.example/collect" }
+    });
+  }) as typeof fetch;
+  try {
+    const response = await worker.fetch(new Request("https://bridge.example/v1/oci/tenancy", {
+      headers: { authorization: "Bearer " + token }
+    }), env);
+    assert.equal(response.status, 502);
+    assert.deepEqual(await response.json(), { error: "OCI_UPSTREAM_REJECTED", upstream_status: 302 });
+    assert.equal(callCount, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
