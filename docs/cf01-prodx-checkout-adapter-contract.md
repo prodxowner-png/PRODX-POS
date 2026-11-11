@@ -84,16 +84,15 @@ The backend must derive `organizationId`, `storeId`, `registerId`, and `cashierI
 
 ### B1 — Trusted identity bridge (High / Blocking)
 
-Current Edge `auth.ts` expects top-level Access JWT `tenant_id` and `terminal_id`; the operator path expects top-level `role`. The documented Service Token claims do not provide those application claims by default. The repository's Free-plan device-auth RFC remains Proposal only and is not approved for implementation.
+Current Edge `auth.ts` expects top-level Access JWT `tenant_id` and `terminal_id`; the operator path expects top-level `role`. The documented Service Token claims do not provide those application claims by default. The owner has approved the Free-plan device-auth direction for CF-01 Staging protocol/design only: per-device asymmetric signatures plus Access Service Token as a separate ingress control. Production remains on its existing mTLS contract. Runtime implementation remains blocked by the protocol, threat-model, test-vector, and independent-review gates.
 
 **Entitlement revalidation (2026-11-11):** Cloudflare's current documentation states that Access mTLS is available on Enterprise and pay-as-you-go Zero Trust plans and is **not included in the Free plan**. The connected account currently has zero Access certificate authorities and zero Cloudflare zones. See [Cloudflare Access Mutual TLS availability](https://developers.cloudflare.com/cloudflare-one/access-controls/service-credentials/mutual-tls-authentication/). Zone-level mTLS is a separate product path and cannot be assumed available without a zone and plan verification.
 
-For a Free-plan staging path, the existing RFC proposes per-device asymmetric signing with a non-exportable terminal private key where supported, backend-held public-key enrollment/revocation, and Cloudflare Access service authentication as an independent ingress control. This is **not equivalent to transport-layer mTLS**. It must remain an explicit architecture decision with a threat model, protocol test vectors, enrollment/rotation/revocation lifecycle, and independent security review. Do not remove the current certificate check, trust caller-supplied fingerprints, or implement the proposal without approval.
+For CF-01 Staging only, use the owner-approved direction: per-device asymmetric signing with a non-exportable terminal private key where supported, backend-held public-key enrollment/revocation, and Cloudflare Access Service Token as an independent ingress control. This is **not equivalent to transport-layer mTLS**. Production mTLS remains unchanged. Do not remove the Production certificate check, trust caller-supplied fingerprints, or treat the Staging approval as permission to deploy or change Runtime authentication before all implementation gates pass.
 
 Required before code:
-- Approve the exact trusted identity issuer and claim contract.
 - Prove tenant, terminal, store, register, cashier and active shift mapping server-side.
-- Keep mTLS/certificate verification mandatory until a separately approved architecture decision proves an alternative.
+- Keep the existing mTLS/certificate verification contract unchanged in Production; Staging uses only the separately owner-approved device-signature design and must not be represented as equivalent to mTLS.
 - Do not trust request-body IDs or caller-supplied certificate fingerprints.
 - Test cross-tenant, cross-store, revoked-device, unknown-terminal and cashier/register mismatch rejection.
 
@@ -188,7 +187,7 @@ This design work does not authorize:
 - Applying `prodx-pos-edge-sync/migrations/001_pos_ledger.sql`.
 - Creating Hyperdrive configs, Cloudflare Access apps, service tokens, mTLS CAs or queues.
 - Creating/resetting database credentials or using Production credentials in Preview.
-- Implementing the unapproved Free-plan device-auth RFC.
+- Implementing the approved Staging device-auth RFC before its protocol, threat-model, test-vector, and independent-review gates are complete.
 - Disabling or weakening RLS, grants, mTLS, audit immutability, inventory controls or auth.
 - Merging, deploying, or changing Production.
 
@@ -196,3 +195,17 @@ This design work does not authorize:
 
 CF-01 remains **HOLD** until all blockers B1–B8 have approved contracts, implementation, exact-head CI, independent security review and a live isolated Staging E2E proving Worker -> Queue -> backend -> existing CheckoutService -> committed receipt -> Edge acknowledgement. PostgreSQL CI alone is not live Cloudflare E2E.
 
+## 9. Owner-approved Quarantine policy for revoked device keys
+
+The owner approved **Quarantine** on 2026-11-11 for a sale that claims to have been signed while its device key was active but reaches the server after that key has been revoked. This policy applies to CF-01 Staging design only; it does not authorize Runtime implementation.
+
+- Never auto-commit a post-revocation upload, even if its client-supplied `issued_at` predates the revocation timestamp. Client time is not trusted timestamp evidence.
+- Preserve original signed request bytes, canonical payload hash, signature, key ID, device/tenant binding, sale ID, terminal sequence/HLC, Edge receipt time, server receipt time, and reason for quarantine as immutable evidence.
+- Quarantine is a non-financial state. It must not create an order, payment, cash movement, inventory decrement, or financial ledger entry.
+- A separate privileged reviewer workflow may resolve the case. The reviewer cannot edit the signed payload or reactivate the revoked key. Any approved reconciliation must revalidate tenant/device mapping, signature evidence, sequence/HLC, payload-bound idempotency, catalog price proof, payment/tender, active shift, stock, and all normal checkout invariants before invoking the existing `CheckoutService`.
+- Reconciliation must use the original immutable idempotency identity. A changed payload is a permanent conflict, not a corrected retry. A correction must be a separately authorized business operation with its own audit trail.
+- Quarantine, assignment, access, review, approval/rejection, escalation, expiry, and final disposition must generate append-only audit events. Evidence access must be least-privilege and audited.
+- Pending evidence must not be TTL-deleted. After disposition, evidence retention must follow the approved financial/audit retention schedule; expiry of a review SLA changes workflow status only and never silently deletes evidence or auto-commits a sale.
+- Define reviewer role, separation of duties, dual-control conditions, review SLA/escalation, maximum pending age, retention schedule, and final disposition rules in the dedicated Quarantine workflow contract before Runtime implementation.
+
+The detailed state machine, security controls, and proposed test matrix are in `docs/cf01-quarantine-workflow-contract.md`.
