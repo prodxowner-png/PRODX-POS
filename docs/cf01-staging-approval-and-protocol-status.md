@@ -18,6 +18,7 @@ These approvals cover Staging protocol/design and security-test contract work on
 
 - `docs/edge-sync-free-plan-device-auth-rfc.md`: approved Staging-only direction.
 - `docs/cf01-device-signature-protocol-v1.md`: ECDSA P-256/SHA-256, RFC 8785 canonicalization, signed envelope, server-owned identity/key mapping, lifecycle, replay/idempotency, catalog proof separation, threat model, cross-runtime tests, and approved Quarantine behavior.
+- `docs/cf01-device-signature-test-vectors-v1.md`: fixed synthetic JCS bytes, payload/envelope SHA-256 hashes, tenant-binding negative vector, test-only public key, fixed ECDSA P-256 signature, and cross-runtime verification requirements.
 - `docs/cf01-quarantine-workflow-contract.md`: detailed Quarantine state machine, evidence integrity, roles, dual-control proposal, disposition rules, retention/SLA/escalation proposal, append-only audit events, and security test matrix.
 - `docs/cf01-prodx-checkout-adapter-contract.md`: trusted backend adapter and B1–B8 blockers, corrected to reflect owner-approved Staging authentication and Quarantine decisions.
 
