@@ -1,25 +1,27 @@
 # PRODX POS Edge Sync — Free-plan Device Authentication RFC
 
-**Status:** Proposal only — not approved for implementation  
-**Scope:** Gate 6 staging and future POS terminal authentication  
-**Constraints:** Cloudflare Free only; no paid upgrade; no custom domain purchase; preserve tenant isolation, offline resilience, replay resistance, auditability, and server authority.
+**Status:** Approved for CF-01 Staging design/protocol work only; Runtime implementation remains gated  
+**Approval:** Owner approval recorded on 2026-11-11 in CF-01 issue #375  
+**Scope:** Isolated CF-01 Staging using `PRODX-POS-PREVIEW` only  
+**Constraints:** Cloudflare Free only; no paid upgrade; no custom domain purchase; preserve tenant isolation, offline resilience, replay resistance, auditability, and server authority. **Production remains on its existing mTLS contract.**
 
 ## 1. Why this RFC exists
 
 The current Edge Worker requires Cloudflare-provided client-certificate metadata, verifies the certificate fingerprint, and maps it to an active `terminal_devices` record. The connected Cloudflare account currently has no Access mTLS CA/settings configured, and the Free-plan entitlement for Access mTLS is not established. The Vercel Preview proxy can present a CI integration certificate, but it cannot preserve the original TLS identity of a physical POS terminal.
 
-Do not remove the current certificate check, trust a caller-supplied fingerprint, or replace device identity with a shared bearer secret merely to make Gate 6 pass.
+Do not remove the current certificate check in Production, trust a caller-supplied fingerprint, or replace device identity with a shared bearer secret merely to make Gate 6 pass.
 
-## 2. Proposed model: per-device asymmetric signing
+## 2. Approved Staging model: per-device asymmetric signing
 
-Evaluate application-layer device authentication using a unique asymmetric key pair per terminal:
+For CF-01 Staging only, use application-layer device authentication with a unique asymmetric key pair per terminal, while Cloudflare Access Service Token remains a separate ingress control:
 
 - A terminal generates its own private key. Keep it non-exportable in the strongest platform keystore available (TPM/Secure Enclave/Android Keystore/OS keystore); document the assurance level for devices without hardware-backed storage.
 - The server stores only the public key and enrollment metadata, bound to exactly one `tenant_id` and `terminal_id`.
 - Enrollment requires an authenticated owner/admin action, a short-lived single-use server challenge, proof of private-key possession, and an auditable approval/revocation record. Never accept a public key supplied during an ordinary sync request as an enrollment.
 - Each sale is signed locally so offline sales remain verifiable after reconnection. A batch-level signature may additionally protect transport framing, but must not replace per-sale signatures.
 - Use a widely supported WebCrypto signature suite (evaluate ECDSA P-256 first); pin the algorithm and protocol version. Reject algorithm negotiation from untrusted request data.
-- Keep Cloudflare Access/service authentication as an independent ingress control where supported. It is not the terminal identity and must not be treated as a replacement for per-device signatures.
+- Cloudflare Access Service Token is an independent ingress control only. It is not terminal identity and must not be treated as a replacement for per-device signatures.
+- This application-layer design is **not equivalent to transport-layer mTLS**.
 
 ## 3. Canonical signed-sale contract
 
@@ -32,7 +34,7 @@ Define and version one canonical contract shared by terminal, Edge Worker, Durab
 5. Verify the hash and signature at the Edge boundary and re-verify the immutable signed fields at the trusted origin before any financial write.
 6. Persist the public-key identifier/version, signature algorithm, signature, payload hash, and verification result in auditable metadata. Never persist or log private key material.
 
-The exact byte-level canonicalization, encoding, domain separator, signature format, and key identifier format must be specified in a protocol document and covered by shared test vectors before implementation. No component may independently invent its own hash input.
+The exact byte-level canonicalization, encoding, domain separator, signature format, and key identifier format must be specified in a protocol document and covered by shared test vectors before Runtime implementation. No component may independently invent its own hash input.
 
 ## 4. Enrollment, rotation, revocation, and recovery
 
@@ -72,18 +74,23 @@ This authentication change must not be used to mask existing Edge Sync blockers.
 - Use a small, explicit, quota-budgeted Staging fixture with request/Queue/SQL counters and backpressure tests.
 - Do not create paid resources, upgrade plans, purchase domains, or trigger unbounded load tests.
 
-## 8. Acceptance gates before implementation can be approved
+## 8. Gates before Runtime implementation
+
+Owner approval authorizes Staging protocol/design and security-test contract work only. It does not authorize Runtime implementation yet. Before Runtime changes:
 
 1. Threat model reviewed: stolen device, compromised terminal OS, key extraction, malicious tenant, replay, clock skew, lost device, and administrative compromise.
-2. Protocol spec and cross-runtime canonicalization/signature test vectors approved.
-3. Key enrollment/rotation/revocation lifecycle implemented with database constraints and audit events.
-4. Security tests pass, including negative and cross-tenant cases.
-5. Full sale financial invariants pass independently: signed price, exact money, stock non-negativity, idempotency, sequence/HLC, audit.
-6. Exact-head CI is green and independent security review has no unresolved blocker.
-7. Real isolated Staging E2E demonstrates the selected Free-compatible ingress and device identity path. If this cannot be proven on the Free plan, Gate 6 remains HOLD; do not weaken controls.
+2. Protocol spec and cross-runtime canonicalization/signature test vectors reviewed and approved.
+3. Enrollment/rotation/revocation lifecycle, offline-after-revocation policy, and audit event contract fully specified.
+4. Identity mapping from Cloudflare Access Service Token ingress identity to the Staging request context explicitly defined; never infer tenant/terminal from `common_name` without a server-owned mapping.
+5. Security tests specified, including negative and cross-tenant cases.
+6. Adjacent financial invariants independently covered: signed price, exact money, stock non-negativity, payload-bound idempotency, sequence/HLC, and audit.
+7. Exact-head CI is green and independent security review has no unresolved blocker.
 
-## 9. Explicit non-goals
+After those gates, Runtime implementation requires a separate implementation review. Real isolated Staging E2E is required before CF-01 can exit HOLD.
 
-- This RFC does not authorize changing the current mTLS production contract.
-- This RFC does not authorize deployment, Cloudflare resource creation, paid upgrades, DNS changes, or Production configuration changes.
+## 9. Explicit non-goals and Production boundary
+
+- This RFC does **not** authorize changing, removing, or weakening the current Production mTLS contract.
+- Production authentication remains on the existing mTLS path; this Staging approval is not a Production architecture decision.
+- This RFC does not authorize deployment, Cloudflare resource/secret creation or modification, DB/schema/grant changes, paid upgrades, DNS changes, or Production configuration changes.
 - This RFC is not proof that application-layer signatures are equivalent to transport-layer mTLS. That distinction must remain explicit in the threat model and operational documentation.
