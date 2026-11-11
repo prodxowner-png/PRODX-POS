@@ -18,35 +18,46 @@ These approvals cover Staging protocol/design and security-test contract work on
 
 - `docs/edge-sync-free-plan-device-auth-rfc.md`: approved Staging-only direction.
 - `docs/cf01-device-signature-protocol-v1.md`: ECDSA P-256/SHA-256, RFC 8785 canonicalization, signed envelope, server-owned identity/key mapping, lifecycle, replay/idempotency, catalog proof separation, threat model, cross-runtime tests, and approved Quarantine behavior.
-- `docs/cf01-prodx-checkout-adapter-contract.md`: trusted backend adapter and B1–B8 correctness blockers.
+- `docs/cf01-quarantine-workflow-contract.md`: detailed Quarantine state machine, evidence integrity, roles, dual-control proposal, disposition rules, retention/SLA/escalation proposal, append-only audit events, and security test matrix.
+- `docs/cf01-prodx-checkout-adapter-contract.md`: trusted backend adapter and B1–B8 blockers, corrected to reflect owner-approved Staging authentication and Quarantine decisions.
 
 ## Quarantine policy
 
-If a sale is received after its signing key has been revoked:
-1. Never auto-commit it.
-2. Preserve original signed bytes, hash, signature, key/device/sequence metadata, and transport/receipt timestamps as immutable evidence.
+If a sale is received by the trusted backend after its signing key has been revoked:
+1. Never auto-commit it, regardless of client-provided `issued_at`.
+2. Preserve original signed bytes, hash, signature, key/device/sequence metadata, and trusted receipt/revocation timestamps as immutable evidence.
 3. Append audit events for quarantine, reviewer decisions, and disposition.
-4. Only an authorized reviewer in a separate privileged workflow may approve reconciliation. Revalidate tenant, identity, sequence, idempotency, signed price proof, tender/payment, inventory, and every financial invariant before invoking the existing CheckoutService.
+4. Only an authorized reviewer in a separate privileged workflow may recommend reconciliation. Revalidate tenant, identity, sequence, idempotency, signed price proof, tender/payment, inventory, and every financial invariant before invoking the existing CheckoutService.
 5. Do not reactivate the revoked key or mutate/reuse the original idempotency identity with changed content.
+6. Quarantine is non-financial: no order, payment, cash movement, stock decrement, financial ledger row, or committed receipt may be created while a case is pending.
 
-A client-provided `issued_at` is not a trusted timestamp. No grace-period acceptance based on that field is permitted.
+The detailed state machine and tests are in `docs/cf01-quarantine-workflow-contract.md`.
 
-Before Runtime implementation, specify and independently review retention, maximum quarantine age, reviewer permission, dual-control requirement for high-risk reconciliation, escalation/expiry, and final disposition semantics.
+## Proposed operational controls still requiring review
+
+The workflow contract proposes (not yet owner-approved as operational policy):
+- two distinct human identities for reconciliation approval as the safe initial default;
+- reviewer assignment target within one business day, escalation after three business days, and security/operations owner escalation after ten business days;
+- no automatic evidence deletion; pending/overdue evidence remains retained;
+- no retention TTL is invented. Final retention must follow the organization's approved financial/security record-retention schedule;
+- reviewer role/permission, dual-control thresholds, maximum pending age, final disposition, manual-correction availability, and raw-evidence export permissions require explicit review.
+
+These controls must be resolved before Runtime implementation. SLA expiry never auto-approves, rejects, commits, releases an idempotency identity, or deletes evidence.
 
 ## Correction to older contract wording
 
-The earlier checkout adapter contract contains historical wording in B1 and Section 7 describing the Free-plan RFC as unapproved. That wording predates owner approval recorded on 2026-11-11 and is superseded for Staging design/protocol work by the approved RFC and protocol document above. It does not relax Production mTLS or B1–B8.
+The older checkout adapter contract's B1 and Section 7 statements describing the Free-plan RFC as unapproved are historical and are superseded for Staging design/protocol work by the owner's approval and the current RFC/protocol. Production mTLS and B1–B8 correctness gates remain unchanged.
 
 ## Remaining gates
 
 Runtime implementation remains blocked until:
 1. Independent security review accepts protocol and threat model.
-2. Quarantine workflow controls and disposition contract are fully specified and reviewed.
+2. Quarantine roles, dual-control, retention, SLA/escalation, and disposition contract are reviewed and approved.
 3. RFC 8785/ECDSA test vectors pass in all target runtimes.
 4. Enrollment, rotation, revocation, recovery, and append-only audit contracts are reviewed.
 5. Access `common_name` maps only to server-owned Staging integration-client records.
 6. B1–B8 financial/integration blockers are resolved.
-7. Exact-head CI is green and independent review has no unresolved High/Blocking findings.
+7. Exact-head CI is green and independent security review has no unresolved High/Blocking findings.
 
 ## Safety boundary
 
