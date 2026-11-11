@@ -38,6 +38,8 @@ jobs:
     - name: Install dependencies from lockfile
       run: bun install --frozen-lockfile
 
+    - name: OCI Bridge contract tests
+      run: bun --bun --import tsx --test cloudflare-workers/prodx-oci-bridge/test/*.test.ts
 
     - name: Type check (TypeScript)
       run: bun run lint
