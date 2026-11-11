@@ -134,7 +134,7 @@ test("supports unencrypted OCI RSA PKCS#1 PEM keys", async () => {
       "(request-target): get " + path,
       "host: identity.ap-singapore-1.oraclecloud.com",
       "date: " + date
-    ].join("\\n");
+    ].join("\n");
     verified = verifySignature("RSA-SHA256", Buffer.from(signingString), keyPair.publicKey, Buffer.from(signature, "base64"));
     return new Response(JSON.stringify({ id: tenancyId, name: "PKCS1 Test Tenancy" }), { status: 200 });
   }) as typeof fetch;
