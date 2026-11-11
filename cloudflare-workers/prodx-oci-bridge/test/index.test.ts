@@ -119,6 +119,7 @@ test("supports unencrypted OCI RSA PKCS#1 PEM keys", async () => {
     privateKeyEncoding: { type: "pkcs1", format: "pem" },
     publicKeyEncoding: { type: "spki", format: "pem" }
   });
+  assert.ok(keyPair.privateKey.startsWith("-----BEGIN RSA PRIVATE KEY-----"));
   const originalFetch = globalThis.fetch;
   let verified = false;
   globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
