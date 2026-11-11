@@ -8,7 +8,7 @@ All other paths return 404 and all non-GET methods return 405. Region is pinned 
 
 Required Worker secrets:
 - BRIDGE_AUTH_TOKEN (minimum 32 characters)
-- OCI_PRIVATE_KEY_PEM (unencrypted PKCS#8 PEM)
+- OCI_PRIVATE_KEY_PEM (unencrypted PKCS#8 or PKCS#1 RSA PEM)
 
 Required non-secret variables:
 - OCI_TENANCY_OCID
