@@ -63,8 +63,9 @@ Runtime implementation remains blocked until:
 
 - The canonical low-S fixture and former high-S fixture were independently checked against the documented P-256 public key and exact envelope bytes. Both pass raw ECDSA mathematical verification; only the low-S fixture meets protocol v1 canonicality.
 - Local fixture verification is not cross-runtime verification. WebCrypto, Cloudflare Worker, backend Node.js, and PostgreSQL harness execution remains outstanding.
-- PR #376 exact head `76c42cc381a28e1b1524bf36cf0b6cd23669a973`: all 12/12 GitHub Actions check runs completed successfully. This confirms CI on that documentation commit, not cross-runtime signature tests or Staging E2E.
-- Copilot review was requested for the exact PR head; no submitted independent review or inline review thread was visible at the last check. Codex review could not complete because the account reached its code-review usage limit.
+- Historical exact head `76c42cc381a28e1b1524bf36cf0b6cd23669a973` completed 12/12 GitHub Actions checks. That result applies only to that documentation commit and must not be reused as evidence for later commits.
+- Immediately before this status-record refresh, PR #376 was at head `04cd24845be2f6e4f545b0b5e46879385cc9cf8c`: 10/12 checks had completed successfully and 2 delivery-gate jobs were still in progress. This snapshot is historical; updating this document creates another commit and requires exact-head CI to run again.
+- Copilot review was requested for the pre-refresh head, but no submitted independent review or inline review thread was visible. The review request must be refreshed for the resulting head. Codex review could not complete because the account reached its code-review usage limit.
 
 ## Safety boundary
 
