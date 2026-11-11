@@ -86,6 +86,10 @@ The backend must derive `organizationId`, `storeId`, `registerId`, and `cashierI
 
 Current Edge `auth.ts` expects top-level Access JWT `tenant_id` and `terminal_id`; the operator path expects top-level `role`. The documented Service Token claims do not provide those application claims by default. The repository's Free-plan device-auth RFC remains Proposal only and is not approved for implementation.
 
+**Entitlement revalidation (2026-11-11):** Cloudflare's current documentation states that Access mTLS is available on Enterprise and pay-as-you-go Zero Trust plans and is **not included in the Free plan**. The connected account currently has zero Access certificate authorities and zero Cloudflare zones. See [Cloudflare Access Mutual TLS availability](https://developers.cloudflare.com/cloudflare-one/access-controls/service-credentials/mutual-tls-authentication/). Zone-level mTLS is a separate product path and cannot be assumed available without a zone and plan verification.
+
+For a Free-plan staging path, the existing RFC proposes per-device asymmetric signing with a non-exportable terminal private key where supported, backend-held public-key enrollment/revocation, and Cloudflare Access service authentication as an independent ingress control. This is **not equivalent to transport-layer mTLS**. It must remain an explicit architecture decision with a threat model, protocol test vectors, enrollment/rotation/revocation lifecycle, and independent security review. Do not remove the current certificate check, trust caller-supplied fingerprints, or implement the proposal without approval.
+
 Required before code:
 - Approve the exact trusted identity issuer and claim contract.
 - Prove tenant, terminal, store, register, cashier and active shift mapping server-side.
