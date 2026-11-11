@@ -123,6 +123,10 @@ export default {
     const token = /^Bearer (.+)$/i.exec(request.headers.get("authorization") ?? "")?.[1] ?? "";
     if (!(await bearerMatches(token, env.BRIDGE_AUTH_TOKEN ?? ""))) return json({ error: "unauthorized" }, 401);
     try { return await readTenancy(env); }
-    catch { return json({ error: "bridge_configuration_invalid" }, 503); }
+    catch (error) {
+      const detail = error instanceof Error ? error.name + ":" + error.message : "unknown_error";
+      console.error("OCI_BRIDGE_CONFIGURATION_INVALID", detail);
+      return json({ error: "bridge_configuration_invalid" }, 503);
+    }
   }
 };
