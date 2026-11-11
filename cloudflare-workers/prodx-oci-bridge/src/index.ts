@@ -11,13 +11,55 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 const REGION = "ap-singapore-1";
 const API_VERSION = "20160918";
 
+function derLength(length: number): Uint8Array {
+  if (length < 0x80) return Uint8Array.of(length);
+  const bytes: number[] = [];
+  for (let remaining = length; remaining > 0; remaining = Math.floor(remaining / 256)) {
+    bytes.unshift(remaining & 0xff);
+  }
+  return Uint8Array.from([0x80 | bytes.length, ...bytes]);
+}
+
+function derTlv(tag: number, value: Uint8Array): Uint8Array {
+  const length = derLength(value.length);
+  const result = new Uint8Array(1 + length.length + value.length);
+  result[0] = tag;
+  result.set(length, 1);
+  result.set(value, 1 + length.length);
+  return result;
+}
+
+function concatBytes(parts: Uint8Array[]): Uint8Array {
+  const result = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0));
+  let offset = 0;
+  for (const part of parts) {
+    result.set(part, offset);
+    offset += part.length;
+  }
+  return result;
+}
+
+function pkcs1ToPkcs8(pkcs1: Uint8Array): Uint8Array {
+  const version = Uint8Array.of(0x02, 0x01, 0x00);
+  const rsaEncryptionAlgorithm = Uint8Array.of(
+    0x30, 0x0d,
+    0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01,
+    0x05, 0x00
+  );
+  return derTlv(0x30, concatBytes([
+    version,
+    rsaEncryptionAlgorithm,
+    derTlv(0x04, pkcs1)
+  ]));
+}
+
 function pemBytes(pem: string): Uint8Array {
   const clean = pem.trim();
-  if (!clean.startsWith("-----BEGIN PRIVATE KEY-----") || !clean.endsWith("-----END PRIVATE KEY-----")) {
-    throw new Error("OCI_PRIVATE_KEY_MUST_BE_PKCS8_PEM");
-  }
-  const binary = atob(clean.replace("-----BEGIN PRIVATE KEY-----", "").replace("-----END PRIVATE KEY-----", "").replace(/\s/g, ""));
-  return Uint8Array.from(binary, c => c.charCodeAt(0));
+  const match = /^-----BEGIN (PRIVATE KEY|RSA PRIVATE KEY)-----([\s\S]+)-----END \1-----$/.exec(clean);
+  if (!match) throw new Error("OCI_PRIVATE_KEY_MUST_BE_UNENCRYPTED_PKCS8_OR_PKCS1_PEM");
+  const binary = atob(match[2]!.replace(/\s/g, ""));
+  const der = Uint8Array.from(binary, c => c.charCodeAt(0));
+  return match[1] === "RSA PRIVATE KEY" ? pkcs1ToPkcs8(der) : der;
 }
 function b64(bytes: Uint8Array): string {
   let s = ""; for (const b of bytes) s += String.fromCharCode(b); return btoa(s);
