@@ -112,3 +112,39 @@ test("signs the fixed OCI tenancy GET and returns only allowlisted fields", asyn
     globalThis.fetch = originalFetch;
   }
 });
+
+test("supports unencrypted OCI RSA PKCS#1 PEM keys", async () => {
+  const keyPair = generateKeyPairSync("rsa", {
+    modulusLength: 2048,
+    privateKeyEncoding: { type: "pkcs1", format: "pem" },
+    publicKeyEncoding: { type: "spki", format: "pem" }
+  });
+  const originalFetch = globalThis.fetch;
+  let verified = false;
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    const requestHeaders = new Headers(init?.headers);
+    const date = requestHeaders.get("date");
+    const authorization = requestHeaders.get("authorization") ?? "";
+    const signature = /signature="([^"]+)"/.exec(authorization)?.[1];
+    assert.ok(date);
+    assert.ok(signature);
+    const path = "/20160918/tenancies/" + encodeURIComponent(tenancyId);
+    const signingString = [
+      "(request-target): get " + path,
+      "host: identity.ap-singapore-1.oraclecloud.com",
+      "date: " + date
+    ].join("\\n");
+    verified = verifySignature("RSA-SHA256", Buffer.from(signingString), keyPair.publicKey, Buffer.from(signature, "base64"));
+    return new Response(JSON.stringify({ id: tenancyId, name: "PKCS1 Test Tenancy" }), { status: 200 });
+  }) as typeof fetch;
+
+  try {
+    const response = await worker.fetch(new Request("https://bridge.example/v1/oci/tenancy", {
+      headers: { authorization: "Bearer " + token }
+    }), { ...env, OCI_PRIVATE_KEY_PEM: keyPair.privateKey });
+    assert.equal(response.status, 200);
+    assert.equal(verified, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
