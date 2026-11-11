@@ -46,6 +46,18 @@ The Edge Sync contract currently represents `tenant_id` and `terminal_id`, signe
 
 These contracts are not interchangeable by a field rename. The conversion requires a trusted identity mapping and a server-authoritative price policy.
 
+### 2.4 Additional verified implementation gaps (2026-11-11)
+
+The following are confirmed from the current `main` source and the owner-selected Preview database:
+
+- **Legacy schema is absent from Preview.** The Worker directly queries/writes `terminal_devices`, `terminal_sync_state`, `pos_idempotency`, `sales`, `sale_lines`, `inventory_ledger`, `audit_logs`, and `tenant_catalog_versions`. None of these tables exist in `PRODX-POS-PREVIEW`. The Preview database instead contains the established `prodx_orders`, `prodx_order_items`, `prodx_payments`, `prodx_cash_movements`, `prodx_inventory_ledger`, and `prodx_audit_log` tables. Do not apply the legacy Edge migration to make the current Worker run.
+- **Existing checkout idempotency is not payload-bound.** `createCheckoutService()` looks up `prodx_orders` by `store_id + idempotency_key` and returns the existing order without comparing a canonical payload hash, sale ID, terminal ID, or sequence. The current `prodx_orders` schema has no `payload_hash`, `sale_id`, or `terminal_seq_no` columns. B3/B4 therefore require a durable, transactionally enforced identity/hash mapping and a same-key/different-payload rejection before the adapter can safely reuse the service.
+- **Register identity is not currently server-derived by the sync route.** `sync-route.ts` overwrites `storeId` and `cashierId` from the authenticated principal but retains `registerId` from the payload. The adapter must resolve the terminal's authorized register from backend-owned device/session mappings and override or strictly validate the client field.
+- **Catalog proof custody is Worker-local today.** `catalog-crypto.ts` signs and verifies HMAC-SHA256 catalog/price proofs using `CATALOG_SIGNING_KEY`, loaded from a Worker secret. The backend CheckoutService does not currently verify these proofs. The backend must independently verify offline price evidence. Prefer an asymmetric signing design with the signing private key held only by the trusted backend and a public verification key distributed to verifiers; do not ship or copy the HMAC signing secret to POS clients or duplicate it across environments without a documented key-custody decision.
+- **Preview DB guardrails were inspected read-only.** `prodx_app` is a login role with `NOBYPASSRLS`, is not table owner, and has INSERT but not UPDATE/DELETE on audit, inventory-ledger, and cash-movement tables. The 39 PRODX tables have RLS enabled and are owned by `postgres`; no grants or policies were changed.
+
+These are implementation gaps, not approvals to modify the database. They must be closed by reviewed code/schema changes and exact-head tests before staging deployment.
+
 ## 3. Required adapter boundary
 
 The eventual production flow must be:
