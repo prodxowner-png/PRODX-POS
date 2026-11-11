@@ -5,50 +5,48 @@
 **Branch:** `feat/cf01-checkout-adapter-contract`  
 **Scope:** CF-01 Staging / `PRODX-POS-PREVIEW` only
 
-## Owner decision
+## Owner decisions
 
-The owner approved the Free-plan Staging authentication direction:
-- unique per-terminal asymmetric signing keys;
-- Cloudflare Access Service Token as a separate ingress control;
-- Production mTLS remains unchanged;
-- application-layer signatures are not equivalent to mTLS.
+The owner approved:
+- Free-plan Staging authentication direction: unique per-terminal asymmetric signing keys plus Cloudflare Access Service Token as a separate ingress control.
+- Production mTLS remains unchanged; application-layer signatures are not equivalent to mTLS.
+- **Quarantine** for sales allegedly signed before device-key revocation but uploaded after revocation. Such sales must not auto-commit and must enter privileged, audited reconciliation.
 
-Approval is limited to protocol/design and security-test contract work. It does not authorize Runtime implementation, database/schema/grant changes, Cloudflare resource or secret changes, deployment, merge, paid upgrades, or Production changes.
+These approvals cover Staging protocol/design and security-test contract work only. They do not authorize Runtime implementation, database/schema/grant changes, Cloudflare resource or secret changes, deployment, merge, paid upgrades, or Production changes.
 
-## Current protocol artifact
+## Current protocol artifacts
 
-The detailed protocol contract is maintained in [CF-01 Staging Device Signature Protocol v1](cf01-device-signature-protocol-v1.md). It specifies:
-- ECDSA P-256 / SHA-256, fixed wire encoding and protocol version;
-- RFC 8785 JCS canonicalization and tenant/terminal-bound payload hashing;
-- signed sale envelope, nonce and replay binding;
-- Access JWT `common_name` mapped only to a server-owned integration-client allowlist;
-- separate enrollment, key rotation, revocation and recovery lifecycle;
-- an explicit unresolved offline-after-revocation policy gate;
-- catalog-price signing as a separate asymmetric key custody problem;
-- shared cross-runtime test vectors and negative security tests;
-- financial adapter requirements and explicit implementation gates.
+- `docs/edge-sync-free-plan-device-auth-rfc.md`: approved Staging-only direction.
+- `docs/cf01-device-signature-protocol-v1.md`: ECDSA P-256/SHA-256, RFC 8785 canonicalization, signed envelope, server-owned identity/key mapping, lifecycle, replay/idempotency, catalog proof separation, threat model, cross-runtime tests, and approved Quarantine behavior.
+- `docs/cf01-prodx-checkout-adapter-contract.md`: trusted backend adapter and B1–B8 correctness blockers.
 
-## Correction to older contract text
+## Quarantine policy
 
-The earlier checkout adapter contract contains historical wording in B1 and Section 7 that describes the Free-plan RFC as unapproved and says not to implement it without approval. That wording predates the owner's approval recorded on 2026-11-11.
+If a sale is received after its signing key has been revoked:
+1. Never auto-commit it.
+2. Preserve original signed bytes, hash, signature, key/device/sequence metadata, and transport/receipt timestamps as immutable evidence.
+3. Append audit events for quarantine, reviewer decisions, and disposition.
+4. Only an authorized reviewer in a separate privileged workflow may approve reconciliation. Revalidate tenant, identity, sequence, idempotency, signed price proof, tender/payment, inventory, and every financial invariant before invoking the existing CheckoutService.
+5. Do not reactivate the revoked key or mutate/reuse the original idempotency identity with changed content.
 
-Interpret those statements as superseded by:
-1. the owner approval recorded in issue #375;
-2. the approved Staging-only RFC in `docs/edge-sync-free-plan-device-auth-rfc.md`;
-3. the detailed protocol in `docs/cf01-device-signature-protocol-v1.md`.
+A client-provided `issued_at` is not a trusted timestamp. No grace-period acceptance based on that field is permitted.
 
-This supersession is strictly for Staging protocol/design work. It does not relax the Production mTLS boundary or any B1–B8 correctness/security gate.
+Before Runtime implementation, specify and independently review retention, maximum quarantine age, reviewer permission, dual-control requirement for high-risk reconciliation, escalation/expiry, and final disposition semantics.
 
-## Remaining design gates
+## Correction to older contract wording
+
+The earlier checkout adapter contract contains historical wording in B1 and Section 7 describing the Free-plan RFC as unapproved. That wording predates owner approval recorded on 2026-11-11 and is superseded for Staging design/protocol work by the approved RFC and protocol document above. It does not relax Production mTLS or B1–B8.
+
+## Remaining gates
 
 Runtime implementation remains blocked until:
-1. Independent security review accepts the threat model and protocol.
-2. Owner/security reviewer selects strict revocation, bounded trusted-timestamp grace, or quarantine for offline sales uploaded after key revocation.
-3. RFC 8785 and ECDSA known-answer vectors pass in terminal, Worker, and backend runtimes.
+1. Independent security review accepts protocol and threat model.
+2. Quarantine workflow controls and disposition contract are fully specified and reviewed.
+3. RFC 8785/ECDSA test vectors pass in all target runtimes.
 4. Enrollment, rotation, revocation, recovery, and append-only audit contracts are reviewed.
-5. Access `common_name` mapping to a server-owned Staging integration-client record is specified and tested.
-6. B1–B8 financial and integration blockers are resolved in reviewed contracts.
-7. Exact-head CI is green and independent review has no unresolved High/Blocking finding.
+5. Access `common_name` maps only to server-owned Staging integration-client records.
+6. B1–B8 financial/integration blockers are resolved.
+7. Exact-head CI is green and independent review has no unresolved High/Blocking findings.
 
 ## Safety boundary
 
