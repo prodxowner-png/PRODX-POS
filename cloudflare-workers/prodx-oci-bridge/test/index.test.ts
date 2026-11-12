@@ -195,7 +195,7 @@ test("reports a safe diagnostic code when WebCrypto rejects malformed PKCS#8", a
   const logged: unknown[][] = [];
   console.error = (...args: unknown[]) => { logged.push(args); };
   try {
-    const malformedPem = "-----BEGIN PRIVATE KEY-----\\nAQIDBA==\\n-----END PRIVATE KEY-----";
+    const malformedPem = "-----BEGIN PRIVATE KEY-----\nAQIDBA==\n-----END PRIVATE KEY-----";
     const response = await worker.fetch(new Request("https://bridge.example/v1/oci/tenancy", {
       headers: { authorization: "Bearer " + token }
     }), { ...env, OCI_PRIVATE_KEY_PEM: malformedPem });
