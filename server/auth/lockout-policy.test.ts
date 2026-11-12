@@ -23,6 +23,7 @@ test('approved policy: fifth failure locks for 15 minutes and active-lockout att
     },
     resetFailedAttempts: async () => { current = { ...current, failedAttempts: 0, lockedUntil: null }; },
     createSession: async () => {},
+    renewSession: async () => null,
     findSessionByTokenHash: async () => null,
     findDevice: async () => device,
     revokeSession: async () => {},

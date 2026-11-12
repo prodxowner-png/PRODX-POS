@@ -19,6 +19,18 @@ The POS Supabase Auth exchange binds a verified JWT `sub` to `public.prodx_users
 
 The migration adds a nullable UUID column, a unique partial index, and a narrow `SECURITY DEFINER` lookup function with a fixed `search_path`. The lookup resolves only the user's `password` credential for the active device's organization. Existing accounts remain unlinked and Supabase sign-in fails closed until an explicit mapping is provisioned.
 
+## POS session renewal
+
+The browser refreshes the Supabase Auth session with `supabase.auth.refreshSession()` and sends the new access JWT together with the existing POS bearer to `POST /auth/supabase/renew`.
+
+The server verifies the Supabase JWT and re-resolves its immutable subject against the explicit POS identity binding for the existing session's device. It does not accept browser-supplied user, organization, store, role, or permission claims.
+
+Renewal deliberately keeps the existing POS bearer stable rather than creating a replacement session. PostgreSQL atomically extends the existing session expiry using the greater of its current expiry and the expiry bounded by the verified Supabase JWT and the eight-hour POS maximum. The database function also rechecks the linked subject, active user, active device/store, active store membership, unrevoked state, and unexpired session. The function is executable only by `prodx_app`.
+
+Duplicate and concurrent renewal requests are idempotent without creating duplicate sessions. An expired or revoked POS bearer cannot be revived. If Supabase refresh or POS renewal fails, the client retries only while the current POS session remains valid and clears the local session at its authoritative expiry. Password/PIN sessions without a Supabase identity do not use this renewal endpoint.
+
+The renewal response is marked `Cache-Control: private, no-store`. The POS backend never receives or stores the Supabase refresh token.
+
 ## Verification
 
 - JWT signature, issuer, audience, expiry, and UUID subject are verified server-side.

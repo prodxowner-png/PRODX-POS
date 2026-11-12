@@ -1,9 +1,11 @@
+import { isProductionApiBaseUrl } from './apiBaseUrl';
+
 export const isMockDisabled = (): boolean => 
   typeof localStorage !== 'undefined' && localStorage.getItem('prodx_disable_mocks') === 'true';
 
 export const hasProductionUrl = (): boolean => {
   const url = import.meta.env.VITE_AUTH_API_BASE_URL?.trim() || '';
-  return !!url && url.startsWith('http');
+  return isProductionApiBaseUrl(url);
 };
 
 export const isAiStudioPreview = (): boolean => {

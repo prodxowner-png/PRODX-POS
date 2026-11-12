@@ -23,6 +23,7 @@ export type AuthenticationRepository = {
   recordFailedAttempt: (userId: string, organizationId: string) => Promise<void>;
   resetFailedAttempts: (userId: string, organizationId: string) => Promise<void>;
   createSession: (input: { id: string; organizationId: string; userId: string; deviceId: string; tokenHash: string; expiresAt: Date }) => Promise<void>;
+  renewSession: (input: { sessionId: string; tokenHash: string; supabaseUserId: string; expiresAt: Date }) => Promise<Date | null>;
   findSessionByTokenHash: (tokenHash: string) => Promise<SessionRecord | null>;
   findDevice: (deviceId: string) => Promise<DeviceRecord | null>;
   revokeSession: (sessionId: string, tokenHash: string, at: Date) => Promise<void>;
@@ -33,6 +34,7 @@ export type AuthenticateSupabaseTokenInput = { token: string; deviceId: string }
 export type SessionIssuer = {
   authenticateCredentials: (input: AuthenticateCredentialsInput) => Promise<{ token: string; sessionId: string; expiresAt: Date } | null>;
   authenticateSupabaseToken: (input: AuthenticateSupabaseTokenInput) => Promise<{ token: string; sessionId: string; expiresAt: Date } | null>;
+  renewSupabaseSession: (input: { supabaseToken: string; posToken: string }) => Promise<{ expiresAt: Date } | null>;
   authenticateBearer: (token: string) => Promise<AuthenticatedSession | null>;
   revokeBearer: (token: string) => Promise<boolean>;
 };
@@ -168,6 +170,33 @@ export const createSessionIssuer = (
       expiresAt,
     });
     return { token: localToken, sessionId, expiresAt };
+  },
+  renewSupabaseSession: async ({ supabaseToken, posToken }) => {
+    const verified = await verifySupabaseIdentity(supabaseToken);
+    if (!verified) return null;
+
+    const tokenHash = hashSessionToken(posToken);
+    const session = await repository.findSessionByTokenHash(tokenHash);
+    const nowValue = now();
+    if (!session || session.revokedAt || session.expiresAt <= nowValue || session.userStatus !== 'active') return null;
+
+    const device = await repository.findDevice(session.deviceId);
+    if (!device || device.status !== 'active' || device.organizationId !== session.organizationId) return null;
+
+    const principal = await repository.findUserBySupabaseUserId(verified.userId, device.id);
+    if (!principal || principal.status !== 'active' ||
+        principal.userId !== session.userId || principal.organizationId !== session.organizationId ||
+        verified.expiresAt <= nowValue) return null;
+
+    const maxExpiry = new Date(nowValue.getTime() + SESSION_TTL_MS);
+    const requestedExpiry = verified.expiresAt < maxExpiry ? verified.expiresAt : maxExpiry;
+    const persistedExpiry = await repository.renewSession({
+      sessionId: session.id,
+      tokenHash,
+      supabaseUserId: verified.userId,
+      expiresAt: requestedExpiry,
+    });
+    return persistedExpiry ? { expiresAt: persistedExpiry } : null;
   },
   authenticateBearer: async (token) => {
     if (!token) return null;

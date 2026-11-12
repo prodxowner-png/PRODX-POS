@@ -15,7 +15,7 @@ const repositoryFixture = () => {
   let session: SessionRecord | null = null;
   let currentCredential = { ...credential };
   let linkedSupabaseUserId: string | null = '00000000-0000-4000-8000-000000000099';
-  const calls = { failed: 0, reset: 0, touched: 0, revoked: 0, lastLockedUntil: null as Date | null };
+  const calls = { failed: 0, reset: 0, touched: 0, revoked: 0, renewed: 0, lastLockedUntil: null as Date | null };
   const repository: AuthenticationRepository = {
     findCredentialByUsername: async (username, deviceId) =>
       username === currentCredential.username && deviceId === device.id
@@ -33,12 +33,21 @@ const repositoryFixture = () => {
     },
     resetFailedAttempts: async () => { calls.reset += 1; currentCredential = { ...currentCredential, failedAttempts: 0, lockedUntil: null }; },
     createSession: async (input) => { session = { ...input, revokedAt: null, userStatus: 'active' }; },
+    renewSession: async ({ sessionId, tokenHash, supabaseUserId, expiresAt }) => {
+      calls.renewed += 1;
+      if (supabaseUserId !== linkedSupabaseUserId || !session ||
+          session.id !== sessionId || session.tokenHash !== tokenHash ||
+          session.revokedAt || session.expiresAt <= clock) return null;
+      const nextExpiry = expiresAt > session.expiresAt ? expiresAt : session.expiresAt;
+      session = { ...session, expiresAt: nextExpiry };
+      return nextExpiry;
+    },
     findSessionByTokenHash: async (tokenHash) => session?.tokenHash === tokenHash ? session : null,
     findDevice: async (deviceId) => deviceId === device.id ? device : null,
     revokeSession: async (_sessionId, _tokenHash, at) => { calls.revoked += 1; if (session) session = { ...session, revokedAt: at }; },
     touchSession: async () => { calls.touched += 1; },
   };
-  return { repository, calls, getSession: () => session, getCredential: () => currentCredential, unlinkSupabaseIdentity: () => { linkedSupabaseUserId = null; } };
+  return { repository, calls, getSession: () => session, getCredential: () => currentCredential, unlinkSupabaseIdentity: () => { linkedSupabaseUserId = null; }, expireSession: () => { if (session) session = { ...session, expiresAt: new Date(clock.getTime() - 1) }; } };
 };
 
 const clock = new Date('2026-09-13T12:00:00.000Z');
@@ -214,4 +223,82 @@ test('Supabase subject does not fall back to email when no explicit mapping exis
   );
   assert.equal(await issuer.authenticateSupabaseToken({ token: 'valid-but-unlinked', deviceId: device.id }), null);
   assert.equal(getSession(), null);
+});
+
+test('Supabase renewal extends the same hashed POS bearer only after re-verifying its linked identity', async () => {
+  const { repository, calls, getSession } = repositoryFixture();
+  const refreshedExpiry = new Date(clock.getTime() + 2 * 60 * 60 * 1000);
+  const issuer = createSessionIssuer(
+    repository,
+    async () => true,
+    () => clock,
+    async () => ({ compromised: false, count: 0 }),
+    async (token) => token === 'initial-supabase-token'
+      ? { userId: '00000000-0000-4000-8000-000000000099', expiresAt: new Date(clock.getTime() + 15 * 60 * 1000) }
+      : token === 'fresh-supabase-token'
+        ? { userId: '00000000-0000-4000-8000-000000000099', expiresAt: refreshedExpiry }
+        : null,
+  );
+  const original = await issuer.authenticateSupabaseToken({ token: 'initial-supabase-token', deviceId: device.id });
+  assert.ok(original);
+  const renewed = await issuer.renewSupabaseSession({ supabaseToken: 'fresh-supabase-token', posToken: original.token });
+  assert.ok(renewed);
+  assert.equal(renewed.expiresAt.getTime(), refreshedExpiry.getTime());
+  assert.equal(getSession()?.id, original.sessionId);
+  assert.equal(getSession()?.tokenHash, hashSessionToken(original.token));
+  assert.ok(await issuer.authenticateBearer(original.token), 'the existing POS bearer remains valid');
+  assert.equal(calls.renewed, 1);
+});
+
+test('Supabase renewal rejects invalid, unlinked, expired, and revoked sessions without writing', async () => {
+  const { repository, calls, unlinkSupabaseIdentity, expireSession } = repositoryFixture();
+  const refreshedExpiry = new Date(clock.getTime() + 60 * 60 * 1000);
+  const issuer = createSessionIssuer(
+    repository,
+    async () => true,
+    () => clock,
+    async () => ({ compromised: false, count: 0 }),
+    async (token) => token === 'initial'
+      ? { userId: '00000000-0000-4000-8000-000000000099', expiresAt: new Date(clock.getTime() + 15 * 60 * 1000) }
+      : token === 'wrong-subject'
+        ? { userId: '00000000-0000-4000-8000-000000000098', expiresAt: refreshedExpiry }
+        : token === 'fresh'
+          ? { userId: '00000000-0000-4000-8000-000000000099', expiresAt: refreshedExpiry }
+          : null,
+  );
+  const original = await issuer.authenticateSupabaseToken({ token: 'initial', deviceId: device.id });
+  assert.ok(original);
+  assert.equal(await issuer.renewSupabaseSession({ supabaseToken: 'invalid', posToken: original.token }), null);
+  assert.equal(await issuer.renewSupabaseSession({ supabaseToken: 'wrong-subject', posToken: original.token }), null);
+  unlinkSupabaseIdentity();
+  assert.equal(await issuer.renewSupabaseSession({ supabaseToken: 'fresh', posToken: original.token }), null);
+  assert.equal(calls.renewed, 0);
+
+  const { repository: expiredRepository, calls: expiredCalls, expireSession: expire } = repositoryFixture();
+  const expiredIssuer = createSessionIssuer(
+    expiredRepository, async () => true, () => clock,
+    async () => ({ compromised: false, count: 0 }),
+    async (token) => token === 'initial'
+      ? { userId: '00000000-0000-4000-8000-000000000099', expiresAt: new Date(clock.getTime() + 15 * 60 * 1000) }
+      : { userId: '00000000-0000-4000-8000-000000000099', expiresAt: refreshedExpiry },
+  );
+  const expiring = await expiredIssuer.authenticateSupabaseToken({ token: 'initial', deviceId: device.id });
+  assert.ok(expiring);
+  expire();
+  assert.equal(await expiredIssuer.renewSupabaseSession({ supabaseToken: 'fresh', posToken: expiring.token }), null);
+  assert.equal(expiredCalls.renewed, 0);
+
+  const { repository: revokedRepository, calls: revokedCalls } = repositoryFixture();
+  const revokedIssuer = createSessionIssuer(
+    revokedRepository, async () => true, () => clock,
+    async () => ({ compromised: false, count: 0 }),
+    async (token) => token === 'initial'
+      ? { userId: '00000000-0000-4000-8000-000000000099', expiresAt: new Date(clock.getTime() + 15 * 60 * 1000) }
+      : { userId: '00000000-0000-4000-8000-000000000099', expiresAt: refreshedExpiry },
+  );
+  const revoked = await revokedIssuer.authenticateSupabaseToken({ token: 'initial', deviceId: device.id });
+  assert.ok(revoked);
+  assert.equal(await revokedIssuer.revokeBearer(revoked.token), true);
+  assert.equal(await revokedIssuer.renewSupabaseSession({ supabaseToken: 'fresh', posToken: revoked.token }), null);
+  assert.equal(revokedCalls.renewed, 0);
 });

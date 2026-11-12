@@ -84,6 +84,36 @@ export const createSupabaseAuthApi = ({
     }
   },
 
+  async renewSession(token) {
+    const normalizedPosToken = requireToken(token);
+    const client = getClient();
+    const current = await client.auth.getSession();
+    if (current.error) throw current.error;
+    if (!current.data.session) return null;
+
+    const refreshed = await client.auth.refreshSession();
+    if (refreshed.error) throw refreshed.error;
+    const supabaseAccessToken = refreshed.data.session?.access_token;
+    if (!supabaseAccessToken) throw new Error('Supabase session refresh did not return an access token.');
+
+    const response = await fetcher(baseUrl() + '/auth/supabase/renew', {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        Accept: 'application/json',
+        Authorization: 'Bearer ' + normalizedPosToken,
+        'X-Supabase-Authorization': 'Bearer ' + requireToken(supabaseAccessToken),
+      },
+    });
+    const body = await response.json().catch(() => null);
+    if (!response.ok) {
+      const error = new Error(body?.error?.message ?? 'POS session renewal failed.');
+      Object.assign(error, { status: response.status });
+      throw error;
+    }
+    return body as SessionContext;
+  },
+
   async verifySession(token) {
     if (!token) return null;
     const response = await fetcher(`${baseUrl()}/auth/session`, {
