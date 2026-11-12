@@ -11,6 +11,16 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 const REGION = "ap-singapore-1";
 const API_VERSION = "20160918";
 
+class BridgeConfigurationError extends Error {
+  readonly code: string;
+
+  constructor(code: string) {
+    super(code);
+    this.name = "BridgeConfigurationError";
+    this.code = code;
+  }
+}
+
 function derLength(length: number): Uint8Array {
   if (length < 0x80) return Uint8Array.of(length);
   const bytes: number[] = [];
@@ -56,9 +66,15 @@ function pkcs1ToPkcs8(pkcs1: Uint8Array): Uint8Array {
 function pemBytes(pem: string): Uint8Array {
   const clean = pem.trim();
   const match = /^-----BEGIN (PRIVATE KEY|RSA PRIVATE KEY)-----([\s\S]+)-----END \1-----$/.exec(clean);
-  if (!match) throw new Error("OCI_PRIVATE_KEY_MUST_BE_UNENCRYPTED_PKCS8_OR_PKCS1_PEM");
-  const binary = atob(match[2]!.replace(/\s/g, ""));
+  if (!match) throw new BridgeConfigurationError("OCI_PRIVATE_KEY_PEM_FORMAT_UNSUPPORTED");
+  let binary: string;
+  try {
+    binary = atob(match[2]!.replace(/\s/g, ""));
+  } catch {
+    throw new BridgeConfigurationError("OCI_PRIVATE_KEY_PEM_INVALID_BASE64");
+  }
   const der = Uint8Array.from(binary, c => c.charCodeAt(0));
+  if (der.length === 0) throw new BridgeConfigurationError("OCI_PRIVATE_KEY_PEM_EMPTY");
   return match[1] === "RSA PRIVATE KEY" ? pkcs1ToPkcs8(der) : der;
 }
 function b64(bytes: Uint8Array): string {
@@ -74,19 +90,30 @@ async function bearerMatches(received: string, expected: string): Promise<boolea
   return diff === 0 && received.length > 0 && expected.length >= 32;
 }
 function validate(env: Env): void {
-  if (!env.BRIDGE_AUTH_TOKEN || env.BRIDGE_AUTH_TOKEN.length < 32) throw new Error("BRIDGE_TOKEN_MISSING");
-  if (!env.OCI_TENANCY_OCID || !env.OCI_USER_OCID) throw new Error("OCI_OCID_MISSING");
-  if (!/^([0-9a-f]{2}:){15}[0-9a-f]{2}$/i.test(env.OCI_FINGERPRINT)) throw new Error("OCI_FINGERPRINT_INVALID");
-  if (env.OCI_REGION !== REGION) throw new Error("OCI_REGION_NOT_ALLOWED");
-  if (!env.OCI_PRIVATE_KEY_PEM) throw new Error("OCI_KEY_MISSING");
+  if (!env.BRIDGE_AUTH_TOKEN || env.BRIDGE_AUTH_TOKEN.length < 32) throw new BridgeConfigurationError("BRIDGE_TOKEN_MISSING");
+  if (!env.OCI_TENANCY_OCID || !env.OCI_USER_OCID) throw new BridgeConfigurationError("OCI_IDENTITY_BINDING_MISSING");
+  if (!/^([0-9a-f]{2}:){15}[0-9a-f]{2}$/i.test(env.OCI_FINGERPRINT)) throw new BridgeConfigurationError("OCI_FINGERPRINT_INVALID");
+  if (env.OCI_REGION !== REGION) throw new BridgeConfigurationError("OCI_REGION_NOT_ALLOWED");
+  if (!env.OCI_PRIVATE_KEY_PEM) throw new BridgeConfigurationError("OCI_PRIVATE_KEY_MISSING");
 }
 async function authorization(env: Env, host: string, path: string, date: string): Promise<string> {
-  const key = await crypto.subtle.importKey("pkcs8", pemBytes(env.OCI_PRIVATE_KEY_PEM),
-    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]);
+  let key: CryptoKey;
+  try {
+    key = await crypto.subtle.importKey("pkcs8", pemBytes(env.OCI_PRIVATE_KEY_PEM),
+      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]);
+  } catch (error) {
+    if (error instanceof BridgeConfigurationError) throw error;
+    throw new BridgeConfigurationError("OCI_PRIVATE_KEY_IMPORT_FAILED");
+  }
   const rsaAlgorithm = key.algorithm as RsaHashedKeyAlgorithm;
-  if (rsaAlgorithm.modulusLength < 2048) throw new Error("OCI_PRIVATE_KEY_RSA_MINIMUM_2048_BITS");
+  if (rsaAlgorithm.modulusLength < 2048) throw new BridgeConfigurationError("OCI_PRIVATE_KEY_RSA_TOO_WEAK");
   const signingString = "(request-target): get " + path + "\nhost: " + host + "\ndate: " + date;
-  const signature = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(signingString));
+  let signature: ArrayBuffer;
+  try {
+    signature = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(signingString));
+  } catch {
+    throw new BridgeConfigurationError("OCI_REQUEST_SIGNING_FAILED");
+  }
   const keyId = [env.OCI_TENANCY_OCID, env.OCI_USER_OCID, env.OCI_FINGERPRINT].join("/");
   return 'Signature version="1",keyId="' + keyId + '",algorithm="rsa-sha256",headers="(request-target) host date",signature="' + b64(new Uint8Array(signature)) + '"';
 }
@@ -126,8 +153,10 @@ export default {
     if (!(await bearerMatches(token, env.BRIDGE_AUTH_TOKEN ?? ""))) return json({ error: "unauthorized" }, 401);
     try { return await readTenancy(env); }
     catch (error) {
-      const detail = error instanceof Error ? error.name : "unknown_error";
-      console.error("OCI_BRIDGE_CONFIGURATION_INVALID", detail);
+      const diagnosticCode = error instanceof BridgeConfigurationError
+        ? error.code
+        : "OCI_BRIDGE_UNEXPECTED_CONFIGURATION_ERROR";
+      console.error("OCI_BRIDGE_CONFIGURATION_INVALID", diagnosticCode);
       return json({ error: "bridge_configuration_invalid" }, 503);
     }
   }
