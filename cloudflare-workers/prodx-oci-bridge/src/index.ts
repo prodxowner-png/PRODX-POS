@@ -1,0 +1,163 @@
+interface Env {
+  BRIDGE_AUTH_TOKEN: string;
+  OCI_TENANCY_OCID: string;
+  OCI_USER_OCID: string;
+  OCI_FINGERPRINT: string;
+  OCI_REGION: string;
+  OCI_PRIVATE_KEY_PEM: string;
+}
+const headers = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
+const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers });
+const REGION = "ap-singapore-1";
+const API_VERSION = "20160918";
+
+class BridgeConfigurationError extends Error {
+  readonly code: string;
+
+  constructor(code: string) {
+    super(code);
+    this.name = "BridgeConfigurationError";
+    this.code = code;
+  }
+}
+
+function derLength(length: number): Uint8Array {
+  if (length < 0x80) return Uint8Array.of(length);
+  const bytes: number[] = [];
+  for (let remaining = length; remaining > 0; remaining = Math.floor(remaining / 256)) {
+    bytes.unshift(remaining & 0xff);
+  }
+  return Uint8Array.from([0x80 | bytes.length, ...bytes]);
+}
+
+function derTlv(tag: number, value: Uint8Array): Uint8Array {
+  const length = derLength(value.length);
+  const result = new Uint8Array(1 + length.length + value.length);
+  result[0] = tag;
+  result.set(length, 1);
+  result.set(value, 1 + length.length);
+  return result;
+}
+
+function concatBytes(parts: Uint8Array[]): Uint8Array {
+  const result = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0));
+  let offset = 0;
+  for (const part of parts) {
+    result.set(part, offset);
+    offset += part.length;
+  }
+  return result;
+}
+
+function pkcs1ToPkcs8(pkcs1: Uint8Array): Uint8Array {
+  const version = Uint8Array.of(0x02, 0x01, 0x00);
+  const rsaEncryptionAlgorithm = Uint8Array.of(
+    0x30, 0x0d,
+    0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01,
+    0x05, 0x00
+  );
+  return derTlv(0x30, concatBytes([
+    version,
+    rsaEncryptionAlgorithm,
+    derTlv(0x04, pkcs1)
+  ]));
+}
+
+function pemBytes(pem: string): Uint8Array {
+  const clean = pem.trim();
+  const match = /^-----BEGIN (PRIVATE KEY|RSA PRIVATE KEY)-----([\s\S]+)-----END \1-----$/.exec(clean);
+  if (!match) throw new BridgeConfigurationError("OCI_PRIVATE_KEY_PEM_FORMAT_UNSUPPORTED");
+  let binary: string;
+  try {
+    binary = atob(match[2]!.replace(/\s/g, ""));
+  } catch {
+    throw new BridgeConfigurationError("OCI_PRIVATE_KEY_PEM_INVALID_BASE64");
+  }
+  const der = Uint8Array.from(binary, c => c.charCodeAt(0));
+  if (der.length === 0) throw new BridgeConfigurationError("OCI_PRIVATE_KEY_PEM_EMPTY");
+  return match[1] === "RSA PRIVATE KEY" ? pkcs1ToPkcs8(der) : der;
+}
+function b64(bytes: Uint8Array): string {
+  let s = ""; for (const b of bytes) s += String.fromCharCode(b); return btoa(s);
+}
+async function bearerMatches(received: string, expected: string): Promise<boolean> {
+  const [a,b] = await Promise.all([
+    crypto.subtle.digest("SHA-256", new TextEncoder().encode(received)),
+    crypto.subtle.digest("SHA-256", new TextEncoder().encode(expected))
+  ]);
+  const x = new Uint8Array(a), y = new Uint8Array(b); let diff = 0;
+  for (let i=0;i<x.length;i++) diff |= x[i]! ^ y[i]!;
+  return diff === 0 && received.length > 0 && expected.length >= 32;
+}
+function validate(env: Env): void {
+  if (!env.BRIDGE_AUTH_TOKEN || env.BRIDGE_AUTH_TOKEN.length < 32) throw new BridgeConfigurationError("BRIDGE_TOKEN_MISSING");
+  if (!env.OCI_TENANCY_OCID || !env.OCI_USER_OCID) throw new BridgeConfigurationError("OCI_IDENTITY_BINDING_MISSING");
+  if (!/^([0-9a-f]{2}:){15}[0-9a-f]{2}$/i.test(env.OCI_FINGERPRINT)) throw new BridgeConfigurationError("OCI_FINGERPRINT_INVALID");
+  if (env.OCI_REGION !== REGION) throw new BridgeConfigurationError("OCI_REGION_NOT_ALLOWED");
+  if (!env.OCI_PRIVATE_KEY_PEM) throw new BridgeConfigurationError("OCI_PRIVATE_KEY_MISSING");
+}
+async function authorization(env: Env, host: string, path: string, date: string): Promise<string> {
+  let key: CryptoKey;
+  try {
+    key = await crypto.subtle.importKey("pkcs8", pemBytes(env.OCI_PRIVATE_KEY_PEM),
+      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]);
+  } catch (error) {
+    if (error instanceof BridgeConfigurationError) throw error;
+    throw new BridgeConfigurationError("OCI_PRIVATE_KEY_IMPORT_FAILED");
+  }
+  const rsaAlgorithm = key.algorithm as RsaHashedKeyAlgorithm;
+  if (rsaAlgorithm.modulusLength < 2048) throw new BridgeConfigurationError("OCI_PRIVATE_KEY_RSA_TOO_WEAK");
+  const signingString = "(request-target): get " + path + "\nhost: " + host + "\ndate: " + date;
+  let signature: ArrayBuffer;
+  try {
+    signature = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(signingString));
+  } catch {
+    throw new BridgeConfigurationError("OCI_REQUEST_SIGNING_FAILED");
+  }
+  const keyId = [env.OCI_TENANCY_OCID, env.OCI_USER_OCID, env.OCI_FINGERPRINT].join("/");
+  return 'Signature version="1",keyId="' + keyId + '",algorithm="rsa-sha256",headers="(request-target) host date",signature="' + b64(new Uint8Array(signature)) + '"';
+}
+async function readTenancy(env: Env): Promise<Response> {
+  validate(env);
+  const host = "identity." + REGION + ".oraclecloud.com";
+  const path = "/" + API_VERSION + "/tenancies/" + encodeURIComponent(env.OCI_TENANCY_OCID);
+  const date = new Date().toUTCString();
+  const auth = await authorization(env, host, path, date);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+  try {
+    const response = await fetch("https://" + host + path, {
+      method: "GET", headers: { authorization: auth, date, accept: "application/json" }, signal: controller.signal, redirect: "manual"
+    });
+    if (!response.ok) return json({ error: "OCI_UPSTREAM_REJECTED", upstream_status: response.status }, 502);
+    const data = await response.json() as Record<string, unknown>;
+    return json({ tenancy: {
+      id: typeof data.id === "string" ? data.id : null,
+      name: typeof data.name === "string" ? data.name : null,
+      home_region_key: typeof data.homeRegionKey === "string" ? data.homeRegionKey : null,
+      lifecycle_state: typeof data.lifecycleState === "string" ? data.lifecycleState : null,
+      time_created: typeof data.timeCreated === "string" ? data.timeCreated : null
+    }});
+  } catch { return json({ error: "OCI_UPSTREAM_UNAVAILABLE" }, 502); }
+  finally { clearTimeout(timeout); }
+}
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const url = new URL(request.url);
+    if (url.pathname === "/health" && request.method === "GET")
+      return json({ service: "prodx-oci-bridge", status: "ready", integration: "read-only" });
+    if (request.method !== "GET") return json({ error: "method_not_allowed" }, 405);
+    if (url.pathname !== "/v1/oci/tenancy") return json({ error: "not_found" }, 404);
+    if (url.search.length > 0) return json({ error: "query_not_allowed" }, 400);
+    const token = /^Bearer (.+)$/i.exec(request.headers.get("authorization") ?? "")?.[1] ?? "";
+    if (!(await bearerMatches(token, env.BRIDGE_AUTH_TOKEN ?? ""))) return json({ error: "unauthorized" }, 401);
+    try { return await readTenancy(env); }
+    catch (error) {
+      const diagnosticCode = error instanceof BridgeConfigurationError
+        ? error.code
+        : "OCI_BRIDGE_UNEXPECTED_CONFIGURATION_ERROR";
+      console.error("OCI_BRIDGE_CONFIGURATION_INVALID", diagnosticCode);
+      return json({ error: "bridge_configuration_invalid" }, 503);
+    }
+  }
+};
