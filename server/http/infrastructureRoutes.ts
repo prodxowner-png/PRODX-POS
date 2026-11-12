@@ -119,16 +119,28 @@ export function registerInfrastructureRoutes(
   });
 
   // OCI tenancy metadata is fetched server-side through the read-only Cloudflare bridge.
-  app.get('/api/v1/infrastructure/oci/tenancy', async (_req: Request, res: Response) => {
+  app.get('/api/v1/infrastructure/oci/tenancy', async (req: Request, res: Response) => {
     res.setHeader('cache-control', 'no-store');
     try {
       const result = await ociStatusProvider();
       if (result.ok === false) {
-        return res.status(result.statusCode).json({ success: false, error: result.code });
+        return res.status(result.statusCode).json({
+          error: {
+            code: result.code,
+            message: 'OCI tenancy status is unavailable.',
+            requestId: req.id,
+          },
+        });
       }
       return res.status(200).json({ success: true, data: result.status });
     } catch {
-      return res.status(502).json({ success: false, error: 'OCI_BRIDGE_UNAVAILABLE' });
+      return res.status(502).json({
+        error: {
+          code: 'OCI_BRIDGE_UNAVAILABLE',
+          message: 'OCI tenancy status is unavailable.',
+          requestId: req.id,
+        },
+      });
     }
   });
 
