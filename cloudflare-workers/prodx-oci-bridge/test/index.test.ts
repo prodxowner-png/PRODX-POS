@@ -173,6 +173,41 @@ test("rejects RSA signing keys below OCI's 2048-bit minimum", async () => {
   }
 });
 
+test("reports a safe diagnostic code for unsupported private-key PEM format", async () => {
+  const originalError = console.error;
+  const logged: unknown[][] = [];
+  console.error = (...args: unknown[]) => { logged.push(args); };
+  try {
+    const response = await worker.fetch(new Request("https://bridge.example/v1/oci/tenancy", {
+      headers: { authorization: "Bearer " + token }
+    }), { ...env, OCI_PRIVATE_KEY_PEM: "not-a-private-key" });
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), { error: "bridge_configuration_invalid" });
+    assert.deepEqual(logged, [["OCI_BRIDGE_CONFIGURATION_INVALID", "OCI_PRIVATE_KEY_PEM_FORMAT_UNSUPPORTED"]]);
+    assert.equal(JSON.stringify(logged).includes("not-a-private-key"), false);
+  } finally {
+    console.error = originalError;
+  }
+});
+
+test("reports a safe diagnostic code when WebCrypto rejects malformed PKCS#8", async () => {
+  const originalError = console.error;
+  const logged: unknown[][] = [];
+  console.error = (...args: unknown[]) => { logged.push(args); };
+  try {
+    const malformedPem = "-----BEGIN PRIVATE KEY-----\\nAQIDBA==\\n-----END PRIVATE KEY-----";
+    const response = await worker.fetch(new Request("https://bridge.example/v1/oci/tenancy", {
+      headers: { authorization: "Bearer " + token }
+    }), { ...env, OCI_PRIVATE_KEY_PEM: malformedPem });
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), { error: "bridge_configuration_invalid" });
+    assert.deepEqual(logged, [["OCI_BRIDGE_CONFIGURATION_INVALID", "OCI_PRIVATE_KEY_IMPORT_FAILED"]]);
+    assert.equal(JSON.stringify(logged).includes(malformedPem), false);
+  } finally {
+    console.error = originalError;
+  }
+});
+
 test("does not follow OCI redirects while carrying a signed Authorization header", async () => {
   const originalFetch = globalThis.fetch;
   let callCount = 0;
