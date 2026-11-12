@@ -3,7 +3,11 @@ import assert from 'node:assert/strict';
 import express from 'express';
 import { registerInfrastructureRoutes } from './infrastructureRoutes.ts';
 
-async function withServer(authorize: (permission: string) => Promise<boolean>, run: (baseUrl: string) => Promise<void>) {
+async function withServer(
+  authorize: (permission: string) => Promise<boolean>,
+  run: (baseUrl: string) => Promise<void>,
+  ociStatusProvider?: Parameters<typeof registerInfrastructureRoutes>[2],
+) {
   const app = express();
   app.use((request, _response, next) => {
     request.id = 'oci-route-test';
@@ -14,7 +18,7 @@ async function withServer(authorize: (permission: string) => Promise<boolean>, r
     next();
   });
   app.locals.prodxAuthorize = async (_context: unknown, permission: string) => authorize(permission);
-  registerInfrastructureRoutes(app, undefined, async () => ({
+  registerInfrastructureRoutes(app, undefined, ociStatusProvider ?? (async () => ({
     ok: true,
     status: {
       name: 'posproductionapp',
@@ -25,7 +29,7 @@ async function withServer(authorize: (permission: string) => Promise<boolean>, r
       checkedAt: '2026-11-12T00:00:00.000Z',
       latencyMs: 12.3,
     },
-  }));
+  })));
   const server = await new Promise<ReturnType<typeof app.listen>>((resolve) => {
     const listener = app.listen(0, () => resolve(listener));
   });
@@ -63,4 +67,20 @@ test('OCI tenancy infrastructure endpoint denies callers without settings.manage
     const body = await response.json() as { error: { code: string } };
     assert.equal(body.error.code, 'FORBIDDEN');
   });
+});
+
+  
+test('OCI tenancy infrastructure endpoint returns the standard API error envelope on bridge failure', async () => {
+  await withServer(async () => true, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/v1/infrastructure/oci/tenancy`);
+    assert.equal(response.status, 503);
+    const body = await response.json() as { error: { code: string; message: string; requestId: string } };
+    assert.equal(body.error.code, 'OCI_BRIDGE_NOT_CONFIGURED');
+    assert.equal(body.error.message, 'OCI tenancy status is unavailable.');
+    assert.equal(body.error.requestId, 'oci-route-test');
+  }, async () => ({
+    ok: false,
+    statusCode: 503,
+    code: 'OCI_BRIDGE_NOT_CONFIGURED',
+  }));
 });
