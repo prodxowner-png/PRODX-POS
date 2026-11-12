@@ -74,3 +74,14 @@ test('OCI bridge rejects malformed or incomplete upstream tenancy payloads', asy
   )) as typeof fetch);
   assert.deepEqual(result, { ok: false, statusCode: 502, code: 'OCI_BRIDGE_INVALID_RESPONSE' });
 });
+
+  
+test('OCI bridge reports a timeout when the upstream response body read is aborted', async () => {
+  const result = await getOciTenancyStatus(env, (async () => ({
+    status: 200,
+    json: async () => {
+      throw new DOMException('The operation timed out', 'TimeoutError');
+    },
+  }) as Response) as typeof fetch);
+  assert.deepEqual(result, { ok: false, statusCode: 504, code: 'OCI_BRIDGE_TIMEOUT' });
+});
