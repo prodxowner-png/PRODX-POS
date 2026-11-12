@@ -18,7 +18,7 @@ Required non-secret variables:
 
 The key must be an unencrypted RSA key of at least 2048 bits and match the public API signing key registered to the OCI user and configured fingerprint. Redirects from OCI are not followed, preventing the signed Authorization header from being forwarded to another host. The Worker signs GET requests with RSASSA-PKCS1-v1_5 / SHA-256.
 
-Deployment is intentionally disabled for workers.dev. Do not expose a public hostname until a dedicated Access application and caller identity policy exist. Deploy to a staging target first; this bridge must not create, update or delete OCI resources.
+Deployment is intentionally disabled for workers.dev. Do not expose a public hostname until a dedicated Access application and caller identity policy exist. Deploy to a staging target first; this bridge must not create, update or delete OCI resources. `keep_vars: true` preserves the non-secret variables configured on the Worker through Cloudflare while Wrangler is used for source bundling/deployment; Wrangler deployments preserve encrypted secrets.
 
 
 ## Local verification
