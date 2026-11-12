@@ -22,6 +22,12 @@ export interface OciBridgeEnv {
 const PREVIEW_HOST = /^[a-f0-9]{8}-prodx-oci-bridge-staging\.prodx-pos\.workers\.dev$/i;
 const REQUEST_TIMEOUT_MS = 10_000;
 
+function isRequestTimeout(error: unknown): boolean {
+  if (!error || typeof error !== 'object' || !('name' in error)) return false;
+  const name = (error as { name?: unknown }).name;
+  return name === 'TimeoutError' || name === 'AbortError';
+}
+
 function readEndpoint(value: string | undefined): URL | null {
   if (!value) return null;
   try {
@@ -63,7 +69,7 @@ export async function getOciTenancyStatus(
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
   } catch (error) {
-    if (error instanceof Error && error.name === 'TimeoutError') {
+    if (isRequestTimeout(error)) {
       return { ok: false, statusCode: 504, code: 'OCI_BRIDGE_TIMEOUT' };
     }
     return { ok: false, statusCode: 502, code: 'OCI_BRIDGE_UNAVAILABLE' };
@@ -79,7 +85,10 @@ export async function getOciTenancyStatus(
   let payload: unknown;
   try {
     payload = await response.json();
-  } catch {
+  } catch (error) {
+    if (isRequestTimeout(error)) {
+      return { ok: false, statusCode: 504, code: 'OCI_BRIDGE_TIMEOUT' };
+    }
     return { ok: false, statusCode: 502, code: 'OCI_BRIDGE_INVALID_RESPONSE' };
   }
 
