@@ -61,6 +61,33 @@ test('security audit events reject UPDATE and DELETE, including for the database
       VALUES ($1, $2, $3, 'IMMUTABILITY_TEST', '{"test":true}'::jsonb)
     `, [eventId, organizationId, userId]);
 
+    // The backend runtime role is intentionally SELECT-only on this table.
+    await client.query('SET LOCAL ROLE prodx_app');
+    assert.equal((await client.query<{ current_user: string }>('SELECT current_user')).rows[0]?.current_user, 'prodx_app');
+    await client.query('SAVEPOINT before_runtime_insert');
+    await assert.rejects(
+      client.query(`
+        INSERT INTO public.prodx_security_audit_events
+          (id, organization_id, user_id, event_type, metadata)
+        VALUES ($1, $2, $3, 'RUNTIME_DIRECT_INSERT', '{}'::jsonb)
+      `, [randomUUID(), organizationId, userId]),
+      /permission denied/i,
+    );
+    await client.query('ROLLBACK TO SAVEPOINT before_runtime_insert');
+    await client.query('SAVEPOINT before_runtime_update');
+    await assert.rejects(
+      client.query('UPDATE public.prodx_security_audit_events SET metadata = \'{}\'::jsonb WHERE id = $1', [eventId]),
+      /permission denied/i,
+    );
+    await client.query('ROLLBACK TO SAVEPOINT before_runtime_update');
+    await client.query('SAVEPOINT before_runtime_delete');
+    await assert.rejects(
+      client.query('DELETE FROM public.prodx_security_audit_events WHERE id = $1', [eventId]),
+      /permission denied/i,
+    );
+    await client.query('ROLLBACK TO SAVEPOINT before_runtime_delete');
+    await client.query('RESET ROLE');
+
     await client.query('SAVEPOINT before_invalid_audit_insert');
     await assert.rejects(
       client.query(`
