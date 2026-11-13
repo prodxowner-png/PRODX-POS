@@ -37,6 +37,15 @@ test('security audit events reject UPDATE and DELETE, including for the database
     assert.equal(foreignKeys.rows[0]?.count, '0', 'historical identity references must not be mutated by FK actions');
 
     await client.query(`
+      INSERT INTO public.prodx_organizations (id, code, name)
+      VALUES ($1, $2, 'Audit Immutability Test')
+    `, [organizationId, `audit-immutability-${eventId}`]);
+    await client.query(`
+      INSERT INTO public.prodx_users (id, organization_id, username, display_name, status)
+      VALUES ($1, $2, $3, 'Audit Test User', 'active')
+    `, [userId, organizationId, `audit-${eventId}@example.invalid`]);
+
+    await client.query(`
       INSERT INTO public.prodx_security_audit_events
         (id, organization_id, user_id, event_type, metadata)
       VALUES ($1, $2, $3, 'IMMUTABILITY_TEST', '{"test":true}'::jsonb)
