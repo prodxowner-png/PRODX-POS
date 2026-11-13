@@ -61,6 +61,7 @@ test('security audit events reject UPDATE and DELETE, including for the database
       VALUES ($1, $2, $3, 'IMMUTABILITY_TEST', '{"test":true}'::jsonb)
     `, [eventId, organizationId, userId]);
 
+    await client.query('SAVEPOINT before_invalid_audit_insert');
     await assert.rejects(
       client.query(`
         INSERT INTO public.prodx_security_audit_events
@@ -69,6 +70,7 @@ test('security audit events reject UPDATE and DELETE, including for the database
       `, [randomUUID(), organizationId, otherUserId]),
       /does not belong to the organization/i,
     );
+    await client.query('ROLLBACK TO SAVEPOINT before_invalid_audit_insert');
 
     await client.query('SAVEPOINT before_audit_update');
     await assert.rejects(
