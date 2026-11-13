@@ -522,7 +522,7 @@ export default function App() {
 
   return (
     <ErrorBoundary isGlobal moduleName="PRODX POS Core Engine">
-        <GlobalErrorRecoveryProvider>
+      <GlobalErrorRecoveryProvider>
         <SettingsProvider>
           <ThemeProvider>
             <LanguageProvider>
@@ -553,7 +553,7 @@ export default function App() {
           </ThemeProvider>
         </SettingsProvider>
       </GlobalErrorRecoveryProvider>
-      </ErrorBoundary>
+    </ErrorBoundary>
   );
 }
 
