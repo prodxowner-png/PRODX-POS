@@ -56,6 +56,7 @@ BEGIN
 
   RAISE EXCEPTION 'prodx_security_audit_events is append-only; % is forbidden', TG_OP
     USING ERRCODE = '55000';
+END;
 $function$;
 
 REVOKE ALL ON FUNCTION public.prodx_reject_security_audit_event_mutation() FROM PUBLIC;
