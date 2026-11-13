@@ -33,9 +33,29 @@ LANGUAGE plpgsql
 SET search_path = pg_catalog
 AS $function$
 BEGIN
+  IF TG_OP = 'INSERT' THEN
+    IF NOT EXISTS (
+      SELECT 1 FROM public.prodx_organizations o WHERE o.id = NEW.organization_id
+    ) THEN
+      RAISE EXCEPTION 'security audit event organization does not exist'
+        USING ERRCODE = '23503';
+    END IF;
+
+    IF NEW.user_id IS NOT NULL AND NOT EXISTS (
+      SELECT 1
+        FROM public.prodx_users u
+       WHERE u.id = NEW.user_id
+         AND u.organization_id = NEW.organization_id
+    ) THEN
+      RAISE EXCEPTION 'security audit event user does not belong to the organization'
+        USING ERRCODE = '23503';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
   RAISE EXCEPTION 'prodx_security_audit_events is append-only; % is forbidden', TG_OP
     USING ERRCODE = '55000';
-END;
 $function$;
 
 REVOKE ALL ON FUNCTION public.prodx_reject_security_audit_event_mutation() FROM PUBLIC;
@@ -59,7 +79,7 @@ DROP TRIGGER IF EXISTS prodx_security_audit_events_immutable_guard
   ON public.prodx_security_audit_events;
 
 CREATE TRIGGER prodx_security_audit_events_immutable_guard
-  BEFORE UPDATE OR DELETE ON public.prodx_security_audit_events
+  BEFORE INSERT OR UPDATE OR DELETE ON public.prodx_security_audit_events
   FOR EACH ROW
   EXECUTE FUNCTION public.prodx_reject_security_audit_event_mutation();
 
