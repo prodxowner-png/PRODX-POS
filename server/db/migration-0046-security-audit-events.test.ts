@@ -15,4 +15,6 @@ test('0046 makes security audit events immutable and preserves historical identi
   assert.match(migration, /organization_id and user_id are immutable historical identifiers/i);
   assert.doesNotMatch(migration, /SECURITY DEFINER/i);
   assert.match(migration, /55000/);
+  assert.match(migration, /security audit event user does not belong to the organization/);
+  assert.match(migration, /security audit event organization does not exist/);
 });
