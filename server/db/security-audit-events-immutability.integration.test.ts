@@ -1,0 +1,72 @@
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import test from 'node:test';
+import { createPostgresPool, resolveConfiguredDatabaseUrl } from '../db/postgres';
+
+const databaseUrl = resolveConfiguredDatabaseUrl(process.env.DATABASE_URL);
+const pool = databaseUrl ? createPostgresPool({ connectionString: databaseUrl, max: 1 }) : null;
+
+test('security audit events reject UPDATE and DELETE, including for the database owner', async (t) => {
+  if (!pool) {
+    t.skip('DATABASE_URL is not configured; run with PostgreSQL migrations applied.');
+    return;
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const organizationId = randomUUID();
+    const userId = randomUUID();
+    const eventId = randomUUID();
+
+    const trigger = await client.query<{ tgenabled: string }>(`
+      SELECT t.tgenabled
+        FROM pg_catalog.pg_trigger t
+       WHERE t.tgrelid = 'public.prodx_security_audit_events'::regclass
+         AND t.tgname = 'prodx_security_audit_events_immutable_guard'
+         AND NOT t.tgisinternal
+    `);
+    assert.equal(trigger.rows[0]?.tgenabled, 'A', 'immutability trigger must be ENABLE ALWAYS');
+
+    const foreignKeys = await client.query<{ count: string }>(`
+      SELECT count(*)::text AS count
+        FROM pg_catalog.pg_constraint
+       WHERE conrelid = 'public.prodx_security_audit_events'::regclass
+         AND contype = 'f'
+    `);
+    assert.equal(foreignKeys.rows[0]?.count, '0', 'historical identity references must not be mutated by FK actions');
+
+    await client.query(`
+      INSERT INTO public.prodx_security_audit_events
+        (id, organization_id, user_id, event_type, metadata)
+      VALUES ($1, $2, $3, 'IMMUTABILITY_TEST', '{"test":true}'::jsonb)
+    `, [eventId, organizationId, userId]);
+
+    await client.query('SAVEPOINT before_audit_update');
+    await assert.rejects(
+      client.query(
+        'UPDATE public.prodx_security_audit_events SET metadata = $2 WHERE id = $1',
+        [eventId, JSON.stringify({ changed: true })],
+      ),
+      /append-only/i,
+    );
+    await client.query('ROLLBACK TO SAVEPOINT before_audit_update');
+
+    await client.query('SAVEPOINT before_audit_delete');
+    await assert.rejects(
+      client.query('DELETE FROM public.prodx_security_audit_events WHERE id = $1', [eventId]),
+      /append-only/i,
+    );
+    await client.query('ROLLBACK TO SAVEPOINT before_audit_delete');
+
+    const retained = await client.query<{ count: string }>(
+      'SELECT count(*)::text AS count FROM public.prodx_security_audit_events WHERE id = $1',
+      [eventId],
+    );
+    assert.equal(retained.rows[0]?.count, '1');
+  } finally {
+    await client.query('ROLLBACK');
+    client.release();
+    await pool.end();
+  }
+});
