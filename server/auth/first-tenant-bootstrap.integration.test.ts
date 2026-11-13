@@ -27,31 +27,16 @@ const makeInput = (subject: string, suffix: string): FirstTenantBootstrapInput =
   deviceName: `Bootstrap Admin Device ${suffix}`,
 });
 
-const cleanup = async (): Promise<void> => {
-  if (!pool) return;
-  await pool.query(`DELETE FROM public.prodx_security_audit_events WHERE event_type = 'first_tenant_bootstrapped'`);
-  await pool.query(`DELETE FROM public.prodx_sessions WHERE organization_id IN (SELECT id FROM public.prodx_organizations WHERE code LIKE 'bootstrap-%')`);
-  await pool.query(`DELETE FROM public.prodx_user_roles WHERE organization_id IN (SELECT id FROM public.prodx_organizations WHERE code LIKE 'bootstrap-%')`);
-  await pool.query(`DELETE FROM public.prodx_role_permissions WHERE organization_id IN (SELECT id FROM public.prodx_organizations WHERE code LIKE 'bootstrap-%')`);
-  await pool.query(`DELETE FROM public.prodx_store_memberships WHERE organization_id IN (SELECT id FROM public.prodx_organizations WHERE code LIKE 'bootstrap-%')`);
-  await pool.query(`DELETE FROM public.prodx_devices WHERE organization_id IN (SELECT id FROM public.prodx_organizations WHERE code LIKE 'bootstrap-%')`);
-  await pool.query(`DELETE FROM public.prodx_users WHERE organization_id IN (SELECT id FROM public.prodx_organizations WHERE code LIKE 'bootstrap-%')`);
-  await pool.query(`DELETE FROM public.prodx_roles WHERE organization_id IN (SELECT id FROM public.prodx_organizations WHERE code LIKE 'bootstrap-%')`);
-  await pool.query(`DELETE FROM public.prodx_stores WHERE organization_id IN (SELECT id FROM public.prodx_organizations WHERE code LIKE 'bootstrap-%')`);
-  await pool.query(`DELETE FROM public.prodx_organizations WHERE code LIKE 'bootstrap-%'`);
-};
-
 test('first-tenant PostgreSQL bootstrap is atomic, concurrent-safe, idempotent, and tenant-scoped', async (t) => {
   if (!pool || !repository) {
     t.skip('PRODX_BOOTSTRAP_TEST_DATABASE_URL is not configured; run the isolated bootstrap PostgreSQL gate.');
     return;
   }
+  // This test requires a newly created disposable database. Keep all audit evidence
+  // intact; the CI PostgreSQL service is discarded when the job finishes.
   t.after(async () => {
-    await cleanup();
     await pool.end();
   });
-
-  await cleanup();
   const initial = await pool.query<{ count: string }>('SELECT count(*)::text AS count FROM public.prodx_organizations');
   assert.equal(initial.rows[0].count, '0', 'the dedicated bootstrap database must start without tenant rows');
 
