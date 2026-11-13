@@ -47,7 +47,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for migration in db/migrations/*.sql; do
+          for migration in db/migrations/[0-9]*_*.sql; do
             psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration"
           done
 
@@ -63,8 +63,17 @@ jobs:
       - name: First-tenant bootstrap PostgreSQL integration
         env:
           PRODX_RUN_BOOTSTRAP_POSTGRES_INTEGRATION: '1'
-          PRODX_BOOTSTRAP_TEST_DATABASE_URL: ${{ env.DATABASE_URL }}
-        run: node --import tsx --test server/auth/first-tenant-bootstrap.integration.test.ts
+        run: |
+          set -euo pipefail
+          bootstrap_database_name="prodx_bootstrap_test"
+          export PRODX_BOOTSTRAP_TEST_DATABASE_URL="${DATABASE_URL%/*}/${bootstrap_database_name}"
+          # The CI role needs CREATEDB; recreate this disposable DB so reruns are deterministic.
+          dropdb --if-exists --maintenance-db="$DATABASE_URL" "$bootstrap_database_name"
+          createdb --maintenance-db="$DATABASE_URL" "$bootstrap_database_name"
+          for migration in db/migrations/[0-9]*_*.sql; do
+            psql "$PRODX_BOOTSTRAP_TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration"
+          done
+          node --import tsx --test server/auth/first-tenant-bootstrap.integration.test.ts
 
       - name: Reject direct mock auth wiring
         shell: bash
