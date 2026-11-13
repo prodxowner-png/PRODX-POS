@@ -142,8 +142,8 @@ class InternalCrashBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryS
             <p className="text-sm text-slate-300">
               The application stopped rendering safely. Your stored transaction data has not been cleared.
             </p>
-            <p className="break-words rounded-lg border border-rose-500/30 bg-rose-950/40 p-3 text-left font-mono text-xs text-rose-200">
-              {this.state.error?.message || 'An unexpected rendering error occurred.'}
+            <p className="rounded-lg border border-rose-500/30 bg-rose-950/40 p-3 text-left text-sm text-rose-200">
+              An unexpected rendering error occurred. Reload the application to try again.
             </p>
             <button
               type="button"
