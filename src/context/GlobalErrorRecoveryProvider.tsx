@@ -111,16 +111,17 @@ interface ErrorBoundaryProps {
 
 interface ErrorBoundaryState {
   hasError: boolean;
+  error: Error | null;
 }
 
 class InternalCrashBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   constructor(props: ErrorBoundaryProps) {
     super(props);
-    this.state = { hasError: false };
+    this.state = { hasError: false, error: null };
   }
 
-  static getDerivedStateFromError(): ErrorBoundaryState {
-    return { hasError: true };
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
   }
 
   override componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
@@ -128,6 +129,34 @@ class InternalCrashBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryS
   }
 
   override render(): ReactNode {
+    if (this.state.hasError) {
+      return (
+        <main
+          id="global-crash-boundary-fallback"
+          role="alert"
+          aria-live="assertive"
+          className="min-h-screen flex flex-col items-center justify-center gap-4 bg-slate-950 px-6 py-10 text-center text-white"
+        >
+          <div className="max-w-lg space-y-3">
+            <h1 className="text-xl font-bold">PRODX POS encountered a runtime error</h1>
+            <p className="text-sm text-slate-300">
+              The application stopped rendering safely. Your stored transaction data has not been cleared.
+            </p>
+            <p className="rounded-lg border border-rose-500/30 bg-rose-950/40 p-3 text-left text-sm text-rose-200">
+              An unexpected rendering error occurred. Reload the application to try again.
+            </p>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+            >
+              Reload application
+            </button>
+          </div>
+        </main>
+      );
+    }
+
     return this.props.children;
   }
 }
