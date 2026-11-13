@@ -17,6 +17,8 @@ test('security audit events reject UPDATE and DELETE, including for the database
     await client.query('BEGIN');
     const organizationId = randomUUID();
     const userId = randomUUID();
+    const otherOrganizationId = randomUUID();
+    const otherUserId = randomUUID();
     const eventId = randomUUID();
 
     const trigger = await client.query<{ tgenabled: string }>(`
@@ -44,12 +46,29 @@ test('security audit events reject UPDATE and DELETE, including for the database
       INSERT INTO public.prodx_users (id, organization_id, username, display_name, status)
       VALUES ($1, $2, $3, 'Audit Test User', 'active')
     `, [userId, organizationId, `audit-${eventId}@example.invalid`]);
+    await client.query(`
+      INSERT INTO public.prodx_organizations (id, code, name)
+      VALUES ($1, $2, 'Other Audit Test Organization')
+    `, [otherOrganizationId, `audit-other-${eventId}`]);
+    await client.query(`
+      INSERT INTO public.prodx_users (id, organization_id, username, display_name, status)
+      VALUES ($1, $2, $3, 'Other Audit Test User', 'active')
+    `, [otherUserId, otherOrganizationId, `audit-other-${eventId}@example.invalid`]);
 
     await client.query(`
       INSERT INTO public.prodx_security_audit_events
         (id, organization_id, user_id, event_type, metadata)
       VALUES ($1, $2, $3, 'IMMUTABILITY_TEST', '{"test":true}'::jsonb)
     `, [eventId, organizationId, userId]);
+
+    await assert.rejects(
+      client.query(`
+        INSERT INTO public.prodx_security_audit_events
+          (id, organization_id, user_id, event_type, metadata)
+        VALUES ($1, $2, $3, 'INVALID_TENANT_USER', '{}'::jsonb)
+      `, [randomUUID(), organizationId, otherUserId]),
+      /does not belong to the organization/i,
+    );
 
     await client.query('SAVEPOINT before_audit_update');
     await assert.rejects(
@@ -68,11 +87,16 @@ test('security audit events reject UPDATE and DELETE, including for the database
     );
     await client.query('ROLLBACK TO SAVEPOINT before_audit_delete');
 
-    const retained = await client.query<{ count: string }>(
-      'SELECT count(*)::text AS count FROM public.prodx_security_audit_events WHERE id = $1',
+    await client.query('DELETE FROM public.prodx_users WHERE id = $1', [userId]);
+    await client.query('DELETE FROM public.prodx_organizations WHERE id = $1', [organizationId]);
+
+    const retained = await client.query<{ count: string; organization_id: string; user_id: string }>(
+      'SELECT count(*)::text AS count, max(organization_id::text) AS organization_id, max(user_id::text) AS user_id FROM public.prodx_security_audit_events WHERE id = $1',
       [eventId],
     );
     assert.equal(retained.rows[0]?.count, '1');
+    assert.equal(retained.rows[0]?.organization_id, organizationId);
+    assert.equal(retained.rows[0]?.user_id, userId);
   } finally {
     await client.query('ROLLBACK');
     client.release();
