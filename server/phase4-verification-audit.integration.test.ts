@@ -8,15 +8,15 @@ import { createProductionApp } from './entrypoint';
 const databaseUrl = resolveConfiguredDatabaseUrl(process.env.DATABASE_URL);
 
 const ids = {
-  org: '00000000-0000-4000-8000-000000009401',
-  store: '00000000-0000-4000-8000-000000009402',
-  register: '00000000-0000-4000-8000-000000009403',
-  device: '00000000-0000-4000-8000-000000009404',
-  adminUser: '00000000-0000-4000-8000-000000009405',
-  cashierUser: '00000000-0000-4000-8000-000000009406',
-  adminRole: '00000000-0000-4000-8000-000000009407',
-  cashierRole: '00000000-0000-4000-8000-000000009408',
-  category: '00000000-0000-4000-8000-000000009409',
+  org: crypto.randomUUID(),
+  store: crypto.randomUUID(),
+  register: crypto.randomUUID(),
+  device: crypto.randomUUID(),
+  adminUser: crypto.randomUUID(),
+  cashierUser: crypto.randomUUID(),
+  adminRole: crypto.randomUUID(),
+  cashierRole: crypto.randomUUID(),
+  category: crypto.randomUUID(),
 };
 
 const requiredPermissions = [
@@ -71,7 +71,6 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
       await pool.query('DELETE FROM prodx_categories WHERE organization_id = $1', [ids.org]);
       await pool.query('DELETE FROM prodx_shift_operations WHERE organization_id = $1', [ids.org]);
       await pool.query('DELETE FROM prodx_shifts WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_security_audit_events WHERE organization_id = $1', [ids.org]);
       await pool.query('DELETE FROM prodx_audit_log WHERE organization_id = $1', [ids.org]);
       await pool.query('DELETE FROM prodx_sessions WHERE organization_id = $1', [ids.org]);
       await pool.query('DELETE FROM prodx_user_roles WHERE organization_id = $1', [ids.org]);
