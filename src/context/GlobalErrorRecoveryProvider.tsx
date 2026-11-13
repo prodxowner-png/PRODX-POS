@@ -148,7 +148,7 @@ class InternalCrashBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryS
             <button
               type="button"
               onClick={() => window.location.reload()}
-              className="rounded-lg bg-orange-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-orange-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-300"
+              className="rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
             >
               Reload application
             </button>
