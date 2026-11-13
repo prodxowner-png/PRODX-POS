@@ -89,6 +89,48 @@ test('security audit events reject UPDATE and DELETE, including for the database
     );
     await client.query('ROLLBACK TO SAVEPOINT before_audit_delete');
 
+    // Replication apply normally suppresses origin triggers. ENABLE ALWAYS must
+    // still enforce the audit-event contract when the session is in replica mode.
+    await client.query("SET LOCAL session_replication_role = 'replica'");
+    const replicaEventId = randomUUID();
+
+    await client.query(`
+      INSERT INTO public.prodx_security_audit_events
+        (id, organization_id, user_id, event_type, metadata)
+      VALUES ($1, $2, $3, 'REPLICA_MODE_VALID_INSERT', '{"replicaMode":true}'::jsonb)
+    `, [replicaEventId, organizationId, userId]);
+
+    await client.query('SAVEPOINT before_replica_invalid_insert');
+    await assert.rejects(
+      client.query(`
+        INSERT INTO public.prodx_security_audit_events
+          (id, organization_id, user_id, event_type, metadata)
+        VALUES ($1, $2, $3, 'REPLICA_MODE_INVALID_TENANT_USER', '{}'::jsonb)
+      `, [randomUUID(), organizationId, otherUserId]),
+      /does not belong to the organization/i,
+    );
+    await client.query('ROLLBACK TO SAVEPOINT before_replica_invalid_insert');
+
+    await client.query('SAVEPOINT before_replica_audit_update');
+    await assert.rejects(
+      client.query(
+        'UPDATE public.prodx_security_audit_events SET metadata = $2 WHERE id = $1',
+        [replicaEventId, JSON.stringify({ changed: true })],
+      ),
+      /append-only/i,
+    );
+    await client.query('ROLLBACK TO SAVEPOINT before_replica_audit_update');
+
+    await client.query('SAVEPOINT before_replica_audit_delete');
+    await assert.rejects(
+      client.query('DELETE FROM public.prodx_security_audit_events WHERE id = $1', [replicaEventId]),
+      /append-only/i,
+    );
+    await client.query('ROLLBACK TO SAVEPOINT before_replica_audit_delete');
+
+    // Restore normal trigger behavior before exercising entity-retention checks.
+    await client.query("SET LOCAL session_replication_role = 'origin'");
+
     await client.query('DELETE FROM public.prodx_users WHERE id = $1', [userId]);
     await client.query('DELETE FROM public.prodx_organizations WHERE id = $1', [organizationId]);
 
