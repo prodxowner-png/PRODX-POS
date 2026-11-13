@@ -63,10 +63,13 @@ jobs:
       - name: First-tenant bootstrap PostgreSQL integration
         env:
           PRODX_RUN_BOOTSTRAP_POSTGRES_INTEGRATION: '1'
-          PRODX_BOOTSTRAP_TEST_DATABASE_URL: postgresql://prodx:prodx@127.0.0.1:5432/prodx_bootstrap_test
         run: |
           set -euo pipefail
-          createdb --maintenance-db="$DATABASE_URL" prodx_bootstrap_test
+          bootstrap_database_name="prodx_bootstrap_test"
+          export PRODX_BOOTSTRAP_TEST_DATABASE_URL="${DATABASE_URL%/*}/${bootstrap_database_name}"
+          # Recreate the disposable database so reruns on a persistent runner are deterministic.
+          dropdb --if-exists --maintenance-db="$DATABASE_URL" "$bootstrap_database_name"
+          createdb --maintenance-db="$DATABASE_URL" "$bootstrap_database_name"
           for migration in db/migrations/*.sql; do
             psql "$PRODX_BOOTSTRAP_TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration"
           done
