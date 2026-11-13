@@ -128,7 +128,55 @@ class InternalCrashBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryS
   }
 
   override render(): ReactNode {
-    return this.props.children;
+    if (!this.state.hasError) {
+      return this.props.children;
+    }
+
+    // Keep the terminal recoverable when a descendant crashes. This fallback is
+    // intentionally self-contained so it still renders if the app theme/CSS fails.
+    return (
+      <main
+        role="alert"
+        aria-labelledby="prodx-runtime-crash-title"
+        style={{
+          boxSizing: 'border-box',
+          minHeight: '100vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '24px',
+          background: '#111827',
+          color: '#f9fafb',
+          fontFamily: 'system-ui, sans-serif',
+        }}
+      >
+        <section style={{ width: '100%', maxWidth: '520px', textAlign: 'center' }}>
+          <h1 id="prodx-runtime-crash-title" style={{ fontSize: '1.5rem', marginBottom: '12px' }}>
+            PRODX POS encountered an unexpected error
+          </h1>
+          <p style={{ color: '#d1d5db', lineHeight: 1.6 }}>
+            The application stopped this screen to prevent further errors. Your server-side
+            transaction records are not changed by this recovery screen.
+          </p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '12px', marginTop: '24px' }}>
+            <button
+              type="button"
+              onClick={() => this.setState({ hasError: false })}
+              style={{ padding: '10px 16px', borderRadius: '8px', border: '1px solid #f97316', background: '#f97316', color: '#111827', fontWeight: 600, cursor: 'pointer' }}
+            >
+              Try again
+            </button>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              style={{ padding: '10px 16px', borderRadius: '8px', border: '1px solid #6b7280', background: 'transparent', color: '#f9fafb', fontWeight: 600, cursor: 'pointer' }}
+            >
+              Reload application
+            </button>
+          </div>
+        </section>
+      </main>
+    );
   }
 }
 
