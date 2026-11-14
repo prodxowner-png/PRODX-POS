@@ -189,7 +189,7 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
     method: 'POST',
     headers: { ...authHeaders, 'x-request-id': 'req-p4-import-1' },
     body: JSON.stringify({
-      idempotencyKey: `idem-p4-${runSuffix}-${rest}`,
+      idempotencyKey: `idem-p4-${runSuffix}-import-1`,
       mode: 'upsert',
       items: [
         {
@@ -222,7 +222,7 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
     method: 'POST',
     headers: authHeaders,
     body: JSON.stringify({
-      idempotencyKey: `idem-p4-${runSuffix}-${rest}`,
+      idempotencyKey: `idem-p4-${runSuffix}-import-1`,
       mode: 'upsert',
       items: [
         {
@@ -249,7 +249,7 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
     method: 'POST',
     headers: authHeaders,
     body: JSON.stringify({
-      idempotencyKey: `idem-p4-${runSuffix}-${rest}`,
+      idempotencyKey: `idem-p4-${runSuffix}-pricing-1`,
       productIds: [productId],
       priceChangeType: 'percent_markup',
       value: 10,
@@ -267,7 +267,7 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
     method: 'POST',
     headers: authHeaders,
     body: JSON.stringify({
-      idempotencyKey: `idem-p4-${runSuffix}-${rest}`,
+      idempotencyKey: `idem-p4-${runSuffix}-inv-1`,
       productIds: [productId],
       quantityDelta: 5,
       reason: 'purchase_received',
@@ -285,7 +285,7 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
     method: 'POST',
     headers: authHeaders,
     body: JSON.stringify({
-      idempotencyKey: `idem-p4-${runSuffix}-${rest}`,
+      idempotencyKey: `idem-p4-${runSuffix}-shift-open`,
       registerId: ids.register,
       openingFloat: { amountInCents: 100000, currency: 'THB' },
     }),
@@ -301,7 +301,7 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
     method: 'POST',
     headers: authHeaders,
     body: JSON.stringify({
-      idempotencyKey: `idem-p4-${runSuffix}-${rest}`,
+      idempotencyKey: `idem-p4-${runSuffix}-checkout-1`,
       storeId: ids.store,
       registerId: ids.register,
       cashierId: ids.adminUser,
@@ -378,7 +378,7 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
       reason: 'Customer returned 1 item',
       refundMethod: 'cash',
       itemsToRestock: [{ productId, quantity: 1 }],
-      idempotencyKey: `idem-p4-${runSuffix}-${rest}`,
+      idempotencyKey: `idem-p4-${runSuffix}-refund-1`,
       supervisorAuthorizationToken: supAuthRefundBody.authorizationToken,
     }),
   });
@@ -389,7 +389,7 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
     method: 'POST',
     headers: authHeaders,
     body: JSON.stringify({
-      idempotencyKey: `idem-p4-${runSuffix}-${rest}`,
+      idempotencyKey: `idem-p4-${runSuffix}-checkout-2`,
       storeId: ids.store,
       registerId: ids.register,
       cashierId: ids.adminUser,
@@ -461,7 +461,7 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
     body: JSON.stringify({
       orderId: order2Id,
       reason: 'Cashier entry mistake',
-      idempotencyKey: `idem-p4-${runSuffix}-${rest}`,
+      idempotencyKey: `idem-p4-${runSuffix}-void-1`,
       supervisorAuthorizationToken: supAuthVoidBody.authorizationToken,
     }),
   });
@@ -473,7 +473,7 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
     method: 'POST',
     headers: authHeaders,
     body: JSON.stringify({
-      idempotencyKey: `idem-p4-${runSuffix}-${rest}`,
+      idempotencyKey: `idem-p4-${runSuffix}-shift-close`,
       shiftId,
       actualCountedCash: { amountInCents: 102199, currency: 'THB' },
       notes: 'Exact drawer count',
@@ -491,7 +491,7 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
     method: 'POST',
     headers: authHeaders,
     body: JSON.stringify({
-      idempotencyKey: `idem-p4-${runSuffix}-${rest}`,
+      idempotencyKey: `idem-p4-${runSuffix}-shift-close`,
       shiftId,
       actualCountedCash: { amountInCents: 102199, currency: 'THB' },
       notes: 'Exact drawer count',
