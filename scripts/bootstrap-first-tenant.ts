@@ -125,16 +125,16 @@ const run = async (): Promise<void> => {
   const envFile = process.env.PRODX_BOOTSTRAP_ENV_FILE || '.env.bootstrap';
   const loaded = loadEnv({ path: envFile, override: true });
   if (loaded.error) {
-    throw new Error(`Could not load ${envFile}. Run Vercel env pull for the Production project first.`);
+    throw new Error(`Could not load ${envFile}. Create the minimal bootstrap environment file described in docs/auth/first-tenant-bootstrap.md.`);
   }
 
   const config = validateBootstrapEnvironment(process.env);
-  let bootstrapSecret = validateBootstrapSecret(await promptHidden('Operator bootstrap secret (hidden): '));
   const email = await promptLine('PRODX-ORG Auth email: ');
   if (!email) throw new Error('An Auth email is required.');
 
   let password = await promptHidden('Password (hidden): ');
   if (!password) throw new Error('A password is required.');
+  let bootstrapSecret = validateBootstrapSecret(await promptHidden('Operator bootstrap secret (hidden): '));
 
   const supabase = createClient(config.supabaseUrl, config.publishableKey, {
     auth: {
