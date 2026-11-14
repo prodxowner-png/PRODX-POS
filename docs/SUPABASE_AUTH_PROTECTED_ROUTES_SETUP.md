@@ -12,15 +12,16 @@
 
 Set the following environment variables in the deployment target (Vercel project) and in the local environment where relevant:
 
-- `VITE_SUPABASE_POS_AUTH_URL=https://wcyqyiewbzpmrekoljfw.supabase.co`
-- `VITE_SUPABASE_POS_AUTH_PUBLISHABLE_KEY=<the active sb_publishable_ key for the POS Auth project>`
-- `SUPABASE_POS_AUTH_URL=https://wcyqyiewbzpmrekoljfw.supabase.co`
-- `SUPABASE_POS_AUTH_JWKS_URL=https://wcyqyiewbzpmrekoljfw.supabase.co/auth/v1/.well-known/jwks.json`
+- `VITE_SUPABASE_URL=https://wcyqyiewbzpmrekoljfw.supabase.co`
+- `VITE_SUPABASE_PUBLISHABLE_KEY=<the active PRODX-ORG sb_publishable_ key>`
+- `SUPABASE_URL=https://wcyqyiewbzpmrekoljfw.supabase.co`
+- `SUPABASE_JWKS_URL=https://wcyqyiewbzpmrekoljfw.supabase.co/auth/v1/.well-known/jwks.json`
+- `SUPABASE_POS_AUTH_ENABLED=false` until bootstrap and live E2E gates pass
 - `VITE_AUTH_API_BASE_URL=/` when `/auth/*` and `/organizations/*` are routed to the same-origin backend.
 
-The `VITE_` values are public and may be sent to the browser. These POS-specific variables must target the POS Auth issuer, not the separate Owner Console Auth project. Never use `service_role`, secret keys, database passwords, or other server credentials in frontend variables.
+The `VITE_` values are public and may be sent to the browser. The browser and server values must target the PRODX-ORG POS Auth issuer, not the separate Owner Console Auth project. Never use `service_role`, secret keys, database passwords, or other server credentials in frontend variables.
 
-The active publishable key can be copied from the POS Auth project Supabase Dashboard → Project Settings → API Keys. Configure `SUPABASE_POS_AUTH_URL` and optionally `SUPABASE_POS_AUTH_JWKS_URL` on the server. The server verifier does not fall back to the legacy `SUPABASE_URL` or `SUPABASE_JWKS_URL`. Do not commit credentials to the repository.
+The active publishable key can be copied from the POS Auth project Supabase Dashboard → Project Settings → API Keys. Configure `SUPABASE_URL` and `SUPABASE_JWKS_URL` on the server. Keep `SUPABASE_POS_AUTH_ENABLED=false` until the first tenant is bootstrapped and live session/authorization tests pass. The bootstrap route remains separately protected by its server-owned operator secret and exact Auth subject. Do not commit credentials to the repository.
 
 ## Configure Supabase Auth
 
@@ -68,4 +69,4 @@ npx skills add supabase/agent-skills
 
 ## Readiness status
 
-This document is an implementation/configuration checklist. Do not claim production-ready until the environment variables are set in the deployment target, account linking is provisioned explicitly, integration tests and CI pass, and the live login flow is verified end-to-end. No production database schema changes are made by this checklist.
+This document is an implementation/configuration checklist. Do not claim production-ready until the canonical environment variables are set, the first tenant is provisioned through the protected bootstrap route, the server-side Supabase session gate is intentionally enabled, integration tests and CI pass, and the live login/protected-route flow is verified end-to-end. No production database schema changes are made by this checklist.
