@@ -19,6 +19,10 @@
     {
       "source": "/organizations/:path*",
       "destination": "/api/index.ts"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
     }
   ]
 }
