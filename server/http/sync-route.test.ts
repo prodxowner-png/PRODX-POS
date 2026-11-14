@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { randomUUID } from 'node:crypto';
 import { createPostgresPool, resolveConfiguredDatabaseUrl } from '../db/postgres';
 import { createTransactionalPostgresExecutor } from '../db/transaction';
 import { createApp } from './createApp';
@@ -10,6 +11,9 @@ import type { TransactionalSqlExecutor } from '../db/transaction';
 const url = resolveConfiguredDatabaseUrl(process.env.DATABASE_URL);
 const pool = url ? createPostgresPool({ connectionString: url, max: 8 }) : null;
 const db = pool ? createTransactionalPostgresExecutor(pool) : null;
+// Append-only audit events are retained; each integration run owns isolated fixtures.
+const ids = { org: randomUUID(), store: randomUUID(), user: randomUUID(), register: randomUUID(), shift: randomUUID(), category: randomUUID(), product: randomUUID(), payment: randomUUID() };
+const runSuffix = ids.org.replaceAll('-', '').slice(0, 12);
 
 const principal = {
   userId: 'user-1',
@@ -91,47 +95,24 @@ test('sync route denies unauthorized access before database work', async () => {
 });
 
 const request = (key: string): CheckoutRequest => ({
-  idempotencyKey: key, storeId: '00000000-0000-4000-8000-000000003002', registerId: '00000000-0000-4000-8000-000000003004', cashierId: '00000000-0000-4000-8000-000000003003',
-  items: [{ lineId: 'sync-line', product: { id: '00000000-0000-4000-8000-000000003007', storeId: '00000000-0000-4000-8000-000000003002', sku: 'SYNC-1', barcode: 'SYNC-1', name: 'Sync Product', categoryId: '00000000-0000-4000-8000-000000003006', price: { amountInCents: 1000, currency: 'THB' }, costPrice: { amountInCents: 500, currency: 'THB' }, taxRateBps: 0, currentStock: 10, reorderPoint: 1, unitOfMeasure: 'each' }, quantity: 1, unitPrice: { amountInCents: 1000, currency: 'THB' }, discountBps: 0, lineSubtotal: { amountInCents: 1000, currency: 'THB' }, lineTax: { amountInCents: 0, currency: 'THB' }, lineTotal: { amountInCents: 1000, currency: 'THB' } }],
+  idempotencyKey: key, storeId: ids.store, registerId: ids.register, cashierId: ids.user,
+  items: [{ lineId: 'sync-line', product: { id: ids.product, storeId: ids.store, sku: `SYNC-${runSuffix}`, barcode: `SYNC-${runSuffix}`, name: 'Sync Product', categoryId: ids.category, price: { amountInCents: 1000, currency: 'THB' }, costPrice: { amountInCents: 500, currency: 'THB' }, taxRateBps: 0, currentStock: 10, reorderPoint: 1, unitOfMeasure: 'each' }, quantity: 1, unitPrice: { amountInCents: 1000, currency: 'THB' }, discountBps: 0, lineSubtotal: { amountInCents: 1000, currency: 'THB' }, lineTax: { amountInCents: 0, currency: 'THB' }, lineTotal: { amountInCents: 1000, currency: 'THB' } }],
   totals: { grossSubtotal: { amountInCents: 1000, currency: 'THB' }, itemDiscounts: { amountInCents: 0, currency: 'THB' }, orderDiscount: { amountInCents: 0, currency: 'THB' }, netSubtotal: { amountInCents: 1000, currency: 'THB' }, totalTax: { amountInCents: 0, currency: 'THB' }, grandTotal: { amountInCents: 1000, currency: 'THB' }, totalItemsCount: 1 },
-  payments: [{ id: '00000000-0000-4000-8000-000000003008', method: 'cash', amount: { amountInCents: 1000, currency: 'THB' }, tenderedCash: { amountInCents: 1000, currency: 'THB' }, changeGiven: { amountInCents: 0, currency: 'THB' }, timestamp: '2026-10-05T00:00:00.000Z' }],
+  payments: [{ id: ids.payment, method: 'cash', amount: { amountInCents: 1000, currency: 'THB' }, tenderedCash: { amountInCents: 1000, currency: 'THB' }, changeGiven: { amountInCents: 0, currency: 'THB' }, timestamp: '2026-10-05T00:00:00.000Z' }],
 });
 
 test('production sync HTTP path commits once and returns cached result on replay', async (t) => {
   if (!pool || !db) { t.skip('DATABASE_URL not configured'); return; }
-  const ids = { org: '00000000-0000-4000-8000-000000003001', store: '00000000-0000-4000-8000-000000003002', user: '00000000-0000-4000-8000-000000003003', register: '00000000-0000-4000-8000-000000003004', shift: '00000000-0000-4000-8000-000000003005', category: '00000000-0000-4000-8000-000000003006', product: '00000000-0000-4000-8000-000000003007', payment: '00000000-0000-4000-8000-000000003008' };
-  const clean = async () => {
-    await pool.query('ALTER TABLE prodx_audit_log DISABLE TRIGGER prodx_audit_log_immutable_guard');
-    try {
-      for (const [sql, params] of [
-        ['DELETE FROM prodx_cash_movements WHERE shift_id=$1', [ids.shift]],
-        ['DELETE FROM prodx_audit_log WHERE store_id=$1', [ids.store]],
-        ['DELETE FROM prodx_payments WHERE store_id=$1', [ids.store]],
-        ['DELETE FROM prodx_order_items WHERE store_id=$1', [ids.store]],
-        ['DELETE FROM prodx_inventory_ledger WHERE store_id=$1', [ids.store]],
-        ['DELETE FROM prodx_orders WHERE store_id=$1', [ids.store]],
-        ['DELETE FROM prodx_shifts WHERE id=$1', [ids.shift]],
-        ['DELETE FROM prodx_products WHERE id=$1', [ids.product]],
-        ['DELETE FROM prodx_categories WHERE id=$1', [ids.category]],
-        ['DELETE FROM prodx_registers WHERE id=$1', [ids.register]],
-        ['DELETE FROM prodx_store_memberships WHERE store_id=$1', [ids.store]],
-        ['DELETE FROM prodx_users WHERE id=$1', [ids.user]],
-        ['DELETE FROM prodx_stores WHERE id=$1', [ids.store]],
-        ['DELETE FROM prodx_organizations WHERE id=$1', [ids.org]],
-      ] as const) await pool.query(sql as string, [...params]);
-    } finally {
-      await pool.query('ALTER TABLE prodx_audit_log ENABLE TRIGGER prodx_audit_log_immutable_guard');
-    }
-  };  await clean();
+
   try {
-    await pool.query('INSERT INTO prodx_organizations(id,code,name) VALUES($1,$2,$3)', [ids.org, 'sync-http', 'Sync HTTP']);
-    await pool.query('INSERT INTO prodx_stores(id,organization_id,code,name,business_timezone) VALUES($1,$2,$3,$4,$5)', [ids.store, ids.org, 'sync-store', 'Sync Store', 'Asia/Bangkok']);
-    await pool.query('INSERT INTO prodx_users(id,organization_id,username,display_name) VALUES($1,$2,$3,$4)', [ids.user, ids.org, 'sync-user', 'Sync User']);
+    await pool.query('INSERT INTO prodx_organizations(id,code,name) VALUES($1,$2,$3)', [ids.org, `sync-http-${runSuffix}`, 'Sync HTTP']);
+    await pool.query('INSERT INTO prodx_stores(id,organization_id,code,name,business_timezone) VALUES($1,$2,$3,$4,$5)', [ids.store, ids.org, `sync-store-${runSuffix}`, 'Sync Store', 'Asia/Bangkok']);
+    await pool.query('INSERT INTO prodx_users(id,organization_id,username,display_name) VALUES($1,$2,$3,$4)', [ids.user, ids.org, `sync-user-${runSuffix}`, 'Sync User']);
     await pool.query('INSERT INTO prodx_store_memberships(organization_id,store_id,user_id) VALUES($1,$2,$3)', [ids.org, ids.store, ids.user]);
-    await pool.query('INSERT INTO prodx_registers(id,organization_id,store_id,code,name) VALUES($1,$2,$3,$4,$5)', [ids.register, ids.org, ids.store, 'SYNC-R1', 'Sync Register']);
+    await pool.query('INSERT INTO prodx_registers(id,organization_id,store_id,code,name) VALUES($1,$2,$3,$4,$5)', [ids.register, ids.org, ids.store, `SYNC-R1-${runSuffix}`, 'Sync Register']);
     await pool.query("INSERT INTO prodx_shifts(id,organization_id,store_id,register_id,cashier_id,opening_float_amount,currency) VALUES($1,$2,$3,$4,$5,0,'THB')", [ids.shift, ids.org, ids.store, ids.register, ids.user]);
-    await pool.query('INSERT INTO prodx_categories(id,organization_id,store_id,name,slug) VALUES($1,$2,$3,$4,$5)', [ids.category, ids.org, ids.store, 'Sync Category', 'sync-category']);
-    await pool.query("INSERT INTO prodx_products(id,organization_id,store_id,category_id,sku,barcode,name,price_amount,cost_price_amount,currency,tax_rate_bps,current_stock,reorder_point,unit_of_measure) VALUES($1,$2,$3,$4,'SYNC-1','SYNC-1','Sync Product',10.00,5.00,'THB',0,10,1,'each')", [ids.product, ids.org, ids.store, ids.category]);
+    await pool.query('INSERT INTO prodx_categories(id,organization_id,store_id,name,slug) VALUES($1,$2,$3,$4,$5)', [ids.category, ids.org, ids.store, 'Sync Category', `sync-category-${runSuffix}`]);
+    await pool.query("INSERT INTO prodx_products(id,organization_id,store_id,category_id,sku,barcode,name,price_amount,cost_price_amount,currency,tax_rate_bps,current_stock,reorder_point,unit_of_measure) VALUES($1,$2,$3,$4,$5,$5,'Sync Product',10.00,5.00,'THB',0,10,1,'each')", [ids.product, ids.org, ids.store, ids.category, `SYNC-${runSuffix}`]);
     const app = createApp({ authenticateRequest: () => ({ userId: ids.user, organizationId: ids.org, storeId: ids.store, sessionId: 'sync-http-session' }), authorizeRequest: (_context, permission) => permission === 'pos.sell', configureRoutes: (configuredApp) => registerSyncRoute(configuredApp, db) });
     const server = await start(app);
     try {
@@ -148,5 +129,5 @@ test('production sync HTTP path commits once and returns cached result on replay
       assert.equal((await pool.query('SELECT current_stock FROM prodx_products WHERE id=$1', [ids.product])).rows[0].current_stock, 9);
       assert.equal((await pool.query('SELECT count(*)::int AS count FROM prodx_payments WHERE store_id=$1 AND order_id=$2', [ids.store, firstBody.confirmedOrder.id])).rows[0].count, 1);
     } finally { await server.close(); }
-  } finally { await clean(); await pool.end(); }
+  } finally { await pool.end(); }
 });
