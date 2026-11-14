@@ -36,6 +36,24 @@ A transaction-scoped advisory lock serializes competing first-tenant requests. T
 
 A failed insert (including audit failure) rolls back the entire provisioning transaction. No local password credential is created. No Production records are written merely by deploying this migration.
 
+## Operator CLI
+
+Run the operator helper only after the Production deployment containing the secure bootstrap route is Ready.
+
+1. From the repository root, ensure the Vercel CLI is authenticated and the project is linked to `prodx-pos-org`.
+2. Pull Production variables into a temporary local file. This file contains Production secrets; keep it on a trusted machine, do not share or commit it, and remove it immediately after the operation.
+
+```bash
+vercel env pull .env.bootstrap --environment=production
+chmod 600 .env.bootstrap
+npm run auth:bootstrap:first-tenant
+rm -f .env.bootstrap
+```
+
+The CLI prompts for the existing PRODX-ORG Auth email and password; password input is hidden. Before sending any request, it checks that the signed-in JWT subject matches `PRODX_FIRST_TENANT_BOOTSTRAP_SUBJECT`. It sends the bootstrap secret only to `https://prodx-pos.vercel.app`, does not print or persist the returned POS bearer token, and verifies the Owner/Admin role contract.
+
+If the request times out after the database transaction commits, rerun with the same Auth identity and unchanged server configuration. The database function permits an exact idempotent retry without duplicating tenant rows or audit events. Do not change identifiers between retries.
+
 ## Verification and activation
 
 Before configuring the operator secret in a production runtime:
