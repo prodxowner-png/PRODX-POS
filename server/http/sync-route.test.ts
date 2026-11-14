@@ -116,7 +116,7 @@ test('production sync HTTP path commits once and returns cached result on replay
     const app = createApp({ authenticateRequest: () => ({ userId: ids.user, organizationId: ids.org, storeId: ids.store, sessionId: 'sync-http-session' }), authorizeRequest: (_context, permission) => permission === 'pos.sell', configureRoutes: (configuredApp) => registerSyncRoute(configuredApp, db) });
     const server = await start(app);
     try {
-      const item = { id: 'offline-sync-1', type: 'order_transaction' as const, idempotencyKey: 'offline-sync-key', payload: request('offline-sync-key'), createdAt: '2026-10-05T00:00:00.000Z', attempts: 0, syncState: 'queued' as const };
+      const item = { id: `offline-sync-${runSuffix}`, type: 'order_transaction' as const, idempotencyKey: `offline-sync-${runSuffix}`, payload: request(`offline-sync-${runSuffix}`), createdAt: '2026-10-05T00:00:00.000Z', attempts: 0, syncState: 'queued' as const };
       const first = await fetch(`${server.baseUrl}/api/v1/sync/commands`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ item }) });
       assert.equal(first.status, 201);
       const firstBody = await first.json() as { confirmedOrder: { id: string }; serverConfirmed: boolean; idempotencyCached: boolean };

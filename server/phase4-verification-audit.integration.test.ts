@@ -49,6 +49,7 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
     checkCompromisedPassword: async () => ({ compromised: false, count: 0 }),
   });
   const passwordHash = await hashPassword('Phase4-Pass!99');
+  t.after(async () => { await pool.end(); });
 
   // Seed organization, store, register, device, users, roles, and permissions
   await pool.query('INSERT INTO prodx_organizations (id, code, name) VALUES ($1, $2, $3)', [
