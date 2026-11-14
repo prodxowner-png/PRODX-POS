@@ -90,3 +90,27 @@ test('Supabase POS session exchange is reachable only when the server rollout fl
   assert.equal(harness.databaseCalls, 1);
   assert.equal(harness.exchangeCalls, 1);
 });
+
+test('an explicit false server rollout flag keeps the Supabase session endpoint hidden', async (t) => {
+  const harness = createHarness(false);
+  t.after(async () => new Promise<void>((resolve, reject) => {
+    harness.server.close((error?: Error) => error ? reject(error) : resolve());
+  }));
+
+  const response = await fetch(harness.url, {
+    method: 'POST',
+    headers: {
+      authorization: 'Bearer supabase-access-token',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      organizationSlug: 'PRODX',
+      storeCode: 'STR-01',
+      registerId: 'ADMIN-CONSOLE',
+    }),
+  });
+
+  assert.equal(response.status, 404);
+  assert.equal(harness.databaseCalls, 0);
+  assert.equal(harness.exchangeCalls, 0);
+});
