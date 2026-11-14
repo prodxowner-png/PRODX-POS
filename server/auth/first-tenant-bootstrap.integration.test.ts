@@ -29,7 +29,6 @@ const makeInput = (subject: string, suffix: string): FirstTenantBootstrapInput =
 
 const cleanup = async (): Promise<void> => {
   if (!pool) return;
-  await pool.query(`DELETE FROM public.prodx_security_audit_events WHERE event_type = 'first_tenant_bootstrapped'`);
   await pool.query(`DELETE FROM public.prodx_sessions WHERE organization_id IN (SELECT id FROM public.prodx_organizations WHERE code LIKE 'bootstrap-%')`);
   await pool.query(`DELETE FROM public.prodx_user_roles WHERE organization_id IN (SELECT id FROM public.prodx_organizations WHERE code LIKE 'bootstrap-%')`);
   await pool.query(`DELETE FROM public.prodx_role_permissions WHERE organization_id IN (SELECT id FROM public.prodx_organizations WHERE code LIKE 'bootstrap-%')`);

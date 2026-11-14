@@ -57,14 +57,17 @@ jobs:
       - name: Production build
         run: npm run build
 
-      - name: M2 PostgreSQL authentication integration
-        run: npm run server:test:integration
-
+      # This test requires an empty tenant database. Run it before the wider
+      # integration suite, which intentionally retains append-only audit history
+      # and its associated tenant fixtures.
       - name: First-tenant bootstrap PostgreSQL integration
         env:
           PRODX_RUN_BOOTSTRAP_POSTGRES_INTEGRATION: '1'
           PRODX_BOOTSTRAP_TEST_DATABASE_URL: ${{ env.DATABASE_URL }}
         run: node --import tsx --test server/auth/first-tenant-bootstrap.integration.test.ts
+
+      - name: M2 PostgreSQL authentication integration
+        run: npm run server:test:integration
 
       - name: Reject direct mock auth wiring
         shell: bash
