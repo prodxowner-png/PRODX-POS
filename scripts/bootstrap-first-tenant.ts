@@ -11,7 +11,6 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3
 export type BootstrapEnvironment = {
   supabaseUrl: string;
   publishableKey: string;
-  bootstrapSecret: string;
   bootstrapSubject: string;
 };
 
@@ -36,12 +35,18 @@ export type BootstrapEnvironment = {
   return payload.sub;
 };
 
+export const validateBootstrapSecret = (secret: string): string => {
+  if (secret.length < 32) {
+    throw new Error('The operator bootstrap secret must contain at least 32 characters.');
+  }
+  return secret;
+};
+
 export const validateBootstrapEnvironment = (
   env: Record<string, string | undefined>,
 ): BootstrapEnvironment => {
   const supabaseUrl = env.VITE_SUPABASE_URL?.trim() ?? '';
   const publishableKey = env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim() ?? '';
-  const bootstrapSecret = env.PRODX_FIRST_TENANT_BOOTSTRAP_SECRET ?? '';
   const bootstrapSubject = env.PRODX_FIRST_TENANT_BOOTSTRAP_SUBJECT?.trim() ?? '';
 
   let normalizedUrl = '';
@@ -57,14 +62,11 @@ export const validateBootstrapEnvironment = (
   if (!publishableKey.startsWith('sb_publishable_')) {
     throw new Error('VITE_SUPABASE_PUBLISHABLE_KEY is missing or is not a publishable key.');
   }
-  if (bootstrapSecret.length < 32) {
-    throw new Error('PRODX_FIRST_TENANT_BOOTSTRAP_SECRET must contain at least 32 characters.');
-  }
   if (!UUID_PATTERN.test(bootstrapSubject)) {
     throw new Error('PRODX_FIRST_TENANT_BOOTSTRAP_SUBJECT is missing or is not a valid UUID.');
   }
 
-  return { supabaseUrl: normalizedUrl, publishableKey, bootstrapSecret, bootstrapSubject };
+  return { supabaseUrl: normalizedUrl, publishableKey, bootstrapSubject };
 };
 
 const promptLine = async (label: string): Promise<string> => {
@@ -127,6 +129,7 @@ const run = async (): Promise<void> => {
   }
 
   const config = validateBootstrapEnvironment(process.env);
+  let bootstrapSecret = validateBootstrapSecret(await promptHidden('Operator bootstrap secret (hidden): '));
   const email = await promptLine('PRODX-ORG Auth email: ');
   if (!email) throw new Error('An Auth email is required.');
 
@@ -159,7 +162,7 @@ const run = async (): Promise<void> => {
       method: 'POST',
       headers: {
         authorization: `Bearer ${accessToken}`,
-        'x-prodx-bootstrap-secret': config.bootstrapSecret,
+        'x-prodx-bootstrap-secret': bootstrapSecret,
         'content-type': 'application/json',
       },
       body: '{}',
@@ -194,6 +197,7 @@ const run = async (): Promise<void> => {
     console.log('No access token or POS bearer token was printed or written to disk.');
   } finally {
     password = '';
+    bootstrapSecret = '';
     await supabase.auth.signOut({ scope: 'local' }).catch(() => undefined);
   }
 };
