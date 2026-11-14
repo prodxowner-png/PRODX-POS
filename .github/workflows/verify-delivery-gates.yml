@@ -42,11 +42,6 @@ jobs:
       # Disposable CI database only. Never reuse these credentials in production.
       ADMIN_DATABASE_URL: postgres://postgres:postgres@localhost:5432/prodx_pos_ci
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/prodx_pos_ci
-      RUNTIME_DATABASE_URL: postgres://prodx_pos_worker:prodx-ci-only-password@localhost:5432/prodx_pos_ci
-      RLS_AUDIT_DATABASE_URL: postgres://prodx_rls_auditor:prodx-ci-only-password@localhost:5432/prodx_pos_ci
-      RECONCILIATION_DATABASE_URL: postgres://prodx_reconciliation_admin:prodx-ci-only-password@localhost:5432/prodx_pos_ci
-      CI_ROLE_PASSWORD: prodx-ci-only-password
-      CATALOG_SIGNING_KEY: ci-only-prodx-catalog-signing-key-never-use-in-production-0123456789
       POS_CI_MODE: "true"
       NODE_ENV: test
 
@@ -70,12 +65,52 @@ jobs:
       - name: Prepare verification logs
         run: mkdir -p artifacts/logs
 
+      - name: Generate per-run CI credentials
+        run: |
+          set -euo pipefail
+          worker_role_password="$(openssl rand -hex 32)"
+          catalog_writer_role_password="$(openssl rand -hex 32)"
+          device_admin_role_password="$(openssl rand -hex 32)"
+          inventory_admin_role_password="$(openssl rand -hex 32)"
+          rls_auditor_role_password="$(openssl rand -hex 32)"
+          reconciliation_admin_role_password="$(openssl rand -hex 32)"
+          catalog_signing_key="$(openssl rand -hex 32)"
+          runtime_database_url="postgres://prodx_pos_worker:${worker_role_password}@localhost:5432/prodx_pos_ci"
+          rls_audit_database_url="postgres://prodx_rls_auditor:${rls_auditor_role_password}@localhost:5432/prodx_pos_ci"
+          reconciliation_database_url="postgres://prodx_reconciliation_admin:${reconciliation_admin_role_password}@localhost:5432/prodx_pos_ci"
+          {
+            printf 'CI_WORKER_ROLE_PASSWORD=%s\n' "$worker_role_password"
+            printf 'CI_CATALOG_WRITER_ROLE_PASSWORD=%s\n' "$catalog_writer_role_password"
+            printf 'CI_DEVICE_ADMIN_ROLE_PASSWORD=%s\n' "$device_admin_role_password"
+            printf 'CI_INVENTORY_ADMIN_ROLE_PASSWORD=%s\n' "$inventory_admin_role_password"
+            printf 'CI_RLS_AUDITOR_ROLE_PASSWORD=%s\n' "$rls_auditor_role_password"
+            printf 'CI_RECONCILIATION_ADMIN_ROLE_PASSWORD=%s\n' "$reconciliation_admin_role_password"
+            printf 'CATALOG_SIGNING_KEY=%s\n' "$catalog_signing_key"
+            printf 'RUNTIME_DATABASE_URL=%s\n' "$runtime_database_url"
+            printf 'RLS_AUDIT_DATABASE_URL=%s\n' "$rls_audit_database_url"
+            printf 'RECONCILIATION_DATABASE_URL=%s\n' "$reconciliation_database_url"
+          } >> "$GITHUB_ENV"
+          echo "::add-mask::$worker_role_password"
+          echo "::add-mask::$catalog_writer_role_password"
+          echo "::add-mask::$device_admin_role_password"
+          echo "::add-mask::$inventory_admin_role_password"
+          echo "::add-mask::$rls_auditor_role_password"
+          echo "::add-mask::$reconciliation_admin_role_password"
+          echo "::add-mask::$catalog_signing_key"
+          echo "::add-mask::$runtime_database_url"
+          echo "::add-mask::$rls_audit_database_url"
+          echo "::add-mask::$reconciliation_database_url"
+
       # ─────────────────────────────────────────────────────────────
       # Gate 3 — Build & Edge Unit Verification (real workerd runtime)
       # ─────────────────────────────────────────────────────────────
       - name: Gate 3.1 — Install dependencies
         id: install
         run: npm ci --no-audit --no-fund --legacy-peer-deps --verbose 2>&1 | tee artifacts/logs/npm-ci.log
+
+      - name: Gate 3.1b — Audit locked Edge dependencies
+        id: dependency_audit
+        run: npm audit --audit-level=moderate 2>&1 | tee artifacts/logs/npm-audit.log
 
       - name: Gate 3.1a — Validate manual Cloudflare Staging automation syntax
         run: |
@@ -105,7 +140,15 @@ jobs:
 
       - name: Gate 4.2 — Create isolated CI database roles
         id: create_roles
-        run: psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 -v ci_role_password="$CI_ROLE_PASSWORD" -f scripts/create-ci-roles.sql 2>&1 | tee artifacts/logs/create-ci-roles.log
+        run: |
+          psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 \
+            -v worker_role_password="$CI_WORKER_ROLE_PASSWORD" \
+            -v catalog_writer_role_password="$CI_CATALOG_WRITER_ROLE_PASSWORD" \
+            -v device_admin_role_password="$CI_DEVICE_ADMIN_ROLE_PASSWORD" \
+            -v inventory_admin_role_password="$CI_INVENTORY_ADMIN_ROLE_PASSWORD" \
+            -v rls_auditor_role_password="$CI_RLS_AUDITOR_ROLE_PASSWORD" \
+            -v reconciliation_admin_role_password="$CI_RECONCILIATION_ADMIN_ROLE_PASSWORD" \
+            -f scripts/create-ci-roles.sql 2>&1 | tee artifacts/logs/create-ci-roles.log
 
       - name: Gate 4.3 — Grant least-privilege runtime permissions
         id: grants
@@ -144,6 +187,7 @@ jobs:
         if: always()
         env:
           INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          AUDIT_OUTCOME: ${{ steps.dependency_audit.outcome }}
           TYPES_OUTCOME: ${{ steps.wrangler_types.outcome }}
           TYPECHECK_OUTCOME: ${{ steps.typecheck.outcome }}
           EDGE_OUTCOME: ${{ steps.edge_tests.outcome }}
@@ -163,7 +207,7 @@ jobs:
             echo "|---|---|---|"
             echo "| 1. Architecture Approved | Reviewed architecture baseline; not re-evaluated by this workflow | BASELINE |"
             echo "| 2. Implementation Complete | Versioned source package checked out | BASELINE |"
-            echo "| 3. Build Verified | npm ci: $(result "$INSTALL_OUTCOME"); Wrangler types: $(result "$TYPES_OUTCOME"); TypeScript: $(result "$TYPECHECK_OUTCOME"); workerd: $(result "$EDGE_OUTCOME") | $( [ "$INSTALL_OUTCOME" = success ] && [ "$TYPES_OUTCOME" = success ] && [ "$TYPECHECK_OUTCOME" = success ] && [ "$EDGE_OUTCOME" = success ] && echo PASS || echo FAIL ) |"
+            echo "| 3. Build Verified | npm ci: $(result "$INSTALL_OUTCOME"); dependency audit: $(result "$AUDIT_OUTCOME"); Wrangler types: $(result "$TYPES_OUTCOME"); TypeScript: $(result "$TYPECHECK_OUTCOME"); workerd: $(result "$EDGE_OUTCOME") | $( [ "$INSTALL_OUTCOME" = success ] && [ "$AUDIT_OUTCOME" = success ] && [ "$TYPES_OUTCOME" = success ] && [ "$TYPECHECK_OUTCOME" = success ] && [ "$EDGE_OUTCOME" = success ] && echo PASS || echo FAIL ) |"
             echo "| 4. Integration Verified | Migration: $(result "$MIGRATION_OUTCOME"); roles/grants: $(result "$ROLES_OUTCOME")/$(result "$GRANTS_OUTCOME"); RLS: $(result "$RLS_OUTCOME"); PostgreSQL CTE: $(result "$INTEGRATION_OUTCOME") | $( [ "$MIGRATION_OUTCOME" = success ] && [ "$ROLES_OUTCOME" = success ] && [ "$GRANTS_OUTCOME" = success ] && [ "$RLS_OUTCOME" = success ] && [ "$INTEGRATION_OUTCOME" = success ] && echo PASS || echo FAIL ) |"
             echo "| 5. Load & Recovery Verified | 300 terminal CI-scale PostgreSQL load: $(result "$CHAOS_OUTCOME"); SQL reconciliation: $(result "$RECONCILE_OUTCOME") | $( [ "$CHAOS_OUTCOME" = success ] && [ "$RECONCILE_OUTCOME" = success ] && echo PASS || echo FAIL ) |"
             echo "| 6. Production Ready | Requires deployed Cloudflare staging, real DO/Queue crash recovery, mTLS/WAF validation and production-like load evidence | HOLD |"

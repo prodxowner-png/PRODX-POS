@@ -13,6 +13,8 @@ Production-oriented point-of-sale system foundation.
 
 ## Development
 
+Use **Node.js 24.12.0** for the root POS application, its CI workflows, the Dev Container, and Vercel (Node **24.x**). The repository's `.node-version` file is the root-app version-manager pin. Use npm **11.21.2** with `npm ci --include=dev` (Vercel pins this npm version and verifies `strict-allow-scripts=true` before installing), or Bun **1.4.3** with `bun install --frozen-lockfile`. The isolated Cloudflare Worker test package in `prodx-pos-edge-sync/` has its own `package.json` and `package-lock.json`; its Delivery Gate intentionally uses Node.js **22** and npm **10.9.4**, matching that package's Node 22 type baseline. This separate test-tooling baseline does not change the root POS application's Node 24 runtime baseline. Do not bypass the strict lifecycle-script policy. The root package also declares `engines.npm >=11.21.2`. When a dependency update changes a version-pinned `allowScripts` entry, inspect the package lifecycle scripts first; use `npm approve-scripts <package>` only for a specifically reviewed, required script, update the exact-version allow-list, then rerun the lockfile install and audit gates. Never blanket-approve all pending scripts.
+
 Changes are developed through pull requests and validated by the repository CI gates before merging to `main`.
 
 See `docs/architecture/` and `docs/` for the current engineering and database foundations.

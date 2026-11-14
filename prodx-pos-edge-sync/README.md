@@ -41,8 +41,8 @@ Existing deployments should back up and review the migration before applying it.
 
 ## Setup
 
-1. Node.js 22+.
-2. `npm install`.
+1. Node.js 22+ (the isolated Edge package uses Node 22; the repository root has its own Node 24.12.0 baseline).
+2. Use npm 10.9.4 and install from the committed lockfile with `npm ci --no-audit --no-fund --legacy-peer-deps` (matching the delivery-gate workflow).
 3. Create Hyperdrive DIRECT (caching disabled) and CACHED (short TTL) configurations; set the real IDs in `wrangler.jsonc`. The connected Cloudflare account currently has no Hyperdrive configs or Queues, so these resources still need provisioning.
 4. Create DLQ `prodx-pos-ingest-dlq` first, then Queue `prodx-pos-ingest` with that DLQ configured.
 5. Apply the PostgreSQL migration, create the six non-owner `LOGIN` roles, and run `scripts/grant-runtime-role.sql` as the database administrator. Register each POS client certificate fingerprint with `scripts/register-terminal-device.sql`; revoke devices with `scripts/revoke-terminal-device.sql`. Use a separate tenant-scoped `prodx_device_admin` role for enrollment management, and `prodx_inventory_admin` for audited opening-stock/adjustment ledger entries.
@@ -53,7 +53,7 @@ Existing deployments should back up and review the migration before applying it.
 ## Commands
 
 ```bash
-npm install
+npm ci --no-audit --no-fund --legacy-peer-deps
 npx wrangler login
 npx wrangler types
 npm run typecheck
@@ -162,8 +162,8 @@ Enable client certificate authentication and trusted CA configuration before act
 
 The workflow `.github/workflows/verify-delivery-gates.yml` runs on push, pull request, and manual dispatch. It provisions a disposable PostgreSQL 16 service, installs Node.js 22 dependencies, generates Wrangler types, runs full TypeScript checking and the Cloudflare workerd test suite, applies the migration, creates isolated CI roles, verifies RLS, runs the PostgreSQL signed-price/CTE integration harness, executes a 300-terminal / 15,000-sale PostgreSQL CI load with 3,000 exact duplicate replays, and fails strict SQL reconciliation on any anomaly. Logs are uploaded as a GitHub Actions artifact.
 
-The CI role bootstrap (`scripts/create-ci-roles.sql`) is only for disposable CI databases. It creates the six least-privilege roles with an ephemeral shared test password; do not run it against production. The workflow's `CATALOG_SIGNING_KEY` is a dummy test-only value. The chaos harness uses `POS_CI_MODE=true` to test the PostgreSQL CTE directly; it does not claim to exercise a deployed Cloudflare Queue or live Durable Object alarms. Those require a separate Cloudflare staging recovery test.
+The CI role bootstrap (`scripts/create-ci-roles.sql`) is only for disposable CI databases. It creates the six least-privilege roles with distinct cryptographically random passwords generated for each workflow run; do not run it against production. The PostgreSQL service's bootstrap password is fixed only inside the isolated, ephemeral GitHub Actions service container; the workflow generates a separate random credential for each database role and a random `CATALOG_SIGNING_KEY` for every run. The chaos harness uses `POS_CI_MODE=true` to test the PostgreSQL CTE directly; it does not claim to exercise a deployed Cloudflare Queue or live Durable Object alarms. Those require a separate Cloudflare staging recovery test.
 
-The CI workflow runs `npm install` because this source package does not include a generated npm lockfile. After the first successful GitHub run, review and commit the resulting `package-lock.json`, then switch the workflow to `npm ci` for deterministic dependency resolution.
+The source package includes a committed `package-lock.json` (lockfileVersion 3). The delivery-gate workflow installs from it with `npm ci --no-audit --no-fund --legacy-peer-deps` using npm 10.9.4; keep local installs aligned with that command and review lockfile changes in pull requests.
 
 The Hyperdrive IDs in `wrangler.jsonc` are valid-shape non-production placeholders for local type generation only. Replace them with actual Hyperdrive configuration IDs before deployment. The all-zero/all-one IDs are not deployable resources.
