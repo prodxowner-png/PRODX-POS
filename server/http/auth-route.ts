@@ -222,6 +222,11 @@ const loadSessionContext = async (
  * through the same SessionIssuer used by the global middleware.
  */
 export type AuthRouteOptions = {
+  /**
+   * Server-side kill switch for ordinary Supabase session exchange.
+   * Bootstrap remains separately protected by its operator secret and allowlisted subject.
+   */
+  supabaseSessionEnabled?: boolean;
   firstTenantBootstrap?: {
     config: FirstTenantBootstrapConfig | null;
     repository: FirstTenantBootstrapRepository;
@@ -306,6 +311,10 @@ export const registerAuthRoutes = (
   }));
 
   app.post('/auth/supabase/session', asyncRoute(async (request, response) => {
+    if (options.supabaseSessionEnabled !== true) {
+      response.status(404).json(errorBody(request, 'NOT_FOUND', 'Not found.'));
+      return;
+    }
     const token = bearerToken(request);
     if (!token) { sendUnauthenticated(request, response); return; }
     const body = request.body as Record<string, unknown> | null;
