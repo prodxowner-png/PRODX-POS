@@ -30,7 +30,7 @@ In Supabase Dashboard → Authentication → URL Configuration:
 1. Set Site URL to the real production origin.
 2. Add the production origin and localhost development origin to Redirect URLs, as appropriate.
 3. Choose enabled sign-in methods intentionally (email/password if that is the desired login UX).
-4. Enable leaked-password protection and choose a reasonable minimum password length in Authentication → Settings/Security.
+4. Enable leaked-password protection when supported by the active Supabase plan, and choose a reasonable minimum password length. If the plan does not expose this control, document the limitation and compensating controls; do not report it as enabled.
 5. If email confirmation is enabled, verify the confirmation flow and redirect URL before expecting users to sign in.
 
 ## Explicit account linking
