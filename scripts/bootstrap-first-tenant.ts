@@ -15,7 +15,7 @@ export type BootstrapEnvironment = {
   bootstrapSubject: string;
 };
 
-export const decodeSupabaseJwtSubject = (token: string): string => {
+// This is only a local allowlist preflight. The Production route independently verifies the JWT signature, issuer, audience, and expiry.\nexport const decodeSupabaseJwtSubject = (token: string): string => {
   const parts = token.split('.');
   if (parts.length !== 3 || !parts[1]) {
     throw new Error('Supabase returned an invalid access token.');
@@ -121,7 +121,7 @@ const promptHidden = async (label: string): Promise<string> => {
 
 const run = async (): Promise<void> => {
   const envFile = process.env.PRODX_BOOTSTRAP_ENV_FILE || '.env.bootstrap';
-  const loaded = loadEnv({ path: envFile, override: false });
+  const loaded = loadEnv({ path: envFile, override: true });
   if (loaded.error) {
     throw new Error(`Could not load ${envFile}. Run Vercel env pull for the Production project first.`);
   }
