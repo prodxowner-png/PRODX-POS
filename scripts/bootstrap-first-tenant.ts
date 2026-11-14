@@ -14,7 +14,8 @@ export type BootstrapEnvironment = {
   bootstrapSubject: string;
 };
 
-// This is only a local allowlist preflight. The Production route independently verifies the JWT signature, issuer, audience, and expiry.\nexport const decodeSupabaseJwtSubject = (token: string): string => {
+// This is only a local allowlist preflight. The Production route independently verifies the JWT signature, issuer, audience, and expiry.
+export const decodeSupabaseJwtSubject = (token: string): string => {
   const parts = token.split('.');
   if (parts.length !== 3 || !parts[1]) {
     throw new Error('Supabase returned an invalid access token.');
