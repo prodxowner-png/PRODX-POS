@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   decodeSupabaseJwtSubject,
   validateBootstrapEnvironment,
+  validateBootstrapSecret,
 } from './bootstrap-first-tenant';
 
 const subject = '00000000-0000-4000-8000-000000000015';
@@ -15,7 +16,6 @@ const makeToken = (payload: Record<string, unknown>) => {
 const validEnvironment = () => ({
   VITE_SUPABASE_URL: 'https://wcyqyiewbzpmrekoljfw.supabase.co',
   VITE_SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_test_key',
-  PRODX_FIRST_TENANT_BOOTSTRAP_SECRET: 'x'.repeat(40),
   PRODX_FIRST_TENANT_BOOTSTRAP_SUBJECT: subject,
 });
 
@@ -32,7 +32,6 @@ test('bootstrap CLI accepts only the canonical PRODX-ORG project and complete se
   const config = validateBootstrapEnvironment(validEnvironment());
   assert.equal(config.supabaseUrl, 'https://wcyqyiewbzpmrekoljfw.supabase.co');
   assert.equal(config.bootstrapSubject, subject);
-  assert.equal(config.bootstrapSecret.length, 40);
 });
 
 test('bootstrap CLI rejects a different Supabase issuer', () => {
@@ -42,11 +41,12 @@ test('bootstrap CLI rejects a different Supabase issuer', () => {
   }), /approved PRODX-ORG/i);
 });
 
-test('bootstrap CLI rejects short operator secrets and malformed allowlisted subjects', () => {
-  assert.throws(() => validateBootstrapEnvironment({
-    ...validEnvironment(),
-    PRODX_FIRST_TENANT_BOOTSTRAP_SECRET: 'too-short',
-  }), /at least 32 characters/i);
+test('bootstrap CLI validates the write-only operator secret without reading it from Vercel', () => {
+  assert.equal(validateBootstrapSecret('x'.repeat(40)).length, 40);
+  assert.throws(() => validateBootstrapSecret('too-short'), /at least 32 characters/i);
+});
+
+test('bootstrap CLI rejects malformed allowlisted subjects', () => {
   assert.throws(() => validateBootstrapEnvironment({
     ...validEnvironment(),
     PRODX_FIRST_TENANT_BOOTSTRAP_SUBJECT: 'not-a-uuid',
