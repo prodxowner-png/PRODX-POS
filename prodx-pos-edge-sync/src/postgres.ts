@@ -4,7 +4,12 @@ import { verifySalePrices } from "./catalog-crypto";
 import { catalogSigningKey } from "./secrets";
 import { canonicalize, sha256Hex, assertSaleShape } from "./canonical";
 
-class PermanentDataError extends Error {}
+export class PermanentDataError extends Error {
+  constructor(message: string, readonly sequenceFailureEligible = false) {
+    super(message);
+    this.name = "PermanentDataError";
+  }
+}
 
 interface WriteCteResult {
   claimed: number;
@@ -13,27 +18,34 @@ interface WriteCteResult {
   last_committed_seq_no: string | number | null;
   last_hlc_physical_ms: string | number | null;
   last_hlc_logical: number | null;
+  last_resolved_seq_no: string | number | null;
+  last_resolved_hlc_physical_ms: string | number | null;
+  last_resolved_hlc_logical: number | null;
   prior_payload_hash: string | null;
   prior_status: string | null;
   prior_sale_id: string | null;
   prior_sequence_sale_id: string | null;
+  prior_sequence_resolution_disposition: string | null;
+}
+
+const MAX_SAFE_MINOR = BigInt(Number.MAX_SAFE_INTEGER);
+
+function lineTaxMinor(line: SaleLine): number {
+  const base = BigInt(line.quantity) * BigInt(line.unit_price_minor);
+  const tax = (base * BigInt(line.tax_bps) + 5_000n) / 10_000n;
+  if (tax > MAX_SAFE_MINOR) throw new PermanentDataError("TAX_AMOUNT_OVERFLOW", true);
+  return Number(tax);
 }
 
 function moneyFromLines(lines: SaleLine[]): number {
-  let total = 0;
+  let total = 0n;
   for (const line of lines) {
-    const lineBase = line.quantity * line.unit_price_minor;
-    const tax = Math.round((lineBase * line.tax_bps) / 10000);
-    total += lineBase + tax;
-    if (!Number.isSafeInteger(total)) throw new PermanentDataError("AMOUNT_OVERFLOW");
+    const base = BigInt(line.quantity) * BigInt(line.unit_price_minor);
+    const tax = (base * BigInt(line.tax_bps) + 5_000n) / 10_000n;
+    total += base + tax;
+    if (total > MAX_SAFE_MINOR) throw new PermanentDataError("AMOUNT_OVERFLOW", true);
   }
-  return total;
-}
-
-function lineTaxMinor(line: SaleLine): number {
-  const tax = Math.round((line.quantity * line.unit_price_minor * line.tax_bps) / 10000);
-  if (!Number.isSafeInteger(tax)) throw new PermanentDataError("TAX_AMOUNT_OVERFLOW");
-  return tax;
+  return Number(total);
 }
 
 /**
@@ -54,7 +66,8 @@ WITH
    SELECT set_config('app.current_tenant_id', $1::uuid::text, true) AS tenant_id
  ),
  checkpoint_lock AS MATERIALIZED (
-   SELECT last_committed_seq_no,last_hlc_physical_ms,last_hlc_logical
+   SELECT last_committed_seq_no,last_hlc_physical_ms,last_hlc_logical,
+          last_resolved_seq_no,last_resolved_hlc_physical_ms,last_resolved_hlc_logical
      FROM terminal_sync_state
     WHERE tenant_id=$1 AND terminal_id=$2
       AND EXISTS (SELECT 1 FROM tenant_ctx)
@@ -64,15 +77,18 @@ WITH
    SELECT
      COALESCE((SELECT last_committed_seq_no FROM checkpoint_lock),0)::bigint AS last_committed_seq_no,
      COALESCE((SELECT last_hlc_physical_ms FROM checkpoint_lock),0)::bigint AS last_hlc_physical_ms,
-     COALESCE((SELECT last_hlc_logical FROM checkpoint_lock),0)::integer AS last_hlc_logical
+     COALESCE((SELECT last_hlc_logical FROM checkpoint_lock),0)::integer AS last_hlc_logical,
+     COALESCE((SELECT last_resolved_seq_no FROM checkpoint_lock),0)::bigint AS last_resolved_seq_no,
+     COALESCE((SELECT last_resolved_hlc_physical_ms FROM checkpoint_lock),0)::bigint AS last_resolved_hlc_physical_ms,
+     COALESCE((SELECT last_resolved_hlc_logical FROM checkpoint_lock),0)::integer AS last_resolved_hlc_logical
      FROM tenant_ctx
  ),
  checkpoint_guard AS MATERIALIZED (
-   SELECT last_committed_seq_no,last_hlc_physical_ms,last_hlc_logical
+   SELECT last_resolved_seq_no,last_resolved_hlc_physical_ms,last_resolved_hlc_logical
      FROM checkpoint_state
-    WHERE last_committed_seq_no + 1 = $7::bigint
+    WHERE last_resolved_seq_no + 1 = $7::bigint
       AND ($11::bigint,$12::integer) >=
-          (last_hlc_physical_ms,last_hlc_logical)
+          (last_resolved_hlc_physical_ms,last_resolved_hlc_logical)
  ),
  idempotency_claim AS (
    INSERT INTO pos_idempotency
@@ -93,6 +109,14 @@ WITH
    SELECT sale_id
      FROM sales
     WHERE tenant_id=$1 AND terminal_id=$2 AND terminal_seq_no=$7
+ ),
+ prior_sequence_resolution AS MATERIALIZED (
+   SELECT disposition
+     FROM terminal_sequence_resolutions
+    WHERE tenant_id=$1 AND terminal_id=$2 AND terminal_seq_no=$7
+      AND disposition='VOID'
+    ORDER BY created_at DESC,resolution_id DESC
+    LIMIT 1
  ),
  sales_insert AS (
    INSERT INTO sales
@@ -148,15 +172,20 @@ WITH
  ),
  checkpoint_update AS (
    INSERT INTO terminal_sync_state
-     (tenant_id,terminal_id,last_committed_seq_no,last_hlc_physical_ms,last_hlc_logical,updated_at)
-   SELECT $1,$2,$7,$11,$12,now()
+     (tenant_id,terminal_id,last_committed_seq_no,last_hlc_physical_ms,last_hlc_logical,
+      last_resolved_seq_no,last_resolved_hlc_physical_ms,last_resolved_hlc_logical,updated_at)
+   SELECT $1,$2,$7,$11,$12,$7,$11,$12,now()
      FROM audit_insert
    ON CONFLICT (tenant_id,terminal_id) DO UPDATE
      SET last_committed_seq_no=EXCLUDED.last_committed_seq_no,
          last_hlc_physical_ms=EXCLUDED.last_hlc_physical_ms,
          last_hlc_logical=EXCLUDED.last_hlc_logical,
+         last_resolved_seq_no=EXCLUDED.last_resolved_seq_no,
+         last_resolved_hlc_physical_ms=EXCLUDED.last_resolved_hlc_physical_ms,
+         last_resolved_hlc_logical=EXCLUDED.last_resolved_hlc_logical,
          updated_at=now()
-   RETURNING last_committed_seq_no,last_hlc_physical_ms,last_hlc_logical
+   RETURNING last_committed_seq_no,last_hlc_physical_ms,last_hlc_logical,
+             last_resolved_seq_no,last_resolved_hlc_physical_ms,last_resolved_hlc_logical
  )
 SELECT
   (SELECT COUNT(*)::integer FROM idempotency_claim) AS claimed,
@@ -167,13 +196,17 @@ SELECT
   (SELECT last_committed_seq_no FROM checkpoint_state LIMIT 1) AS last_committed_seq_no,
   (SELECT last_hlc_physical_ms FROM checkpoint_state LIMIT 1) AS last_hlc_physical_ms,
   (SELECT last_hlc_logical FROM checkpoint_state LIMIT 1) AS last_hlc_logical,
+  (SELECT last_resolved_seq_no FROM checkpoint_state LIMIT 1) AS last_resolved_seq_no,
+  (SELECT last_resolved_hlc_physical_ms FROM checkpoint_state LIMIT 1) AS last_resolved_hlc_physical_ms,
+  (SELECT last_resolved_hlc_logical FROM checkpoint_state LIMIT 1) AS last_resolved_hlc_logical,
   (SELECT payload_hash FROM prior_idempotency LIMIT 1) AS prior_payload_hash,
   (SELECT status FROM prior_idempotency LIMIT 1) AS prior_status,
   (SELECT sale_id FROM prior_idempotency LIMIT 1) AS prior_sale_id,
-  (SELECT sale_id FROM prior_sequence_sale LIMIT 1) AS prior_sequence_sale_id
+  (SELECT sale_id FROM prior_sequence_sale LIMIT 1) AS prior_sequence_sale_id,
+  (SELECT disposition FROM prior_sequence_resolution LIMIT 1) AS prior_sequence_resolution_disposition
 `;
 
-export async function commitSale(env: Env, message: QueueSale): Promise<"committed" | "duplicate"> {
+export async function commitSale(env: Env, message: QueueSale): Promise<"committed" | "duplicate" | "voided"> {
   const client = new Client({ connectionString: env.HYPERDRIVE_DIRECT.connectionString });
 
   try {
@@ -187,11 +220,8 @@ export async function commitSale(env: Env, message: QueueSale): Promise<"committ
       throw new PermanentDataError("IDEMPOTENCY_KEY_ENVELOPE_MISMATCH");
     }
 
-    // Cryptographic verification remains in the trusted Worker runtime. The
-    // CTE persists only values whose catalog proof and canonical payload hash pass.
-    if (!(await verifySalePrices(message.sale, catalogSigningKey(env), Date.parse(message.edge_received_at)))) {
-      throw new PermanentDataError("SIGNED_CATALOG_INVALID_OR_EXPIRED");
-    }
+    // Verify the immutable envelope hash before classifying any later origin-side
+    // validation failure as an operator-resolvable terminal sequence failure.
     const { payload_hash: claimedHash, ...hashableSale } = message.sale;
     const computedPayloadHash = await sha256Hex(canonicalize({
       tenant_id: message.tenant_id,
@@ -200,6 +230,11 @@ export async function commitSale(env: Env, message: QueueSale): Promise<"committ
     }));
     if (computedPayloadHash !== message.payload_hash || claimedHash !== message.payload_hash) {
       throw new PermanentDataError("PAYLOAD_HASH_MISMATCH_AT_ORIGIN");
+    }
+    // A signed-price rejection is resolvable only as an exact-payload VOID; it
+    // must never be repaired by substituting a different payload or price.
+    if (!(await verifySalePrices(message.sale, catalogSigningKey(env), Date.parse(message.edge_received_at)))) {
+      throw new PermanentDataError("SIGNED_CATALOG_INVALID_OR_EXPIRED", true);
     }
 
     const totalMinor = moneyFromLines(message.sale.lines);
@@ -235,24 +270,37 @@ export async function commitSale(env: Env, message: QueueSale): Promise<"committ
     // A single parameterized PostgreSQL statement performs the entire sale
     // transaction (including duplicate resolution), RLS context, idempotency,
     // ledger writes, inventory trigger, immutable audit, and checkpoint advance.
-    const result = await client.query(COMMIT_SALE_CTE, [
-      message.tenant_id,
-      message.terminal_id,
-      message.idempotency_key,
-      message.receipt_id,
-      message.payload_hash,
-      message.sale.sale_id,
-      message.sale.terminal_seq_no,
-      message.sale.currency,
-      totalMinor,
-      message.sale.catalog_version,
-      message.sale.hlc.physical_ms,
-      message.sale.hlc.logical,
-      message.sale.client_recorded_at,
-      message.edge_received_at,
-      JSON.stringify(lineRecords),
-      JSON.stringify(auditMetadata)
-    ]);
+    let result: { rows: unknown[] };
+    try {
+      result = await client.query(COMMIT_SALE_CTE, [
+        message.tenant_id,
+        message.terminal_id,
+        message.idempotency_key,
+        message.receipt_id,
+        message.payload_hash,
+        message.sale.sale_id,
+        message.sale.terminal_seq_no,
+        message.sale.currency,
+        totalMinor,
+        message.sale.catalog_version,
+        message.sale.hlc.physical_ms,
+        message.sale.hlc.logical,
+        message.sale.client_recorded_at,
+        message.edge_received_at,
+        JSON.stringify(lineRecords),
+        JSON.stringify(auditMetadata)
+      ]);
+    } catch (error) {
+      if (typeof error === "object" && error !== null && "code" in error) {
+        const code=(error as { code?: string }).code;
+        if (code === "PZ001") throw new PermanentDataError("INSUFFICIENT_STOCK", true);
+        if (code === "PZ002" || (code === "23503" && "constraint" in error &&
+            (error as { constraint?: string }).constraint === "sale_lines_tenant_id_product_id_fkey")) {
+          throw new PermanentDataError("PRODUCT_NOT_FOUND_IN_TENANT", true);
+        }
+      }
+      throw error;
+    }
 
     const row = result.rows[0] as WriteCteResult | undefined;
     if (!row) throw new Error("POSTGRES_CTE_RETURNED_NO_STATUS");
@@ -270,18 +318,22 @@ export async function commitSale(env: Env, message: QueueSale): Promise<"committ
         if (existing.status === "COMMITTED") return "duplicate";
         throw new Error("IDEMPOTENCY_INCOMPLETE_RETRY");
       }
-      const lastSequence = Number(row.last_committed_seq_no ?? 0);
+      if (row.prior_sequence_resolution_disposition === "VOID") return "voided";
+      const lastSequence = Number(row.last_resolved_seq_no ?? 0);
       if (message.sale.terminal_seq_no > lastSequence + 1) {
-        throw new Error(`TERMINAL_SEQUENCE_GAP:${lastSequence + 1}-${message.sale.terminal_seq_no - 1}`);
+        throw new Error("TERMINAL_SEQUENCE_GAP:" + (lastSequence + 1) + "-" + (message.sale.terminal_seq_no - 1));
       }
       if (message.sale.terminal_seq_no <= lastSequence && row.prior_sequence_sale_id) {
         throw new PermanentDataError("TERMINAL_SEQUENCE_ALREADY_COMMITTED");
       }
-      const lastPhysical = Number(row.last_hlc_physical_ms ?? 0);
-      const lastLogical = Number(row.last_hlc_logical ?? 0);
+      if (message.sale.terminal_seq_no <= lastSequence) {
+        throw new PermanentDataError("TERMINAL_SEQUENCE_ALREADY_RESOLVED");
+      }
+      const lastPhysical = Number(row.last_resolved_hlc_physical_ms ?? 0);
+      const lastLogical = Number(row.last_resolved_hlc_logical ?? 0);
       if (message.sale.hlc.physical_ms < lastPhysical ||
           (message.sale.hlc.physical_ms === lastPhysical && message.sale.hlc.logical < lastLogical)) {
-        throw new PermanentDataError("ORIGIN_HLC_REGRESSION");
+        throw new PermanentDataError("ORIGIN_HLC_REGRESSION", true);
       }
       // A concurrent INSERT ... ON CONFLICT may have committed after this
       // statement snapshot. Retry once to resolve it from a fresh snapshot.
@@ -289,18 +341,19 @@ export async function commitSale(env: Env, message: QueueSale): Promise<"committ
     }
 
     if (Number(row.inserted_sales) !== 1 || Number(row.completed_idempotency) !== 1) {
-      const lastSequence = Number(row.last_committed_seq_no ?? 0);
+      if (row.prior_sequence_resolution_disposition === "VOID") return "voided";
+      const lastSequence = Number(row.last_resolved_seq_no ?? 0);
       if (message.sale.terminal_seq_no > lastSequence + 1) {
-        throw new Error(`TERMINAL_SEQUENCE_GAP:${lastSequence + 1}-${message.sale.terminal_seq_no - 1}`);
+        throw new Error("TERMINAL_SEQUENCE_GAP:" + (lastSequence + 1) + "-" + (message.sale.terminal_seq_no - 1));
       }
       if (message.sale.terminal_seq_no <= lastSequence) {
-        throw new PermanentDataError("TERMINAL_SEQUENCE_ALREADY_COMMITTED");
+        throw new PermanentDataError("TERMINAL_SEQUENCE_ALREADY_RESOLVED");
       }
-      const lastPhysical = Number(row.last_hlc_physical_ms ?? 0);
-      const lastLogical = Number(row.last_hlc_logical ?? 0);
+      const lastPhysical = Number(row.last_resolved_hlc_physical_ms ?? 0);
+      const lastLogical = Number(row.last_resolved_hlc_logical ?? 0);
       if (message.sale.hlc.physical_ms < lastPhysical ||
           (message.sale.hlc.physical_ms === lastPhysical && message.sale.hlc.logical < lastLogical)) {
-        throw new PermanentDataError("ORIGIN_HLC_REGRESSION");
+        throw new PermanentDataError("ORIGIN_HLC_REGRESSION", true);
       }
       throw new Error("POSTGRES_CTE_WRITE_CHAIN_INCOMPLETE");
     }
@@ -310,5 +363,3 @@ export async function commitSale(env: Env, message: QueueSale): Promise<"committ
     await client.end().catch(() => undefined);
   }
 }
-
-export { PermanentDataError };

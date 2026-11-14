@@ -24,6 +24,9 @@ concurrency:
 jobs:
   validate:
     name: Antigravity Pro autonomous production loop
+    # The autonomous executor only validates PRs targeting main. Stacked remediation
+    # PRs are validated by their own CI and must not be treated as malformed targets.
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.base.ref == 'main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
 

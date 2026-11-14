@@ -15,12 +15,26 @@ jobs:
     name: Provision, Deploy & Verify Cloudflare Staging
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    # Staging credentials must never be exposed to a workflow dispatched from an unprotected branch.
+    if: github.ref == 'refs/heads/main' && github.ref_protected
     environment: staging
     defaults:
       run:
         shell: bash
         working-directory: prodx-pos-edge-sync
     steps:
+      - name: Enforce protected default-branch dispatch
+        working-directory: .
+        env:
+          DISPATCH_REF: ${{ github.ref }}
+          DISPATCH_REF_PROTECTED: ${{ github.ref_protected }}
+        run: |
+          set -euo pipefail
+          [[ "$DISPATCH_REF" == "refs/heads/main" && "$DISPATCH_REF_PROTECTED" == "true" ]] || {
+            echo "::error::Gate 6 must be dispatched from protected main; refusing to expose Staging credentials."
+            exit 1
+          }
+
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -33,25 +47,28 @@ jobs:
 
       - name: Preflight — require isolated Staging credentials and E2E fixture
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          STAGING_DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
-          STAGING_RECONCILIATION_DATABASE_URL: ${{ secrets.STAGING_RECONCILIATION_DATABASE_URL }}
-          POS_STAGING_ACCESS_AUD: ${{ secrets.POS_STAGING_ACCESS_AUD }}
-          POS_STAGING_SYNC_URL: ${{ secrets.POS_STAGING_SYNC_URL }}
-          POS_STAGING_PROXY_TOKEN: ${{ secrets.POS_STAGING_PROXY_TOKEN }}
-          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
-          POS_STAGING_E2E_PAYLOAD_B64: ${{ secrets.POS_STAGING_E2E_PAYLOAD_B64 }}
-          POS_STAGING_TERMINAL_IDS_JSON: ${{ secrets.POS_STAGING_TERMINAL_IDS_JSON }}
-          CATALOG_SIGNING_KEY: ${{ secrets.CATALOG_SIGNING_KEY }}
-          EXPECTED_STAGING_DATABASE_HOST: ${{ vars.STAGING_DATABASE_HOST }}
-          EXPECTED_STAGING_DATABASE_NAME: ${{ vars.STAGING_DATABASE_NAME }}
-          EXPECTED_STAGING_RECONCILIATION_DATABASE_HOST: ${{ vars.STAGING_RECONCILIATION_DATABASE_HOST }}
-          EXPECTED_STAGING_RECONCILIATION_DATABASE_NAME: ${{ vars.STAGING_RECONCILIATION_DATABASE_NAME }}
-          EXPECTED_POS_STAGING_SYNC_HOST: ${{ vars.POS_STAGING_SYNC_HOST }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.PRODX_STAGING_CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.PRODX_STAGING_CLOUDFLARE_ACCOUNT_ID }}
+          STAGING_DATABASE_URL: ${{ secrets.PRODX_STAGING_DATABASE_URL }}
+          STAGING_MIGRATION_DATABASE_URL: ${{ secrets.PRODX_STAGING_MIGRATION_DATABASE_URL }}
+          STAGING_RLS_AUDIT_DATABASE_URL: ${{ secrets.PRODX_STAGING_RLS_AUDIT_DATABASE_URL }}
+          STAGING_RECONCILIATION_DATABASE_URL: ${{ secrets.PRODX_STAGING_RECONCILIATION_DATABASE_URL }}
+          POS_STAGING_ACCESS_AUD: ${{ secrets.PRODX_STAGING_ACCESS_AUD }}
+          POS_STAGING_SYNC_URL: ${{ secrets.PRODX_STAGING_SYNC_URL }}
+          POS_STAGING_PROXY_TOKEN: ${{ secrets.PRODX_STAGING_PROXY_TOKEN }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.PRODX_STAGING_VERCEL_AUTOMATION_BYPASS_SECRET }}
+          POS_STAGING_E2E_PAYLOAD_B64: ${{ secrets.PRODX_STAGING_E2E_PAYLOAD_B64 }}
+          POS_STAGING_TERMINAL_IDS_JSON: ${{ secrets.PRODX_STAGING_TERMINAL_IDS_JSON }}
+          CATALOG_SIGNING_KEY: ${{ secrets.PRODX_STAGING_CATALOG_SIGNING_KEY }}
+          EXPECTED_STAGING_DATABASE_HOST: ${{ vars.PRODX_STAGING_DATABASE_HOST }}
+          EXPECTED_STAGING_DATABASE_NAME: ${{ vars.PRODX_STAGING_DATABASE_NAME }}
+          EXPECTED_STAGING_RECONCILIATION_DATABASE_HOST: ${{ vars.PRODX_STAGING_RECONCILIATION_DATABASE_HOST }}
+          EXPECTED_STAGING_RECONCILIATION_DATABASE_NAME: ${{ vars.PRODX_STAGING_RECONCILIATION_DATABASE_NAME }}
+          EXPECTED_POS_STAGING_SYNC_HOST: ${{ vars.PRODX_STAGING_SYNC_HOST }}
         run: |
           set -euo pipefail
           required=(CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID STAGING_DATABASE_URL
+            STAGING_MIGRATION_DATABASE_URL STAGING_RLS_AUDIT_DATABASE_URL
             STAGING_RECONCILIATION_DATABASE_URL POS_STAGING_ACCESS_AUD POS_STAGING_SYNC_URL
             POS_STAGING_PROXY_TOKEN VERCEL_AUTOMATION_BYPASS_SECRET POS_STAGING_E2E_PAYLOAD_B64
             POS_STAGING_TERMINAL_IDS_JSON CATALOG_SIGNING_KEY
@@ -89,6 +106,25 @@ jobs:
           validateDatabaseUrl(process.env.STAGING_DATABASE_URL,
             process.env.EXPECTED_STAGING_DATABASE_HOST, process.env.EXPECTED_STAGING_DATABASE_NAME,
             'STAGING_DATABASE_URL');
+          validateDatabaseUrl(process.env.STAGING_MIGRATION_DATABASE_URL,
+            process.env.EXPECTED_STAGING_DATABASE_HOST, process.env.EXPECTED_STAGING_DATABASE_NAME,
+            'STAGING_MIGRATION_DATABASE_URL');
+          validateDatabaseUrl(process.env.STAGING_RLS_AUDIT_DATABASE_URL,
+            process.env.EXPECTED_STAGING_DATABASE_HOST, process.env.EXPECTED_STAGING_DATABASE_NAME,
+            'STAGING_RLS_AUDIT_DATABASE_URL');
+          const workerDb = new URL(process.env.STAGING_DATABASE_URL);
+          const migrationDb = new URL(process.env.STAGING_MIGRATION_DATABASE_URL);
+          const rlsAuditDb = new URL(process.env.STAGING_RLS_AUDIT_DATABASE_URL);
+          const reconciliationDb = new URL(process.env.STAGING_RECONCILIATION_DATABASE_URL);
+          assert.equal(decodeURIComponent(workerDb.username), 'prodx_pos_worker',
+            'Hyperdrive must use the least-privilege prodx_pos_worker role');
+          assert.equal(decodeURIComponent(rlsAuditDb.username), 'prodx_rls_auditor',
+            'RLS smoke must use the NOBYPASSRLS prodx_rls_auditor role');
+          assert.equal(decodeURIComponent(reconciliationDb.username), 'prodx_reconciliation_admin',
+            'Reconciliation must use the isolated read-only reconciliation role');
+          assert.ok(!['prodx_pos_worker','prodx_rls_auditor','prodx_reconciliation_admin']
+            .includes(decodeURIComponent(migrationDb.username)),
+            'Migration URL must use a separate DDL-capable staging migration role');
           validateDatabaseUrl(process.env.STAGING_RECONCILIATION_DATABASE_URL,
             process.env.EXPECTED_STAGING_RECONCILIATION_DATABASE_HOST,
             process.env.EXPECTED_STAGING_RECONCILIATION_DATABASE_NAME,
@@ -102,39 +138,112 @@ jobs:
       - name: Install locked dependencies
         run: npm ci --no-audit --no-fund --legacy-peer-deps
 
+      - name: Preflight — verify Staging database roles before provisioning
+        env:
+          STAGING_MIGRATION_DATABASE_URL: ${{ secrets.PRODX_STAGING_MIGRATION_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          psql "$STAGING_MIGRATION_DATABASE_URL" --set=ON_ERROR_STOP=1 <<'SQL'
+          DO $rolepreflight$
+          DECLARE missing_roles text[]; unsafe_roles text[];
+          BEGIN
+            SELECT array_agg(required.rolename)
+              INTO missing_roles
+              FROM unnest(ARRAY[
+                'prodx_pos_worker','prodx_catalog_writer','prodx_device_admin',
+                'prodx_inventory_admin','prodx_rls_auditor','prodx_reconciliation_admin'
+              ]) AS required(rolename)
+             WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname=required.rolename);
+            IF missing_roles IS NOT NULL THEN
+              RAISE EXCEPTION 'STAGING_ROLE_BOOTSTRAP_REQUIRED: %',array_to_string(missing_roles,',');
+            END IF;
+            SELECT array_agg(rolname)
+              INTO unsafe_roles
+              FROM pg_roles
+             WHERE rolname IN (
+               'prodx_pos_worker','prodx_catalog_writer','prodx_device_admin',
+               'prodx_inventory_admin','prodx_rls_auditor'
+             ) AND (rolsuper OR rolbypassrls OR NOT rolcanlogin OR rolinherit OR rolcreatedb OR rolcreaterole OR rolreplication);
+            IF unsafe_roles IS NOT NULL THEN
+              RAISE EXCEPTION 'STAGING_APP_ROLE_PRIVILEGE_MISMATCH: %',array_to_string(unsafe_roles,',');
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_roles
+               WHERE rolname='prodx_reconciliation_admin'
+                 AND rolcanlogin AND NOT rolsuper AND rolbypassrls
+                 AND NOT rolinherit AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication
+            ) THEN
+              RAISE EXCEPTION 'STAGING_RECONCILIATION_ROLE_PRIVILEGE_MISMATCH';
+            END IF;
+          END $rolepreflight$;
+          SQL
+
       - name: Provision isolated Staging Queues and Hyperdrive
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          STAGING_DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
-          STAGING_DATABASE_HOST_EXPECTED: ${{ vars.STAGING_DATABASE_HOST }}
-          STAGING_DATABASE_NAME_EXPECTED: ${{ vars.STAGING_DATABASE_NAME }}
-          POS_STAGING_ACCESS_AUD: ${{ secrets.POS_STAGING_ACCESS_AUD }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.PRODX_STAGING_CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.PRODX_STAGING_CLOUDFLARE_ACCOUNT_ID }}
+          STAGING_DATABASE_URL: ${{ secrets.PRODX_STAGING_DATABASE_URL }}
+          STAGING_DATABASE_HOST_EXPECTED: ${{ vars.PRODX_STAGING_DATABASE_HOST }}
+          STAGING_DATABASE_NAME_EXPECTED: ${{ vars.PRODX_STAGING_DATABASE_NAME }}
+          POS_STAGING_ACCESS_AUD: ${{ secrets.PRODX_STAGING_ACCESS_AUD }}
         run: |
           chmod +x scripts/provision-staging.sh
           ./scripts/provision-staging.sh provision
+
+      - name: Gate 6.0 — Apply Staging migrations and least-privilege grants
+        env:
+          STAGING_MIGRATION_DATABASE_URL: ${{ secrets.PRODX_STAGING_MIGRATION_DATABASE_URL }}
+          STAGING_RLS_AUDIT_DATABASE_URL: ${{ secrets.PRODX_STAGING_RLS_AUDIT_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          # Fail closed if the six separately provisioned non-owner roles are absent.
+          psql "$STAGING_MIGRATION_DATABASE_URL" --set=ON_ERROR_STOP=1 <<'SQL'
+          DO $rolecheck$
+          DECLARE missing_roles text[];
+          BEGIN
+            SELECT array_agg(required.rolename)
+              INTO missing_roles
+              FROM unnest(ARRAY[
+                'prodx_pos_worker','prodx_catalog_writer','prodx_device_admin',
+                'prodx_inventory_admin','prodx_rls_auditor','prodx_reconciliation_admin'
+              ]) AS required(rolename)
+             WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname=required.rolename);
+            IF missing_roles IS NOT NULL THEN
+              RAISE EXCEPTION 'STAGING_ROLE_BOOTSTRAP_REQUIRED: %',array_to_string(missing_roles,',');
+            END IF;
+          END $rolecheck$;
+          SQL
+          for migration in \
+            migrations/001_pos_ledger.sql \
+            migrations/002_inventory_nonnegative.sql \
+            migrations/003_failed_sequence_recovery.sql \
+            migrations/004_terminal_retry_attempt_audit.sql; do
+            psql "$STAGING_MIGRATION_DATABASE_URL" --set=ON_ERROR_STOP=1 --file "$migration"
+          done
+          psql "$STAGING_MIGRATION_DATABASE_URL" --set=ON_ERROR_STOP=1 --file scripts/grant-runtime-role.sql
+          psql "$STAGING_RLS_AUDIT_DATABASE_URL" --set=ON_ERROR_STOP=1 --file scripts/rls-smoke.sql
 
       - name: Generate Staging Wrangler bindings
         run: npx wrangler types
 
       - name: Deploy Worker to Cloudflare Staging only
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.PRODX_STAGING_CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.PRODX_STAGING_CLOUDFLARE_ACCOUNT_ID }}
         run: npx wrangler deploy --env staging
 
       - name: Set Staging-only catalog signing secret
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CATALOG_SIGNING_KEY: ${{ secrets.CATALOG_SIGNING_KEY }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.PRODX_STAGING_CLOUDFLARE_API_TOKEN }}
+          CATALOG_SIGNING_KEY: ${{ secrets.PRODX_STAGING_CATALOG_SIGNING_KEY }}
         run: ./scripts/provision-staging.sh set-secret
 
       - name: Gate 6.1 — Edge to DO to Queue to Hyperdrive E2E
         env:
-          POS_STAGING_SYNC_URL: ${{ secrets.POS_STAGING_SYNC_URL }}
-          POS_STAGING_PROXY_TOKEN: ${{ secrets.POS_STAGING_PROXY_TOKEN }}
-          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
-          POS_STAGING_E2E_PAYLOAD_B64: ${{ secrets.POS_STAGING_E2E_PAYLOAD_B64 }}
+          POS_STAGING_SYNC_URL: ${{ secrets.PRODX_STAGING_SYNC_URL }}
+          POS_STAGING_PROXY_TOKEN: ${{ secrets.PRODX_STAGING_PROXY_TOKEN }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.PRODX_STAGING_VERCEL_AUTOMATION_BYPASS_SECRET }}
+          POS_STAGING_E2E_PAYLOAD_B64: ${{ secrets.PRODX_STAGING_E2E_PAYLOAD_B64 }}
         run: |
           set -euo pipefail
           printf '%s' "$POS_STAGING_E2E_PAYLOAD_B64" | base64 --decode > /tmp/prodx-staging-e2e.json
@@ -179,16 +288,16 @@ jobs:
 
       - name: Gate 6.2 — Export real Durable Object checkpoint and outbox state
         env:
-          POS_SYNC_URL: ${{ secrets.POS_STAGING_SYNC_URL }}
-          POS_PROXY_TOKEN: ${{ secrets.POS_STAGING_PROXY_TOKEN }}
-          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
-          POS_TERMINAL_IDS: ${{ secrets.POS_STAGING_TERMINAL_IDS_JSON }}
+          POS_SYNC_URL: ${{ secrets.PRODX_STAGING_SYNC_URL }}
+          POS_PROXY_TOKEN: ${{ secrets.PRODX_STAGING_PROXY_TOKEN }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.PRODX_STAGING_VERCEL_AUTOMATION_BYPASS_SECRET }}
+          POS_TERMINAL_IDS: ${{ secrets.PRODX_STAGING_TERMINAL_IDS_JSON }}
           POS_DO_HEALTH_CSV: do-outbox-export.csv
         run: npm run export:do-health 2>&1 | tee artifacts/logs/export-do-health.log
 
       - name: Gate 6.3 — Reconcile Cloudflare DO export against Staging PostgreSQL
         env:
-          DATABASE_URL: ${{ secrets.STAGING_RECONCILIATION_DATABASE_URL }}
+          DATABASE_URL: ${{ secrets.PRODX_STAGING_RECONCILIATION_DATABASE_URL }}
         run: |
           set -euo pipefail
           test -s do-outbox-export.csv
