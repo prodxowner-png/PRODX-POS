@@ -91,9 +91,10 @@ export const createSupabaseTokenVerifier = (
   };
 };
 
+// POS JWT verification uses the canonical server-side PRODX-ORG Auth issuer.
 export const verifySupabaseToken: SupabaseTokenVerifier = createSupabaseTokenVerifier(
-  process.env.SUPABASE_POS_AUTH_URL,
-  process.env.SUPABASE_POS_AUTH_JWKS_URL,
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_JWKS_URL,
 );
 
 export const createSessionIssuer = (
