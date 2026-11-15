@@ -34,7 +34,7 @@ test('supervisor authorization route issues a server-scoped token from authentic
           if (sql.includes('SELECT m.user_id AS "userId"')) return { rows: [{ userId: 'supervisor-1' }] as unknown as T[] };
           if (sql.includes('UPDATE prodx_user_credentials')) return { rows: [] as T[] };
           if (sql.includes('INSERT INTO prodx_supervisor_authorizations')) return { rows: [] as T[] };
-          if (sql.includes('INSERT INTO prodx_security_audit_events')) return { rows: [] as T[] };
+          if (sql.includes('prodx_record_supervisor_authorization_event')) return { rows: [] as T[] };
           throw new Error(`Unexpected SQL in supervisor authorization transaction: ${sql}`);
         },
       });

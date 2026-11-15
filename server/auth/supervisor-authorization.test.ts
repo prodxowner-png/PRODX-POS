@@ -36,7 +36,7 @@ test('supervisor authorization issues scoped token and audit event atomically', 
       if (sql.includes('SELECT m.user_id AS "userId"')) return [{ userId: ids.supervisor }] as unknown as T[];
       if (sql.includes('UPDATE prodx_user_credentials')) return [] as unknown as T[];
       if (sql.includes('INSERT INTO prodx_supervisor_authorizations')) return [] as unknown as T[];
-      if (sql.includes('INSERT INTO prodx_security_audit_events')) return [] as unknown as T[];
+      if (sql.includes('prodx_record_supervisor_authorization_event')) return [] as unknown as T[];
       throw new Error(`Unexpected SQL: ${sql}`);
     },
   };
@@ -44,7 +44,9 @@ test('supervisor authorization issues scoped token and audit event atomically', 
   const result = await createSupervisorAuthorizationService(db, () => new Date('2026-09-20T00:00:00.000Z')).authorize(input);
   assert.equal(result.supervisorUserId, ids.supervisor);
   assert.equal(new Date(result.expiresAt).toISOString(), '2026-09-20T00:02:00.000Z');
-  assert.ok(calls.some((sql) => sql.includes('INSERT INTO prodx_security_audit_events')));
+  const auditRpc = calls.find((sql) => sql.includes('prodx_record_supervisor_authorization_event')) ?? '';
+  assert.ok(auditRpc, 'supervisor events must use the scoped SECURITY DEFINER audit RPC');
+  assert.doesNotMatch(auditRpc, /INSERT INTO prodx_security_audit_events/i);
   assert.ok(calls.some((sql) => sql.includes('INSERT INTO prodx_supervisor_authorizations')));
 });
 
@@ -57,7 +59,7 @@ test('failed supervisor attempts use an atomic SQL increment and emit an audit e
         return [{ userId: ids.supervisor, organizationId: ids.org, status: 'active', secretHash: 'not-a-valid-hash', failedAttempts: 4, lockedUntil: null }] as unknown as T[];
       }
       if (sql.includes('UPDATE prodx_user_credentials')) return [] as unknown as T[];
-      if (sql.includes('INSERT INTO prodx_security_audit_events')) return [] as unknown as T[];
+      if (sql.includes('prodx_record_supervisor_authorization_event')) return [] as unknown as T[];
       throw new Error(`Unexpected SQL: ${sql}`);
     },
   };
@@ -69,7 +71,7 @@ test('failed supervisor attempts use an atomic SQL increment and emit an audit e
   const update = calls.find((sql) => sql.includes('UPDATE prodx_user_credentials')) ?? '';
   assert.match(update, /failed_attempts = failed_attempts \+ 1/);
   assert.match(update, /failed_attempts \+ 1 >=/);
-  assert.ok(calls.some((sql) => sql.includes('INSERT INTO prodx_security_audit_events')));
+  assert.ok(calls.some((sql) => sql.includes('prodx_record_supervisor_authorization_event')));
 });
 
 test('supervisor authorization token is one-time and distinguishes replay from expiry', async () => {
