@@ -62,6 +62,30 @@ BEGIN
     RAISE EXCEPTION 'STAGING_RUNTIME_ROLE_DDL_PRIVILEGE_NOT_ALLOWED';
   END IF;
 
+  -- Runtime roles and PUBLIC must never receive grantable table privileges.
+  IF EXISTS (
+    SELECT 1
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid=c.relnamespace
+    CROSS JOIN LATERAL aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) acl
+    WHERE n.nspname='public'
+      AND c.relname IN (
+        'products','sales','sale_lines','pos_idempotency','inventory_ledger',
+        'inventory_balances','audit_logs','tenant_catalog_versions','terminal_sync_state',
+        'terminal_devices','terminal_sequence_failures','terminal_sequence_resolutions',
+        'terminal_sequence_retry_failures'
+      )
+      AND acl.is_grantable
+      AND (acl.grantee=0 OR acl.grantee IN (
+        SELECT oid FROM pg_roles WHERE rolname IN (
+          'prodx_pos_worker','prodx_catalog_writer','prodx_device_admin',
+          'prodx_inventory_admin','prodx_rls_auditor','prodx_reconciliation_admin'
+        )
+      ))
+  ) THEN
+    RAISE EXCEPTION 'STAGING_RUNTIME_ROLE_GRANT_OPTION_NOT_ALLOWED';
+  END IF;
+
   SELECT c.relname INTO owned_table
   FROM pg_class c
   JOIN pg_namespace n ON n.oid=c.relnamespace
