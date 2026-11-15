@@ -72,7 +72,7 @@ test('supervisor authorization works end-to-end under the real prodx_app runtime
     org: randomUUID(), otherOrg: randomUUID(), store: randomUUID(), otherStore: randomUUID(),
     register: randomUUID(), device: randomUUID(), shift: randomUUID(), order: randomUUID(),
     requester: randomUUID(), session: randomUUID(), supervisor: randomUUID(), cashier: randomUUID(),
-    otherSupervisor: randomUUID(), supervisorRole: randomUUID(), cashierRole: randomUUID(),
+    otherSupervisor: randomUUID(), nonMemberSupervisor: randomUUID(), supervisorRole: randomUUID(), cashierRole: randomUUID(),
     otherRole: randomUUID(),
   };
   const suffix = ids.org.replaceAll('-', '').slice(0, 12);
@@ -90,11 +90,13 @@ test('supervisor authorization works end-to-end under the real prodx_app runtime
         ($1, $5, $6, 'Requester', 'active'),
         ($2, $5, $7, 'Supervisor', 'active'),
         ($3, $5, $8, 'Cashier Without Permission', 'active'),
-        ($4, $9, $10, 'Other Tenant Supervisor', 'active')`,
+        ($4, $9, $10, 'Other Tenant Supervisor', 'active'),
+        ($11, $5, $12, 'Supervisor Without Store Membership', 'active')`,
       [ids.requester, ids.supervisor, ids.cashier, ids.otherSupervisor, ids.org,
-        `sup-requester-${suffix}`, `sup-supervisor-${suffix}`, `sup-cashier-${suffix}`, ids.otherOrg, `sup-supervisor-${suffix}`]);
-    await client.query(`INSERT INTO public.prodx_user_credentials (user_id, credential_type, secret_hash) VALUES ($1, 'password', $4), ($2, 'password', $4), ($3, 'password', $4)`,
-      [ids.supervisor, ids.cashier, ids.otherSupervisor, secretHash]);
+        `sup-requester-${suffix}`, `sup-supervisor-${suffix}`, `sup-cashier-${suffix}`, ids.otherOrg, `sup-supervisor-${suffix}`,
+        ids.nonMemberSupervisor, `sup-nonmember-${suffix}`]);
+    await client.query(`INSERT INTO public.prodx_user_credentials (user_id, credential_type, secret_hash) VALUES ($1, 'password', $4), ($2, 'password', $4), ($3, 'password', $4), ($5, 'password', $4)`,
+      [ids.supervisor, ids.cashier, ids.otherSupervisor, secretHash, ids.nonMemberSupervisor]);
     await client.query(`INSERT INTO public.prodx_roles (id, organization_id, role_key, name, active) VALUES ($1, $3, 'supervisor', 'Supervisor', TRUE), ($2, $3, 'cashier', 'Cashier', TRUE), ($4, $5, 'supervisor', 'Supervisor', TRUE)`,
       [ids.supervisorRole, ids.cashierRole, ids.org, ids.otherRole, ids.otherOrg]);
     for (const permissionKey of ['pos.refund', 'pos.void', 'pos.sell']) {
@@ -109,6 +111,8 @@ test('supervisor authorization works end-to-end under the real prodx_app runtime
       [ids.org, ids.supervisorRole, ids.cashierRole, ids.otherOrg, ids.otherRole]);
     await client.query(`INSERT INTO public.prodx_store_memberships (organization_id, store_id, user_id, active) VALUES ($1, $2, $3, TRUE), ($1, $2, $4, TRUE), ($1, $2, $5, TRUE), ($6, $7, $8, TRUE)`,
       [ids.org, ids.store, ids.requester, ids.supervisor, ids.cashier, ids.otherOrg, ids.otherStore, ids.otherSupervisor]);
+    await client.query(`INSERT INTO public.prodx_store_memberships (organization_id, store_id, user_id, active) VALUES ($1, $2, $3, FALSE)`,
+      [ids.org, ids.store, ids.nonMemberSupervisor]);
     await client.query(`INSERT INTO public.prodx_user_roles (organization_id, store_id, user_id, role_id, active) VALUES ($1, $2, $3, $4, TRUE), ($1, $2, $5, $6, TRUE), ($1, $2, $7, $6, TRUE), ($8, $9, $10, $11, TRUE)`,
       [ids.org, ids.store, ids.supervisor, ids.supervisorRole, ids.cashier, ids.cashierRole, ids.requester, ids.otherOrg, ids.otherStore, ids.otherSupervisor, ids.otherRole]);
     await client.query(`INSERT INTO public.prodx_registers (id, organization_id, store_id, code, name) VALUES ($1, $2, $3, $4, 'Register')`,
@@ -248,6 +252,33 @@ test('supervisor authorization works end-to-end under the real prodx_app runtime
     const foreign = await client.query<{ failed_attempts: number }>('SELECT failed_attempts FROM public.prodx_user_credentials WHERE user_id = $1', [ids.otherSupervisor]);
     assert.equal(foreign.rows[0].failed_attempts, 0);
 
+    // Same-tenant identity with inactive membership in this store is invisible
+    // to lookup and cannot have its failed-attempt counter changed.
+    const nonMemberLookup = await asRuntimeRole(client, context, 'non_member_lookup', () =>
+      client.query('SELECT * FROM public.prodx_supervisor_find_credential($1, $2, $3)',
+        [ids.org, ids.store, ids.nonMemberSupervisor]));
+    assert.deepEqual(nonMemberLookup.rows, []);
+    await client.query('UPDATE public.prodx_user_credentials SET failed_attempts = 2 WHERE user_id = $1', [ids.nonMemberSupervisor]);
+    await asRuntimeRole(client, context, 'non_member_failed_attempt', () =>
+      client.query('SELECT public.prodx_supervisor_record_failed_attempt($1, $2, $3)',
+        [ids.org, ids.store, ids.nonMemberSupervisor]));
+    const nonMemberCredential = await client.query<{ failed_attempts: number }>(
+      'SELECT failed_attempts FROM public.prodx_user_credentials WHERE user_id = $1', [ids.nonMemberSupervisor]);
+    assert.equal(nonMemberCredential.rows[0].failed_attempts, 2);
+
+    // A revoked requester membership also invalidates the database context,
+    // even if the caller still supplies the old tenant/store/user GUC values.
+    await client.query('UPDATE public.prodx_store_memberships SET active = FALSE WHERE organization_id = $1 AND store_id = $2 AND user_id = $3',
+      [ids.org, ids.store, ids.requester]);
+    await assert.rejects(
+      asRuntimeRole(client, context, 'inactive_requester_membership', () =>
+        client.query('SELECT * FROM public.prodx_supervisor_find_credential($1, $2, $3)',
+          [ids.org, ids.store, ids.supervisor])),
+      /outside the authenticated tenant context/,
+    );
+    await client.query('UPDATE public.prodx_store_memberships SET active = TRUE WHERE organization_id = $1 AND store_id = $2 AND user_id = $3',
+      [ids.org, ids.store, ids.requester]);
+
     // Lockout: five failures lock the credential; the correct secret is then rejected.
     for (let attempt = 1; attempt <= 5; attempt += 1) {
       await assert.rejects(
@@ -268,9 +299,9 @@ test('supervisor authorization works end-to-end under the real prodx_app runtime
       SELECT event_type, count(*)::int AS count FROM public.prodx_security_audit_events
        WHERE organization_id = $1 GROUP BY event_type ORDER BY event_type COLLATE "C"`, [ids.org]);
     assert.deepEqual(audit.rows, [
-      { event_type: 'SUPERVISOR_AUTHORIZATION_GRANTED', count: 1 },
       { event_type: 'SUPERVISOR_AUTH_DENIED', count: 1 },
       { event_type: 'SUPERVISOR_AUTH_FAILED', count: 9 },
+      { event_type: 'SUPERVISOR_AUTHORIZATION_GRANTED', count: 1 },
       { event_type: 'SUPERVISOR_AUTH_REJECTED', count: 2 },
     ]);
   } finally {
