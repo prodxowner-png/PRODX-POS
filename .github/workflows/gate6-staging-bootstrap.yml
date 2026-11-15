@@ -142,6 +142,7 @@ jobs:
             'prodx-pos-edge-sync/migrations/003_failed_sequence_recovery.sql',
             'prodx-pos-edge-sync/migrations/004_terminal_retry_attempt_audit.sql',
             'prodx-pos-edge-sync/scripts/grant-runtime-role.sql',
+            'prodx-pos-edge-sync/scripts/verify-runtime-role-privileges.sql',
             'prodx-pos-edge-sync/scripts/rls-smoke.sql',
             'prodx-pos-edge-sync/scripts/reconcile.sql'
           ]) assert.ok(fs.existsSync(file), `Required Gate 6 source file is missing: ${file}`);
@@ -279,14 +280,6 @@ jobs:
             ) THEN
               RAISE EXCEPTION 'STAGING_RECONCILIATION_ROLE_PRIVILEGE_MISMATCH';
             END IF;
-            IF has_table_privilege('prodx_reconciliation_admin','public.sales','INSERT')
-               OR has_table_privilege('prodx_reconciliation_admin','public.sales','UPDATE')
-               OR has_table_privilege('prodx_reconciliation_admin','public.sales','DELETE')
-               OR has_table_privilege('prodx_reconciliation_admin','public.inventory_ledger','INSERT')
-               OR has_table_privilege('prodx_reconciliation_admin','public.inventory_ledger','UPDATE')
-               OR has_table_privilege('prodx_reconciliation_admin','public.inventory_ledger','DELETE') THEN
-              RAISE EXCEPTION 'STAGING_RECONCILIATION_ROLE_MUST_BE_READ_ONLY';
-            END IF;
           END $rolepreflight$;
           SQL
 
@@ -319,81 +312,11 @@ jobs:
           done
           psql "$STAGING_MIGRATION_DATABASE_URL" --set=ON_ERROR_STOP=1 --file scripts/grant-runtime-role.sql \
             2>&1 | tee artifacts/logs/grant-runtime-role.log
-          # GRANT is additive; fail closed if any pre-existing membership or privilege
-          # would widen the dedicated runtime/auditor/reconciliation roles.
-          psql "$STAGING_MIGRATION_DATABASE_URL" --set=ON_ERROR_STOP=1 <<'SQL'
-          DO $least_privilege_gate$
-          DECLARE violation record;
-          BEGIN
-            IF EXISTS (
-              SELECT 1 FROM pg_auth_members m
-              JOIN pg_roles member_role ON member_role.oid=m.member
-              WHERE member_role.rolname IN (
-                'prodx_pos_worker','prodx_catalog_writer','prodx_device_admin',
-                'prodx_inventory_admin','prodx_rls_auditor','prodx_reconciliation_admin'
-              )
-            ) THEN
-              RAISE EXCEPTION 'STAGING_RUNTIME_ROLE_MEMBERSHIP_NOT_ALLOWED';
-            END IF;
-            IF EXISTS (
-              SELECT 1 FROM pg_roles r
-              WHERE r.rolname IN (
-                'prodx_pos_worker','prodx_catalog_writer','prodx_device_admin',
-                'prodx_inventory_admin','prodx_rls_auditor','prodx_reconciliation_admin'
-              ) AND (has_schema_privilege(r.rolname,'public','CREATE')
-                     OR has_database_privilege(r.rolname,current_database(),'CREATE'))
-            ) THEN
-              RAISE EXCEPTION 'STAGING_RUNTIME_ROLE_DDL_PRIVILEGE_NOT_ALLOWED';
-            END IF;
-            FOR violation IN
-              SELECT * FROM (VALUES
-                ('prodx_pos_worker','products','INSERT'),('prodx_pos_worker','products','UPDATE'),('prodx_pos_worker','products','DELETE'),('prodx_pos_worker','products','TRUNCATE'),
-                ('prodx_pos_worker','tenant_catalog_versions','INSERT'),('prodx_pos_worker','tenant_catalog_versions','UPDATE'),('prodx_pos_worker','tenant_catalog_versions','DELETE'),('prodx_pos_worker','tenant_catalog_versions','TRUNCATE'),
-                ('prodx_pos_worker','terminal_devices','INSERT'),('prodx_pos_worker','terminal_devices','UPDATE'),('prodx_pos_worker','terminal_devices','DELETE'),('prodx_pos_worker','terminal_devices','TRUNCATE'),
-                ('prodx_pos_worker','sales','UPDATE'),('prodx_pos_worker','sales','DELETE'),('prodx_pos_worker','sales','TRUNCATE'),
-                ('prodx_pos_worker','sale_lines','UPDATE'),('prodx_pos_worker','sale_lines','DELETE'),('prodx_pos_worker','sale_lines','TRUNCATE'),
-                ('prodx_pos_worker','inventory_ledger','UPDATE'),('prodx_pos_worker','inventory_ledger','DELETE'),('prodx_pos_worker','inventory_ledger','TRUNCATE'),
-                ('prodx_pos_worker','audit_logs','UPDATE'),('prodx_pos_worker','audit_logs','DELETE'),('prodx_pos_worker','audit_logs','TRUNCATE'),
-                ('prodx_pos_worker','inventory_balances','INSERT'),('prodx_pos_worker','inventory_balances','UPDATE'),
-                ('prodx_pos_worker','inventory_balances','DELETE'),('prodx_pos_worker','inventory_balances','TRUNCATE'),
-                ('prodx_pos_worker','pos_idempotency','DELETE'),('prodx_pos_worker','pos_idempotency','TRUNCATE'),
-                ('prodx_pos_worker','terminal_sync_state','DELETE'),('prodx_pos_worker','terminal_sync_state','TRUNCATE'),
-                ('prodx_catalog_writer','products','DELETE'),('prodx_catalog_writer','products','TRUNCATE'),
-                ('prodx_catalog_writer','tenant_catalog_versions','DELETE'),('prodx_catalog_writer','tenant_catalog_versions','TRUNCATE'),
-                ('prodx_device_admin','terminal_devices','DELETE'),('prodx_device_admin','terminal_devices','TRUNCATE'),
-                ('prodx_device_admin','audit_logs','UPDATE'),('prodx_device_admin','audit_logs','DELETE'),('prodx_device_admin','audit_logs','TRUNCATE'),
-                ('prodx_inventory_admin','inventory_ledger','UPDATE'),('prodx_inventory_admin','inventory_ledger','DELETE'),('prodx_inventory_admin','inventory_ledger','TRUNCATE'),
-                ('prodx_inventory_admin','inventory_balances','INSERT'),('prodx_inventory_admin','inventory_balances','UPDATE'),
-                ('prodx_inventory_admin','inventory_balances','DELETE'),('prodx_inventory_admin','inventory_balances','TRUNCATE'),
-                ('prodx_inventory_admin','audit_logs','UPDATE'),('prodx_inventory_admin','audit_logs','DELETE'),('prodx_inventory_admin','audit_logs','TRUNCATE'),
-                ('prodx_rls_auditor','products','INSERT'),('prodx_rls_auditor','products','UPDATE'),('prodx_rls_auditor','products','DELETE'),('prodx_rls_auditor','products','TRUNCATE'),
-                ('prodx_rls_auditor','sales','INSERT'),('prodx_rls_auditor','sales','UPDATE'),('prodx_rls_auditor','sales','DELETE'),('prodx_rls_auditor','sales','TRUNCATE'),
-                ('prodx_rls_auditor','sale_lines','INSERT'),('prodx_rls_auditor','sale_lines','UPDATE'),('prodx_rls_auditor','sale_lines','DELETE'),('prodx_rls_auditor','sale_lines','TRUNCATE'),
-                ('prodx_rls_auditor','pos_idempotency','INSERT'),('prodx_rls_auditor','pos_idempotency','UPDATE'),('prodx_rls_auditor','pos_idempotency','DELETE'),('prodx_rls_auditor','pos_idempotency','TRUNCATE'),
-                ('prodx_rls_auditor','inventory_ledger','INSERT'),('prodx_rls_auditor','inventory_ledger','UPDATE'),('prodx_rls_auditor','inventory_ledger','DELETE'),('prodx_rls_auditor','inventory_ledger','TRUNCATE'),
-                ('prodx_rls_auditor','inventory_balances','INSERT'),('prodx_rls_auditor','inventory_balances','UPDATE'),('prodx_rls_auditor','inventory_balances','DELETE'),('prodx_rls_auditor','inventory_balances','TRUNCATE'),
-                ('prodx_rls_auditor','audit_logs','INSERT'),('prodx_rls_auditor','audit_logs','UPDATE'),('prodx_rls_auditor','audit_logs','DELETE'),('prodx_rls_auditor','audit_logs','TRUNCATE'),
-                ('prodx_rls_auditor','tenant_catalog_versions','INSERT'),('prodx_rls_auditor','tenant_catalog_versions','UPDATE'),('prodx_rls_auditor','tenant_catalog_versions','DELETE'),('prodx_rls_auditor','tenant_catalog_versions','TRUNCATE'),
-                ('prodx_rls_auditor','terminal_sync_state','INSERT'),('prodx_rls_auditor','terminal_sync_state','UPDATE'),('prodx_rls_auditor','terminal_sync_state','DELETE'),('prodx_rls_auditor','terminal_sync_state','TRUNCATE'),
-                ('prodx_rls_auditor','terminal_devices','INSERT'),('prodx_rls_auditor','terminal_devices','UPDATE'),('prodx_rls_auditor','terminal_devices','DELETE'),('prodx_rls_auditor','terminal_devices','TRUNCATE'),
-                ('prodx_reconciliation_admin','products','INSERT'),('prodx_reconciliation_admin','products','UPDATE'),('prodx_reconciliation_admin','products','DELETE'),('prodx_reconciliation_admin','products','TRUNCATE'),
-                ('prodx_reconciliation_admin','sales','INSERT'),('prodx_reconciliation_admin','sales','UPDATE'),('prodx_reconciliation_admin','sales','DELETE'),('prodx_reconciliation_admin','sales','TRUNCATE'),
-                ('prodx_reconciliation_admin','sale_lines','INSERT'),('prodx_reconciliation_admin','sale_lines','UPDATE'),('prodx_reconciliation_admin','sale_lines','DELETE'),('prodx_reconciliation_admin','sale_lines','TRUNCATE'),
-                ('prodx_reconciliation_admin','pos_idempotency','INSERT'),('prodx_reconciliation_admin','pos_idempotency','UPDATE'),('prodx_reconciliation_admin','pos_idempotency','DELETE'),('prodx_reconciliation_admin','pos_idempotency','TRUNCATE'),
-                ('prodx_reconciliation_admin','inventory_ledger','INSERT'),('prodx_reconciliation_admin','inventory_ledger','UPDATE'),('prodx_reconciliation_admin','inventory_ledger','DELETE'),('prodx_reconciliation_admin','inventory_ledger','TRUNCATE'),
-                ('prodx_reconciliation_admin','inventory_balances','INSERT'),('prodx_reconciliation_admin','inventory_balances','UPDATE'),('prodx_reconciliation_admin','inventory_balances','DELETE'),('prodx_reconciliation_admin','inventory_balances','TRUNCATE'),
-                ('prodx_reconciliation_admin','audit_logs','INSERT'),('prodx_reconciliation_admin','audit_logs','UPDATE'),('prodx_reconciliation_admin','audit_logs','DELETE'),('prodx_reconciliation_admin','audit_logs','TRUNCATE'),
-                ('prodx_reconciliation_admin','tenant_catalog_versions','INSERT'),('prodx_reconciliation_admin','tenant_catalog_versions','UPDATE'),('prodx_reconciliation_admin','tenant_catalog_versions','DELETE'),('prodx_reconciliation_admin','tenant_catalog_versions','TRUNCATE'),
-                ('prodx_reconciliation_admin','terminal_sync_state','INSERT'),('prodx_reconciliation_admin','terminal_sync_state','UPDATE'),('prodx_reconciliation_admin','terminal_sync_state','DELETE'),('prodx_reconciliation_admin','terminal_sync_state','TRUNCATE'),
-                ('prodx_reconciliation_admin','terminal_devices','INSERT'),('prodx_reconciliation_admin','terminal_devices','UPDATE'),('prodx_reconciliation_admin','terminal_devices','DELETE'),('prodx_reconciliation_admin','terminal_devices','TRUNCATE')
-              ) AS forbidden(role_name,table_name,privilege)
-              WHERE has_table_privilege(role_name,format('public.%I',table_name),privilege)
-            LOOP
-              RAISE EXCEPTION 'STAGING_ROLE_PRIVILEGE_MISMATCH: role %, table %, privilege %',
-                violation.role_name,violation.table_name,violation.privilege;
-            END LOOP;
-          END $least_privilege_gate$;
-          SQL
+          # Verify table-level permissions only after migrations created all 13 tables
+          # and grant-runtime-role.sql applied the intended role grants.
+          psql "$STAGING_MIGRATION_DATABASE_URL" --set=ON_ERROR_STOP=1 \
+            --file scripts/verify-runtime-role-privileges.sql \
+            2>&1 | tee artifacts/logs/verify-runtime-role-privileges.log
           psql "$STAGING_RLS_AUDIT_DATABASE_URL" --set=ON_ERROR_STOP=1 --file scripts/rls-smoke.sql \
             2>&1 | tee artifacts/logs/rls-smoke.log
 
