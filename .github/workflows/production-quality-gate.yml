@@ -59,6 +59,12 @@ jobs:
       - name: Type check backend
         run: bun run server:check
 
+      - name: Verify migration immutability and ordering
+        run: bun run db:migrations:check
+
+      - name: Verify dependency security overrides
+        run: bun run dependency:overrides:check
+
       - name: Browser telemetry Node regression test
         run: bun run telemetry:test
 
