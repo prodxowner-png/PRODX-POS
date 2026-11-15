@@ -19,6 +19,8 @@ A read-only Cloudflare API inventory on **2026-11-16** for account `3c0c1c843f86
 - Two deployed Worker scripts: `prodx-oci-bridge` and `prodx-oci-bridge-staging`. Neither `prodx-pos-edge-sync` nor `prodx-pos-edge-sync-staging` appears in the deployed Worker inventory.
 - Two staging Queues already exist (`prodx-pos-ingest-staging` and `prodx-pos-ingest-dlq-staging`), but both report **zero producers and zero consumers**.
 - **Zero Hyperdrive configurations** exist in the account.
+- Two Access applications exist: `All Workers` (account-member-only policy) and `PRODX OCI Staging Preview Only` (an OCI preview app with account-member and service-token policies). Neither is a POS terminal application. The account has **zero Access mTLS certificates** and the Access mTLS hostname-settings endpoint returned an empty result; plan entitlement was not verified.
+- The account setting `enforce_twofactor` is `false`. This means account-wide two-factor enforcement is disabled; it does not establish whether individual users have MFA enabled. Enforce MFA before production account administration/deployment.
 - `prodx-pos-edge-sync/wrangler.jsonc` defines a staging environment with `workers_dev: true`, but its Hyperdrive IDs and `ACCESS_AUD` are placeholders. This is source configuration, not a deployed endpoint or usable binding.
 - `.github/workflows/verify-gate6-staging.yml` can provision the staging resources and deploy `prodx-pos-edge-sync-staging`, but its current E2E request target is a Vercel Preview URL at `/__staging/edge`. That exercises the Vercel proxy → Worker path, not a direct browser/PWA → Worker path. The proxy terminates the terminal's TLS connection, so this workflow cannot prove the original terminal's mTLS identity reaches Cloudflare.
 
