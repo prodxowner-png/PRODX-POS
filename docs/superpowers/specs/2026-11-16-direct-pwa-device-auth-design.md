@@ -11,16 +11,22 @@
 
 The product direction is **PWA → Cloudflare Worker directly**, without the Vercel Preview proxy in the Edge Sync data path. Vercel remains the PWA hosting platform and continues serving unrelated application APIs.
 
-The previously proposed universal browser mTLS design is **not currently deployable on the connected Cloudflare account**:
+The previously proposed universal browser mTLS design is **not currently deployable on the connected Cloudflare account**, and the Edge Sync staging Worker is not deployed there yet.
 
-- The connected Cloudflare account is `3c0c1c843f861164db9de3fb31f062f5`.
-- Read-only Cloudflare API inspection returned one standard account and **zero active zones**.
-- The current Worker config uses `workers_dev: true`; it has no custom-domain route.
-- Cloudflare Zone-level mTLS requires a hostname in an active Cloudflare Zone.
-- Cloudflare Access mTLS is a separate feature, requires Enterprise or pay-as-you-go Zero Trust, and is not included in Free.
-- Cloudflare-managed client certificates are available on Free/Pro/Business, but the default limit is 100 active certificates per zone. BYOCA requires Enterprise.
+A read-only Cloudflare API inventory on **2026-11-16** for account `3c0c1c843f861164db9de3fb31f062f5` found:
 
-The repository also has an explicit Free-plan/no-domain-purchase constraint in `docs/edge-sync-free-plan-device-auth-rfc.md`.
+- One `standard` account, **zero active zones**, and **zero Worker Domains**.
+- Two deployed Worker scripts: `prodx-oci-bridge` and `prodx-oci-bridge-staging`. Neither `prodx-pos-edge-sync` nor `prodx-pos-edge-sync-staging` appears in the deployed Worker inventory.
+- Two staging Queues already exist (`prodx-pos-ingest-staging` and `prodx-pos-ingest-dlq-staging`), but both report **zero producers and zero consumers**.
+- **Zero Hyperdrive configurations** exist in the account.
+- `prodx-pos-edge-sync/wrangler.jsonc` defines a staging environment with `workers_dev: true`, but its Hyperdrive IDs and `ACCESS_AUD` are placeholders. This is source configuration, not a deployed endpoint or usable binding.
+- `.github/workflows/verify-gate6-staging.yml` can provision the staging resources and deploy `prodx-pos-edge-sync-staging`, but its current E2E request target is a Vercel Preview URL at `/__staging/edge`. That exercises the Vercel proxy → Worker path, not a direct browser/PWA → Worker path. The proxy terminates the terminal's TLS connection, so this workflow cannot prove the original terminal's mTLS identity reaches Cloudflare.
+
+Consequently, there is **no currently deployed Edge Sync staging endpoint** in the connected account. `workers_dev: true` means the staging deployment is configured to use a `workers.dev` hostname after deployment; it does not mean that hostname currently exists or is serving this Worker. The two staging Queues are present but are not wired to a deployed Edge Sync Worker, and Hyperdrive still needs to be provisioned.
+
+Cloudflare Zone-level mTLS requires a hostname in an active Cloudflare Zone, which this account inventory does not show. Cloudflare Access mTLS is a separate feature; the account's current plan entitlement and Access mTLS configuration were not verified in this read-only check. Cloudflare-managed client certificates have a documented default limit of 100 active certificates per zone; BYOCA requires Enterprise.
+
+The repository also has an explicit Free-plan/no-domain-purchase constraint in `docs/edge-sync-free-plan-device-auth-rfc.md`. Treat that as a project constraint, not proof of the connected account's current billing entitlement.
 
 **Recommendation under the currently evidenced constraints:** retain the Direct PWA → Worker data path, but use per-terminal application-layer device signatures with WebCrypto (ECDSA P-256 / SHA-256) as the primary device identity. This is **not mTLS** and must never be described as equivalent to transport-layer mTLS. Keep zone-level mTLS as an optional future transport-hardening layer if an active Cloudflare Zone, device management, certificate quota, and owner approval become available.
 
@@ -51,7 +57,7 @@ flowchart TD
   IDB["IndexedDB Outbox<br/>durable pending sales"]
   AUTH["POS session bearer<br/>8-hour opaque token"]
   KEY["WebCrypto device key<br/>non-extractable ECDSA P-256"]
-  EDGE["Cloudflare Worker<br/>HTTPS workers.dev initially"]
+  EDGE["Cloudflare Worker<br/>workers.dev after staging deployment"]
   DO["Durable Object<br/>idempotency + sequence + gaps"]
   Q["Cloudflare Queue<br/>at-least-once delivery"]
   PG["PostgreSQL<br/>RLS + financial source of truth"]
@@ -76,7 +82,7 @@ No Vercel Function proxies Edge Sync. The browser's TLS connection terminates at
 - WebCrypto is available to secure contexts across the target browser families.
 - A non-extractable private `CryptoKey` can be persisted in IndexedDB; application JavaScript can request signatures but cannot export the private key bytes.
 - It does not depend on the browser exposing the OS client-certificate store to PWA JavaScript.
-- It works with the current `workers.dev` endpoint and does not require buying a domain or enabling a paid Access mTLS plan.
+- It can use a `workers.dev` hostname after the staging Worker is provisioned and deployed; the connected account currently has no deployed Edge Sync Worker. This application-layer approach does not require a custom Zone hostname, but any Access policy/plan dependency must be verified separately.
 - It can sign each sale while offline, so the signature remains attached to the sale when the outbox is replayed later.
 
 Limitations must remain explicit:
@@ -353,9 +359,10 @@ Do not enable mTLS in production or change DNS/Cloudflare settings as part of th
 
 ### Phase 4 — Isolated staging only
 
-- Use the existing staging Worker endpoint only after session/key implementation and all staging isolation prerequisites pass.
-- Use a dedicated disposable database/tenant/store.
-- Run direct PWA → Worker → DO → Queue → PostgreSQL end-to-end tests.
+- Provision a dedicated disposable database/tenant/store and verify exact database host/name allowlists before any staging writes.
+- Provision/verify the staging Queues and Hyperdrive, then deploy `prodx-pos-edge-sync-staging` through the approved staging workflow only after the required environment secrets, reviewers, and account permissions are confirmed. As of 2026-11-16, the two staging Queues exist without producers/consumers, no Hyperdrive configuration exists, and the Edge Sync staging Worker is not deployed.
+- The current Gate 6 workflow targets a Vercel Preview proxy and therefore does **not** satisfy the Direct PWA → Worker acceptance gate. Add a separate browser-level test that calls the deployed staging `workers.dev` endpoint directly from the exact allowlisted PWA origin and verifies CORS, session/device proofs, DO idempotency, Queue delivery, and PostgreSQL commit/receipt status.
+- Keep the existing proxy-based Gate 6 results separate; they may verify the proxy-to-Worker path but cannot establish direct-browser ingress or terminal TLS identity.
 - Preserve append-only ledger and audit rows; rollback never deletes them.
 - No Production deploy is authorized by this document.
 
