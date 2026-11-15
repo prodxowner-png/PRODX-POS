@@ -27,21 +27,19 @@ export class SupervisorAuthorizationError extends Error {
 }
 
 const TTL_MS = 2 * 60 * 1000;
-const MAX_FAILED_ATTEMPTS = 5;
-const LOCKOUT_MS = 15 * 60 * 1000;
 
 export const hashAuthorizationToken = (token: string): string =>
   crypto.createHash('sha256').update(token, 'utf8').digest('hex');
 
 const recordSecurityEvent = async (
   db: SqlExecutor,
-  input: { organizationId: string; userId?: string | null; eventType: string; metadata: Record<string, unknown> },
+  input: { organizationId: string; storeId: string; userId?: string | null; eventType: string; metadata: Record<string, unknown> },
 ): Promise<void> => {
   await db.query(
-    `INSERT INTO prodx_security_audit_events
-      (id, organization_id, user_id, event_type, metadata)
-     VALUES ($1, $2, $3, $4, $5::jsonb)`,
-    [crypto.randomUUID(), input.organizationId, input.userId ?? null, input.eventType, JSON.stringify(input.metadata)],
+    `SELECT public.prodx_record_supervisor_authorization_event(
+      $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::text, $6::jsonb
+    )`,
+    [crypto.randomUUID(), input.organizationId, input.storeId, input.userId ?? null, input.eventType, JSON.stringify(input.metadata)],
   );
 };
 
@@ -53,18 +51,16 @@ export const createSupervisorAuthorizationService = (db: SqlExecutor, now: () =>
     }
 
     const credentials = await db.query<{
-      userId: string; organizationId: string; status: 'active' | 'disabled';
+      userId: string; status: 'active' | 'disabled';
       secretHash: string; failedAttempts: number; lockedUntil: Date | null;
     }>(
-      `SELECT u.id AS "userId", u.organization_id AS "organizationId", u.status,
-              c.secret_hash AS "secretHash", c.failed_attempts AS "failedAttempts",
-              c.locked_until AS "lockedUntil"
-         FROM prodx_users u
-         JOIN prodx_user_credentials c ON c.user_id = u.id
-        WHERE u.organization_id = $1
-          AND (u.id::text = $2 OR lower(u.username) = lower($2))
-        LIMIT 1`,
-      [input.organizationId, (input.supervisorUserId ?? input.supervisorUsername ?? '').trim()],
+      `SELECT supervisor_user_id AS "userId",
+              user_status AS "status",
+              secret_hash AS "secretHash",
+              failed_attempts AS "failedAttempts",
+              locked_until AS "lockedUntil"
+         FROM public.prodx_supervisor_find_credential($1::uuid, $2::uuid, $3::text)`,
+      [input.organizationId, input.storeId, (input.supervisorUserId ?? input.supervisorUsername ?? '').trim()],
     );
     const credential = credentials[0];
     const current = now();
@@ -73,6 +69,7 @@ export const createSupervisorAuthorizationService = (db: SqlExecutor, now: () =>
         (credential.lockedUntil && credential.lockedUntil > current)) {
       await recordSecurityEvent(db, {
         organizationId: input.organizationId,
+        storeId: input.storeId,
         userId: credential?.userId ?? null,
         eventType: 'SUPERVISOR_AUTH_REJECTED',
         metadata: { action: input.action, orderId: input.orderId, requesterUserId: input.requesterUserId, reason: 'invalid_or_locked' },
@@ -82,19 +79,15 @@ export const createSupervisorAuthorizationService = (db: SqlExecutor, now: () =>
 
     const valid = await verifyPassword(input.supervisorSecret, credential.secretHash);
     if (!valid) {
-      const lockUntil = new Date(current.getTime() + LOCKOUT_MS);
-      // Increment in SQL so concurrent failures cannot overwrite one another's count.
+      // Increment in SQL via tenant-bound SECURITY DEFINER RPC so prodx_app never
+      // needs direct table access to prodx_user_credentials and concurrent failures serialize.
       await db.query(
-        `UPDATE prodx_user_credentials
-            SET failed_attempts = failed_attempts + 1,
-                locked_until = CASE WHEN failed_attempts + 1 >= $2 THEN $3::timestamptz ELSE locked_until END,
-                updated_at = CURRENT_TIMESTAMP
-          WHERE user_id = $1
-            AND (locked_until IS NULL OR locked_until <= $4::timestamptz)`,
-        [credential.userId, MAX_FAILED_ATTEMPTS, lockUntil, current],
+        `SELECT public.prodx_supervisor_record_failed_attempt($1::uuid, $2::uuid, $3::uuid)`,
+        [input.organizationId, input.storeId, credential.userId],
       );
       await recordSecurityEvent(db, {
         organizationId: input.organizationId,
+        storeId: input.storeId,
         userId: credential.userId,
         eventType: 'SUPERVISOR_AUTH_FAILED',
         metadata: { action: input.action, orderId: input.orderId, requesterUserId: input.requesterUserId },
@@ -130,6 +123,7 @@ export const createSupervisorAuthorizationService = (db: SqlExecutor, now: () =>
     if (!allowed[0]) {
       await recordSecurityEvent(db, {
         organizationId: input.organizationId,
+        storeId: input.storeId,
         userId: credential.userId,
         eventType: 'SUPERVISOR_AUTH_DENIED',
         metadata: { action: input.action, orderId: input.orderId, requesterUserId: input.requesterUserId, reason: 'store_permission_missing' },
@@ -138,11 +132,8 @@ export const createSupervisorAuthorizationService = (db: SqlExecutor, now: () =>
     }
 
     await db.query(
-      `UPDATE prodx_user_credentials
-          SET failed_attempts = 0, locked_until = NULL,
-              last_authenticated_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-        WHERE user_id = $1`,
-      [credential.userId],
+      `SELECT public.prodx_supervisor_reset_failed_attempts($1::uuid, $2::uuid, $3::uuid, $4::text)`,
+      [input.organizationId, input.storeId, credential.userId, input.action],
     );
 
     const token = crypto.randomBytes(32).toString('base64url');
@@ -158,6 +149,7 @@ export const createSupervisorAuthorizationService = (db: SqlExecutor, now: () =>
     );
     await recordSecurityEvent(db, {
       organizationId: input.organizationId,
+      storeId: input.storeId,
       userId: credential.userId,
       eventType: 'SUPERVISOR_AUTHORIZATION_GRANTED',
       metadata: { action: input.action, orderId: input.orderId, requesterUserId: input.requesterUserId, requesterSessionId: input.requesterSessionId, expiresAt: expiresAt.toISOString() },
