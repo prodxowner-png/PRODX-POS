@@ -275,24 +275,26 @@ test('Security Gate 9: PRODX public tables and RPC functions are backend-only', 
 });
 
 test('Security Gate 10: supervisor authorization uses narrow SECURITY DEFINER RPCs and never touches prodx_user_credentials or prodx_security_audit_events directly', () => {
-  const supervisorService = fs.readFileSync(
-    path.join(workspaceRoot, 'server/auth/supervisor-authorization.ts'),
-    'utf8',
-  );
-  assert.match(supervisorService, /prodx_supervisor_find_credential/);
-  assert.match(supervisorService, /prodx_supervisor_record_failed_attempt/);
-  assert.match(supervisorService, /prodx_supervisor_reset_failed_attempts/);
-  assert.match(supervisorService, /prodx_record_supervisor_authorization_event/);
-  assert.doesNotMatch(
-    supervisorService,
-    /\b(FROM|JOIN|UPDATE|INSERT\s+INTO|DELETE\s+FROM)\s+(public\.)?prodx_user_credentials\b/i,
-    'supervisor-authorization.ts must not query or mutate prodx_user_credentials directly because prodx_app has no table privileges on it',
-  );
-  assert.doesNotMatch(
-    supervisorService,
-    /\b(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+(public\.)?prodx_security_audit_events\b/i,
-    'supervisor-authorization.ts must not mutate prodx_security_audit_events directly',
-  );
+  for (const relativePath of ['server/auth/supervisor-authorization.ts', 'server/entrypoint.js']) {
+    const content = fs.readFileSync(
+      path.join(workspaceRoot, relativePath),
+      'utf8',
+    );
+    assert.match(content, /prodx_supervisor_find_credential/, `${relativePath} must use prodx_supervisor_find_credential`);
+    assert.match(content, /prodx_supervisor_record_failed_attempt/, `${relativePath} must use prodx_supervisor_record_failed_attempt`);
+    assert.match(content, /prodx_supervisor_reset_failed_attempts/, `${relativePath} must use prodx_supervisor_reset_failed_attempts`);
+    assert.match(content, /prodx_record_supervisor_authorization_event/, `${relativePath} must use prodx_record_supervisor_authorization_event`);
+    assert.doesNotMatch(
+      content,
+      /\b(FROM|JOIN|UPDATE|INSERT\s+INTO|DELETE\s+FROM)\s+(public\.)?prodx_user_credentials\b/i,
+      `${relativePath} must not query or mutate prodx_user_credentials directly because prodx_app has no table privileges on it`,
+    );
+    assert.doesNotMatch(
+      content,
+      /\b(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+(public\.)?prodx_security_audit_events\b/i,
+      `${relativePath} must not mutate prodx_security_audit_events directly`,
+    );
+  }
 });
 
 test('Security Gate 11: AI frontend-assistant endpoint is governed by installAIHttpRoute with requirePermission("ai:use") and never bypassed in infrastructureRoutes', () => {

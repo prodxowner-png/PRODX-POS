@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build && rm -rf build/diagnostics build/index.js build/server-bundle.js && mkdir -p build .private-build/server && esbuild server.ts --bundle --platform=node --format=esm --outfile=.private-build/server/index.js --packages=external && cp -r dist/* build/",
+    "build": "vite build && rm -rf build/diagnostics build/index.js build/server-bundle.js && mkdir -p build .private-build/server && esbuild server/entrypoint.ts --bundle --platform=node --format=esm --outfile=server/entrypoint.js --packages=external && esbuild server.ts --bundle --platform=node --format=esm --outfile=.private-build/server/index.js --packages=external && cp -r dist/* build/",
     "start": "node --import tsx server.ts",
     "preview": "vite preview",
     "clean": "rm -rf dist build",
