@@ -30,9 +30,9 @@ test('supervisor authorization route issues a server-scoped token from authentic
       transactionCalls += 1;
       return work({
         query: async <T extends Record<string, unknown>>(sql: string) => {
-          if (sql.includes('SELECT u.id AS "userId"')) return { rows: [{ userId: 'supervisor-1', organizationId: principal.organizationId, status: 'active', secretHash, failedAttempts: 0, lockedUntil: null }] as unknown as T[] };
+          if (sql.includes('prodx_supervisor_find_credential')) return { rows: [{ userId: 'supervisor-1', status: 'active', secretHash, failedAttempts: 0, lockedUntil: null }] as unknown as T[] };
           if (sql.includes('SELECT m.user_id AS "userId"')) return { rows: [{ userId: 'supervisor-1' }] as unknown as T[] };
-          if (sql.includes('UPDATE prodx_user_credentials')) return { rows: [] as T[] };
+          if (sql.includes('prodx_supervisor_reset_failed_attempts')) return { rows: [] as T[] };
           if (sql.includes('INSERT INTO prodx_supervisor_authorizations')) return { rows: [] as T[] };
           if (sql.includes('prodx_record_supervisor_authorization_event')) return { rows: [] as T[] };
           throw new Error(`Unexpected SQL in supervisor authorization transaction: ${sql}`);
@@ -130,3 +130,47 @@ test('supervisor authorization route rejects malformed requests before database 
     assert.equal(databaseReached, false);
   } finally { await server.close(); }
 });
+
+test('supervisor authorization route commits failed-attempt and audit RPC calls when credentials are invalid', async () => {
+  const secretHash = await hashPassword('correct horse battery staple');
+  let committed = false;
+  const executedSql: string[] = [];
+  const db: TransactionalSqlExecutor = {
+    query: async () => {
+      throw new Error('direct db.query must not be used');
+    },
+    transaction: async (work) => {
+      const result = await work({
+        query: async <T extends Record<string, unknown>>(sql: string) => {
+          executedSql.push(sql);
+          if (sql.includes('prodx_supervisor_find_credential')) {
+            return { rows: [{ userId: 'supervisor-1', status: 'active', secretHash, failedAttempts: 0, lockedUntil: null }] as unknown as T[] };
+          }
+          if (sql.includes('prodx_supervisor_record_failed_attempt')) return { rows: [] as T[] };
+          if (sql.includes('prodx_record_supervisor_authorization_event')) return { rows: [] as T[] };
+          throw new Error(`Unexpected SQL: ${sql}`);
+        },
+      });
+      committed = true;
+      return result;
+    },
+  };
+  const app = createApp({
+    authenticateRequest: () => principal,
+    authorizeRequest: (_context, permission) => permission === 'pos.refund',
+    configureRoutes: (configuredApp) => registerSupervisorAuthorizationRoute(configuredApp, db),
+  });
+  const server = await start(app);
+  try {
+    const response = await fetch(`${server.baseUrl}/api/v1/authorizations/supervisor`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ action: 'refund', orderId: 'order-1', supervisorUsername: 'supervisor', supervisorSecret: 'wrong-secret' }),
+    });
+    assert.equal(response.status, 401);
+    assert.equal(committed, true, 'transaction must commit so failed_attempts and security audit event are persisted');
+    assert.ok(executedSql.some((sql) => sql.includes('prodx_supervisor_record_failed_attempt')));
+    assert.ok(executedSql.some((sql) => sql.includes('prodx_record_supervisor_authorization_event')));
+  } finally { await server.close(); }
+});
+

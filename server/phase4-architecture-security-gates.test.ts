@@ -271,3 +271,52 @@ test('Security Gate 9: PRODX public tables and RPC functions are backend-only', 
   assert.match(runner, /REVOKE\s+ALL\s+PRIVILEGES\s+ON\s+TABLE\s+public\.%I\s+FROM\s+PUBLIC/i);
   assert.match(runner, /REVOKE\s+EXECUTE\s+ON\s+FUNCTION\s+%s\s+FROM\s+PUBLIC/i);
 });
+
+test('Security Gate 10: supervisor authorization uses narrow SECURITY DEFINER RPCs and never touches prodx_user_credentials or prodx_security_audit_events directly', () => {
+  const supervisorService = fs.readFileSync(
+    path.join(workspaceRoot, 'server/auth/supervisor-authorization.ts'),
+    'utf8',
+  );
+  assert.match(supervisorService, /prodx_supervisor_find_credential/);
+  assert.match(supervisorService, /prodx_supervisor_record_failed_attempt/);
+  assert.match(supervisorService, /prodx_supervisor_reset_failed_attempts/);
+  assert.match(supervisorService, /prodx_record_supervisor_authorization_event/);
+  assert.doesNotMatch(
+    supervisorService,
+    /\b(FROM|JOIN|UPDATE|INSERT\s+INTO|DELETE\s+FROM)\s+(public\.)?prodx_user_credentials\b/i,
+    'supervisor-authorization.ts must not query or mutate prodx_user_credentials directly because prodx_app has no table privileges on it',
+  );
+  assert.doesNotMatch(
+    supervisorService,
+    /\b(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+(public\.)?prodx_security_audit_events\b/i,
+    'supervisor-authorization.ts must not mutate prodx_security_audit_events directly',
+  );
+});
+
+test('Security Gate 11: AI frontend-assistant endpoint is governed by installAIHttpRoute with requirePermission("ai:use") and never bypassed in infrastructureRoutes', () => {
+  const infraRoutes = fs.readFileSync(
+    path.join(workspaceRoot, 'server/http/infrastructureRoutes.ts'),
+    'utf8',
+  );
+  assert.doesNotMatch(
+    infraRoutes,
+    /frontend-assistant/,
+    'infrastructureRoutes.ts must not register an unguarded /api/v1/ai/frontend-assistant route outside the AI gateway',
+  );
+  assert.doesNotMatch(
+    infraRoutes,
+    /@google\/genai|GoogleGenAI/,
+    'infrastructureRoutes.ts must not instantiate GoogleGenAI directly',
+  );
+
+  const aiHttpRoute = fs.readFileSync(
+    path.join(workspaceRoot, 'server/ai/http-route.ts'),
+    'utf8',
+  );
+  assert.match(
+    aiHttpRoute,
+    /router\.post\(\s*['"]\/frontend-assistant['"]\s*,\s*requirePermission\(permission\)/,
+    'server/ai/http-route.ts must guard /frontend-assistant with requirePermission(permission)',
+  );
+});
+
