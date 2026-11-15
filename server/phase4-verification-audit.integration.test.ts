@@ -186,11 +186,11 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      organizationSlug: 'phase4-org',
-      storeCode: 'store-p4',
-      emailOrPin: 'p4-cashier',
+      organizationSlug: `phase4-${runSuffix}`,
+      storeCode: `store-p4-${runSuffix}`,
+      emailOrPin: `p4-cashier-${runSuffix}`,
       passwordOrPin: 'Phase4-Pass!99',
-      registerId: 'REG-P4',
+      registerId: `REG-P4-${runSuffix}`,
     }),
   });
   assert.equal(cashierLogin.status, 200);

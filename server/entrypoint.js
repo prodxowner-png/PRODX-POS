@@ -997,23 +997,403 @@ var createAIGatewayService = (db, authorizeRequest) => {
 };
 
 // server/transactions/checkout-service.ts
-import crypto6 from "node:crypto";
+import crypto7 from "node:crypto";
+
+// server/transactions/checkout-validation.ts
 var CheckoutValidationError = class extends Error {
   constructor() {
     super(...arguments);
     this.code = "CHECKOUT_VALIDATION_FAILED";
   }
 };
+var MAX_MINOR_UNITS = 999999999999;
+var MAX_POSTGRES_INTEGER = 2147483647;
+var isRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
+var isNonEmptyString = (value) => typeof value === "string" && value.trim().length > 0;
+var isMoney = (value) => {
+  if (!isRecord(value)) return false;
+  return typeof value.amountInCents === "number" && Number.isSafeInteger(value.amountInCents) && value.amountInCents >= 0 && value.amountInCents <= MAX_MINOR_UNITS && typeof value.currency === "string" && /^[A-Z]{3}$/.test(value.currency);
+};
+var isBasisPoints = (value) => typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 1e4;
+var assertMoney = (value, field) => {
+  if (!isMoney(value)) {
+    throw new CheckoutValidationError(
+      `${field} must contain a safe non-negative integer minor-unit amount and a three-letter uppercase currency code.`
+    );
+  }
+};
+var assertOptionalString = (record, field) => {
+  if (record[field] !== void 0 && typeof record[field] !== "string") {
+    throw new CheckoutValidationError(`${field} must be a string when supplied.`);
+  }
+};
+var assertCheckoutRequest = (value) => {
+  if (!isRecord(value)) {
+    throw new CheckoutValidationError("Checkout request body must be an object.");
+  }
+  for (const field of ["idempotencyKey", "storeId", "registerId", "cashierId"]) {
+    if (!isNonEmptyString(value[field])) {
+      throw new CheckoutValidationError(`${field} is required.`);
+    }
+  }
+  if (!Array.isArray(value.items) || value.items.length === 0) {
+    throw new CheckoutValidationError("At least one checkout item is required.");
+  }
+  if (!Array.isArray(value.payments)) {
+    throw new CheckoutValidationError("Checkout payments must be an array.");
+  }
+  if (!isRecord(value.totals)) {
+    throw new CheckoutValidationError("Checkout totals must be an object.");
+  }
+  const totals = value.totals;
+  for (const field of [
+    "grossSubtotal",
+    "itemDiscounts",
+    "orderDiscount",
+    "netSubtotal",
+    "totalTax",
+    "grandTotal"
+  ]) {
+    assertMoney(totals[field], `totals.${field}`);
+  }
+  if (typeof totals.totalItemsCount !== "number" || !Number.isSafeInteger(totals.totalItemsCount) || totals.totalItemsCount < 0 || totals.totalItemsCount > MAX_POSTGRES_INTEGER) {
+    throw new CheckoutValidationError("totals.totalItemsCount must be a non-negative safe integer.");
+  }
+  for (let index = 0; index < value.items.length; index += 1) {
+    const item = value.items[index];
+    if (!isRecord(item)) {
+      throw new CheckoutValidationError(`items[${index}] must be an object.`);
+    }
+    if (!isNonEmptyString(item.lineId)) {
+      throw new CheckoutValidationError(`items[${index}].lineId is required.`);
+    }
+    if (!isRecord(item.product) || !isNonEmptyString(item.product.id)) {
+      throw new CheckoutValidationError(`items[${index}].product.id is required.`);
+    }
+    if (typeof item.quantity !== "number" || !Number.isSafeInteger(item.quantity) || item.quantity <= 0 || item.quantity > MAX_POSTGRES_INTEGER) {
+      throw new CheckoutValidationError(`items[${index}].quantity must be a positive safe integer.`);
+    }
+    if (!isBasisPoints(item.discountBps)) {
+      throw new CheckoutValidationError(`items[${index}].discountBps must be an integer between 0 and 10000.`);
+    }
+    for (const field of ["unitPrice", "lineSubtotal", "lineTax", "lineTotal"]) {
+      assertMoney(item[field], `items[${index}].${field}`);
+    }
+  }
+  const paymentIds = /* @__PURE__ */ new Set();
+  for (let index = 0; index < value.payments.length; index += 1) {
+    const payment = value.payments[index];
+    if (!isRecord(payment)) {
+      throw new CheckoutValidationError(`payments[${index}] must be an object.`);
+    }
+    if (!isNonEmptyString(payment.id)) {
+      throw new CheckoutValidationError(`payments[${index}].id is required.`);
+    }
+    if (paymentIds.has(payment.id)) {
+      throw new CheckoutValidationError("Payment identifiers must be unique within a checkout.");
+    }
+    paymentIds.add(payment.id);
+    if (typeof payment.method !== "string" || !["cash", "card", "qr_digital"].includes(payment.method)) {
+      throw new CheckoutValidationError(`payments[${index}].method is unsupported.`);
+    }
+    assertMoney(payment.amount, `payments[${index}].amount`);
+    if (payment.tenderedCash !== void 0) {
+      assertMoney(payment.tenderedCash, `payments[${index}].tenderedCash`);
+    }
+    if (payment.changeGiven !== void 0) {
+      assertMoney(payment.changeGiven, `payments[${index}].changeGiven`);
+    }
+    if (typeof payment.timestamp !== "string" || Number.isNaN(Date.parse(payment.timestamp))) {
+      throw new CheckoutValidationError(`payments[${index}].timestamp must be a valid date-time string.`);
+    }
+    for (const field of ["authCode", "cardLastFour", "terminalReference"]) {
+      assertOptionalString(payment, field);
+    }
+  }
+  if (value.orderDiscountBps !== void 0 && !isBasisPoints(value.orderDiscountBps)) {
+    throw new CheckoutValidationError("orderDiscountBps must be an integer between 0 and 10000.");
+  }
+  if (value.customer !== void 0) {
+    if (!isRecord(value.customer)) {
+      throw new CheckoutValidationError("customer must be an object when supplied.");
+    }
+    for (const field of ["id", "name", "phone", "email"]) {
+      if (typeof value.customer[field] !== "string") {
+        throw new CheckoutValidationError(`customer.${field} must be a string.`);
+      }
+    }
+  }
+  assertOptionalString(value, "notes");
+  if (value.isOfflineSubmission !== void 0 && typeof value.isOfflineSubmission !== "boolean") {
+    throw new CheckoutValidationError("isOfflineSubmission must be a boolean when supplied.");
+  }
+};
+var isCheckoutRequest = (value) => {
+  try {
+    assertCheckoutRequest(value);
+    return true;
+  } catch {
+    return false;
+  }
+};
+var hasCheckoutDiscount = (request) => (request.orderDiscountBps ?? 0) > 0 || request.items.some((item) => item.discountBps > 0);
+
+// server/auth/supervisor-authorization.ts
+import crypto6 from "node:crypto";
+var SupervisorAuthorizationError = class extends Error {
+  constructor(code) {
+    super(code);
+    this.code = code;
+  }
+};
+var TTL_MS = 2 * 60 * 1e3;
+var hashAuthorizationToken = (token) => crypto6.createHash("sha256").update(token, "utf8").digest("hex");
+var recordSecurityEvent = async (db, input) => {
+  const isSupervisorScopeRpc = ["SUPERVISOR_AUTH_REJECTED", "SUPERVISOR_AUTH_FAILED", "SUPERVISOR_AUTH_DENIED", "SUPERVISOR_AUTHORIZATION_GRANTED"].includes(input.eventType) && (input.metadata?.action === "refund" || input.metadata?.action === "void");
+  if (isSupervisorScopeRpc) {
+    await db.query(
+      `SELECT public.prodx_record_supervisor_authorization_event(
+        $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::text, $6::jsonb
+      )`,
+      [crypto6.randomUUID(), input.organizationId, input.storeId, input.userId ?? null, input.eventType, JSON.stringify(input.metadata)]
+    );
+  } else {
+    await db.query(
+      `SELECT public.prodx_record_security_audit_event(
+        $1::uuid, $2::uuid, $3::uuid, $4::text, $5::jsonb
+      )`,
+      [crypto6.randomUUID(), input.organizationId, input.userId ?? null, input.eventType, JSON.stringify(input.metadata)]
+    );
+  }
+};
+var createSupervisorAuthorizationService = (db, now = () => /* @__PURE__ */ new Date()) => ({
+  async authorize(input) {
+    const identityVerified = input.supervisorIdentityVerified === true;
+    if (!input.organizationId || !input.storeId || !input.requesterUserId || !input.requesterSessionId || (input.action === "discount" ? !input.checkoutIdempotencyKey?.trim() || !/^[0-9a-f]{64}$/.test(input.checkoutPayloadHash ?? "") || !Number.isInteger(input.policyThresholdBps) || input.policyThresholdBps < 0 || input.policyThresholdBps > 1e4 || input.policyRequiresApproval !== true : !input.orderId) || (identityVerified ? !input.supervisorUserId?.trim() : !input.supervisorUsername?.trim() && !input.supervisorUserId?.trim() || !input.supervisorSecret)) {
+      throw new SupervisorAuthorizationError("INVALID_CREDENTIALS");
+    }
+    let supervisorUserId = input.supervisorUserId ?? null;
+    let credential;
+    const current = now();
+    if (!identityVerified) {
+      const credentials = await db.query(
+        `SELECT supervisor_user_id AS "userId",
+                user_status AS "status",
+                secret_hash AS "secretHash",
+                failed_attempts AS "failedAttempts",
+                locked_until AS "lockedUntil"
+           FROM public.prodx_supervisor_find_credential($1::uuid, $2::uuid, $3::text)`,
+        [input.organizationId, input.storeId, (input.supervisorUserId ?? input.supervisorUsername ?? "").trim()]
+      );
+      credential = credentials[0];
+      supervisorUserId = credential?.userId ?? null;
+      if (!credential || credential.status !== "active" || credential.lockedUntil && credential.lockedUntil > current) {
+        await recordSecurityEvent(db, {
+          organizationId: input.organizationId,
+          storeId: input.storeId,
+          userId: credential?.userId ?? null,
+          eventType: "SUPERVISOR_AUTH_REJECTED",
+          metadata: { action: input.action, orderId: input.orderId, requesterUserId: input.requesterUserId, reason: "invalid_or_locked" }
+        });
+        throw new SupervisorAuthorizationError("INVALID_CREDENTIALS");
+      }
+      const valid3 = await verifyPassword(input.supervisorSecret, credential.secretHash);
+      if (!valid3) {
+        await db.query(
+          `SELECT public.prodx_supervisor_record_failed_attempt($1::uuid, $2::uuid, $3::uuid)`,
+          [input.organizationId, input.storeId, credential.userId]
+        );
+        await recordSecurityEvent(db, {
+          organizationId: input.organizationId,
+          storeId: input.storeId,
+          userId: credential.userId,
+          eventType: "SUPERVISOR_AUTH_FAILED",
+          metadata: { action: input.action, orderId: input.orderId, requesterUserId: input.requesterUserId }
+        });
+        throw new SupervisorAuthorizationError("INVALID_CREDENTIALS");
+      }
+    }
+    const allowed = await db.query(
+      `SELECT m.user_id AS "userId"
+         FROM prodx_store_memberships m
+         JOIN prodx_user_roles ur
+           ON ur.organization_id = m.organization_id
+          AND ur.user_id = m.user_id
+          AND ur.store_id = m.store_id
+          AND ur.active = TRUE
+         JOIN prodx_roles r
+           ON r.id = ur.role_id
+          AND r.organization_id = ur.organization_id
+          AND r.active = TRUE
+         JOIN prodx_role_permissions rp
+           ON rp.organization_id = r.organization_id
+          AND rp.role_id = r.id
+         JOIN prodx_permissions p
+           ON p.id = rp.permission_id
+        WHERE m.organization_id = $1
+          AND m.store_id = $2
+          AND m.user_id = $3
+          AND m.active = TRUE
+          AND p.permission_key = CASE WHEN $4 = 'void' THEN 'pos.void' WHEN $4 = 'discount' THEN 'pos.discount.approve' ELSE 'pos.refund' END
+        LIMIT 1`,
+      [input.organizationId, input.storeId, supervisorUserId, input.action]
+    );
+    if (!allowed[0]) {
+      await recordSecurityEvent(db, {
+        organizationId: input.organizationId,
+        storeId: input.storeId,
+        userId: supervisorUserId,
+        eventType: "SUPERVISOR_AUTH_DENIED",
+        metadata: { action: input.action, orderId: input.orderId, requesterUserId: input.requesterUserId, reason: "store_permission_missing" }
+      });
+      throw new SupervisorAuthorizationError("SUPERVISOR_NOT_ALLOWED");
+    }
+    if (credential) {
+      await db.query(
+        `SELECT public.prodx_supervisor_reset_failed_attempts($1::uuid, $2::uuid, $3::uuid, $4::text)`,
+        [input.organizationId, input.storeId, credential.userId, input.action]
+      );
+    }
+    const token = crypto6.randomBytes(32).toString("base64url");
+    const expiresAt = new Date(current.getTime() + TTL_MS);
+    await db.query(
+      `INSERT INTO prodx_supervisor_authorizations
+        (id, organization_id, store_id, requester_user_id, requester_session_id,
+         supervisor_user_id, action_key, order_id, checkout_idempotency_key, checkout_payload_hash,
+         policy_threshold_bps, policy_requires_approval, authorization_hash, expires_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+      [
+        crypto6.randomUUID(),
+        input.organizationId,
+        input.storeId,
+        input.requesterUserId,
+        input.requesterSessionId,
+        supervisorUserId,
+        input.action,
+        input.orderId ?? null,
+        input.checkoutIdempotencyKey ?? null,
+        input.checkoutPayloadHash ?? null,
+        input.policyThresholdBps ?? null,
+        input.policyRequiresApproval ?? null,
+        hashAuthorizationToken(token),
+        expiresAt
+      ]
+    );
+    await recordSecurityEvent(db, {
+      organizationId: input.organizationId,
+      storeId: input.storeId,
+      userId: supervisorUserId,
+      eventType: "SUPERVISOR_AUTHORIZATION_GRANTED",
+      metadata: { action: input.action, orderId: input.orderId, requesterUserId: input.requesterUserId, requesterSessionId: input.requesterSessionId, expiresAt: expiresAt.toISOString() }
+    });
+    return { authorizationToken: token, supervisorUserId, expiresAt: expiresAt.toISOString() };
+  },
+  async consume(input) {
+    if (!input.token.trim()) throw new SupervisorAuthorizationError("AUTHORIZATION_EXPIRED");
+    const hash2 = hashAuthorizationToken(input.token);
+    const rows = await db.query(
+      `UPDATE prodx_supervisor_authorizations
+          SET consumed_at = CURRENT_TIMESTAMP
+        WHERE authorization_hash = $1
+          AND organization_id = $2
+          AND store_id = $3
+          AND requester_user_id = $4
+          AND requester_session_id = $5
+          AND action_key = $6
+          AND order_id IS NOT DISTINCT FROM $7
+          AND checkout_idempotency_key IS NOT DISTINCT FROM $8
+          AND checkout_payload_hash IS NOT DISTINCT FROM $9
+          AND policy_threshold_bps IS NOT DISTINCT FROM $10
+          AND policy_requires_approval IS NOT DISTINCT FROM $11
+          AND consumed_at IS NULL
+          AND expires_at > CURRENT_TIMESTAMP
+        RETURNING supervisor_user_id AS "supervisorUserId"`,
+      [
+        hash2,
+        input.organizationId,
+        input.storeId,
+        input.requesterUserId,
+        input.requesterSessionId,
+        input.action,
+        input.orderId ?? null,
+        input.checkoutIdempotencyKey ?? null,
+        input.checkoutPayloadHash ?? null,
+        input.policyThresholdBps ?? null,
+        input.policyRequiresApproval ?? null
+      ]
+    );
+    if (rows[0]) {
+      await recordSecurityEvent(db, {
+        organizationId: input.organizationId,
+        storeId: input.storeId,
+        userId: rows[0].supervisorUserId,
+        eventType: "SUPERVISOR_AUTHORIZATION_CONSUMED",
+        metadata: { action: input.action, orderId: input.orderId ?? null, idempotencyKey: input.checkoutIdempotencyKey ?? null, requesterUserId: input.requesterUserId }
+      });
+      return { supervisorUserId: rows[0].supervisorUserId };
+    }
+    const state = await db.query(
+      `SELECT consumed_at AS "consumedAt", expires_at AS "expiresAt"
+         FROM prodx_supervisor_authorizations
+        WHERE authorization_hash = $1
+          AND organization_id = $2
+          AND store_id = $3
+          AND requester_user_id = $4
+          AND requester_session_id = $5
+          AND action_key = $6
+          AND order_id IS NOT DISTINCT FROM $7
+          AND checkout_idempotency_key IS NOT DISTINCT FROM $8
+          AND checkout_payload_hash IS NOT DISTINCT FROM $9
+          AND policy_threshold_bps IS NOT DISTINCT FROM $10
+          AND policy_requires_approval IS NOT DISTINCT FROM $11
+        LIMIT 1`,
+      [
+        hash2,
+        input.organizationId,
+        input.storeId,
+        input.requesterUserId,
+        input.requesterSessionId,
+        input.action,
+        input.orderId ?? null,
+        input.checkoutIdempotencyKey ?? null,
+        input.checkoutPayloadHash ?? null,
+        input.policyThresholdBps ?? null,
+        input.policyRequiresApproval ?? null
+      ]
+    );
+    if (state[0]?.consumedAt) {
+      await recordSecurityEvent(db, {
+        organizationId: input.organizationId,
+        storeId: input.storeId,
+        userId: input.requesterUserId,
+        eventType: "SUPERVISOR_AUTHORIZATION_REPLAYED",
+        metadata: { action: input.action, orderId: input.orderId ?? null, idempotencyKey: input.checkoutIdempotencyKey ?? null }
+      });
+      throw new SupervisorAuthorizationError("AUTHORIZATION_REPLAYED");
+    }
+    throw new SupervisorAuthorizationError("AUTHORIZATION_EXPIRED");
+  }
+});
+
+// server/transactions/checkout-service.ts
 var CheckoutConflictError = class extends Error {
   constructor() {
     super(...arguments);
     this.code = "CHECKOUT_CONFLICT";
   }
 };
+var CheckoutAuthorizationError = class extends Error {
+  constructor(code) {
+    super(code);
+    this.code = code;
+  }
+};
 var cents = (v, field) => {
-  const n = BigInt(v?.amountInCents ?? -1);
-  if (n < 0n) throw new CheckoutValidationError(`${field} must be a non-negative integer minor-unit amount.`);
-  return n;
+  const amount = v && typeof v === "object" && !Array.isArray(v) ? v.amountInCents : void 0;
+  if (typeof amount !== "number" || !Number.isSafeInteger(amount) || amount < 0 || amount > 999999999999) {
+    throw new CheckoutValidationError(`${field} must be a non-negative safe integer minor-unit amount.`);
+  }
+  return BigInt(amount);
 };
 var numeric = (n) => `${n / 100n}.${(n % 100n).toString().padStart(2, "0")}`;
 var dbCents = (v) => {
@@ -1021,83 +1401,304 @@ var dbCents = (v) => {
   if (!m) throw new CheckoutValidationError("Database monetary value is invalid.");
   return BigInt(m[1]) * 100n + BigInt(m[2]);
 };
+var checkoutFingerprint = (request) => {
+  const orderDiscountBps = request.orderDiscountBps ?? 0;
+  const canonical = {
+    storeId: request.storeId,
+    registerId: request.registerId,
+    cashierId: request.cashierId,
+    grandTotalCurrency: request.totals.grandTotal.currency,
+    orderDiscountBps,
+    notes: request.notes ?? null,
+    items: [...request.items].map((i) => ({ productId: i.product.id, quantity: i.quantity, discountBps: i.discountBps, currency: i.unitPrice.currency })).sort((a, b) => a.productId.localeCompare(b.productId)),
+    payments: [...request.payments].map((p) => ({ id: p.id, method: p.method, amountInCents: p.amount.amountInCents, currency: p.amount.currency, tenderedCashInCents: p.tenderedCash?.amountInCents ?? null, tenderedCashCurrency: p.tenderedCash?.currency ?? null, changeGivenInCents: p.changeGiven?.amountInCents ?? null, changeGivenCurrency: p.changeGiven?.currency ?? null, authCode: p.authCode ?? null, cardLastFour: p.cardLastFour ?? null, terminalReference: p.terminalReference ?? null })).sort((a, b) => a.id.localeCompare(b.id))
+  };
+  return crypto7.createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
+};
+var checkoutAuthorizationFingerprint = (request) => {
+  const canonical = {
+    storeId: request.storeId,
+    registerId: request.registerId,
+    cashierId: request.cashierId,
+    customer: request.customer ?? null,
+    notes: request.notes ?? null,
+    isOfflineSubmission: request.isOfflineSubmission ?? false,
+    orderDiscountBps: request.orderDiscountBps ?? 0,
+    totals: {
+      grossSubtotal: request.totals.grossSubtotal,
+      itemDiscounts: request.totals.itemDiscounts,
+      orderDiscount: request.totals.orderDiscount,
+      netSubtotal: request.totals.netSubtotal,
+      totalTax: request.totals.totalTax,
+      grandTotal: request.totals.grandTotal,
+      totalItemsCount: request.totals.totalItemsCount
+    },
+    items: [...request.items].map((i) => ({ lineId: i.lineId, productId: i.product.id, quantity: i.quantity, discountBps: i.discountBps, unitPrice: i.unitPrice, lineSubtotal: i.lineSubtotal, lineTax: i.lineTax, lineTotal: i.lineTotal })).sort((a, b) => a.lineId.localeCompare(b.lineId)),
+    payments: [...request.payments].map((p) => ({
+      id: p.id,
+      method: p.method,
+      amount: p.amount,
+      tenderedCash: p.tenderedCash ?? null,
+      changeGiven: p.changeGiven ?? null,
+      timestamp: p.timestamp,
+      authCode: p.authCode ?? null,
+      cardLastFour: p.cardLastFour ?? null,
+      terminalReference: p.terminalReference ?? null
+    })).sort((a, b) => a.id.localeCompare(b.id))
+  };
+  return crypto7.createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
+};
+var validateBasisPoints = (value, field) => {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > 1e4) {
+    throw new CheckoutValidationError(`${field} must be an integer between 0 and 10000 basis points.`);
+  }
+  return value;
+};
 var orderFromDb = async (db, o, cached) => {
   const items = (await db.query(`SELECT oi.*,p.sku,p.barcode,p.name,p.category_id,p.cost_price_amount::text,p.tax_rate_bps,p.reorder_point,p.unit_of_measure,p.current_stock FROM prodx_order_items oi JOIN prodx_products p ON p.id=oi.product_id AND p.store_id=oi.store_id WHERE oi.order_id=$1 ORDER BY oi.id`, [o.id])).rows;
   const payments = (await db.query(`SELECT id,method,amount::text,tendered_cash::text,change_given::text,auth_code,card_last_four,terminal_reference,currency,created_at FROM prodx_payments WHERE order_id=$1 ORDER BY created_at,id`, [o.id])).rows;
   const currency = o.currency;
   const money3 = (v) => ({ amountInCents: Number(dbCents(v)), currency });
-  return { success: true, serverConfirmed: true, idempotencyCached: cached, message: cached ? "Checkout already committed; returning the existing transaction." : "Checkout committed.", order: { id: o.id, orderNumber: o.order_number, idempotencyKey: o.idempotency_key, storeId: o.store_id, registerId: o.register_id, cashierId: o.cashier_id, cashierName: "", items: items.map((i) => ({ lineId: i.id, product: { id: i.product_id, storeId: o.store_id, sku: i.sku, barcode: i.barcode, name: i.name, categoryId: i.category_id, price: money3(i.unit_price_amount), costPrice: money3(i.cost_price_amount), taxRateBps: i.tax_rate_bps, currentStock: i.current_stock, reorderPoint: i.reorder_point, unitOfMeasure: i.unit_of_measure }, quantity: i.quantity, unitPrice: money3(i.unit_price_amount), discountBps: i.item_discount_bps, lineSubtotal: money3(i.line_subtotal_amount), lineTax: money3(i.line_tax_amount), lineTotal: money3(i.line_total_amount) })), totals: { grossSubtotal: money3(o.gross_subtotal_amount), itemDiscounts: money3(o.item_discounts_amount), orderDiscount: money3(o.order_discount_amount), netSubtotal: money3(o.net_subtotal_amount), totalTax: money3(o.total_tax_amount), grandTotal: money3(o.grand_total_amount), totalItemsCount: o.total_items_count }, payments: payments.map((p) => ({ id: p.id, method: p.method, amount: money3(p.amount), tenderedCash: p.tendered_cash === null ? void 0 : money3(p.tendered_cash), changeGiven: p.change_given === null ? void 0 : money3(p.change_given), authCode: p.auth_code ?? void 0, cardLastFour: p.card_last_four ?? void 0, terminalReference: p.terminal_reference ?? void 0, timestamp: new Date(p.created_at).toISOString() })), status: o.status, serverCommittedAt: new Date(o.server_committed_at).toISOString(), createdAt: new Date(o.created_at).toISOString() } };
+  return {
+    success: true,
+    serverConfirmed: true,
+    idempotencyCached: cached,
+    message: cached ? "Checkout already committed; returning the existing transaction." : "Checkout committed.",
+    order: {
+      id: o.id,
+      orderNumber: o.order_number,
+      idempotencyKey: o.idempotency_key,
+      storeId: o.store_id,
+      registerId: o.register_id,
+      cashierId: o.cashier_id,
+      cashierName: "",
+      items: items.map((i) => ({
+        lineId: i.id,
+        product: {
+          id: i.product_id,
+          storeId: o.store_id,
+          sku: i.sku,
+          barcode: i.barcode,
+          name: i.name,
+          categoryId: i.category_id,
+          price: money3(i.unit_price_amount),
+          costPrice: money3(i.cost_price_amount),
+          taxRateBps: i.tax_rate_bps,
+          currentStock: i.current_stock,
+          reorderPoint: i.reorder_point,
+          unitOfMeasure: i.unit_of_measure
+        },
+        quantity: i.quantity,
+        unitPrice: money3(i.unit_price_amount),
+        discountBps: i.item_discount_bps,
+        lineSubtotal: money3(i.line_subtotal_amount),
+        lineTax: money3(i.line_tax_amount),
+        lineTotal: money3(i.line_total_amount)
+      })),
+      totals: {
+        grossSubtotal: money3(o.gross_subtotal_amount),
+        itemDiscounts: money3(o.item_discounts_amount),
+        orderDiscount: money3(o.order_discount_amount),
+        netSubtotal: money3(o.net_subtotal_amount),
+        totalTax: money3(o.total_tax_amount),
+        grandTotal: money3(o.grand_total_amount),
+        totalItemsCount: o.total_items_count
+      },
+      payments: payments.map((p) => ({
+        id: p.id,
+        method: p.method,
+        amount: money3(p.amount),
+        tenderedCash: p.tendered_cash === null ? void 0 : money3(p.tendered_cash),
+        changeGiven: p.change_given === null ? void 0 : money3(p.change_given),
+        authCode: p.auth_code ?? void 0,
+        cardLastFour: p.card_last_four ?? void 0,
+        terminalReference: p.terminal_reference ?? void 0,
+        timestamp: new Date(p.created_at).toISOString()
+      })),
+      status: o.status,
+      serverCommittedAt: new Date(o.server_committed_at).toISOString(),
+      createdAt: new Date(o.created_at).toISOString()
+    }
+  };
 };
-var createCheckoutService = (db) => ({ async checkout(request) {
-  if (!request.idempotencyKey?.trim() || !request.storeId || !request.registerId || !request.cashierId) throw new CheckoutValidationError("Idempotency key, store, register and cashier are required.");
-  if (request.items.length === 0) throw new CheckoutValidationError("At least one item is required.");
-  return db.transaction(async (tx) => {
-    const existing = (await tx.query(`SELECT * FROM prodx_orders WHERE store_id=$1 AND idempotency_key=$2 LIMIT 1`, [request.storeId, request.idempotencyKey])).rows[0];
-    if (existing) return orderFromDb(tx, existing, true);
-    const shift = (await tx.query(`SELECT sh.id FROM prodx_shifts sh JOIN prodx_registers r ON r.id=sh.register_id AND r.store_id=sh.store_id WHERE sh.store_id=$1 AND sh.register_id=$2 AND sh.cashier_id=$3 AND sh.status='open' AND r.status='active' FOR UPDATE`, [request.storeId, request.registerId, request.cashierId])).rows[0];
-    if (!shift) throw new CheckoutConflictError("An active shift for this register and cashier is required.");
-    const ids = request.items.map((i) => i.product.id);
-    if (new Set(ids).size !== ids.length) throw new CheckoutValidationError("Duplicate product lines are not allowed.");
-    const products = (await tx.query(`SELECT * FROM prodx_products WHERE store_id=$1 AND active=true AND id=ANY($2::uuid[]) FOR UPDATE`, [request.storeId, ids])).rows;
-    if (products.length !== ids.length) throw new CheckoutValidationError("One or more products are unavailable in this store.");
-    const currency = products[0].currency;
-    let gross = 0n, discounts = 0n, net = 0n, tax = 0n, totalItems = 0;
-    for (const item of request.items) {
-      if (!Number.isInteger(item.quantity) || item.quantity <= 0) throw new CheckoutValidationError("Quantity must be positive.");
-      if (item.unitPrice.currency !== currency) throw new CheckoutValidationError("Item currency mismatch.");
-      const p = products.find((x) => x.id === item.product.id);
-      if (!p) throw new CheckoutValidationError("Product scope violation.");
-      const unit = dbCents(p.price_amount), raw = unit * BigInt(item.quantity), disc = (raw * BigInt(item.discountBps) + 5000n) / 10000n, after = raw - disc, lt = p.tax_rate_bps > 0 ? (after * BigInt(p.tax_rate_bps) + BigInt(1e4 + p.tax_rate_bps) / 2n) / BigInt(1e4 + p.tax_rate_bps) : 0n;
-      gross += raw;
-      discounts += disc;
-      net += after - lt;
-      tax += lt;
-      totalItems += item.quantity;
-    }
-    const orderDiscountBps = request.orderDiscountBps ?? 0;
-    const pre = gross - discounts, od = (pre * BigInt(orderDiscountBps) + 5000n) / 10000n, grand = pre - od, adjNet = pre === 0n ? 0n : (net * grand + pre / 2n) / pre, adjTax = grand - adjNet;
-    if (cents(request.totals.grandTotal, "client grand total") !== grand) throw new CheckoutConflictError("Client total does not match server-authoritative total.");
-    let paid = 0n;
-    for (const p of request.payments) {
-      if (p.amount.currency !== currency) throw new CheckoutValidationError("Payment currency must match order currency.");
-      const a = cents(p.amount, `payment ${p.id}`);
-      paid += a;
-      if (p.method === "cash") {
-        const t = p.tenderedCash ? cents(p.tenderedCash, "tendered cash") : a, c = p.changeGiven ? cents(p.changeGiven, "change given") : 0n;
-        if (t < a || c !== t - a) throw new CheckoutValidationError("Cash tender and change do not match payment amount.");
+var createCheckoutService = (db) => ({
+  async resolveCommittedReplay(request, scope) {
+    assertCheckoutRequest(request);
+    if (request.items.length === 0) throw new CheckoutValidationError("At least one item is required.");
+    for (const item of request.items) validateBasisPoints(item.discountBps, `Discount for product ${item.product.id}`);
+    validateBasisPoints(request.orderDiscountBps ?? 0, "Order discount");
+    if (request.storeId !== scope.storeId || request.cashierId !== scope.cashierId) throw new CheckoutConflictError("Checkout replay scope does not match the authenticated principal.");
+    const payloadHash = checkoutFingerprint(request);
+    return db.transaction(async (tx) => {
+      const existing = (await tx.query(`SELECT * FROM prodx_orders WHERE organization_id=$1 AND store_id=$2 AND cashier_id=$3 AND idempotency_key=$4 LIMIT 1`, [scope.organizationId, scope.storeId, scope.cashierId, request.idempotencyKey])).rows[0];
+      if (!existing) return null;
+      if (existing.idempotency_payload_hash !== payloadHash) throw new CheckoutConflictError("Idempotency key was already used for a different checkout payload.");
+      return orderFromDb(tx, existing, true);
+    });
+  },
+  async checkout(request, authorizationContext) {
+    assertCheckoutRequest(request);
+    if (request.items.length === 0) throw new CheckoutValidationError("At least one item is required.");
+    for (const item of request.items) validateBasisPoints(item.discountBps, `Discount for product ${item.product.id}`);
+    const orderDiscountBps = validateBasisPoints(request.orderDiscountBps ?? 0, "Order discount");
+    const payloadHash = checkoutFingerprint(request);
+    const authorizationPayloadHash = checkoutAuthorizationFingerprint(request);
+    const outcome = await db.transaction(async (tx) => {
+      const existing = (await tx.query(`SELECT * FROM prodx_orders WHERE store_id=$1 AND idempotency_key=$2 LIMIT 1`, [request.storeId, request.idempotencyKey])).rows[0];
+      if (existing) {
+        if (existing.idempotency_payload_hash !== payloadHash) {
+          throw new CheckoutConflictError("Idempotency key was already used for a different checkout payload.");
+        }
+        return { kind: "success", response: await orderFromDb(tx, existing, true) };
       }
-    }
-    if (paid !== grand) throw new CheckoutConflictError("Payment total does not match server-authoritative total.");
-    const orderId = crypto6.randomUUID(), number = `ORD-${(/* @__PURE__ */ new Date()).toISOString().slice(0, 10).replace(/-/g, "")}-${crypto6.randomInt(1e5, 999999)}`;
-    const ins = (await tx.query(`INSERT INTO prodx_orders(id,organization_id,store_id,register_id,cashier_id,shift_id,order_number,idempotency_key,gross_subtotal_amount,item_discounts_amount,order_discount_amount,net_subtotal_amount,total_tax_amount,grand_total_amount,currency,total_items_count,notes) SELECT $1,organization_id,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16 FROM prodx_stores WHERE id=$2 ON CONFLICT(store_id,idempotency_key) DO NOTHING RETURNING *`, [orderId, request.storeId, request.registerId, request.cashierId, shift.id, number, request.idempotencyKey, numeric(gross), numeric(discounts), numeric(od), numeric(adjNet), numeric(adjTax), numeric(grand), currency, totalItems, request.notes ?? null])).rows[0];
-    if (!ins) {
-      const concurrent = (await tx.query(`SELECT * FROM prodx_orders WHERE store_id=$1 AND idempotency_key=$2`, [request.storeId, request.idempotencyKey])).rows[0];
-      if (!concurrent) throw new CheckoutConflictError("Idempotency conflict could not be resolved.");
-      return orderFromDb(tx, concurrent, true);
-    }
-    for (const item of request.items) {
-      const p = products.find((x) => x.id === item.product.id);
-      const unit = dbCents(p.price_amount), raw = unit * BigInt(item.quantity), disc = (raw * BigInt(item.discountBps) + 5000n) / 10000n, after = raw - disc, lt = p.tax_rate_bps > 0 ? (after * BigInt(p.tax_rate_bps) + BigInt(1e4 + p.tax_rate_bps) / 2n) / BigInt(1e4 + p.tax_rate_bps) : 0n;
-      const stock = (await tx.query(`UPDATE prodx_products SET current_stock=current_stock-$1,updated_at=CURRENT_TIMESTAMP WHERE id=$2 AND store_id=$3 AND current_stock>=$1 RETURNING current_stock`, [item.quantity, item.product.id, request.storeId])).rows[0];
-      if (!stock) throw new CheckoutConflictError(`Insufficient stock for product ${item.product.id}.`);
-      await tx.query(`INSERT INTO prodx_order_items(id,organization_id,store_id,order_id,product_id,quantity,unit_price_amount,item_discount_bps,line_subtotal_amount,line_tax_amount,line_total_amount,currency) VALUES($1,(SELECT organization_id FROM prodx_orders WHERE id=$2),$3,$2,$4,$5,$6,$7,$8,$9,$10,$11)`, [crypto6.randomUUID(), ins.id, request.storeId, item.product.id, item.quantity, numeric(unit), item.discountBps, numeric(after - lt), numeric(lt), numeric(after), currency]);
-      await tx.query(`INSERT INTO prodx_inventory_ledger(id,organization_id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id) VALUES($1,(SELECT organization_id FROM prodx_orders WHERE id=$2),$3,$4,$5,$6,'sale_deduction',$2,$7)`, [crypto6.randomUUID(), ins.id, request.storeId, item.product.id, -item.quantity, stock.current_stock, request.cashierId]);
-    }
-    for (const p of request.payments) {
-      const a = cents(p.amount, `payment ${p.id}`);
-      await tx.query(`INSERT INTO prodx_payments(id,organization_id,store_id,order_id,method,amount,tendered_cash,change_given,auth_code,card_last_four,terminal_reference,currency) VALUES($1,(SELECT organization_id FROM prodx_orders WHERE id=$2),$3,$2,$4,$5,$6,$7,$8,$9,$10,$11)`, [p.id, ins.id, request.storeId, p.method, numeric(a), p.tenderedCash ? numeric(cents(p.tenderedCash, "tendered cash")) : null, p.changeGiven ? numeric(cents(p.changeGiven, "change given")) : null, p.authCode ?? null, p.cardLastFour ?? null, p.terminalReference ?? null, currency]);
-      if (p.method === "cash") {
-        const t = p.tenderedCash ? cents(p.tenderedCash, "tendered cash") : a, c = p.changeGiven ? cents(p.changeGiven, "change given") : 0n;
-        await tx.query(`INSERT INTO prodx_cash_movements(id,organization_id,store_id,shift_id,type,amount,reason,performed_by_user_id,currency) VALUES($1,(SELECT organization_id FROM prodx_orders WHERE id=$2),$3,$4,'cash_sale',$5,'POS sale',$6,$7)`, [crypto6.randomUUID(), ins.id, request.storeId, shift.id, numeric(t - c), request.cashierId, currency]);
+      const shift = (await tx.query(`SELECT sh.id FROM prodx_shifts sh JOIN prodx_registers r ON r.id=sh.register_id AND r.store_id=sh.store_id WHERE sh.store_id=$1 AND sh.register_id=$2 AND sh.cashier_id=$3 AND sh.status='open' AND r.status='active' FOR UPDATE`, [request.storeId, request.registerId, request.cashierId])).rows[0];
+      if (!shift) throw new CheckoutConflictError("An active shift for this register and cashier is required.");
+      const ids = request.items.map((i) => i.product.id);
+      if (new Set(ids).size !== ids.length) throw new CheckoutValidationError("Duplicate product lines are not allowed.");
+      const sortedIds = [...ids].sort();
+      const products = (await tx.query(`SELECT * FROM prodx_products WHERE store_id=$1 AND active=true AND id=ANY($2::uuid[]) ORDER BY id FOR UPDATE`, [request.storeId, sortedIds])).rows;
+      if (products.length !== ids.length) throw new CheckoutValidationError("One or more products are unavailable in this store.");
+      const currency = products[0].currency;
+      let gross = 0n, discounts = 0n, net = 0n, tax = 0n, totalItems = 0;
+      for (const item of request.items) {
+        if (!Number.isInteger(item.quantity) || item.quantity <= 0) throw new CheckoutValidationError("Quantity must be positive.");
+        if (item.unitPrice.currency !== currency) throw new CheckoutValidationError("Item currency mismatch.");
+        const p = products.find((x) => x.id === item.product.id);
+        if (!p) throw new CheckoutValidationError("Product scope violation.");
+        const unit = dbCents(p.price_amount);
+        const raw = unit * BigInt(item.quantity);
+        const disc = (raw * BigInt(item.discountBps) + 5000n) / 10000n;
+        const after = raw - disc;
+        const lt = p.tax_rate_bps > 0 ? (after * BigInt(p.tax_rate_bps) + BigInt(1e4 + p.tax_rate_bps) / 2n) / BigInt(1e4 + p.tax_rate_bps) : 0n;
+        gross += raw;
+        discounts += disc;
+        net += after - lt;
+        tax += lt;
+        totalItems += item.quantity;
       }
+      const pre = gross - discounts;
+      const od = (pre * BigInt(orderDiscountBps) + 5000n) / 10000n;
+      const grand = pre - od;
+      const adjNet = pre === 0n ? 0n : (net * grand + pre / 2n) / pre;
+      const adjTax = grand - adjNet;
+      if (request.totals.grandTotal.currency !== currency) throw new CheckoutValidationError("Grand total currency must match order currency.");
+      if (cents(request.totals.grandTotal, "client grand total") !== grand) throw new CheckoutConflictError("Client total does not match server-authoritative total.");
+      let paid = 0n;
+      for (const p of request.payments) {
+        if (p.amount.currency !== currency) throw new CheckoutValidationError("Payment currency must match order currency.");
+        if (p.tenderedCash && p.tenderedCash.currency !== currency) throw new CheckoutValidationError("Tendered cash currency must match order currency.");
+        if (p.changeGiven && p.changeGiven.currency !== currency) throw new CheckoutValidationError("Change given currency must match order currency.");
+        const a = cents(p.amount, `payment ${p.id}`);
+        paid += a;
+        if (p.method === "cash") {
+          const t = p.tenderedCash ? cents(p.tenderedCash, "tendered cash") : a;
+          const c = p.changeGiven ? cents(p.changeGiven, "change given") : 0n;
+          if (t < a || c !== t - a) throw new CheckoutValidationError("Cash tender and change do not match payment amount.");
+        }
+      }
+      if (paid !== grand) throw new CheckoutConflictError("Payment total does not match server-authoritative total.");
+      let supervisorUserId = null;
+      if (hasCheckoutDiscount(request)) {
+        if (!authorizationContext || authorizationContext.storeId !== request.storeId || authorizationContext.userId !== request.cashierId) {
+          throw new CheckoutAuthorizationError("DISCOUNT_SUPERVISOR_APPROVAL_REQUIRED");
+        }
+        const policy = (await tx.query(`SELECT require_supervisor_approval, max_discount_without_approval_bps FROM prodx_discount_policies WHERE organization_id=$1 AND store_id=$2 FOR SHARE`, [authorizationContext.organizationId, request.storeId])).rows[0];
+        if (!policy) throw new CheckoutConflictError("Authoritative discount policy is missing for this store.");
+        const effectiveDiscountBps = gross > 0n ? Number(((gross - grand) * 10000n + gross / 2n) / gross) : 0;
+        const maxDiscountBps = Math.max(effectiveDiscountBps, orderDiscountBps, ...request.items.map((item) => item.discountBps));
+        const approvalRequired = policy.require_supervisor_approval === true && maxDiscountBps > Number(policy.max_discount_without_approval_bps);
+        if (approvalRequired) {
+          if (!request.supervisorAuthorizationToken) throw new CheckoutAuthorizationError("DISCOUNT_SUPERVISOR_APPROVAL_REQUIRED");
+          try {
+            const supervisor = await createSupervisorAuthorizationService({
+              query: async (sql, parameters = []) => (await tx.query(sql, parameters)).rows
+            }).consume({
+              token: request.supervisorAuthorizationToken,
+              organizationId: authorizationContext.organizationId,
+              storeId: request.storeId,
+              requesterUserId: authorizationContext.userId,
+              requesterSessionId: authorizationContext.sessionId,
+              action: "discount",
+              checkoutIdempotencyKey: request.idempotencyKey,
+              checkoutPayloadHash: authorizationPayloadHash,
+              policyThresholdBps: Number(policy.max_discount_without_approval_bps),
+              policyRequiresApproval: true
+            });
+            supervisorUserId = supervisor.supervisorUserId;
+          } catch (error4) {
+            if (error4 instanceof SupervisorAuthorizationError) {
+              const committed = (await tx.query(`SELECT * FROM prodx_orders WHERE store_id=$1 AND idempotency_key=$2 FOR UPDATE`, [request.storeId, request.idempotencyKey])).rows[0];
+              if (committed) {
+                if (committed.idempotency_payload_hash !== payloadHash) {
+                  await tx.query(`SELECT public.prodx_record_security_audit_event($1, $2, $3, 'SUPERVISOR_AUTHORIZATION_REJECTED', $4::jsonb)`, [
+                    crypto7.randomUUID(),
+                    authorizationContext.organizationId,
+                    authorizationContext.userId,
+                    JSON.stringify({ action: "discount", idempotencyKey: request.idempotencyKey, reason: "IDEMPOTENCY_PAYLOAD_MISMATCH" })
+                  ]);
+                  return { kind: "idempotency_conflict", message: "Idempotency key was reused with a different checkout payload." };
+                }
+                return { kind: "success", response: await orderFromDb(tx, committed, true) };
+              }
+              await tx.query(`SELECT public.prodx_record_security_audit_event($1, $2, $3, 'SUPERVISOR_AUTHORIZATION_REJECTED', $4::jsonb)`, [
+                crypto7.randomUUID(),
+                authorizationContext.organizationId,
+                authorizationContext.userId,
+                JSON.stringify({ action: "discount", idempotencyKey: request.idempotencyKey, reason: error4.code })
+              ]);
+              return { kind: "authorization_rejected", code: "DISCOUNT_SUPERVISOR_AUTHORIZATION_INVALID", reason: error4.code };
+            }
+            throw error4;
+          }
+        } else if (request.supervisorAuthorizationToken) {
+          throw new CheckoutAuthorizationError("DISCOUNT_SUPERVISOR_AUTHORIZATION_INVALID");
+        }
+      }
+      const orderId = crypto7.randomUUID();
+      const number = `ORD-${(/* @__PURE__ */ new Date()).toISOString().slice(0, 10).replace(/-/g, "")}-${crypto7.randomInt(1e5, 999999)}`;
+      const ins = (await tx.query(`INSERT INTO prodx_orders(id,organization_id,store_id,register_id,cashier_id,shift_id,order_number,idempotency_key,idempotency_payload_hash,gross_subtotal_amount,item_discounts_amount,order_discount_amount,net_subtotal_amount,total_tax_amount,grand_total_amount,currency,total_items_count,notes) SELECT $1,organization_id,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17 FROM prodx_stores WHERE id=$2 ON CONFLICT(store_id,idempotency_key) DO NOTHING RETURNING *`, [orderId, request.storeId, request.registerId, request.cashierId, shift.id, number, request.idempotencyKey, payloadHash, numeric(gross), numeric(discounts), numeric(od), numeric(adjNet), numeric(adjTax), numeric(grand), currency, totalItems, request.notes ?? null])).rows[0];
+      if (!ins) {
+        const concurrent = (await tx.query(`SELECT * FROM prodx_orders WHERE store_id=$1 AND idempotency_key=$2`, [request.storeId, request.idempotencyKey])).rows[0];
+        if (!concurrent) throw new CheckoutConflictError("Idempotency conflict could not be resolved.");
+        if (concurrent.idempotency_payload_hash !== payloadHash) throw new CheckoutConflictError("Idempotency key was already used for a different checkout payload.");
+        return { kind: "success", response: await orderFromDb(tx, concurrent, true) };
+      }
+      for (const item of request.items) {
+        const p = products.find((x) => x.id === item.product.id);
+        const unit = dbCents(p.price_amount);
+        const raw = unit * BigInt(item.quantity);
+        const disc = (raw * BigInt(item.discountBps) + 5000n) / 10000n;
+        const after = raw - disc;
+        const lt = p.tax_rate_bps > 0 ? (after * BigInt(p.tax_rate_bps) + BigInt(1e4 + p.tax_rate_bps) / 2n) / BigInt(1e4 + p.tax_rate_bps) : 0n;
+        const stock = (await tx.query(`UPDATE prodx_products SET current_stock=current_stock-$1,updated_at=CURRENT_TIMESTAMP WHERE id=$2 AND store_id=$3 AND current_stock>=$1 RETURNING current_stock`, [item.quantity, item.product.id, request.storeId])).rows[0];
+        if (!stock) throw new CheckoutConflictError(`Insufficient stock for product ${item.product.id}.`);
+        await tx.query(`INSERT INTO prodx_order_items(id,organization_id,store_id,order_id,product_id,quantity,unit_price_amount,item_discount_bps,line_subtotal_amount,line_tax_amount,line_total_amount,currency) VALUES($1,(SELECT organization_id FROM prodx_orders WHERE id=$2),$3,$2,$4,$5,$6,$7,$8,$9,$10,$11)`, [crypto7.randomUUID(), ins.id, request.storeId, item.product.id, item.quantity, numeric(unit), item.discountBps, numeric(after - lt), numeric(lt), numeric(after), currency]);
+        await tx.query(`INSERT INTO prodx_inventory_ledger(id,organization_id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id) VALUES($1,(SELECT organization_id FROM prodx_orders WHERE id=$2),$3,$4,$5,$6,'sale_deduction',$2,$7)`, [crypto7.randomUUID(), ins.id, request.storeId, item.product.id, -item.quantity, stock.current_stock, request.cashierId]);
+      }
+      for (const p of request.payments) {
+        const a = cents(p.amount, `payment ${p.id}`);
+        await tx.query(`INSERT INTO prodx_payments(id,organization_id,store_id,order_id,method,amount,tendered_cash,change_given,auth_code,card_last_four,terminal_reference,currency) VALUES($1,(SELECT organization_id FROM prodx_orders WHERE id=$2),$3,$2,$4,$5,$6,$7,$8,$9,$10,$11)`, [p.id, ins.id, request.storeId, p.method, numeric(a), p.tenderedCash ? numeric(cents(p.tenderedCash, "tendered cash")) : null, p.changeGiven ? numeric(cents(p.changeGiven, "change given")) : null, p.authCode ?? null, p.cardLastFour ?? null, p.terminalReference ?? null, currency]);
+        if (p.method === "cash") {
+          const t = p.tenderedCash ? cents(p.tenderedCash, "tendered cash") : a;
+          const c = p.changeGiven ? cents(p.changeGiven, "change given") : 0n;
+          await tx.query(`INSERT INTO prodx_cash_movements(id,organization_id,store_id,shift_id,type,amount,reason,performed_by_user_id,currency) VALUES($1,(SELECT organization_id FROM prodx_orders WHERE id=$2),$3,$4,'cash_sale',$5,'POS sale',$6,$7)`, [crypto7.randomUUID(), ins.id, request.storeId, shift.id, numeric(t - c), request.cashierId, currency]);
+        }
+      }
+      await tx.query(`INSERT INTO prodx_audit_log(id,organization_id,store_id,register_id,user_id,action,severity,details) VALUES($1,(SELECT organization_id FROM prodx_orders WHERE id=$2),$3,$4,$5,'order_checkout_committed','info',$6::jsonb)`, [crypto7.randomUUID(), ins.id, request.storeId, request.registerId, request.cashierId, JSON.stringify({ orderId: ins.id, idempotencyKey: request.idempotencyKey, grandTotal: numeric(grand), supervisorUserId })]);
+      return { kind: "success", response: await orderFromDb(tx, ins, false) };
+    });
+    if (outcome.kind === "authorization_rejected") {
+      throw new CheckoutAuthorizationError(outcome.code);
     }
-    await tx.query(`INSERT INTO prodx_audit_log(id,organization_id,store_id,register_id,user_id,action,severity,details) VALUES($1,(SELECT organization_id FROM prodx_orders WHERE id=$2),$3,$4,$5,'order_checkout_committed','info',$6::jsonb)`, [crypto6.randomUUID(), ins.id, request.storeId, request.registerId, request.cashierId, JSON.stringify({ orderId: ins.id, idempotencyKey: request.idempotencyKey, grandTotal: numeric(grand) })]);
-    return orderFromDb(tx, ins, false);
-  });
-} });
+    if (outcome.kind === "idempotency_conflict") {
+      throw new CheckoutConflictError(outcome.message);
+    }
+    return outcome.response;
+  }
+});
 
 // server/http/createApp.ts
-import crypto7 from "node:crypto";
+import crypto8 from "node:crypto";
 import express from "express";
 var sendError = (response, status, code, message, requestId2, details) => {
   const body = {
@@ -1126,7 +1727,7 @@ var safeReadinessDiagnostic = (error4) => {
 };
 var requestId = (request) => {
   const supplied = request.header("x-request-id");
-  return supplied && supplied.length <= 128 ? supplied : crypto7.randomUUID();
+  return supplied && supplied.length <= 128 ? supplied : crypto8.randomUUID();
 };
 var requirePermission = (permission) => {
   return async (request, response, next) => {
@@ -1187,8 +1788,8 @@ var createApp = (options) => {
       throw new Error("TRUST_PROXY must be a non-negative hop count or true/false.");
     }
   }
-  app.use(express.json({ limit: "1mb" }));
   app.use(attachRequestId);
+  app.use(express.json({ limit: "1mb" }));
   app.locals.prodxAuthorize = options.authorizeRequest;
   options.configurePublicRoutes?.(app);
   app.get("/api/v1/healthz", (_request, response) => {
@@ -1220,6 +1821,11 @@ var createApp = (options) => {
     sendError(response, 404, "NOT_FOUND", "Route not found.", response.getHeader("x-request-id")?.toString() ?? "unknown");
   });
   app.use((error4, request, response, _next) => {
+    const parserError = error4 && typeof error4 === "object" ? error4 : void 0;
+    if (error4 instanceof SyntaxError && parserError?.type === "entity.parse.failed" && parserError.status === 400) {
+      sendError(response, 400, "INVALID_JSON", "Request body must be valid JSON.", request.id);
+      return;
+    }
     console.error("PRODX unhandled request error", {
       requestId: request.id,
       method: request.method,
@@ -1235,7 +1841,7 @@ var createApp = (options) => {
 
 // server/http/checkout-route.ts
 var parseBody = (value) => {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new CheckoutValidationError("Request body must be an object.");
+  assertCheckoutRequest(value);
   return value;
 };
 var registerCheckoutRoute = (app, db, permission = "pos.sell") => {
@@ -1252,11 +1858,27 @@ var registerCheckoutRoute = (app, db, permission = "pos.sell") => {
         response.status(403).json({ error: { code: "STORE_SCOPE_VIOLATION", message: "Checkout store and cashier must match the authenticated principal.", requestId: request.id } });
         return;
       }
-      const result = await service.checkout(payload);
+      if (hasCheckoutDiscount(payload)) {
+        const authorizer = request.app.locals.prodxAuthorize;
+        if (!authorizer || !await authorizer(context, "pos.discount")) {
+          response.status(403).json({ error: { code: "DISCOUNT_NOT_AUTHORIZED", message: "The authenticated user is not authorized to apply discounts.", requestId: request.id } });
+          return;
+        }
+      }
+      const sessionId = "sessionId" in context.principal && typeof context.principal.sessionId === "string" ? context.principal.sessionId : null;
+      if (hasCheckoutDiscount(payload) && !sessionId) {
+        response.status(500).json({ error: { code: "SESSION_CONTEXT_MISSING", message: "Authenticated session context is required for discount authorization.", requestId: request.id } });
+        return;
+      }
+      const result = await service.checkout(payload, sessionId ? { organizationId: context.principal.organizationId, storeId: context.principal.storeId, userId: context.principal.userId, sessionId } : void 0);
       response.status(result.idempotencyCached ? 200 : 201).json(result);
     } catch (error4) {
       if (error4 instanceof CheckoutValidationError) {
         response.status(400).json({ error: { code: error4.code, message: error4.message, requestId: request.id } });
+        return;
+      }
+      if (error4 instanceof CheckoutAuthorizationError) {
+        response.status(error4.code === "DISCOUNT_SUPERVISOR_APPROVAL_REQUIRED" ? 403 : 409).json({ error: { code: error4.code, message: "Supervisor approval is required and must match the current checkout and store policy.", requestId: request.id } });
         return;
       }
       if (error4 instanceof CheckoutConflictError) {
@@ -1272,9 +1894,9 @@ var registerCheckoutRoute = (app, db, permission = "pos.sell") => {
 import { timingSafeEqual } from "node:crypto";
 
 // server/auth/login-rate-limit.ts
-import crypto8 from "node:crypto";
+import crypto9 from "node:crypto";
 var WINDOW_MS = 10 * 60 * 1e3;
-var fingerprintClient = (clientAddress) => crypto8.createHash("sha256").update(clientAddress, "utf8").digest("hex");
+var fingerprintClient = (clientAddress) => crypto9.createHash("sha256").update(clientAddress, "utf8").digest("hex");
 var checkLoginThrottle = async (db, clientAddress, now = /* @__PURE__ */ new Date()) => {
   const fingerprint = fingerprintClient(clientAddress);
   const rows = await db.query(
@@ -1696,188 +2318,6 @@ var registerAuthRoutes = (app, db, sessions, options = {}) => {
 
 // server/transactions/refund-service.ts
 import crypto10 from "node:crypto";
-
-// server/auth/supervisor-authorization.ts
-import crypto9 from "node:crypto";
-var SupervisorAuthorizationError = class extends Error {
-  constructor(code) {
-    super(code);
-    this.code = code;
-  }
-};
-var TTL_MS = 2 * 60 * 1e3;
-var hashAuthorizationToken = (token) => crypto9.createHash("sha256").update(token, "utf8").digest("hex");
-var recordSecurityEvent = async (db, input) => {
-  await db.query(
-    `SELECT public.prodx_record_supervisor_authorization_event(
-      $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::text, $6::jsonb
-    )`,
-    [crypto9.randomUUID(), input.organizationId, input.storeId, input.userId ?? null, input.eventType, JSON.stringify(input.metadata)]
-  );
-};
-var createSupervisorAuthorizationService = (db, now = () => /* @__PURE__ */ new Date()) => ({
-  async authorize(input) {
-    if (!input.organizationId || !input.storeId || !input.requesterUserId || !input.requesterSessionId || !input.orderId || !input.supervisorUsername?.trim() && !input.supervisorUserId?.trim() || !input.supervisorSecret) {
-      throw new SupervisorAuthorizationError("INVALID_CREDENTIALS");
-    }
-    const credentials = await db.query(
-      `SELECT supervisor_user_id AS "userId",
-              user_status AS "status",
-              secret_hash AS "secretHash",
-              failed_attempts AS "failedAttempts",
-              locked_until AS "lockedUntil"
-         FROM public.prodx_supervisor_find_credential($1::uuid, $2::uuid, $3::text)`,
-      [input.organizationId, input.storeId, (input.supervisorUserId ?? input.supervisorUsername ?? "").trim()]
-    );
-    const credential = credentials[0];
-    const current = now();
-    if (!credential || credential.status !== "active" || credential.lockedUntil && credential.lockedUntil > current) {
-      await recordSecurityEvent(db, {
-        organizationId: input.organizationId,
-        storeId: input.storeId,
-        userId: credential?.userId ?? null,
-        eventType: "SUPERVISOR_AUTH_REJECTED",
-        metadata: { action: input.action, orderId: input.orderId, requesterUserId: input.requesterUserId, reason: "invalid_or_locked" }
-      });
-      throw new SupervisorAuthorizationError("INVALID_CREDENTIALS");
-    }
-    const valid3 = await verifyPassword(input.supervisorSecret, credential.secretHash);
-    if (!valid3) {
-      await db.query(
-        `SELECT public.prodx_supervisor_record_failed_attempt($1::uuid, $2::uuid, $3::uuid)`,
-        [input.organizationId, input.storeId, credential.userId]
-      );
-      await recordSecurityEvent(db, {
-        organizationId: input.organizationId,
-        storeId: input.storeId,
-        userId: credential.userId,
-        eventType: "SUPERVISOR_AUTH_FAILED",
-        metadata: { action: input.action, orderId: input.orderId, requesterUserId: input.requesterUserId }
-      });
-      throw new SupervisorAuthorizationError("INVALID_CREDENTIALS");
-    }
-    const allowed = await db.query(
-      `SELECT m.user_id AS "userId"
-         FROM prodx_store_memberships m
-         JOIN prodx_user_roles ur
-           ON ur.organization_id = m.organization_id
-          AND ur.user_id = m.user_id
-          AND ur.store_id = m.store_id
-          AND ur.active = TRUE
-         JOIN prodx_roles r
-           ON r.id = ur.role_id
-          AND r.organization_id = ur.organization_id
-          AND r.active = TRUE
-         JOIN prodx_role_permissions rp
-           ON rp.organization_id = r.organization_id
-          AND rp.role_id = r.id
-         JOIN prodx_permissions p
-           ON p.id = rp.permission_id
-        WHERE m.organization_id = $1
-          AND m.store_id = $2
-          AND m.user_id = $3
-          AND m.active = TRUE
-          AND p.permission_key = CASE WHEN $4 = 'void' THEN 'pos.void' ELSE 'pos.refund' END
-        LIMIT 1`,
-      [input.organizationId, input.storeId, credential.userId, input.action]
-    );
-    if (!allowed[0]) {
-      await recordSecurityEvent(db, {
-        organizationId: input.organizationId,
-        storeId: input.storeId,
-        userId: credential.userId,
-        eventType: "SUPERVISOR_AUTH_DENIED",
-        metadata: { action: input.action, orderId: input.orderId, requesterUserId: input.requesterUserId, reason: "store_permission_missing" }
-      });
-      throw new SupervisorAuthorizationError("SUPERVISOR_NOT_ALLOWED");
-    }
-    await db.query(
-      `SELECT public.prodx_supervisor_reset_failed_attempts($1::uuid, $2::uuid, $3::uuid, $4::text)`,
-      [input.organizationId, input.storeId, credential.userId, input.action]
-    );
-    const token = crypto9.randomBytes(32).toString("base64url");
-    const expiresAt = new Date(current.getTime() + TTL_MS);
-    await db.query(
-      `INSERT INTO prodx_supervisor_authorizations
-        (id, organization_id, store_id, requester_user_id, requester_session_id,
-         supervisor_user_id, action_key, order_id, authorization_hash, expires_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-      [
-        crypto9.randomUUID(),
-        input.organizationId,
-        input.storeId,
-        input.requesterUserId,
-        input.requesterSessionId,
-        credential.userId,
-        input.action,
-        input.orderId,
-        hashAuthorizationToken(token),
-        expiresAt
-      ]
-    );
-    await recordSecurityEvent(db, {
-      organizationId: input.organizationId,
-      storeId: input.storeId,
-      userId: credential.userId,
-      eventType: "SUPERVISOR_AUTHORIZATION_GRANTED",
-      metadata: { action: input.action, orderId: input.orderId, requesterUserId: input.requesterUserId, requesterSessionId: input.requesterSessionId, expiresAt: expiresAt.toISOString() }
-    });
-    return { authorizationToken: token, supervisorUserId: credential.userId, expiresAt: expiresAt.toISOString() };
-  },
-  async consume(input) {
-    if (!input.token.trim()) throw new SupervisorAuthorizationError("AUTHORIZATION_EXPIRED");
-    const hash2 = hashAuthorizationToken(input.token);
-    const rows = await db.query(
-      `UPDATE prodx_supervisor_authorizations
-          SET consumed_at = CURRENT_TIMESTAMP
-        WHERE authorization_hash = $1
-          AND organization_id = $2
-          AND store_id = $3
-          AND requester_user_id = $4
-          AND requester_session_id = $5
-          AND action_key = $6
-          AND order_id = $7
-          AND consumed_at IS NULL
-          AND expires_at > CURRENT_TIMESTAMP
-        RETURNING supervisor_user_id AS "supervisorUserId"`,
-      [
-        hash2,
-        input.organizationId,
-        input.storeId,
-        input.requesterUserId,
-        input.requesterSessionId,
-        input.action,
-        input.orderId
-      ]
-    );
-    if (rows[0]) return { supervisorUserId: rows[0].supervisorUserId };
-    const state = await db.query(
-      `SELECT consumed_at AS "consumedAt", expires_at AS "expiresAt"
-         FROM prodx_supervisor_authorizations
-        WHERE authorization_hash = $1
-          AND organization_id = $2
-          AND store_id = $3
-          AND requester_user_id = $4
-          AND requester_session_id = $5
-          AND action_key = $6
-          AND order_id = $7
-        LIMIT 1`,
-      [
-        hash2,
-        input.organizationId,
-        input.storeId,
-        input.requesterUserId,
-        input.requesterSessionId,
-        input.action,
-        input.orderId
-      ]
-    );
-    if (state[0]?.consumedAt) throw new SupervisorAuthorizationError("AUTHORIZATION_REPLAYED");
-    throw new SupervisorAuthorizationError("AUTHORIZATION_EXPIRED");
-  }
-});
-
-// server/transactions/refund-service.ts
 var supervisorAuthorizationDb = (tx) => ({
   async query(sql, parameters = []) {
     const result = await tx.query(sql, parameters);
@@ -1908,6 +2348,36 @@ var toCents = (money3, field) => {
 };
 var numeric2 = (cents3) => `${cents3 / 100n}.${(cents3 % 100n).toString().padStart(2, "0")}`;
 var roundDivide = (numerator, denominator) => (numerator + denominator / 2n) / denominator;
+var getDiscountAdjustedLineTotals = (orderItems, orderDiscountAmount, grandTotalAmount) => {
+  const lineTotals = orderItems.map((item) => ({ ...item, lineCents: dbCents2(item.line_total) }));
+  const subtotal = lineTotals.reduce((sum, item) => sum + item.lineCents, 0n);
+  const discount = dbCents2(orderDiscountAmount);
+  const grandTotal = dbCents2(grandTotalAmount);
+  if (discount > subtotal || subtotal - discount !== grandTotal) {
+    throw new RefundConflictError("Order line values, order discount, and grand total are inconsistent; restock is blocked.");
+  }
+  if (subtotal === 0n) return new Map(lineTotals.map((item) => [item.id, 0n]));
+  const shares = lineTotals.map((item) => {
+    const numerator = discount * item.lineCents;
+    return { id: item.id, lineCents: item.lineCents, discountCents: numerator / subtotal, remainder: numerator % subtotal };
+  });
+  const floorTotal = shares.reduce((sum, share) => sum + share.discountCents, 0n);
+  let remainingCents = discount - floorTotal;
+  const byRemainder = [...shares].sort((a, b) => {
+    if (a.remainder === b.remainder) return a.id.localeCompare(b.id);
+    return a.remainder > b.remainder ? -1 : 1;
+  });
+  const extraCentIds = /* @__PURE__ */ new Set();
+  for (const share of byRemainder) {
+    if (remainingCents === 0n) break;
+    extraCentIds.add(share.id);
+    remainingCents -= 1n;
+  }
+  return new Map(shares.map((share) => [
+    share.id,
+    share.lineCents - share.discountCents - (extraCentIds.has(share.id) ? 1n : 0n)
+  ]));
+};
 var dbCents2 = (value) => {
   const text = String(value);
   const withDecimals = /^(\d+)\.(\d{2})$/.exec(text);
@@ -2042,15 +2512,17 @@ var createRefundService = (db) => ({
       }
       let restockAmountTotal = 0n;
       const restockAllocations = [];
+      const orderItemRows = restock.length > 0 ? (await tx.query(
+        `SELECT oi.id, oi.product_id, oi.quantity, oi.line_total_amount::text AS line_total
+            FROM prodx_order_items oi WHERE oi.store_id=$1 AND oi.order_id=$2 ORDER BY oi.id FOR UPDATE`,
+        [request.storeId, request.orderId]
+      )).rows : [];
+      const adjustedLineTotals = restock.length > 0 ? getDiscountAdjustedLineTotals(orderItemRows, order.order_discount_amount, order.grand_total_amount) : /* @__PURE__ */ new Map();
       for (const item of restock) {
-        const orderItemRows = (await tx.query(
-          `SELECT oi.id, oi.quantity, oi.line_total_amount::text AS line_total
-          FROM prodx_order_items oi WHERE oi.store_id=$1 AND oi.order_id=$2 AND oi.product_id=$3 ORDER BY oi.id FOR UPDATE`,
-          [request.storeId, request.orderId, item.productId]
-        )).rows;
-        if (orderItemRows.length === 0) throw new RefundValidationError(`Product ${item.productId} is not part of the order.`);
+        const productOrderItems = orderItemRows.filter((row) => row.product_id === item.productId);
+        if (productOrderItems.length === 0) throw new RefundValidationError(`Product ${item.productId} is not part of the order.`);
         let remaining = item.quantity;
-        for (const orderItem of orderItemRows) {
+        for (const orderItem of productOrderItems) {
           if (remaining === 0) break;
           const previous = (await tx.query(
             `SELECT COALESCE(SUM(quantity),0)::int AS quantity
@@ -2061,7 +2533,8 @@ var createRefundService = (db) => ({
           const available = orderItem.quantity - previousQuantity;
           if (available <= 0) continue;
           const allocatedQuantity = Math.min(remaining, available);
-          const totalLineCents = dbCents2(orderItem.line_total);
+          const totalLineCents = adjustedLineTotals.get(orderItem.id);
+          if (totalLineCents === void 0) throw new RefundConflictError("Discount-adjusted order item value is unavailable.");
           const cumulativeQuantity = previousQuantity + allocatedQuantity;
           const cumulativeAllocated = roundDivide(totalLineCents * BigInt(cumulativeQuantity), BigInt(orderItem.quantity));
           const previouslyAllocated = roundDivide(totalLineCents * BigInt(previousQuantity), BigInt(orderItem.quantity));
@@ -3743,15 +4216,15 @@ var parseBody2 = (value) => {
     throw new CheckoutValidationError("Sync request body must be an object.");
   }
   const body = value;
-  if (!body.item || typeof body.item !== "object" || Array.isArray(body.item)) {
+  const candidate = body.item;
+  if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) {
     throw new CheckoutValidationError("Sync request item is required.");
   }
-  return { item: body.item };
-};
-var isCheckoutRequest = (value) => {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
-  const payload = value;
-  return typeof payload.idempotencyKey === "string" && typeof payload.registerId === "string" && Array.isArray(payload.items) && Array.isArray(payload.payments) && typeof payload.totals === "object" && payload.totals !== null;
+  const item = candidate;
+  if (typeof item.id !== "string" || !item.id.trim() || typeof item.idempotencyKey !== "string" || !item.idempotencyKey.trim() || typeof item.type !== "string" || !["order_transaction", "shift_movement", "stock_adjustment"].includes(item.type) || typeof item.createdAt !== "string" || Number.isNaN(Date.parse(item.createdAt)) || typeof item.attempts !== "number" || !Number.isSafeInteger(item.attempts) || item.attempts < 0 || typeof item.syncState !== "string" || !["queued", "syncing", "synced", "failed", "conflict_requires_attention"].includes(item.syncState)) {
+    throw new CheckoutValidationError("Sync request item metadata is invalid.");
+  }
+  return { item: candidate };
 };
 var registerSyncRoute = (app, db, permission = "pos.sell") => {
   const checkout = createCheckoutService(db);
@@ -3775,8 +4248,8 @@ var registerSyncRoute = (app, db, permission = "pos.sell") => {
         });
         return;
       }
-      const payloadIdempotencyKey = typeof item.payload === "object" && item.payload !== null ? item.payload.idempotencyKey : void 0;
-      if (!item.idempotencyKey?.trim() || item.idempotencyKey !== payloadIdempotencyKey) {
+      const payloadIdempotencyKey = typeof item.payload === "object" && item.payload !== null && !Array.isArray(item.payload) ? item.payload.idempotencyKey : void 0;
+      if (item.idempotencyKey !== payloadIdempotencyKey) {
         response.status(400).json({
           error: {
             code: "SYNC_IDEMPOTENCY_KEY_MISMATCH",
@@ -3792,12 +4265,42 @@ var registerSyncRoute = (app, db, permission = "pos.sell") => {
         });
         return;
       }
-      const result = await checkout.checkout({
+      const checkoutRequest = {
         ...item.payload,
         idempotencyKey: item.idempotencyKey,
         storeId: context.principal.storeId,
         cashierId: context.principal.userId
-      });
+      };
+      if (hasCheckoutDiscount(checkoutRequest)) {
+        const authorizer = request.app.locals.prodxAuthorize;
+        if (!authorizer || !await authorizer(context, "pos.discount")) {
+          const replay = await checkout.resolveCommittedReplay(checkoutRequest, {
+            organizationId: context.principal.organizationId,
+            storeId: context.principal.storeId,
+            cashierId: context.principal.userId
+          });
+          if (replay) {
+            response.status(200).json({
+              confirmedOrder: replay.order,
+              syncedAt: replay.order.serverCommittedAt,
+              serverConfirmed: replay.serverConfirmed,
+              idempotencyCached: true
+            });
+            return;
+          }
+          response.status(403).json({ error: { code: "DISCOUNT_NOT_AUTHORIZED", message: "The authenticated user is not authorized to apply discounts.", requestId: request.id } });
+          return;
+        }
+      }
+      const sessionId = "sessionId" in context.principal && typeof context.principal.sessionId === "string" ? context.principal.sessionId : null;
+      if (hasCheckoutDiscount(checkoutRequest) && !sessionId) {
+        response.status(500).json({ error: { code: "SESSION_CONTEXT_MISSING", message: "Authenticated session context is required for discount authorization.", requestId: request.id } });
+        return;
+      }
+      const result = await checkout.checkout(
+        checkoutRequest,
+        sessionId ? { organizationId: context.principal.organizationId, storeId: context.principal.storeId, userId: context.principal.userId, sessionId } : void 0
+      );
       response.status(result.idempotencyCached ? 200 : 201).json({
         confirmedOrder: result.order,
         syncedAt: result.order.serverCommittedAt,
@@ -3807,6 +4310,10 @@ var registerSyncRoute = (app, db, permission = "pos.sell") => {
     } catch (error4) {
       if (error4 instanceof CheckoutValidationError) {
         response.status(400).json({ error: { code: error4.code, message: error4.message, requestId: request.id } });
+        return;
+      }
+      if (error4 instanceof CheckoutAuthorizationError) {
+        response.status(error4.code === "DISCOUNT_SUPERVISOR_APPROVAL_REQUIRED" ? 403 : 409).json({ error: { code: error4.code, message: "Supervisor approval is required and must match the current checkout and store policy.", requestId: request.id } });
         return;
       }
       if (error4 instanceof CheckoutConflictError) {
@@ -3819,22 +4326,70 @@ var registerSyncRoute = (app, db, permission = "pos.sell") => {
 };
 
 // server/http/supervisor-authorization-route.ts
+import crypto17 from "node:crypto";
 var valid = (value) => {
-  if (!value || typeof value !== "object") return false;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const body = value;
-  return (body.action === "refund" || body.action === "void") && typeof body.orderId === "string" && body.orderId.trim().length > 0 && (typeof body.supervisorUsername === "string" || typeof body.supervisorUserId === "string") && typeof body.supervisorSecret === "string" && body.supervisorSecret.length > 0;
+  if (!["refund", "void", "discount"].includes(String(body.action)) || typeof body.supervisorUsername !== "string" && typeof body.supervisorUserId !== "string" || !(typeof body.supervisorSecret === "string" && body.supervisorSecret.length > 0 && body.supervisorSecret.length <= 1024 || typeof body.supervisorAccessToken === "string" && body.supervisorAccessToken.length > 0 && body.supervisorAccessToken.length <= 8192) || typeof body.supervisorAccessToken === "string" && typeof body.supervisorUserId !== "string") return false;
+  if (body.action === "discount") {
+    if (!body.checkout || typeof body.checkout !== "object" || Array.isArray(body.checkout)) return false;
+    try {
+      assertCheckoutRequest(body.checkout);
+    } catch {
+      return false;
+    }
+    return hasCheckoutDiscount(body.checkout);
+  }
+  return typeof body.orderId === "string" && body.orderId.trim().length > 0;
 };
-var registerSupervisorAuthorizationRoute = (app, db) => {
+var registerSupervisorAuthorizationRoute = (app, db, verifySupervisorToken) => {
+  const tokenVerifier = verifySupervisorToken ?? createSupabaseTokenVerifier(process.env.SUPABASE_POS_AUTH_URL, process.env.SUPABASE_POS_AUTH_JWKS_URL);
+  app.get("/api/v1/authorizations/supervisors", requirePermission("pos.sell"), async (request, response) => {
+    const context = request.prodxContext;
+    if (!context) {
+      response.status(500).json({ error: { code: "REQUEST_CONTEXT_MISSING", message: "Request context is required." } });
+      return;
+    }
+    try {
+      const { rows } = await db.query(
+        `SELECT id, username, display_name AS name, role_key AS role
+           FROM (
+             SELECT DISTINCT ON (u.id) u.id, u.username, u.display_name, r.role_key
+               FROM prodx_store_memberships m
+               JOIN prodx_users u ON u.organization_id = m.organization_id AND u.id = m.user_id
+               JOIN prodx_user_roles ur ON ur.organization_id = m.organization_id AND ur.user_id = m.user_id AND ur.store_id = m.store_id AND ur.active = TRUE
+               JOIN prodx_roles r ON r.organization_id = ur.organization_id AND r.id = ur.role_id AND r.active = TRUE
+               JOIN prodx_role_permissions rp ON rp.organization_id = r.organization_id AND rp.role_id = r.id
+               JOIN prodx_permissions p ON p.id = rp.permission_id
+              WHERE m.organization_id = $1 AND m.store_id = $2 AND m.active = TRUE
+                AND u.status = 'active' AND u.supabase_auth_user_id IS NOT NULL
+                AND r.role_key IN ('owner', 'admin', 'manager')
+                AND p.permission_key IN ('pos.discount.approve', 'pos.refund', 'pos.void')
+              ORDER BY u.id, CASE r.role_key WHEN 'owner' THEN 0 WHEN 'admin' THEN 0 ELSE 1 END
+           ) supervisors
+          ORDER BY CASE role WHEN 'owner' THEN 0 WHEN 'admin' THEN 0 ELSE 1 END, name`,
+        [context.principal.organizationId, context.principal.storeId]
+      );
+      response.json({ supervisors: rows });
+    } catch {
+      response.status(503).json({ error: { code: "SUPERVISOR_DIRECTORY_UNAVAILABLE", message: "Supervisor directory is temporarily unavailable." } });
+    }
+  });
   app.post("/api/v1/authorizations/supervisor", async (request, response) => {
     const context = request.prodxContext;
     if (!context) {
       response.status(500).json({ error: { code: "REQUEST_CONTEXT_MISSING", message: "Request context is required." } });
       return;
     }
+    if (!valid(request.body)) {
+      response.status(400).json({ error: { code: "SUPERVISOR_AUTH_VALIDATION_FAILED", message: "Malformed supervisor authorization request." } });
+      return;
+    }
+    const body = request.body;
     const authorizer = request.app.locals.prodxAuthorize;
-    const action = request.body?.action;
-    if (!authorizer || action !== "refund" && action !== "void" || !await authorizer(context, action === "void" ? "pos.void" : "pos.refund")) {
-      response.status(403).json({ error: { code: "FORBIDDEN", message: "The requested supervisor authorization capability is not authorized." } });
+    const requesterPermission = body.action === "discount" ? "pos.discount" : body.action === "void" ? "pos.void" : "pos.refund";
+    if (!authorizer || !await authorizer(context, requesterPermission)) {
+      response.status(403).json({ error: { code: "FORBIDDEN", message: "The requester is not authorized to request this supervisor approval." } });
       return;
     }
     const sessionId = "sessionId" in context.principal && typeof context.principal.sessionId === "string" ? context.principal.sessionId : null;
@@ -3842,24 +4397,105 @@ var registerSupervisorAuthorizationRoute = (app, db) => {
       response.status(500).json({ error: { code: "SESSION_CONTEXT_MISSING", message: "Authenticated session context is required." } });
       return;
     }
-    if (!valid(request.body)) {
-      response.status(400).json({ error: { code: "SUPERVISOR_AUTH_VALIDATION_FAILED", message: "Malformed supervisor authorization request." } });
-      return;
+    let verifiedSupervisorIdentity = null;
+    if (body.supervisorAccessToken) {
+      try {
+        verifiedSupervisorIdentity = await tokenVerifier(body.supervisorAccessToken);
+      } catch {
+        response.status(503).json({ error: { code: "SUPERVISOR_IDENTITY_PROVIDER_UNAVAILABLE", message: "Supervisor identity verification is temporarily unavailable." } });
+        return;
+      }
     }
     const outcome = await db.transaction(async (tx) => {
       try {
-        const result = await createSupervisorAuthorizationService({
+        const service = createSupervisorAuthorizationService({
           query: async (sql, parameters = []) => (await tx.query(sql, parameters)).rows
-        }).authorize({
+        });
+        let supervisorUserId = body.supervisorUserId;
+        let supervisorIdentityVerified = false;
+        if (body.supervisorAccessToken) {
+          if (!verifiedSupervisorIdentity) {
+            await tx.query(`SELECT public.prodx_record_security_audit_event($1, $2, $3, 'SUPERVISOR_AUTH_FAILED', $4::jsonb)`, [
+              crypto17.randomUUID(),
+              context.principal.organizationId,
+              context.principal.userId,
+              JSON.stringify({ action: body.action, requestedSupervisorUserId: body.supervisorUserId, reason: "supabase_reauthentication_failed" })
+            ]);
+            throw new SupervisorAuthorizationError("INVALID_CREDENTIALS");
+          }
+          const mappedSupervisor = (await tx.query(
+            `SELECT user_id AS "userId", status
+               FROM public.prodx_auth_find_supervisor_by_supabase_subject($1, $2, $3)`,
+            [context.principal.organizationId, context.principal.storeId, verifiedSupervisorIdentity.userId]
+          )).rows[0];
+          if (!mappedSupervisor || mappedSupervisor.status !== "active" || mappedSupervisor.userId !== body.supervisorUserId) {
+            await tx.query(`SELECT public.prodx_record_security_audit_event($1, $2, $3, 'SUPERVISOR_AUTH_DENIED', $4::jsonb)`, [
+              crypto17.randomUUID(),
+              context.principal.organizationId,
+              context.principal.userId,
+              JSON.stringify({ action: body.action, requestedSupervisorUserId: body.supervisorUserId, reason: "supabase_subject_not_authorized" })
+            ]);
+            throw new SupervisorAuthorizationError("SUPERVISOR_NOT_ALLOWED");
+          }
+          supervisorUserId = mappedSupervisor.userId;
+          supervisorIdentityVerified = true;
+        }
+        if (body.action === "discount") {
+          const checkout = body.checkout;
+          if (checkout.storeId !== context.principal.storeId || checkout.cashierId !== context.principal.userId) {
+            throw new SupervisorAuthorizationError("SUPERVISOR_NOT_ALLOWED");
+          }
+          const policy = (await tx.query(
+            `SELECT require_supervisor_approval, max_discount_without_approval_bps
+               FROM prodx_discount_policies
+              WHERE organization_id = $1 AND store_id = $2
+              FOR SHARE`,
+            [context.principal.organizationId, context.principal.storeId]
+          )).rows[0];
+          if (!policy) throw new Error("Authoritative discount policy is missing for this store.");
+          const grossCents = checkout.totals.grossSubtotal.amountInCents;
+          const effectiveDiscountBps = grossCents > 0 ? Math.round((grossCents - checkout.totals.grandTotal.amountInCents) / grossCents * 1e4) : 0;
+          const maxDiscountBps = Math.max(effectiveDiscountBps, checkout.orderDiscountBps ?? 0, ...checkout.items.map((item) => item.discountBps));
+          if (!policy.require_supervisor_approval || maxDiscountBps <= Number(policy.max_discount_without_approval_bps)) {
+            throw new SupervisorAuthorizationError("SUPERVISOR_NOT_ALLOWED");
+          }
+          await tx.query(
+            `SELECT public.prodx_record_security_audit_event($1, $2, $3, 'SUPERVISOR_AUTHORIZATION_REQUESTED', $4::jsonb)`,
+            [
+              crypto17.randomUUID(),
+              context.principal.organizationId,
+              context.principal.userId,
+              JSON.stringify({ action: "discount", idempotencyKey: checkout.idempotencyKey, payloadHash: checkoutAuthorizationFingerprint(checkout), thresholdBps: Number(policy.max_discount_without_approval_bps) })
+            ]
+          );
+          const result2 = await service.authorize({
+            organizationId: context.principal.organizationId,
+            storeId: context.principal.storeId,
+            requesterUserId: context.principal.userId,
+            requesterSessionId: sessionId,
+            action: "discount",
+            checkoutIdempotencyKey: checkout.idempotencyKey,
+            checkoutPayloadHash: checkoutAuthorizationFingerprint(checkout),
+            policyThresholdBps: Number(policy.max_discount_without_approval_bps),
+            policyRequiresApproval: true,
+            supervisorUsername: body.supervisorUsername,
+            supervisorUserId,
+            supervisorSecret: body.supervisorSecret,
+            supervisorIdentityVerified
+          });
+          return { ok: true, result: result2 };
+        }
+        const result = await service.authorize({
           organizationId: context.principal.organizationId,
           storeId: context.principal.storeId,
           requesterUserId: context.principal.userId,
           requesterSessionId: sessionId,
-          action: request.body.action,
-          orderId: request.body.orderId,
-          supervisorUsername: request.body.supervisorUsername,
-          supervisorUserId: request.body.supervisorUserId,
-          supervisorSecret: request.body.supervisorSecret
+          action: body.action,
+          orderId: body.orderId,
+          supervisorUsername: body.supervisorUsername,
+          supervisorUserId,
+          supervisorSecret: body.supervisorSecret,
+          supervisorIdentityVerified
         });
         return { ok: true, result };
       } catch (error4) {
@@ -3875,6 +4511,67 @@ var registerSupervisorAuthorizationRoute = (app, db) => {
       return;
     }
     response.status(201).json(outcome.result);
+  });
+};
+
+// server/http/discount-policy-route.ts
+import crypto18 from "node:crypto";
+var validPolicy = (value) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const body = value;
+  return typeof body.requireSupervisorApproval === "boolean" && typeof body.maxDiscountWithoutApprovalBps === "number" && Number.isInteger(body.maxDiscountWithoutApprovalBps) && body.maxDiscountWithoutApprovalBps >= 0 && body.maxDiscountWithoutApprovalBps <= 1e4;
+};
+var registerDiscountPolicyRoute = (app, db) => {
+  app.get("/api/v1/security/discount-policy", requirePermission("pos.discount"), async (request, response) => {
+    const context = request.prodxContext;
+    if (!context) {
+      response.status(500).json({ error: { code: "REQUEST_CONTEXT_MISSING", message: "Request context is required." } });
+      return;
+    }
+    const rows = await db.query(
+      `SELECT require_supervisor_approval, max_discount_without_approval_bps
+         FROM prodx_discount_policies WHERE organization_id = $1 AND store_id = $2`,
+      [context.principal.organizationId, context.principal.storeId]
+    );
+    if (!rows.rows[0]) {
+      response.status(503).json({ error: { code: "DISCOUNT_POLICY_MISSING", message: "Store discount policy has not been provisioned." } });
+      return;
+    }
+    response.json({ requireSupervisorApproval: rows.rows[0].require_supervisor_approval, maxDiscountWithoutApprovalBps: Number(rows.rows[0].max_discount_without_approval_bps) });
+  });
+  app.put("/api/v1/security/discount-policy", requirePermission("settings.manage"), async (request, response) => {
+    const context = request.prodxContext;
+    if (!context) {
+      response.status(500).json({ error: { code: "REQUEST_CONTEXT_MISSING", message: "Request context is required." } });
+      return;
+    }
+    if (!validPolicy(request.body)) {
+      response.status(400).json({ error: { code: "DISCOUNT_POLICY_INVALID", message: "A boolean approval flag and integer threshold from 0 to 10000 basis points are required." } });
+      return;
+    }
+    const result = await db.transaction(async (tx) => {
+      const rows = await tx.query(
+        `UPDATE prodx_discount_policies
+            SET require_supervisor_approval = $3,
+                max_discount_without_approval_bps = $4,
+                updated_by_user_id = $5,
+                updated_at = CURRENT_TIMESTAMP
+          WHERE organization_id = $1 AND store_id = $2
+          RETURNING require_supervisor_approval, max_discount_without_approval_bps`,
+        [context.principal.organizationId, context.principal.storeId, request.body.requireSupervisorApproval, request.body.maxDiscountWithoutApprovalBps, context.principal.userId]
+      );
+      if (!rows.rows[0]) return null;
+      await tx.query(
+        `SELECT public.prodx_record_security_audit_event($1, $2, $3, 'DISCOUNT_POLICY_UPDATED', $4::jsonb)`,
+        [crypto18.randomUUID(), context.principal.organizationId, context.principal.userId, JSON.stringify({ storeId: context.principal.storeId, requireSupervisorApproval: request.body.requireSupervisorApproval, maxDiscountWithoutApprovalBps: request.body.maxDiscountWithoutApprovalBps })]
+      );
+      return rows.rows[0];
+    });
+    if (!result) {
+      response.status(503).json({ error: { code: "DISCOUNT_POLICY_MISSING", message: "Store discount policy has not been provisioned." } });
+      return;
+    }
+    response.json({ requireSupervisorApproval: result.require_supervisor_approval, maxDiscountWithoutApprovalBps: Number(result.max_discount_without_approval_bps) });
   });
 };
 
@@ -4025,7 +4722,7 @@ var registerOrderReadRoute = (app, db, permission = "pos.sell") => {
 };
 
 // server/transactions/void-service.ts
-import crypto17 from "node:crypto";
+import crypto19 from "node:crypto";
 var VoidValidationError = class extends Error {
   constructor() {
     super(...arguments);
@@ -4103,7 +4800,7 @@ var createVoidService = (db) => ({
       if (paid !== dbCents5(order.grand_total_amount)) throw new VoidConflictError("Recorded cash payments do not match the order total.");
       const shift = (await tx.query("SELECT id FROM prodx_shifts WHERE id=$1 AND store_id=$2 AND status='open' FOR UPDATE", [order.shift_id, request.storeId])).rows[0];
       if (!shift) throw new VoidConflictError("The originating shift is not open; cash reversal cannot be committed.");
-      const voidId = crypto17.randomUUID();
+      const voidId = crypto19.randomUUID();
       const inserted = (await tx.query(
         "INSERT INTO prodx_voids (id,organization_id,store_id,order_id,reason,authorized_by_user_id,requester_user_id,idempotency_key) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING RETURNING id",
         [voidId, order.organization_id, request.storeId, request.orderId, request.reason.trim(), supervisorUserId, request.requesterUserId, request.idempotencyKey]
@@ -4122,19 +4819,19 @@ var createVoidService = (db) => ({
         if (!stock) throw new VoidConflictError(`Product ${item.product_id} is unavailable for void reversal.`);
         await tx.query(
           "INSERT INTO prodx_inventory_ledger (id,organization_id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id) VALUES($1,$2,$3,$4,$5,$6,'void_reversal',$7,$8)",
-          [crypto17.randomUUID(), order.organization_id, request.storeId, item.product_id, item.quantity, stock.current_stock, voidId, supervisorUserId]
+          [crypto19.randomUUID(), order.organization_id, request.storeId, item.product_id, item.quantity, stock.current_stock, voidId, supervisorUserId]
         );
       }
       const amount = dbCents5(order.grand_total_amount);
       await tx.query(
         "INSERT INTO prodx_cash_movements (id,organization_id,store_id,shift_id,type,amount,reason,performed_by_user_id,currency) VALUES($1,$2,$3,$4,'cash_refund',$5,$6,$7,$8)",
-        [crypto17.randomUUID(), order.organization_id, request.storeId, shift.id, numeric3(amount), `Void for Order #${order.order_number}: ${request.reason.trim()}`, supervisorUserId, orderCurrency]
+        [crypto19.randomUUID(), order.organization_id, request.storeId, shift.id, numeric3(amount), `Void for Order #${order.order_number}: ${request.reason.trim()}`, supervisorUserId, orderCurrency]
       );
       await tx.query("UPDATE prodx_orders SET status=$1 WHERE id=$2 AND store_id=$3", ["voided", request.orderId, request.storeId]);
       await tx.query(
         "INSERT INTO prodx_audit_log (id,organization_id,store_id,register_id,user_id,action,severity,details) VALUES($1,$2,$3,$4,$5,'order_void_committed','critical',$6::jsonb)",
         [
-          crypto17.randomUUID(),
+          crypto19.randomUUID(),
           order.organization_id,
           request.storeId,
           order.register_id,
@@ -4200,7 +4897,7 @@ var registerVoidRoute = (app, db) => {
 };
 
 // server/transactions/inventory-adjustment-service.ts
-import crypto18 from "node:crypto";
+import crypto20 from "node:crypto";
 var InventoryAdjustmentValidationError = class extends Error {
   constructor() {
     super(...arguments);
@@ -4230,16 +4927,16 @@ var createInventoryAdjustmentService = (db) => ({
       const products = (await tx.query("SELECT id,current_stock FROM prodx_products WHERE organization_id=$1 AND store_id=$2 AND id=ANY($3::uuid[]) AND active=true ORDER BY id FOR UPDATE", [request.organizationId, request.storeId, productIds])).rows;
       if (products.length !== productIds.length) throw new InventoryAdjustmentValidationError("One or more products do not belong to the authenticated store or are inactive.");
       if (request.quantityDelta < 0 && products.some((p) => p.current_stock + request.quantityDelta < 0)) throw new InventoryAdjustmentConflictError("Inventory adjustment would make stock negative.");
-      const adjustmentId = crypto18.randomUUID();
+      const adjustmentId = crypto20.randomUUID();
       const inserted = (await tx.query("INSERT INTO prodx_inventory_adjustments (id,organization_id,store_id,requester_user_id,idempotency_key,quantity_delta,reason,product_ids,notes) VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9) ON CONFLICT (store_id,idempotency_key) DO NOTHING RETURNING id", [adjustmentId, request.organizationId, request.storeId, request.requesterUserId, request.idempotencyKey.trim(), request.quantityDelta, request.reason, JSON.stringify(productIds), request.notes?.trim() || null])).rows[0];
       if (!inserted) throw new InventoryAdjustmentConflictError("Concurrent inventory adjustment detected; retry with the same idempotency key.");
       const entries = [];
       for (const product of products) {
         const updated = (await tx.query("UPDATE prodx_products SET current_stock=current_stock+$1,updated_at=CURRENT_TIMESTAMP WHERE id=$2 AND store_id=$3 RETURNING current_stock", [request.quantityDelta, product.id, request.storeId])).rows[0];
-        const entry = (await tx.query("INSERT INTO prodx_inventory_ledger (id,organization_id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id,created_at", [crypto18.randomUUID(), request.organizationId, request.storeId, product.id, request.quantityDelta, updated.current_stock, request.reason, adjustmentId, request.requesterUserId])).rows[0];
+        const entry = (await tx.query("INSERT INTO prodx_inventory_ledger (id,organization_id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id,created_at", [crypto20.randomUUID(), request.organizationId, request.storeId, product.id, request.quantityDelta, updated.current_stock, request.reason, adjustmentId, request.requesterUserId])).rows[0];
         entries.push(entry);
       }
-      await tx.query("INSERT INTO prodx_audit_log (id,organization_id,store_id,user_id,action,severity,details) VALUES($1,$2,$3,$4,'inventory_adjustment_committed','critical',$5::jsonb)", [crypto18.randomUUID(), request.organizationId, request.storeId, request.requesterUserId, JSON.stringify({ adjustmentId, productIds, quantityDelta: request.quantityDelta, reason: request.reason, idempotencyKey: request.idempotencyKey.trim() })]);
+      await tx.query("INSERT INTO prodx_audit_log (id,organization_id,store_id,user_id,action,severity,details) VALUES($1,$2,$3,$4,'inventory_adjustment_committed','critical',$5::jsonb)", [crypto20.randomUUID(), request.organizationId, request.storeId, request.requesterUserId, JSON.stringify({ adjustmentId, productIds, quantityDelta: request.quantityDelta, reason: request.reason, idempotencyKey: request.idempotencyKey.trim() })]);
       return { success: true, idempotencyCached: false, adjustmentId, entries };
     });
   }
@@ -6420,6 +7117,7 @@ var createProductionApp = async (options = {}) => {
       registerPaymentLifecycleRoute(configuredApp, transactions);
       registerSyncRoute(configuredApp, transactions);
       registerSupervisorAuthorizationRoute(configuredApp, transactions);
+      registerDiscountPolicyRoute(configuredApp, transactions);
       registerOrderReadRoute(configuredApp, transactions);
       registerVoidRoute(configuredApp, transactions);
       registerInventoryAdjustmentRoute(configuredApp, transactions);

@@ -40,12 +40,25 @@ const recordSecurityEvent = async (
   db: SqlExecutor,
   input: { organizationId: string; storeId: string; userId?: string | null; eventType: string; metadata: Record<string, unknown> },
 ): Promise<void> => {
-  await db.query(
-    `SELECT public.prodx_record_supervisor_authorization_event(
-      $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::text, $6::jsonb
-    )`,
-    [crypto.randomUUID(), input.organizationId, input.storeId, input.userId ?? null, input.eventType, JSON.stringify(input.metadata)],
-  );
+  const isSupervisorScopeRpc =
+    ['SUPERVISOR_AUTH_REJECTED', 'SUPERVISOR_AUTH_FAILED', 'SUPERVISOR_AUTH_DENIED', 'SUPERVISOR_AUTHORIZATION_GRANTED'].includes(input.eventType) &&
+    (input.metadata?.action === 'refund' || input.metadata?.action === 'void');
+
+  if (isSupervisorScopeRpc) {
+    await db.query(
+      `SELECT public.prodx_record_supervisor_authorization_event(
+        $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::text, $6::jsonb
+      )`,
+      [crypto.randomUUID(), input.organizationId, input.storeId, input.userId ?? null, input.eventType, JSON.stringify(input.metadata)],
+    );
+  } else {
+    await db.query(
+      `SELECT public.prodx_record_security_audit_event(
+        $1::uuid, $2::uuid, $3::uuid, $4::text, $5::jsonb
+      )`,
+      [crypto.randomUUID(), input.organizationId, input.userId ?? null, input.eventType, JSON.stringify(input.metadata)],
+    );
+  }
 };
 
 export const createSupervisorAuthorizationService = (db: SqlExecutor, now: () => Date = () => new Date()) => ({

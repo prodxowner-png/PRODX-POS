@@ -141,7 +141,7 @@ test('PostgreSQL checkout proves atomicity, authoritative pricing, idempotency a
   assert.equal(new Set(races.map((r) => r.order.id)).size, 2);
   const stockAfterRace = (await pool.query('SELECT id,current_stock FROM prodx_products WHERE id=ANY($1::uuid[]) ORDER BY id', [[id.product, id.product2]])).rows;
   assert.deepEqual(stockAfterRace.map((r: any) => Number(r.current_stock)), stockBeforeRace.map((r: any) => Number(r.current_stock) - 2));
-  assert.equal((await pool.query('SELECT count(*)::int n FROM prodx_orders WHERE idempotency_key IN ($1,$2)', ['opposite-order-a', 'opposite-order-b'])).rows[0].n, 2);
+  assert.equal((await pool.query('SELECT count(*)::int n FROM prodx_orders WHERE idempotency_key IN ($1,$2) AND store_id=$3', ['opposite-order-a', 'opposite-order-b', id.store])).rows[0].n, 2);
 
   const requestContext = { requestId: randomUUID(), principal: { userId: id.user, organizationId: id.org, storeId: id.store } };
   const authorizationContext = { organizationId: id.org, storeId: id.store, userId: id.user, sessionId: id.session };
@@ -189,7 +189,7 @@ test('PostgreSQL checkout proves atomicity, authoritative pricing, idempotency a
 
   // A real PostgreSQL race: only one request consumes the supervisor token and
   // writes the order; the concurrent same-command retry resolves to the cached order.
-  const token = 'pg-one-time-discount-token';
+  const token = `pg-one-time-discount-token-${runSuffix}`;
   const concurrent = discountedRequestForPolicy('authorized-concurrent', 1600);
   const payloadHash = checkoutAuthorizationFingerprint(concurrent);
   await pool.query(

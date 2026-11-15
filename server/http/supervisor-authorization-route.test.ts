@@ -30,20 +30,12 @@ test('supervisor authorization route issues a server-scoped token from authentic
       transactionCalls += 1;
       return work({
         query: async <T extends Record<string, unknown>>(sql: string) => {
-<<<<<<< HEAD
-          if (sql.includes('prodx_auth_find_supervisor_credential')) return { rows: [{ userId: 'supervisor-1', organizationId: principal.organizationId, status: 'active', secretHash, failedAttempts: 0, lockedUntil: null }] as unknown as T[] };
+          if (sql.includes('prodx_supervisor_find_credential') || sql.includes('prodx_auth_find_supervisor_credential')) return { rows: [{ userId: 'supervisor-1', organizationId: principal.organizationId, status: 'active', secretHash, failedAttempts: 0, lockedUntil: null }] as unknown as T[] };
           if (sql.includes('SELECT m.user_id AS "userId"')) return { rows: [{ userId: 'supervisor-1' }] as unknown as T[] };
-          if (sql.includes('prodx_auth_record_failed_attempt')) return { rows: [] as T[] };
-          if (sql.includes('prodx_auth_reset_failed_attempts')) return { rows: [] as T[] };
+          if (sql.includes('prodx_supervisor_record_failed_attempt') || sql.includes('prodx_auth_record_failed_attempt')) return { rows: [] as T[] };
+          if (sql.includes('prodx_supervisor_reset_failed_attempts') || sql.includes('prodx_auth_reset_failed_attempts')) return { rows: [] as T[] };
           if (sql.includes('INSERT INTO prodx_supervisor_authorizations')) return { rows: [] as T[] };
-          if (sql.includes('prodx_record_security_audit_event')) return { rows: [] as T[] };
-=======
-          if (sql.includes('prodx_supervisor_find_credential')) return { rows: [{ userId: 'supervisor-1', status: 'active', secretHash, failedAttempts: 0, lockedUntil: null }] as unknown as T[] };
-          if (sql.includes('SELECT m.user_id AS "userId"')) return { rows: [{ userId: 'supervisor-1' }] as unknown as T[] };
-          if (sql.includes('prodx_supervisor_reset_failed_attempts')) return { rows: [] as T[] };
-          if (sql.includes('INSERT INTO prodx_supervisor_authorizations')) return { rows: [] as T[] };
-          if (sql.includes('prodx_record_supervisor_authorization_event')) return { rows: [] as T[] };
->>>>>>> main
+          if (sql.includes('prodx_record_supervisor_authorization_event') || sql.includes('prodx_record_security_audit_event')) return { rows: [] as T[] };
           throw new Error(`Unexpected SQL in supervisor authorization transaction: ${sql}`);
         },
       });

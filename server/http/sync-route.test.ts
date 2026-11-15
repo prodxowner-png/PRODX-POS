@@ -259,13 +259,14 @@ test('offline replay rejects over-threshold discount without supervisor authoriz
       queries.push(sql);
       if (sql.startsWith('SELECT * FROM prodx_orders')) return { rows: [] as T[] };
       if (sql.includes('FROM prodx_shifts')) return { rows: [{ id: 'shift-1' }] as unknown as T[] };
-      if (sql.includes('FROM prodx_products WHERE')) return { rows: [{ id: '00000000-0000-4000-8000-000000003007', store_id: principal.storeId, price_amount: '10.00', currency: 'THB', tax_rate_bps: 0, current_stock: 10, active: true }] as unknown as T[] };
+      if (sql.includes('FROM prodx_products WHERE')) return { rows: [{ id: ids.product, store_id: ids.store, price_amount: '10.00', currency: 'THB', tax_rate_bps: 0, current_stock: 10, active: true }] as unknown as T[] };
       if (sql.includes('FROM prodx_discount_policies')) return { rows: [{ require_supervisor_approval: true, max_discount_without_approval_bps: 1500 }] as unknown as T[] };
       return { rows: [] as T[] };
     } }),
   };
+  const testPrincipal = { userId: ids.user, organizationId: ids.org, storeId: ids.store, sessionId: 'session-1' };
   const app = createApp({
-    authenticateRequest: () => principal,
+    authenticateRequest: () => testPrincipal,
     authorizeRequest: (_context, permission) => permission === 'pos.sell' || permission === 'pos.discount',
     configureRoutes: (configuredApp) => registerSyncRoute(configuredApp, scopedDb),
   });

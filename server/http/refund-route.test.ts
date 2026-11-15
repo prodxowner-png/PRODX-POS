@@ -53,6 +53,7 @@ test("refund route derives the authorizing user from the authenticated principal
         ] as unknown as T[],
       };
     }
+    if (sql.includes("prodx_record_supervisor_authorization_event")) { securityAuditEvents.push(String(parameters[4])); return { rows: [] as unknown as T[] }; }
     if (sql.includes("prodx_record_security_audit_event")) { securityAuditEvents.push(String(parameters[3])); return { rows: [] as unknown as T[] }; }
     if (sql.includes("UPDATE prodx_supervisor_authorizations"))
       return { rows: [{ supervisorUserId: "supervisor-1" }] as unknown as T[] };
