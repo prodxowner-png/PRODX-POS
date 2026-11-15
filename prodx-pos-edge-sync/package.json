@@ -13,8 +13,9 @@
     "test:edge": "vitest run test/edge-sync.test.ts",
     "chaos": "tsx scripts/chaos-load-test.ts",
     "integration:postgres": "tsx scripts/postgres-price-integration.ts",
+    "integration:inventory": "tsx scripts/inventory-integrity-integration.ts",
     "export:do-health": "tsx scripts/export-do-health.ts",
-    "verify:ci": "npm run typecheck && npm run test:edge && npm run integration:postgres && npm run chaos"
+    "verify:ci": "npm run typecheck && npm run test:edge && npm run integration:postgres && npm run integration:inventory && npm run chaos"
   },
   "dependencies": {
     "jose": "^6.1.0",

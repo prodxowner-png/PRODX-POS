@@ -101,7 +101,9 @@ jobs:
       # ─────────────────────────────────────────────────────────────
       - name: Gate 4.1 — Apply PostgreSQL migration
         id: migration
-        run: psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/001_pos_ledger.sql 2>&1 | tee artifacts/logs/migration.log
+        run: |
+          psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/001_pos_ledger.sql 2>&1 | tee artifacts/logs/migration-001.log
+          psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/002_store_scoped_inventory.sql 2>&1 | tee artifacts/logs/migration-002.log
 
       - name: Gate 4.2 — Create isolated CI database roles
         id: create_roles
@@ -118,6 +120,10 @@ jobs:
       - name: Gate 4.5 — PostgreSQL 16 signed offline price & CTE integration
         id: postgres_integration
         run: npm run integration:postgres 2>&1 | tee artifacts/logs/postgres-integration.log
+
+      - name: Gate 4.6 — Store-scoped inventory and concurrent oversell integration
+        id: inventory_integration
+        run: npm run integration:inventory 2>&1 | tee artifacts/logs/inventory-integration.log
 
       # No opening-stock seed is needed here: the CI chaos harness creates a
       # disposable tenant/product and records its opening quantity through the
@@ -152,6 +158,7 @@ jobs:
           GRANTS_OUTCOME: ${{ steps.grants.outcome }}
           RLS_OUTCOME: ${{ steps.rls.outcome }}
           INTEGRATION_OUTCOME: ${{ steps.postgres_integration.outcome }}
+          INVENTORY_OUTCOME: ${{ steps.inventory_integration.outcome }}
           CHAOS_OUTCOME: ${{ steps.chaos.outcome }}
           RECONCILE_OUTCOME: ${{ steps.reconcile.outcome }}
         run: |
@@ -164,7 +171,7 @@ jobs:
             echo "| 1. Architecture Approved | Reviewed architecture baseline; not re-evaluated by this workflow | BASELINE |"
             echo "| 2. Implementation Complete | Versioned source package checked out | BASELINE |"
             echo "| 3. Build Verified | npm ci: $(result "$INSTALL_OUTCOME"); Wrangler types: $(result "$TYPES_OUTCOME"); TypeScript: $(result "$TYPECHECK_OUTCOME"); workerd: $(result "$EDGE_OUTCOME") | $( [ "$INSTALL_OUTCOME" = success ] && [ "$TYPES_OUTCOME" = success ] && [ "$TYPECHECK_OUTCOME" = success ] && [ "$EDGE_OUTCOME" = success ] && echo PASS || echo FAIL ) |"
-            echo "| 4. Integration Verified | Migration: $(result "$MIGRATION_OUTCOME"); roles/grants: $(result "$ROLES_OUTCOME")/$(result "$GRANTS_OUTCOME"); RLS: $(result "$RLS_OUTCOME"); PostgreSQL CTE: $(result "$INTEGRATION_OUTCOME") | $( [ "$MIGRATION_OUTCOME" = success ] && [ "$ROLES_OUTCOME" = success ] && [ "$GRANTS_OUTCOME" = success ] && [ "$RLS_OUTCOME" = success ] && [ "$INTEGRATION_OUTCOME" = success ] && echo PASS || echo FAIL ) |"
+            echo "| 4. Integration Verified | Migration: $(result "$MIGRATION_OUTCOME"); roles/grants: $(result "$ROLES_OUTCOME")/$(result "$GRANTS_OUTCOME"); RLS: $(result "$RLS_OUTCOME"); PostgreSQL CTE: $(result "$INTEGRATION_OUTCOME"); Store inventory: $(result "$INVENTORY_OUTCOME") | $( [ "$MIGRATION_OUTCOME" = success ] && [ "$ROLES_OUTCOME" = success ] && [ "$GRANTS_OUTCOME" = success ] && [ "$RLS_OUTCOME" = success ] && [ "$INTEGRATION_OUTCOME" = success ] && [ "$INVENTORY_OUTCOME" = success ] && echo PASS || echo FAIL ) |"
             echo "| 5. Load & Recovery Verified | 300 terminal CI-scale PostgreSQL load: $(result "$CHAOS_OUTCOME"); SQL reconciliation: $(result "$RECONCILE_OUTCOME") | $( [ "$CHAOS_OUTCOME" = success ] && [ "$RECONCILE_OUTCOME" = success ] && echo PASS || echo FAIL ) |"
             echo "| 6. Production Ready | Requires deployed Cloudflare staging, real DO/Queue crash recovery, mTLS/WAF validation and production-like load evidence | HOLD |"
             echo ""

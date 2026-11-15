@@ -15,6 +15,7 @@ if(!adminUrl||!runtimeUrl||!signingKey||signingKey.length<32){
 
 const tenantId=randomUUID();
 const terminalId=randomUUID();
+const storeId=randomUUID();
 const productId=randomUUID();
 const saleId=randomUUID();
 const certificateFingerprint=randomUUID().replace(/-/g,"")+randomUUID().replace(/-/g,"").slice(0,32);
@@ -27,13 +28,20 @@ try{
   await admin.query("BEGIN");
   await admin.query("SELECT set_config('app.current_tenant_id',$1,true)",[tenantId]);
   await admin.query(
+    `INSERT INTO pos_stores(id,tenant_id,name,is_default) VALUES($1,$2,'Integration Store',true)`,[storeId,tenantId]
+  );
+  await admin.query(
     `INSERT INTO products(id,tenant_id,sku,name,unit_price_minor,tax_bps,version,active)
      VALUES($1,$2,$3,'Offline price fixture',10000,700,1,true)`,
     [productId,tenantId,`OFFLINE-${productId.slice(0,8)}`]
   );
   await admin.query(
-    `INSERT INTO terminal_devices(tenant_id,terminal_id,cert_fingerprint_sha256,active)
-     VALUES($1,$2,$3,true)`,[tenantId,terminalId,certificateFingerprint]
+    `INSERT INTO terminal_devices(tenant_id,terminal_id,store_id,cert_fingerprint_sha256,active)
+     VALUES($1,$2,$3,$4,true)`,[tenantId,terminalId,storeId,certificateFingerprint]
+  );
+  await admin.query(
+    `INSERT INTO inventory_ledger(tenant_id,store_id,product_id,quantity_delta,reason)
+     VALUES($1,$2,$3,2,'OPENING_BALANCE')`,[tenantId,storeId,productId]
   );
   const versionResult=await admin.query(
     `SELECT catalog_version FROM tenant_catalog_versions WHERE tenant_id=$1`,[tenantId]
@@ -62,6 +70,7 @@ try{
   try{await verifyTerminalCertificate(certRequest,runtimeEnv,{tenantId,terminalId,subject:"integration-test"});}
   catch(error){revokedCertificateRejected=error instanceof Response&&error.status===403;}
   if(!revokedCertificateRejected) throw new Error("REVOKED_MTLS_CERTIFICATE_WAS_ACCEPTED");
+  // A previously accepted Queue sale may commit after revocation while its Store binding is unchanged.
   const proofs=await signCatalogPriceProofs(catalogVersion,[
     {product_id:productId,unit_price_minor:10000,tax_bps:700}
   ],signingKey,86400);
@@ -75,7 +84,7 @@ try{
   const {payload_hash:_ignored,...hashable}=sale;
   sale.payload_hash=await sha256Hex(canonicalize({tenant_id:tenantId,terminal_id:terminalId,sale:hashable}));
   const message:QueueSale={
-    tenant_id:tenantId,terminal_id:terminalId,idempotency_key:idempotencyKey,
+    tenant_id:tenantId,terminal_id:terminalId,store_id:storeId,idempotency_key:idempotencyKey,
     payload_hash:sale.payload_hash,do_name:`${tenantId}:${terminalId}`,sale,
     edge_received_at:new Date().toISOString(),receipt_id:randomUUID()
   };
@@ -104,13 +113,14 @@ try{
   const stock=await admin.query(
     `SELECT b.quantity AS balance,l.quantity_delta,l.row_count
        FROM inventory_balances b
-       JOIN (SELECT tenant_id,product_id,SUM(quantity_delta) AS quantity_delta,COUNT(*) AS row_count
-             FROM inventory_ledger WHERE tenant_id=$1 AND sale_id=$2 AND reason='POS_SALE'
-             GROUP BY tenant_id,product_id) l ON l.tenant_id=b.tenant_id AND l.product_id=b.product_id
-      WHERE b.tenant_id=$1 AND b.product_id=$3`,[tenantId,saleId,productId]
+       JOIN (SELECT tenant_id,store_id,product_id,SUM(quantity_delta) AS quantity_delta,COUNT(*) AS row_count
+             FROM inventory_ledger WHERE tenant_id=$1 AND store_id=$2 AND sale_id=$3 AND reason='POS_SALE'
+             GROUP BY tenant_id,store_id,product_id) l
+         ON l.tenant_id=b.tenant_id AND l.store_id=b.store_id AND l.product_id=b.product_id
+      WHERE b.tenant_id=$1 AND b.store_id=$2 AND b.product_id=$4`,[tenantId,storeId,saleId,productId]
   );
   if(Number(signedAudit?.signed_unit_price_minor)!==10000||
-     Number(stock.rows[0]?.balance)!==-2||Number(stock.rows[0]?.quantity_delta)!==-2||Number(stock.rows[0]?.row_count)!==1){
+     Number(stock.rows[0]?.balance)!==0||Number(stock.rows[0]?.quantity_delta)!==-2||Number(stock.rows[0]?.row_count)!==1){
     throw new Error("AUDIT_OR_INVENTORY_INTEGRITY_ASSERTION_FAILED");
   }
 
@@ -129,7 +139,7 @@ try{
   console.log(JSON.stringify({
     result:"PASS",tenant_id:tenantId,terminal_id:terminalId,sale_id:saleId,
     committed_price_minor:10000,current_database_price_minor:20000,
-    total_minor:21400,duplicate_result:duplicate,inventory_balance_after_ledger_trigger:-2,
+    total_minor:21400,duplicate_result:duplicate,inventory_balance_after_ledger_trigger:0,
     audit_catalog_version:catalogVersion,rls_cross_tenant_read:"blocked",mtls_certificate_mapping:"pass"
   },null,2));
 }catch(error){
