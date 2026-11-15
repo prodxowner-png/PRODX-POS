@@ -61,6 +61,7 @@ try {
     DECLARE
       object_name text;
       object_signature text;
+      is_trigger_function boolean;
       role_name text;
     BEGIN
       FOR object_name IN
@@ -87,8 +88,11 @@ try {
         END LOOP;
       END LOOP;
 
-      FOR object_signature IN
-        SELECT p.oid::regprocedure::text FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+      FOR object_signature, is_trigger_function IN
+        SELECT p.oid::regprocedure::text,
+               (p.prorettype = 'pg_catalog.trigger'::regtype)
+          FROM pg_proc p
+          JOIN pg_namespace n ON n.oid = p.pronamespace
          WHERE n.nspname = 'public' AND left(p.proname, 6) = 'prodx_'
       LOOP
         EXECUTE format('REVOKE EXECUTE ON FUNCTION %s FROM PUBLIC', object_signature);
@@ -97,7 +101,11 @@ try {
             EXECUTE format('REVOKE EXECUTE ON FUNCTION %s FROM %I', object_signature, role_name);
           END IF;
         END LOOP;
-        EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO prodx_app', object_signature);
+        IF is_trigger_function THEN
+          EXECUTE format('REVOKE EXECUTE ON FUNCTION %s FROM prodx_app', object_signature);
+        ELSE
+          EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO prodx_app', object_signature);
+        END IF;
       END LOOP;
 
       REVOKE ALL PRIVILEGES ON TABLE public.prodx_schema_migrations, public.prodx_migration_lock, public.prodx_auth_login_throttles FROM prodx_app;
