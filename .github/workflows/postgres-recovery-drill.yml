@@ -75,7 +75,7 @@ jobs:
             --exit-on-error \
             artifacts/prodx-production.dump
 
-      - name: Verify restored schema and migration state
+      - name: Verify restored schema, migration state, RLS, and append-only triggers
         shell: bash
         run: |
           set -euo pipefail
@@ -84,10 +84,60 @@ jobs:
             --command "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public';"
           psql "${TARGET_DATABASE_URL}" \
             --set ON_ERROR_STOP=1 \
-            --command "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'schema_migrations';"
+            --command "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'prodx_schema_migrations';"
           psql "${TARGET_DATABASE_URL}" \
-            --set ON_ERROR_STOP=1 \
-            --command "SELECT count(*) FROM schema_migrations;"
+            --set ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          DECLARE
+            migration_count int;
+            missing_rls_count int;
+            missing_trigger_count int;
+          BEGIN
+            SELECT count(*) INTO migration_count FROM public.prodx_schema_migrations;
+            IF migration_count < 40 THEN
+              RAISE EXCEPTION 'Expected at least 40 applied migrations in prodx_schema_migrations after restore, found %', migration_count;
+            END IF;
+
+            SELECT count(*) INTO missing_rls_count
+              FROM pg_class c
+              JOIN pg_namespace n ON n.oid = c.relnamespace
+             WHERE n.nspname = 'public'
+               AND c.relname IN (
+                 'prodx_orders',
+                 'prodx_order_items',
+                 'prodx_payments',
+                 'prodx_refunds',
+                 'prodx_voids',
+                 'prodx_shifts',
+                 'prodx_cash_movements',
+                 'prodx_inventory_ledger',
+                 'prodx_audit_log',
+                 'prodx_security_audit_events'
+               )
+               AND c.relrowsecurity IS DISTINCT FROM true;
+            IF missing_rls_count > 0 THEN
+              RAISE EXCEPTION 'Expected RLS enabled on all core tenant and audit tables after restore (missing: %)', missing_rls_count;
+            END IF;
+
+            SELECT count(*) INTO missing_trigger_count
+              FROM (
+                VALUES
+                  ('prodx_audit_log_immutable_guard'),
+                  ('prodx_security_audit_events_immutable_guard')
+              ) AS expected(tgname)
+             WHERE NOT EXISTS (
+               SELECT 1
+                 FROM pg_trigger t
+                WHERE t.tgname = expected.tgname
+                  AND NOT t.tgisinternal
+                  AND t.tgenabled = 'O'
+             );
+            IF missing_trigger_count > 0 THEN
+              RAISE EXCEPTION 'Expected append-only audit triggers enabled after restore (missing: %)', missing_trigger_count;
+            END IF;
+          END
+          $$;
+          SQL
 
       - name: Upload restore artifact metadata
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
