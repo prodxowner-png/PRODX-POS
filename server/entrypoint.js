@@ -5,17 +5,41 @@ import express2 from "express";
 
 // server/auth/postgres-repository.ts
 import crypto from "node:crypto";
-var createPostgresAuthenticationRepository = (db) => ({
-  async findCredentialByUsername(username, organizationId) {
+var createPostgresFirstTenantBootstrapRepository = (db) => ({
+  async bootstrapFirstTenant(input) {
     const rows = await db.query(
-      `SELECT u.id AS "userId", u.organization_id AS "organizationId", u.username,
-              u.status, c.credential_type, c.secret_hash, c.failed_attempts, c.locked_until
-         FROM prodx_users u JOIN prodx_user_credentials c ON c.user_id = u.id
-        WHERE lower(u.username) = lower($1)
-          AND ($2::uuid IS NULL OR u.organization_id = $2::uuid)
-        ORDER BY u.organization_id
-        LIMIT 1`,
-      [username, organizationId ?? null]
+      `SELECT * FROM public.prodx_auth_bootstrap_first_tenant(
+        $1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10
+      )`,
+      [
+        input.supabaseUserId,
+        input.organizationCode,
+        input.organizationName,
+        input.storeCode,
+        input.storeName,
+        input.businessTimezone,
+        input.ownerUsername,
+        input.ownerDisplayName,
+        input.deviceKey,
+        input.deviceName
+      ]
+    );
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      organizationId: row.organization_id,
+      storeId: row.store_id,
+      userId: row.user_id,
+      roleId: row.role_id,
+      deviceId: row.device_id
+    };
+  }
+});
+var createPostgresAuthenticationRepository = (db) => ({
+  async findCredentialByUsername(username, deviceId) {
+    const rows = await db.query(
+      `SELECT * FROM public.prodx_auth_find_credential_by_username($1, $2::uuid)`,
+      [username, deviceId]
     );
     const row = rows[0];
     if (!row) return null;
@@ -30,66 +54,36 @@ var createPostgresAuthenticationRepository = (db) => ({
       lockedUntil: row.locked_until
     };
   },
-  async recordFailedAttempt(userId) {
+  async findUserBySupabaseUserId(supabaseUserId, deviceId) {
+    const rows = await db.query(
+      `SELECT * FROM public.prodx_auth_find_user_by_supabase_user_id($1::uuid, $2::uuid)`,
+      [supabaseUserId, deviceId]
+    );
+    const row = rows[0];
+    if (!row) return null;
+    return { userId: row.userId, organizationId: row.organizationId, username: row.username, status: row.status };
+  },
+  async recordFailedAttempt(userId, organizationId) {
     await db.query(
-      `WITH updated AS (
-         UPDATE prodx_user_credentials
-            SET failed_attempts = LEAST(failed_attempts + 1, 5),
-                locked_until = CASE WHEN failed_attempts + 1 >= 5 THEN CURRENT_TIMESTAMP + INTERVAL '15 minutes' ELSE locked_until END,
-                updated_at = CURRENT_TIMESTAMP
-          WHERE user_id = $1
-            AND (locked_until IS NULL OR locked_until <= CURRENT_TIMESTAMP)
-          RETURNING user_id, failed_attempts, locked_until
-       )
-       INSERT INTO prodx_security_audit_events
-         (id, organization_id, user_id, event_type, metadata)
-       SELECT $2::uuid, u.organization_id, updated.user_id, 'AUTH_LOCKOUT',
-              jsonb_build_object('failed_attempts', updated.failed_attempts, 'locked_until', updated.locked_until)
-         FROM updated
-         JOIN prodx_users u ON u.id = updated.user_id
-        WHERE updated.failed_attempts = 5 AND updated.locked_until IS NOT NULL`,
-      [userId, crypto.randomUUID()]
+      `SELECT public.prodx_auth_record_failed_attempt($1::uuid, $2::uuid, $3::uuid)`,
+      [userId, organizationId, crypto.randomUUID()]
     );
   },
-  async resetFailedAttempts(userId) {
+  async resetFailedAttempts(userId, organizationId) {
     await db.query(
-      `WITH previous AS (
-         SELECT user_id, failed_attempts, locked_until
-           FROM prodx_user_credentials
-          WHERE user_id = $1
-          FOR UPDATE
-       ), updated AS (
-         UPDATE prodx_user_credentials c
-            SET failed_attempts = 0, locked_until = NULL,
-                last_authenticated_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-           FROM previous
-          WHERE c.user_id = previous.user_id
-          RETURNING c.user_id
-       )
-       INSERT INTO prodx_security_audit_events
-         (id, organization_id, user_id, event_type, metadata)
-       SELECT $2::uuid, u.organization_id, previous.user_id, 'AUTH_LOCKOUT_RESET',
-              jsonb_build_object('previous_failed_attempts', previous.failed_attempts,
-                                 'previous_locked_until', previous.locked_until)
-         FROM previous
-         JOIN prodx_users u ON u.id = previous.user_id
-        WHERE previous.failed_attempts > 0 OR previous.locked_until IS NOT NULL`,
-      [userId, crypto.randomUUID()]
+      `SELECT public.prodx_auth_reset_failed_attempts($1::uuid, $2::uuid, $3::uuid)`,
+      [userId, organizationId, crypto.randomUUID()]
     );
   },
   async createSession(input) {
     await db.query(
-      `INSERT INTO prodx_sessions
-        (id, organization_id, user_id, device_id, token_hash, expires_at) VALUES ($1, $2, $3, $4, $5, $6)`,
+      `SELECT public.prodx_auth_create_session($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6::timestamptz)`,
       [input.id, input.organizationId, input.userId, input.deviceId, input.tokenHash, input.expiresAt]
     );
   },
   async findSessionByTokenHash(tokenHash) {
     const rows = await db.query(
-      `SELECT s.id, s.organization_id, s.user_id, s.device_id, s.token_hash, s.expires_at, s.revoked_at,
-              u.status AS user_status FROM prodx_sessions s
-         JOIN prodx_users u ON u.id = s.user_id AND u.organization_id = s.organization_id
-        WHERE s.token_hash = $1 LIMIT 1`,
+      `SELECT * FROM public.prodx_auth_find_session_by_token_hash($1)`,
       [tokenHash]
     );
     const row = rows[0];
@@ -107,20 +101,24 @@ var createPostgresAuthenticationRepository = (db) => ({
   },
   async findDevice(deviceId) {
     const rows = await db.query(
-      `SELECT id, organization_id, store_id, status FROM prodx_devices WHERE id = $1 LIMIT 1`,
+      `SELECT * FROM public.prodx_auth_find_device($1::uuid)`,
       [deviceId]
     );
     const row = rows[0];
     if (!row) return null;
     return { id: row.id, organizationId: row.organization_id, storeId: row.store_id, status: row.status };
   },
-  async revokeSession(sessionId, at) {
-    await db.query(`UPDATE prodx_sessions SET revoked_at = $2
-        WHERE id = $1 AND revoked_at IS NULL`, [sessionId, at]);
+  async revokeSession(sessionId, tokenHash, at) {
+    await db.query(
+      `SELECT public.prodx_auth_revoke_session($1::uuid, $2, $3::timestamptz)`,
+      [sessionId, tokenHash, at]
+    );
   },
-  async touchSession(sessionId, at) {
-    await db.query(`UPDATE prodx_sessions SET last_seen_at = $2
-        WHERE id = $1 AND revoked_at IS NULL AND expires_at > $2`, [sessionId, at]);
+  async touchSession(sessionId, tokenHash, at) {
+    await db.query(
+      `SELECT public.prodx_auth_touch_session($1::uuid, $2, $3::timestamptz)`,
+      [sessionId, tokenHash, at]
+    );
   }
 });
 
@@ -178,33 +176,58 @@ var SESSION_TTL_MS = 8 * 60 * 60 * 1e3;
 var LOCKOUT_DURATION_MS = 15 * 60 * 1e3;
 var hashSessionToken = (token) => crypto3.createHash("sha256").update(token, "utf8").digest("hex");
 var newBearerToken = () => crypto3.randomBytes(32).toString("base64url");
-var supabaseUrl = process.env.SUPABASE_URL?.replace(/\/$/, "");
-var supabaseJwksUrl = process.env.SUPABASE_JWKS_URL?.trim() || (supabaseUrl ? supabaseUrl + "/auth/v1/.well-known/jwks.json" : null);
-var supabaseJwks = supabaseJwksUrl ? createRemoteJWKSet(new URL(supabaseJwksUrl)) : null;
-var verifySupabaseToken = async (token) => {
-  if (!supabaseJwks || !supabaseUrl || !token) return null;
-  try {
-    const { payload } = await jwtVerify(token, supabaseJwks, {
-      issuer: supabaseUrl + "/auth/v1",
-      audience: "authenticated"
-    });
-    if (typeof payload.sub !== "string" || typeof payload.email !== "string" || typeof payload.exp !== "number") return null;
-    return { userId: payload.sub, email: payload.email, expiresAt: new Date(payload.exp * 1e3) };
-  } catch {
-    return null;
+var createSupabaseTokenVerifier = (configuredSupabaseUrl, configuredJwksUrl) => {
+  const supabaseUrl = configuredSupabaseUrl?.trim().replace(/\/$/, "");
+  const supabaseJwksUrl = configuredJwksUrl?.trim() || (supabaseUrl ? supabaseUrl + "/auth/v1/.well-known/jwks.json" : null);
+  let supabaseJwks = null;
+  if (supabaseUrl && supabaseJwksUrl) {
+    try {
+      const authUrl = new URL(supabaseUrl);
+      const authIsLoopback = ["localhost", "127.0.0.1", "[::1]"].includes(authUrl.hostname);
+      const authUrlIsSecure = authUrl.protocol === "https:" || authUrl.protocol === "http:" && authIsLoopback;
+      const jwksUrl = new URL(supabaseJwksUrl);
+      const jwksIsLoopback = ["localhost", "127.0.0.1", "[::1]"].includes(jwksUrl.hostname);
+      const jwksUrlIsSecure = jwksUrl.protocol === "https:" || jwksUrl.protocol === "http:" && jwksIsLoopback;
+      const jwksHostMatches = jwksUrl.hostname === authUrl.hostname || authIsLoopback && jwksIsLoopback;
+      if (authUrlIsSecure && jwksUrlIsSecure && jwksHostMatches) {
+        supabaseJwks = createRemoteJWKSet(jwksUrl);
+      }
+    } catch {
+    }
   }
+  return async (token) => {
+    if (!supabaseJwks || !supabaseUrl || !token) return null;
+    try {
+      const { payload } = await jwtVerify(token, supabaseJwks, {
+        issuer: supabaseUrl + "/auth/v1",
+        audience: "authenticated"
+      });
+      if (typeof payload.sub !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(payload.sub) || typeof payload.exp !== "number") return null;
+      return { userId: payload.sub, expiresAt: new Date(payload.exp * 1e3) };
+    } catch {
+      return null;
+    }
+  };
 };
-var createSessionIssuer = (repository, verifySecret, now = () => /* @__PURE__ */ new Date(), checkCompromisedPassword = checkPasswordCompromise) => ({
+var verifySupabaseToken = createSupabaseTokenVerifier(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_JWKS_URL
+);
+var createSessionIssuer = (repository, verifySecret, now = () => /* @__PURE__ */ new Date(), checkCompromisedPassword = checkPasswordCompromise, verifySupabaseIdentity = verifySupabaseToken) => ({
   authenticateCredentials: async ({ username, password, deviceId }) => {
     const normalizedUsername = username.trim();
     if (!normalizedUsername || !password || !deviceId) return null;
     const device = await repository.findDevice(deviceId);
     if (!device || device.status !== "active") return null;
-    const credential = await repository.findCredentialByUsername(normalizedUsername, device.organizationId);
+    const credential = await repository.findCredentialByUsername(normalizedUsername, device.id);
     if (!credential || credential.status !== "active" || credential.credentialType !== "password") return null;
     if (device.organizationId !== credential.organizationId) return null;
     const current = now();
     if (credential.lockedUntil && credential.lockedUntil > current) return null;
+    if (password.startsWith("WEBAUTHN_VERIFIED:")) {
+      await repository.recordFailedAttempt(credential.userId, credential.organizationId);
+      return null;
+    }
     let compromise;
     try {
       compromise = await checkCompromisedPassword(password);
@@ -212,14 +235,14 @@ var createSessionIssuer = (repository, verifySecret, now = () => /* @__PURE__ */
       return null;
     }
     if (compromise.compromised) {
-      await repository.recordFailedAttempt(credential.userId);
+      await repository.recordFailedAttempt(credential.userId, credential.organizationId);
       return null;
     }
     if (!await verifySecret(password, credential.secretHash)) {
-      await repository.recordFailedAttempt(credential.userId);
+      await repository.recordFailedAttempt(credential.userId, credential.organizationId);
       return null;
     }
-    await repository.resetFailedAttempts(credential.userId);
+    await repository.resetFailedAttempts(credential.userId, credential.organizationId);
     const token = newBearerToken();
     const sessionId = crypto3.randomUUID();
     const expiresAt = new Date(current.getTime() + SESSION_TTL_MS);
@@ -227,12 +250,12 @@ var createSessionIssuer = (repository, verifySecret, now = () => /* @__PURE__ */
     return { token, sessionId, expiresAt };
   },
   authenticateSupabaseToken: async ({ token: supabaseToken, deviceId }) => {
-    const verified = await verifySupabaseToken(supabaseToken);
+    const verified = await verifySupabaseIdentity(supabaseToken);
     if (!verified) return null;
     const device = await repository.findDevice(deviceId);
     if (!device || device.status !== "active") return null;
-    const credential = await repository.findCredentialByUsername(verified.email, device.organizationId);
-    if (!credential || credential.status !== "active") return null;
+    const principal = await repository.findUserBySupabaseUserId(verified.userId, device.id);
+    if (!principal || principal.status !== "active" || principal.organizationId !== device.organizationId) return null;
     const nowValue = now();
     if (verified.expiresAt <= nowValue) return null;
     const localToken = newBearerToken();
@@ -241,8 +264,8 @@ var createSessionIssuer = (repository, verifySecret, now = () => /* @__PURE__ */
     const expiresAt = verified.expiresAt < maxExpiry ? verified.expiresAt : maxExpiry;
     await repository.createSession({
       id: sessionId,
-      organizationId: credential.organizationId,
-      userId: credential.userId,
+      organizationId: principal.organizationId,
+      userId: principal.userId,
       deviceId: device.id,
       tokenHash: hashSessionToken(localToken),
       expiresAt
@@ -255,14 +278,14 @@ var createSessionIssuer = (repository, verifySecret, now = () => /* @__PURE__ */
     if (!session || session.revokedAt || session.expiresAt <= now() || session.userStatus !== "active") return null;
     const device = await repository.findDevice(session.deviceId);
     if (!device || device.status !== "active" || device.organizationId !== session.organizationId) return null;
-    await repository.touchSession(session.id, now());
+    await repository.touchSession(session.id, hashSessionToken(token), now());
     return { sessionId: session.id, userId: session.userId, organizationId: session.organizationId, storeId: device.storeId };
   },
   revokeBearer: async (token) => {
     if (!token) return false;
     const session = await repository.findSessionByTokenHash(hashSessionToken(token));
     if (!session || session.revokedAt) return false;
-    await repository.revokeSession(session.id, now());
+    await repository.revokeSession(session.id, hashSessionToken(token), now());
     return true;
   }
 });
@@ -311,9 +334,45 @@ var verifyPassword = async (password, encoded) => {
 };
 
 // server/auth/composition.ts
-var createPostgresAuthentication = (db) => {
+var createPostgresAuthentication = (db, checkCompromisedPassword = checkPasswordCompromise) => {
   const repository = createPostgresAuthenticationRepository(db);
-  return createSessionIssuer(repository, verifyPassword, () => /* @__PURE__ */ new Date(), checkPasswordCompromise);
+  return createSessionIssuer(repository, verifyPassword, () => /* @__PURE__ */ new Date(), checkCompromisedPassword);
+};
+
+// server/auth/first-tenant-bootstrap.ts
+var UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+var readRequired = (environment, key) => {
+  const value = environment[key]?.trim();
+  return value && value.length <= 256 ? value : null;
+};
+var readFirstTenantBootstrapConfig = (environment) => {
+  const secret = environment.PRODX_FIRST_TENANT_BOOTSTRAP_SECRET;
+  const supabaseUserId = readRequired(environment, "PRODX_FIRST_TENANT_BOOTSTRAP_SUBJECT");
+  const organizationCode = readRequired(environment, "PRODX_FIRST_TENANT_ORGANIZATION_CODE");
+  const organizationName = readRequired(environment, "PRODX_FIRST_TENANT_ORGANIZATION_NAME");
+  const storeCode = readRequired(environment, "PRODX_FIRST_TENANT_STORE_CODE");
+  const storeName = readRequired(environment, "PRODX_FIRST_TENANT_STORE_NAME");
+  const businessTimezone = readRequired(environment, "PRODX_FIRST_TENANT_STORE_TIMEZONE");
+  const ownerUsername = readRequired(environment, "PRODX_FIRST_TENANT_OWNER_USERNAME");
+  const ownerDisplayName = readRequired(environment, "PRODX_FIRST_TENANT_OWNER_DISPLAY_NAME");
+  const deviceKey = readRequired(environment, "PRODX_FIRST_TENANT_DEVICE_KEY");
+  const deviceName = readRequired(environment, "PRODX_FIRST_TENANT_DEVICE_NAME");
+  if (!secret || secret.length < 32 || !supabaseUserId || !UUID_PATTERN.test(supabaseUserId) || !organizationCode || !organizationName || !storeCode || !storeName || !businessTimezone || !ownerUsername || !ownerDisplayName || !deviceKey || !deviceName) {
+    return null;
+  }
+  return {
+    secret,
+    supabaseUserId: supabaseUserId.toLowerCase(),
+    organizationCode,
+    organizationName,
+    storeCode,
+    storeName,
+    businessTimezone,
+    ownerUsername,
+    ownerDisplayName,
+    deviceKey,
+    deviceName
+  };
 };
 
 // server/auth/authorization.ts
@@ -376,20 +435,40 @@ var createPostgresAuthorization = (db) => async (context, permission) => {
 
 // server/db/postgres.ts
 import { Pool } from "pg";
-var shouldResolveProductionDatabaseUrl = () => process.env.VERCEL === "1" && process.env.NODE_ENV === "production";
+var LOCAL_FALLBACK_DATABASE_URL = "postgresql://postgres@127.0.0.1:5432/prodx_pos";
+var isProductionRuntime = () => process.env.NODE_ENV === "production" || process.env.VERCEL === "1" && process.env.VERCEL_ENV === "production";
+var shouldResolveProductionDatabaseUrl = () => process.env.VERCEL === "1" && (process.env.VERCEL_ENV === "production" || process.env.VERCEL_ENV === void 0 && process.env.NODE_ENV === "production");
+var resolveConfiguredDatabaseUrl = (rawUrl = process.env.DATABASE_URL) => {
+  const trimmed = rawUrl?.trim();
+  if (!trimmed || trimmed === "postgresql://..." || trimmed === "postgres://...") {
+    if (process.env.VERCEL !== "1" && process.env.NODE_ENV !== "production") {
+      return LOCAL_FALLBACK_DATABASE_URL;
+    }
+    return void 0;
+  }
+  return trimmed;
+};
 var classifyProductionDatabaseTarget = (databaseUrl) => {
   if (!databaseUrl) return "invalid";
   try {
-    const hostname = new URL(databaseUrl).hostname;
-    if (hostname === "aws-0-ap-northeast-1.pooler.supabase.com") return "supabase_session_pooler";
+    const parsed = new URL(databaseUrl);
+    const username = decodeURIComponent(parsed.username);
+    if (parsed.hostname === "aws-0-ap-southeast-1.pooler.supabase.com" && parsed.port === "5432" && parsed.pathname === "/postgres" && username === "prodx_app.wcyqyiewbzpmrekoljfw" && parsed.searchParams.get("sslmode") !== "disable") return "supabase_session_pooler";
     return "other";
   } catch {
     return "invalid";
   }
 };
+var normalizeApprovedPoolerConnectionString = (databaseUrl) => {
+  const parsed = new URL(databaseUrl);
+  for (const key of ["ssl", "sslmode", "sslrootcert", "sslcert", "sslkey"]) {
+    parsed.searchParams.delete(key);
+  }
+  return parsed.toString();
+};
 var resolveProductionDatabaseUrl = async (vercelOidcToken) => {
   if (!shouldResolveProductionDatabaseUrl()) {
-    return process.env.DATABASE_URL;
+    return resolveConfiguredDatabaseUrl(process.env.DATABASE_URL);
   }
   const oidcToken = vercelOidcToken ?? process.env.VERCEL_OIDC_TOKEN;
   if (!oidcToken) {
@@ -413,15 +492,15 @@ var resolveProductionDatabaseUrl = async (vercelOidcToken) => {
   if (typeof payload.databaseUrl !== "string" || payload.databaseUrl.length === 0) {
     throw new Error("Production database broker returned no database URL.");
   }
+  if (classifyProductionDatabaseTarget(payload.databaseUrl) !== "supabase_session_pooler") {
+    throw new Error("Production database broker returned an unapproved database target.");
+  }
   return payload.databaseUrl;
 };
 var createPostgresPool = (config = {}) => {
-  const connectionString = config.connectionString ?? process.env.DATABASE_URL;
+  const connectionString = resolveConfiguredDatabaseUrl(config.connectionString ?? process.env.DATABASE_URL);
   if (!connectionString) {
-    if (process.env.NODE_ENV === "production") {
-      throw new Error("DATABASE_URL is required to create the PostgreSQL pool.");
-    }
-    console.warn("DATABASE_URL is missing. PostgreSQL pool will not be able to execute queries.");
+    console.warn("DATABASE_URL is missing or unconfigured. PostgreSQL pool created in mock/degraded mode.");
     return {
       query: () => Promise.reject(new Error("PostgreSQL is not configured (DATABASE_URL is missing).")),
       on: () => {
@@ -434,17 +513,30 @@ var createPostgresPool = (config = {}) => {
     ...config,
     connectionString,
     max: config.max ?? (process.env.VERCEL ? 1 : 10),
-    ssl: config.ssl ?? (process.env.NODE_ENV === "production" ? { rejectUnauthorized: true } : void 0)
+    ssl: config.ssl ?? (isProductionRuntime() ? { rejectUnauthorized: true } : void 0)
   });
 };
 var createProductionPostgresPool = async (config = {}, vercelOidcToken) => {
-  const connectionString = config.connectionString ?? await resolveProductionDatabaseUrl(vercelOidcToken);
-  if (shouldResolveProductionDatabaseUrl()) {
+  const isVercelProduction = shouldResolveProductionDatabaseUrl();
+  const resolvedUrl = isVercelProduction ? await resolveProductionDatabaseUrl(vercelOidcToken) : config.connectionString ?? await resolveProductionDatabaseUrl(vercelOidcToken);
+  let connectionString = resolvedUrl;
+  let ssl = config.ssl;
+  if (isVercelProduction) {
+    if (classifyProductionDatabaseTarget(resolvedUrl) !== "supabase_session_pooler") {
+      throw new Error("Production database broker returned an unapproved database target.");
+    }
+    const ca = process.env.SUPABASE_DB_CA_CERT?.trim();
+    if (!ca || !ca.includes("-----BEGIN CERTIFICATE-----") || !ca.includes("-----END CERTIFICATE-----")) {
+      throw new Error("SUPABASE_DB_CA_CERT must contain the trusted Supabase PostgreSQL root CA certificate.");
+    }
+    connectionString = normalizeApprovedPoolerConnectionString(resolvedUrl);
+    ssl = { ca, rejectUnauthorized: true };
     console.info("PRODX production database target selected", {
-      target: classifyProductionDatabaseTarget(connectionString)
+      target: "supabase_session_pooler",
+      tls: "verified_root_ca"
     });
   }
-  return createPostgresPool({ ...config, connectionString });
+  return createPostgresPool({ ...config, connectionString, ssl });
 };
 var asSqlExecutor = (pool) => ({
   async query(sql, parameters = []) {
@@ -453,14 +545,88 @@ var asSqlExecutor = (pool) => ({
   }
 });
 
+// server/db/postgres-readiness.ts
+var toSafeReadinessError = (error4) => {
+  const candidate = error4 && typeof error4 === "object" ? error4 : {};
+  const failure = new Error("PostgreSQL readiness check failed.");
+  failure.stage = "database_query";
+  if (typeof candidate.code === "string" && /^[A-Z0-9_]{1,40}$/.test(candidate.code)) {
+    failure.code = candidate.code;
+  }
+  if (candidate.syscall === "getaddrinfo" || candidate.syscall === "connect" || candidate.syscall === "read" || candidate.syscall === "write") {
+    failure.syscall = candidate.syscall;
+  }
+  return failure;
+};
+var assertPostgresReady = async (pool) => {
+  try {
+    const result = await pool.query("SELECT 1 AS ok");
+    if (result.rows[0]?.ok !== 1) {
+      const error4 = new Error("PostgreSQL readiness probe returned an unexpected result.");
+      error4.code = "READINESS_PROBE_FAILED";
+      throw error4;
+    }
+  } catch (error4) {
+    throw toSafeReadinessError(error4);
+  }
+};
+
+// server/http/request-context-storage.ts
+import { AsyncLocalStorage } from "node:async_hooks";
+var requestContextStorage = new AsyncLocalStorage();
+var runWithRequestContext = (context, callback) => requestContextStorage.run(context, callback);
+var getCurrentRequestContext = () => requestContextStorage.getStore();
+
 // server/db/transaction.ts
+var setTransactionTenantContext = async (client) => {
+  const context = getCurrentRequestContext();
+  if (!context) return;
+  await client.query(
+    `SELECT set_config('app.organization_id', $1, true),
+            set_config('app.store_id', $2, true),
+            set_config('app.user_id', $3, true)`,
+    [
+      context.principal.organizationId,
+      context.principal.storeId,
+      context.principal.userId
+    ]
+  );
+};
+var clientExecutor = (client) => ({
+  query: async (sql, parameters = []) => {
+    const result = await client.query(sql, [...parameters]);
+    return { rows: result.rows };
+  }
+});
 var createTransactionalPostgresExecutor = (pool) => ({
-  query: (sql, parameters = []) => pool.query(sql, [...parameters]),
+  query: async (sql, parameters = []) => {
+    if (!getCurrentRequestContext()) {
+      const result = await pool.query(sql, [...parameters]);
+      return { rows: result.rows };
+    }
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await setTransactionTenantContext(client);
+      const result = await client.query(sql, [...parameters]);
+      await client.query("COMMIT");
+      return { rows: result.rows };
+    } catch (error4) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {
+      }
+      throw error4;
+    } finally {
+      client.release();
+    }
+  },
   transaction: async (work) => {
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
-      const result = await work({ query: (sql, parameters = []) => client.query(sql, [...parameters]) });
+      await setTransactionTenantContext(client);
+      const result = await work(clientExecutor(client));
       await client.query("COMMIT");
       return result;
     } catch (error4) {
@@ -995,11 +1161,12 @@ var authenticate = (authenticator) => {
         sendError(response, 401, "UNAUTHENTICATED", "Authentication is required.", request.id);
         return;
       }
-      request.prodxContext = {
+      const context = {
         requestId: request.id,
         principal
       };
-      next();
+      request.prodxContext = context;
+      runWithRequestContext(context, next);
     } catch {
       sendError(response, 401, "UNAUTHENTICATED", "Authentication could not be verified.", request.id);
     }
@@ -1053,6 +1220,13 @@ var createApp = (options) => {
     sendError(response, 404, "NOT_FOUND", "Route not found.", response.getHeader("x-request-id")?.toString() ?? "unknown");
   });
   app.use((error4, request, response, _next) => {
+    console.error("PRODX unhandled request error", {
+      requestId: request.id,
+      method: request.method,
+      path: request.path,
+      status: 500,
+      ...safeReadinessDiagnostic(error4)
+    });
     const details = process.env.NODE_ENV === "production" ? void 0 : error4 instanceof Error ? error4.message : error4;
     sendError(response, 500, "INTERNAL_ERROR", "An unexpected server error occurred.", request.id, details);
   });
@@ -1094,6 +1268,9 @@ var registerCheckoutRoute = (app, db, permission = "pos.sell") => {
   });
 };
 
+// server/http/auth-route.ts
+import { timingSafeEqual } from "node:crypto";
+
 // server/auth/login-rate-limit.ts
 import crypto8 from "node:crypto";
 var WINDOW_MS = 10 * 60 * 1e3;
@@ -1101,11 +1278,8 @@ var fingerprintClient = (clientAddress) => crypto8.createHash("sha256").update(c
 var checkLoginThrottle = async (db, clientAddress, now = /* @__PURE__ */ new Date()) => {
   const fingerprint = fingerprintClient(clientAddress);
   const rows = await db.query(
-    `SELECT locked_until, window_started_at, failed_attempts
-       FROM prodx_auth_login_throttles
-      WHERE client_fingerprint = $1
-      LIMIT 1`,
-    [fingerprint]
+    `SELECT * FROM public.prodx_auth_login_throttle_check($1, $2::timestamptz)`,
+    [fingerprint, now]
   );
   const row = rows[0];
   if (!row) return { allowed: true };
@@ -1113,30 +1287,13 @@ var checkLoginThrottle = async (db, clientAddress, now = /* @__PURE__ */ new Dat
     return { allowed: false, retryAfterSeconds: Math.max(1, Math.ceil((row.locked_until.getTime() - now.getTime()) / 1e3)) };
   }
   if (now.getTime() - row.window_started_at.getTime() >= WINDOW_MS) {
-    await db.query(`UPDATE prodx_auth_login_throttles SET failed_attempts = 0, window_started_at = $2, locked_until = NULL, updated_at = $2 WHERE client_fingerprint = $1`, [fingerprint, now]);
   }
   return { allowed: true };
 };
 var recordLoginFailure = async (db, clientAddress, now = /* @__PURE__ */ new Date()) => {
   const fingerprint = fingerprintClient(clientAddress);
   const rows = await db.query(
-    `INSERT INTO prodx_auth_login_throttles (client_fingerprint, failed_attempts, window_started_at, locked_until, updated_at)
-     VALUES ($1, 1, $2, NULL, $2)
-     ON CONFLICT (client_fingerprint) DO UPDATE
-       SET failed_attempts = CASE
-             WHEN prodx_auth_login_throttles.window_started_at + INTERVAL '10 minutes' <= $2
-               THEN 1 ELSE prodx_auth_login_throttles.failed_attempts + 1 END,
-           window_started_at = CASE
-             WHEN prodx_auth_login_throttles.window_started_at + INTERVAL '10 minutes' <= $2
-               THEN $2 ELSE prodx_auth_login_throttles.window_started_at END,
-           locked_until = CASE
-             WHEN prodx_auth_login_throttles.window_started_at + INTERVAL '10 minutes' <= $2
-               THEN NULL
-             WHEN prodx_auth_login_throttles.failed_attempts + 1 >= 20
-               THEN $2 + INTERVAL '1 minute'
-             ELSE prodx_auth_login_throttles.locked_until END,
-           updated_at = $2
-     RETURNING failed_attempts, locked_until`,
+    `SELECT * FROM public.prodx_auth_login_throttle_record_failure($1, $2::timestamptz)`,
     [fingerprint, now]
   );
   const row = rows[0];
@@ -1151,22 +1308,51 @@ var DEFAULT_STORE_CURRENCY = "THB";
 var DEFAULT_STORE_TAX_RATE_BPS = 700;
 var MAX_FIELD_LENGTH = 256;
 var AUTH_FAILED_MESSAGE = "Invalid credentials or store scope.";
-var BACKEND_TO_UI_PERMISSION = {
-  "pos.sell": "pos:checkout",
-  "pos.void": "pos:void",
-  "pos.refund": "pos:refund",
-  "inventory.read": "inventory:read",
-  "inventory.adjust": "inventory:adjust",
-  "cash.shift.open": "shift:open",
-  "cash.shift.close": "shift:close",
-  "cash.shift.movement": "shift:pay_movement",
-  "customer.read": "customers:read",
-  "customer.write": "customers:write",
-  "report.read": "reports:read",
-  "audit.read": "audit:read",
-  "settings.manage": "settings:manage"
+var ADMIN_ROLE_REQUIRED_MESSAGE = 'Access Denied: Only accounts with the "admin" role can authenticate into the Administrator Console.';
+var BACKEND_TO_UI_PERMISSIONS = {
+  "pos.sell": ["pos:checkout"],
+  "pos.discount": ["pos:discount"],
+  "pos.price_override": ["pos:price_override"],
+  "pos.void": ["pos:void"],
+  "pos.refund": ["pos:refund"],
+  "inventory.read": ["inventory:read"],
+  "inventory.adjust": ["inventory:adjust"],
+  "cash.shift.open": ["shift:open"],
+  "cash.shift.close": ["shift:close"],
+  "cash.shift.movement": ["shift:pay_movement"],
+  "customer.read": ["customers:read"],
+  "customer.write": ["customers:write"],
+  "report.read": ["reports:read"],
+  "reports.read": ["reports:read"],
+  "dashboard.read": ["reports:read"],
+  "audit.read": ["audit:read"],
+  "settings.manage": ["settings:manage"],
+  "users.read": ["org:read"],
+  "org.read": ["org:read"],
+  "users.manage": ["org:manage", "branch:manage", "terminal:manage", "settings:manage"],
+  "org.manage": ["org:manage"],
+  "branch.manage": ["branch:manage"],
+  "terminal.manage": ["terminal:manage"],
+  "rbac.manage": ["rbac:manage", "org:manage", "branch:manage", "terminal:manage", "settings:manage"]
 };
-var toUiPermission = (permission) => BACKEND_TO_UI_PERMISSION[permission] ?? null;
+var toUiPermissions = (permissionKeys, role) => {
+  const mapped = /* @__PURE__ */ new Set();
+  for (const key of permissionKeys) {
+    const uiPerms = BACKEND_TO_UI_PERMISSIONS[key];
+    if (uiPerms) {
+      for (const perm of uiPerms) mapped.add(perm);
+    }
+  }
+  if (role === "admin" && (permissionKeys.includes("rbac.manage") || permissionKeys.includes("users.manage"))) {
+    mapped.add("org:read");
+    mapped.add("org:manage");
+    mapped.add("branch:manage");
+    mapped.add("terminal:manage");
+    mapped.add("rbac:manage");
+    mapped.add("settings:manage");
+  }
+  return Array.from(mapped);
+};
 var errorBody = (request, code, message) => ({
   error: { code, message, requestId: request.id }
 });
@@ -1176,6 +1362,9 @@ var sendUnauthenticated = (request, response, message = "Authentication is requi
 var sendAuthFailed = (request, response, message = AUTH_FAILED_MESSAGE) => {
   response.status(401).json(errorBody(request, "AUTHENTICATION_FAILED", message));
 };
+var sendAdminRoleRequired = (request, response, message = ADMIN_ROLE_REQUIRED_MESSAGE) => {
+  response.status(403).json(errorBody(request, "ADMIN_ROLE_REQUIRED", message));
+};
 var bearerToken = (request) => {
   const header = request.header("authorization");
   if (!header?.startsWith("Bearer ")) return null;
@@ -1184,6 +1373,11 @@ var bearerToken = (request) => {
 };
 var asyncRoute = (handler) => (request, response, next) => {
   handler(request, response).catch(next);
+};
+var withPrincipalContext = (request, principal, work) => runWithRequestContext({ requestId: request.id, principal }, work);
+var isAdminConsoleRegister = (registerId) => {
+  const normalized = registerId.trim().toUpperCase();
+  return normalized === "ADMIN-CONSOLE" || normalized === "ADMIN_CONSOLE" || normalized === "TERM-ADMIN";
 };
 var readLoginBody = (value) => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -1197,9 +1391,12 @@ var readLoginBody = (value) => {
     if (!normalized || normalized.length > MAX_FIELD_LENGTH) return null;
     result[field] = normalized;
   }
+  if (typeof body.requireAdminRole === "boolean") {
+    result.requireAdminRole = body.requireAdminRole;
+  }
   return result;
 };
-var toRole = (value) => value === "admin" || value === "manager" ? value : "cashier";
+var toRole = (value) => value === "owner" || value === "admin" || value === "manager" ? value === "owner" ? "admin" : value : "cashier";
 var mapStore = (row) => ({
   id: row.id,
   organizationId: row.organization_id,
@@ -1227,7 +1424,7 @@ var loadSessionContext = async (db, principal, token, expiresAt) => {
        LEFT JOIN prodx_user_roles ur ON ur.organization_id = o.id AND ur.store_id = s.id AND ur.user_id = u.id AND ur.active = TRUE
        LEFT JOIN prodx_roles r ON r.organization_id = o.id AND r.id = ur.role_id AND r.active = TRUE
       WHERE ses.id = $1 AND ses.organization_id = $2 AND d.store_id = $3 AND ses.user_id = $4
-      ORDER BY CASE r.role_key WHEN 'admin' THEN 0 WHEN 'manager' THEN 1 ELSE 2 END
+      ORDER BY CASE r.role_key WHEN 'owner' THEN 0 WHEN 'admin' THEN 0 WHEN 'manager' THEN 1 ELSE 2 END
       LIMIT 1`,
     [principal.sessionId, principal.organizationId, principal.storeId, principal.userId]
   );
@@ -1243,6 +1440,7 @@ var loadSessionContext = async (db, principal, token, expiresAt) => {
       ORDER BY p.permission_key`,
     [principal.organizationId, principal.storeId, principal.userId]
   );
+  const resolvedRole = toRole(row.role_key);
   return {
     organization: { id: row.organization_id, name: row.organization_name, slug: row.organization_code, stores: [] },
     currentStore: mapStore({
@@ -1257,16 +1455,81 @@ var loadSessionContext = async (db, principal, token, expiresAt) => {
       id: row.user_id,
       name: row.display_name,
       email: row.username,
-      role: toRole(row.role_key),
+      role: resolvedRole,
       employeeCode: row.username,
-      permissions: permissions.map((permission) => toUiPermission(permission.permission_key)).filter((permission) => permission !== null)
+      permissions: toUiPermissions(permissions.map((p) => p.permission_key), resolvedRole)
     },
     token,
     expiresAt: expiresAt.toISOString()
   };
 };
-var registerAuthRoutes = (app, db, sessions) => {
+var registerAuthRoutes = (app, db, sessions, options = {}) => {
+  app.post("/auth/supabase/bootstrap", asyncRoute(async (request, response) => {
+    const bootstrap = options.firstTenantBootstrap;
+    const config = bootstrap?.config;
+    if (!bootstrap || !config) {
+      response.status(404).json(errorBody(request, "NOT_FOUND", "Not found."));
+      return;
+    }
+    const supabaseToken = bearerToken(request);
+    const suppliedSecret = request.header("x-prodx-bootstrap-secret") ?? "";
+    const expectedBytes = Buffer.from(config.secret, "utf8");
+    const suppliedBytes = Buffer.from(suppliedSecret, "utf8");
+    const secretMatches = expectedBytes.length === suppliedBytes.length && timingSafeEqual(expectedBytes, suppliedBytes);
+    if (!supabaseToken || !secretMatches) {
+      sendUnauthenticated(request, response, "Bootstrap authorization is invalid.");
+      return;
+    }
+    const verifyIdentity = bootstrap.verifySupabaseIdentity ?? verifySupabaseToken;
+    const verified = await verifyIdentity(supabaseToken);
+    if (!verified || verified.userId.toLowerCase() !== config.supabaseUserId) {
+      sendUnauthenticated(request, response, "Bootstrap authorization is invalid.");
+      return;
+    }
+    const provisioned = await bootstrap.repository.bootstrapFirstTenant({
+      supabaseUserId: verified.userId,
+      organizationCode: config.organizationCode,
+      organizationName: config.organizationName,
+      storeCode: config.storeCode,
+      storeName: config.storeName,
+      businessTimezone: config.businessTimezone,
+      ownerUsername: config.ownerUsername,
+      ownerDisplayName: config.ownerDisplayName,
+      deviceKey: config.deviceKey,
+      deviceName: config.deviceName
+    });
+    if (!provisioned) {
+      sendAuthFailed(request, response, "First-tenant bootstrap could not be completed.");
+      return;
+    }
+    const issued = await sessions.authenticateSupabaseToken({
+      token: supabaseToken,
+      deviceId: provisioned.deviceId
+    });
+    if (!issued) {
+      sendAuthFailed(request, response, "First-tenant session could not be established.");
+      return;
+    }
+    const principal = await sessions.authenticateBearer(issued.token);
+    if (!principal || principal.organizationId !== provisioned.organizationId || principal.userId !== provisioned.userId || principal.storeId !== provisioned.storeId) {
+      await sessions.revokeBearer(issued.token);
+      sendAuthFailed(request, response, "First-tenant session scope is invalid.");
+      return;
+    }
+    const context = await withPrincipalContext(request, principal, () => loadSessionContext(db, principal, issued.token, issued.expiresAt));
+    if (!context || context.currentUser.role !== "admin") {
+      await sessions.revokeBearer(issued.token);
+      sendAdminRoleRequired(request, response);
+      return;
+    }
+    response.setHeader("Cache-Control", "private, no-store");
+    response.status(200).json(context);
+  }));
   app.post("/auth/supabase/session", asyncRoute(async (request, response) => {
+    if (options.supabaseSessionEnabled !== true) {
+      response.status(404).json(errorBody(request, "NOT_FOUND", "Not found."));
+      return;
+    }
     const token = bearerToken(request);
     if (!token) {
       sendUnauthenticated(request, response);
@@ -1276,17 +1539,13 @@ var registerAuthRoutes = (app, db, sessions) => {
     const organizationSlug = typeof body?.organizationSlug === "string" ? body.organizationSlug.trim() : "";
     const storeCode = typeof body?.storeCode === "string" ? body.storeCode.trim() : "";
     const registerId = typeof body?.registerId === "string" ? body.registerId.trim() : "";
+    const requireAdminRole = body?.requireAdminRole === true || isAdminConsoleRegister(registerId);
     if (!organizationSlug || !storeCode || !registerId) {
       response.status(400).json(errorBody(request, "AUTH_REQUEST_INVALID", "organizationSlug, storeCode, and registerId are required."));
       return;
     }
     const devices = await db.query(
-      `SELECT d.id, d.store_id
-         FROM prodx_organizations o
-         JOIN prodx_stores s ON s.organization_id = o.id AND lower(s.code) = lower($2) AND s.active = TRUE
-         JOIN prodx_devices d ON d.organization_id = o.id AND d.store_id = s.id AND d.device_key = $3 AND d.status = 'active'
-        WHERE lower(o.code) = lower($1)
-        LIMIT 1`,
+      `SELECT id, store_id FROM public.prodx_auth_resolve_device($1, $2, $3)`,
       [organizationSlug, storeCode, registerId]
     );
     const device = devices[0];
@@ -1305,15 +1564,20 @@ var registerAuthRoutes = (app, db, sessions) => {
       sendAuthFailed(request, response);
       return;
     }
-    const context = await loadSessionContext(db, principal, issued.token, issued.expiresAt);
+    const context = await withPrincipalContext(request, principal, () => loadSessionContext(db, principal, issued.token, issued.expiresAt));
     if (!context) {
       await sessions.revokeBearer(issued.token);
       sendAuthFailed(request, response, "Session scope could not be established.");
       return;
     }
+    if (requireAdminRole && context.currentUser.role !== "admin") {
+      await sessions.revokeBearer(issued.token);
+      sendAdminRoleRequired(request, response);
+      return;
+    }
     response.status(200).json(context);
   }));
-  app.post("/auth/login", asyncRoute(async (request, response) => {
+  const handleCredentialLogin = (forceAdminRole) => async (request, response) => {
     const body = readLoginBody(request.body);
     if (!body) {
       response.status(400).json(errorBody(
@@ -1330,12 +1594,7 @@ var registerAuthRoutes = (app, db, sessions) => {
       return;
     }
     const devices = await db.query(
-      `SELECT d.id, d.store_id
-         FROM prodx_organizations o
-         JOIN prodx_stores s ON s.organization_id = o.id AND lower(s.code) = lower($2) AND s.active = TRUE
-         JOIN prodx_devices d ON d.organization_id = o.id AND d.store_id = s.id AND d.device_key = $3 AND d.status = 'active'
-        WHERE lower(o.code) = lower($1)
-        LIMIT 1`,
+      `SELECT id, store_id FROM public.prodx_auth_resolve_device($1, $2, $3)`,
       [body.organizationSlug, body.storeCode, body.registerId]
     );
     const device = devices[0];
@@ -1360,14 +1619,22 @@ var registerAuthRoutes = (app, db, sessions) => {
       sendAuthFailed(request, response);
       return;
     }
-    const context = await loadSessionContext(db, principal, issued.token, issued.expiresAt);
+    const context = await withPrincipalContext(request, principal, () => loadSessionContext(db, principal, issued.token, issued.expiresAt));
     if (!context) {
       await sessions.revokeBearer(issued.token);
       sendAuthFailed(request, response, "Session scope could not be established.");
       return;
     }
+    const requiresAdmin = forceAdminRole || body.requireAdminRole === true || isAdminConsoleRegister(body.registerId);
+    if (requiresAdmin && context.currentUser.role !== "admin") {
+      await sessions.revokeBearer(issued.token);
+      sendAdminRoleRequired(request, response);
+      return;
+    }
     response.status(200).json(context);
-  }));
+  };
+  app.post("/auth/login", asyncRoute(handleCredentialLogin(false)));
+  app.post("/auth/admin/login", asyncRoute(handleCredentialLogin(true)));
   app.post("/auth/logout", asyncRoute(async (request, response) => {
     const token = bearerToken(request);
     if (!token) {
@@ -1391,16 +1658,15 @@ var registerAuthRoutes = (app, db, sessions) => {
       sendUnauthenticated(request, response, "Authentication session is invalid.");
       return;
     }
-    const sessionRows = await db.query(
-      `SELECT expires_at FROM prodx_sessions WHERE id = $1 AND revoked_at IS NULL LIMIT 1`,
-      [principal.sessionId]
-    );
-    const expiresAt = sessionRows[0]?.expires_at;
-    if (!expiresAt) {
-      sendUnauthenticated(request, response, "Authentication session is invalid.");
-      return;
-    }
-    const context = await loadSessionContext(db, principal, token, expiresAt);
+    const context = await withPrincipalContext(request, principal, async () => {
+      const sessionRows = await db.query(
+        `SELECT expires_at FROM public.prodx_sessions WHERE id = $1 AND revoked_at IS NULL LIMIT 1`,
+        [principal.sessionId]
+      );
+      const expiresAt = sessionRows[0]?.expires_at;
+      if (!expiresAt) return null;
+      return loadSessionContext(db, principal, token, expiresAt);
+    });
     if (!context) {
       sendUnauthenticated(request, response, "Authentication session is invalid.");
       return;
@@ -1418,16 +1684,12 @@ var registerAuthRoutes = (app, db, sessions) => {
       sendUnauthenticated(request, response, "Authentication session is invalid.");
       return;
     }
-    const rows = await db.query(
-      `SELECT s.id, s.organization_id, s.code, s.name, s.business_timezone
-         FROM prodx_stores s
-         JOIN prodx_organizations o ON o.id = s.organization_id
-         JOIN prodx_store_memberships m ON m.organization_id = s.organization_id AND m.store_id = s.id
-          AND m.user_id = $2 AND m.active = TRUE
-        WHERE o.id = $1 AND lower(o.code) = lower($3) AND s.active = TRUE
-        ORDER BY s.code`,
-      [principal.organizationId, principal.userId, request.params.orgSlug]
-    );
+    const rows = await withPrincipalContext(request, principal, () => db.query(
+      `SELECT id, organization_id, code, name, business_timezone
+           FROM public.prodx_auth_list_member_stores($1)
+          ORDER BY code`,
+      [request.params.orgSlug]
+    ));
     response.json(rows.map(mapStore));
   }));
 };
@@ -1444,15 +1706,13 @@ var SupervisorAuthorizationError = class extends Error {
   }
 };
 var TTL_MS = 2 * 60 * 1e3;
-var MAX_FAILED_ATTEMPTS = 5;
-var LOCKOUT_MS = 15 * 60 * 1e3;
 var hashAuthorizationToken = (token) => crypto9.createHash("sha256").update(token, "utf8").digest("hex");
 var recordSecurityEvent = async (db, input) => {
   await db.query(
-    `INSERT INTO prodx_security_audit_events
-      (id, organization_id, user_id, event_type, metadata)
-     VALUES ($1, $2, $3, $4, $5::jsonb)`,
-    [crypto9.randomUUID(), input.organizationId, input.userId ?? null, input.eventType, JSON.stringify(input.metadata)]
+    `SELECT public.prodx_record_supervisor_authorization_event(
+      $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::text, $6::jsonb
+    )`,
+    [crypto9.randomUUID(), input.organizationId, input.storeId, input.userId ?? null, input.eventType, JSON.stringify(input.metadata)]
   );
 };
 var createSupervisorAuthorizationService = (db, now = () => /* @__PURE__ */ new Date()) => ({
@@ -1461,21 +1721,20 @@ var createSupervisorAuthorizationService = (db, now = () => /* @__PURE__ */ new 
       throw new SupervisorAuthorizationError("INVALID_CREDENTIALS");
     }
     const credentials = await db.query(
-      `SELECT u.id AS "userId", u.organization_id AS "organizationId", u.status,
-              c.secret_hash AS "secretHash", c.failed_attempts AS "failedAttempts",
-              c.locked_until AS "lockedUntil"
-         FROM prodx_users u
-         JOIN prodx_user_credentials c ON c.user_id = u.id
-        WHERE u.organization_id = $1
-          AND (u.id::text = $2 OR lower(u.username) = lower($2))
-        LIMIT 1`,
-      [input.organizationId, (input.supervisorUserId ?? input.supervisorUsername ?? "").trim()]
+      `SELECT supervisor_user_id AS "userId",
+              user_status AS "status",
+              secret_hash AS "secretHash",
+              failed_attempts AS "failedAttempts",
+              locked_until AS "lockedUntil"
+         FROM public.prodx_supervisor_find_credential($1::uuid, $2::uuid, $3::text)`,
+      [input.organizationId, input.storeId, (input.supervisorUserId ?? input.supervisorUsername ?? "").trim()]
     );
     const credential = credentials[0];
     const current = now();
     if (!credential || credential.status !== "active" || credential.lockedUntil && credential.lockedUntil > current) {
       await recordSecurityEvent(db, {
         organizationId: input.organizationId,
+        storeId: input.storeId,
         userId: credential?.userId ?? null,
         eventType: "SUPERVISOR_AUTH_REJECTED",
         metadata: { action: input.action, orderId: input.orderId, requesterUserId: input.requesterUserId, reason: "invalid_or_locked" }
@@ -1484,18 +1743,13 @@ var createSupervisorAuthorizationService = (db, now = () => /* @__PURE__ */ new 
     }
     const valid3 = await verifyPassword(input.supervisorSecret, credential.secretHash);
     if (!valid3) {
-      const lockUntil = new Date(current.getTime() + LOCKOUT_MS);
       await db.query(
-        `UPDATE prodx_user_credentials
-            SET failed_attempts = failed_attempts + 1,
-                locked_until = CASE WHEN failed_attempts + 1 >= $2 THEN $3::timestamptz ELSE locked_until END,
-                updated_at = CURRENT_TIMESTAMP
-          WHERE user_id = $1
-            AND (locked_until IS NULL OR locked_until <= $4::timestamptz)`,
-        [credential.userId, MAX_FAILED_ATTEMPTS, lockUntil, current]
+        `SELECT public.prodx_supervisor_record_failed_attempt($1::uuid, $2::uuid, $3::uuid)`,
+        [input.organizationId, input.storeId, credential.userId]
       );
       await recordSecurityEvent(db, {
         organizationId: input.organizationId,
+        storeId: input.storeId,
         userId: credential.userId,
         eventType: "SUPERVISOR_AUTH_FAILED",
         metadata: { action: input.action, orderId: input.orderId, requesterUserId: input.requesterUserId }
@@ -1530,6 +1784,7 @@ var createSupervisorAuthorizationService = (db, now = () => /* @__PURE__ */ new 
     if (!allowed[0]) {
       await recordSecurityEvent(db, {
         organizationId: input.organizationId,
+        storeId: input.storeId,
         userId: credential.userId,
         eventType: "SUPERVISOR_AUTH_DENIED",
         metadata: { action: input.action, orderId: input.orderId, requesterUserId: input.requesterUserId, reason: "store_permission_missing" }
@@ -1537,11 +1792,8 @@ var createSupervisorAuthorizationService = (db, now = () => /* @__PURE__ */ new 
       throw new SupervisorAuthorizationError("SUPERVISOR_NOT_ALLOWED");
     }
     await db.query(
-      `UPDATE prodx_user_credentials
-          SET failed_attempts = 0, locked_until = NULL,
-              last_authenticated_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-        WHERE user_id = $1`,
-      [credential.userId]
+      `SELECT public.prodx_supervisor_reset_failed_attempts($1::uuid, $2::uuid, $3::uuid, $4::text)`,
+      [input.organizationId, input.storeId, credential.userId, input.action]
     );
     const token = crypto9.randomBytes(32).toString("base64url");
     const expiresAt = new Date(current.getTime() + TTL_MS);
@@ -1565,6 +1817,7 @@ var createSupervisorAuthorizationService = (db, now = () => /* @__PURE__ */ new 
     );
     await recordSecurityEvent(db, {
       organizationId: input.organizationId,
+      storeId: input.storeId,
       userId: credential.userId,
       eventType: "SUPERVISOR_AUTHORIZATION_GRANTED",
       metadata: { action: input.action, orderId: input.orderId, requesterUserId: input.requesterUserId, requesterSessionId: input.requesterSessionId, expiresAt: expiresAt.toISOString() }
@@ -1955,6 +2208,7 @@ var registerRefundRoute = (app, db, permission = "pos.refund") => {
 };
 
 // server/audit/audit-service.ts
+import crypto11 from "node:crypto";
 var AuditValidationError = class extends Error {
   constructor() {
     super(...arguments);
@@ -1968,6 +2222,7 @@ var clampLimit = (limit) => {
   }
   return limit;
 };
+var VALID_SEVERITIES = /* @__PURE__ */ new Set(["info", "warn", "critical"]);
 var createAuditReadService = (db) => ({
   async getLogs(storeId, limit) {
     if (!storeId?.trim()) throw new AuditValidationError("Store is required.");
@@ -1995,6 +2250,78 @@ var createAuditReadService = (db) => ({
       details: row.details ?? {},
       timestamp: new Date(String(row.created_at)).toISOString()
     }));
+  },
+  async recordEvent(input) {
+    const storeId = String(input.storeId ?? "").trim();
+    const action = String(input.action ?? "").trim();
+    const severity = String(input.severity ?? "info").trim();
+    if (!storeId) throw new AuditValidationError("Store is required.");
+    if (!action || action.length > 120) throw new AuditValidationError("Audit action is required.");
+    if (!VALID_SEVERITIES.has(severity)) throw new AuditValidationError("Audit severity must be info, warn, or critical.");
+    const sourceEventKey = input.sourceEventKey?.trim() || null;
+    if (sourceEventKey && sourceEventKey.length > 180) throw new AuditValidationError("Source event key cannot exceed 180 characters.");
+    const payload = typeof input.details === "string" ? { message: input.details } : input.details && typeof input.details === "object" ? input.details : { message: String(input.details ?? "") };
+    let resolvedRegisterUuid = null;
+    const rawRegister = String(input.registerId ?? "").trim();
+    if (rawRegister) {
+      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawRegister)) {
+        const regCheck = await db.query(
+          "SELECT id FROM prodx_registers WHERE id = $1 AND store_id = $2 LIMIT 1",
+          [rawRegister, storeId]
+        );
+        resolvedRegisterUuid = regCheck.rows[0]?.id ?? null;
+      } else {
+        const regCheck = await db.query(
+          "SELECT id FROM prodx_registers WHERE code = $1 AND store_id = $2 LIMIT 1",
+          [rawRegister, storeId]
+        );
+        resolvedRegisterUuid = regCheck.rows[0]?.id ?? null;
+      }
+    }
+    const id = crypto11.randomUUID();
+    const inserted = await db.query(
+      `INSERT INTO prodx_audit_log(id, organization_id, store_id, register_id, user_id, action, severity, details, source_event_key)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)
+       ON CONFLICT DO NOTHING
+       RETURNING id, created_at`,
+      [
+        id,
+        input.organizationId,
+        storeId,
+        resolvedRegisterUuid,
+        input.userId,
+        action,
+        severity,
+        JSON.stringify(payload),
+        sourceEventKey
+      ]
+    );
+    let persisted = inserted.rows[0];
+    if (!persisted && sourceEventKey) {
+      const existing = await db.query(
+        `SELECT id, created_at
+           FROM prodx_audit_log
+          WHERE organization_id = $1 AND store_id = $2 AND source_event_key = $3
+          LIMIT 1`,
+        [input.organizationId, storeId, sourceEventKey]
+      );
+      persisted = existing.rows[0];
+    }
+    if (!persisted) {
+      throw new Error("Audit event insert did not persist and no idempotent event was found.");
+    }
+    return {
+      id: persisted.id,
+      timestamp: new Date(persisted.created_at).toISOString(),
+      storeId,
+      registerId: rawRegister || void 0,
+      userId: input.userId,
+      userName: input.userName || "Operator",
+      userRole: input.userRole || "cashier",
+      action,
+      severity,
+      details: typeof input.details === "string" ? input.details : JSON.stringify(payload)
+    };
   }
 });
 
@@ -2018,10 +2345,255 @@ var registerAuditRoute = (app, db) => {
       next(error4);
     }
   });
+  app.post("/api/v1/audit/logs", async (request, response, next) => {
+    try {
+      const context = request.prodxContext;
+      if (!context) {
+        response.status(500).json({ error: { code: "REQUEST_CONTEXT_MISSING", message: "Request context is required.", requestId: request.id } });
+        return;
+      }
+      const body = request.body ?? {};
+      const requestedStoreId = typeof body.storeId === "string" && body.storeId.trim() ? body.storeId.trim() : context.principal.storeId;
+      if (requestedStoreId !== context.principal.storeId) {
+        response.status(403).json({ error: { code: "STORE_SCOPE_MISMATCH", message: "Audit log storeId must match authenticated store scope.", requestId: request.id } });
+        return;
+      }
+      const entry = await service.recordEvent({
+        organizationId: context.principal.organizationId,
+        storeId: context.principal.storeId,
+        userId: context.principal.userId,
+        userName: typeof body.userName === "string" ? body.userName : void 0,
+        userRole: typeof body.userRole === "string" ? body.userRole : void 0,
+        registerId: typeof body.registerId === "string" ? body.registerId : void 0,
+        action: typeof body.action === "string" ? body.action : "",
+        severity: typeof body.severity === "string" ? body.severity : "info",
+        details: body.details
+      });
+      response.status(201).json(entry);
+    } catch (error4) {
+      if (error4 instanceof AuditValidationError) {
+        response.status(400).json({ error: { code: error4.code, message: error4.message, requestId: request.id } });
+        return;
+      }
+      next(error4);
+    }
+  });
+  app.post("/api/v1/audit/diagnostics", async (request, response, next) => {
+    try {
+      const context = request.prodxContext;
+      if (!context) {
+        response.status(500).json({ error: { code: "REQUEST_CONTEXT_MISSING", message: "Request context is required.", requestId: request.id } });
+        return;
+      }
+      const body = request.body ?? {};
+      const events = body.events;
+      if (!Array.isArray(events) || events.length < 1 || events.length > 100) {
+        response.status(400).json({ error: { code: "DIAGNOSTIC_BATCH_INVALID", message: "Diagnostic batches must contain 1 to 100 events.", requestId: request.id } });
+        return;
+      }
+      const validCategories = /* @__PURE__ */ new Set(["printer", "scanner", "drawer", "edc", "display", "scale", "system", "network"]);
+      const validLevels = /* @__PURE__ */ new Set(["TRACE", "DEBUG", "INFO", "WARN", "ERROR", "CRITICAL"]);
+      const normalized = events.map((raw) => {
+        if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+        const item = raw;
+        const id = typeof item.id === "string" ? item.id.trim() : "";
+        const category = typeof item.category === "string" ? item.category : "";
+        const level = typeof item.level === "string" ? item.level : "";
+        const event = typeof item.event === "string" ? item.event.trim() : "";
+        const message = typeof item.message === "string" ? item.message.trim() : "";
+        if (!id || id.length > 120 || !validCategories.has(category) || !validLevels.has(level) || !event || event.length > 100 || !message || message.length > 500) return null;
+        return { item, id, category, level, event, message };
+      });
+      if (normalized.some((item) => item === null)) {
+        response.status(400).json({ error: { code: "DIAGNOSTIC_EVENT_INVALID", message: "Every diagnostic event must have a valid id, category, level, event name, and message.", requestId: request.id } });
+        return;
+      }
+      const batchId = typeof body.batchId === "string" ? body.batchId.slice(0, 120) : "";
+      for (const event of normalized) {
+        if (!event) continue;
+        const safeEvent = event.event.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80);
+        const action = `DIAGNOSTIC_${event.category.toUpperCase()}_${safeEvent}`.slice(0, 120);
+        const severity = event.level === "WARN" ? "warn" : event.level === "ERROR" || event.level === "CRITICAL" ? "critical" : "info";
+        const details = {
+          eventId: event.id,
+          batchId,
+          category: event.category,
+          level: event.level,
+          event: event.event,
+          message: event.message,
+          deviceName: typeof event.item.deviceName === "string" ? event.item.deviceName.slice(0, 160) : void 0,
+          peripheralId: typeof event.item.peripheralId === "string" ? event.item.peripheralId.slice(0, 128) : void 0,
+          port: typeof event.item.port === "string" ? event.item.port.slice(0, 64) : void 0,
+          interfaceType: typeof event.item.interfaceType === "string" ? event.item.interfaceType.slice(0, 64) : void 0,
+          orgId: typeof event.item.orgId === "string" ? event.item.orgId.slice(0, 128) : void 0,
+          branchId: typeof event.item.branchId === "string" ? event.item.branchId.slice(0, 128) : void 0,
+          terminalId: typeof event.item.terminalId === "string" ? event.item.terminalId.slice(0, 128) : void 0,
+          metadata: event.item.metadata && typeof event.item.metadata === "object" && !Array.isArray(event.item.metadata) ? event.item.metadata : {},
+          timestamp: typeof event.item.timestamp === "number" && Number.isFinite(event.item.timestamp) ? event.item.timestamp : Date.now(),
+          flushedAt: typeof event.item.flushedAt === "number" && Number.isFinite(event.item.flushedAt) ? event.item.flushedAt : Date.now()
+        };
+        await service.recordEvent({
+          organizationId: context.principal.organizationId,
+          storeId: context.principal.storeId,
+          userId: context.principal.userId,
+          registerId: typeof event.item.terminalId === "string" ? event.item.terminalId : void 0,
+          action,
+          severity,
+          details,
+          sourceEventKey: `${context.principal.userId}:${event.id}`
+        });
+      }
+      response.status(202).json({ accepted: normalized.length, batchId: batchId || void 0 });
+    } catch (error4) {
+      if (error4 instanceof AuditValidationError) {
+        response.status(400).json({ error: { code: error4.code, message: error4.message, requestId: request.id } });
+        return;
+      }
+      next(error4);
+    }
+  });
+};
+
+// server/http/tasks-route.ts
+import crypto12 from "node:crypto";
+var uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+var toTask = (row) => ({
+  id: row.id,
+  ownerId: row.user_id,
+  title: row.title,
+  description: row.description,
+  completed: row.completed,
+  createdAt: new Date(row.created_at).getTime(),
+  updatedAt: new Date(row.updated_at).getTime()
+});
+var sendError2 = (response, request, status, code, message) => response.status(status).json({ error: { code, message, requestId: request.id } });
+var registerTasksRoute = (app, db) => {
+  app.get("/api/v1/tasks", requirePermission("dashboard.read"), async (request, response, next) => {
+    try {
+      const context = request.prodxContext;
+      if (!context) {
+        sendError2(response, request, 500, "REQUEST_CONTEXT_MISSING", "Request context is required.");
+        return;
+      }
+      const result = await db.query(
+        `SELECT id, user_id, title, description, completed, created_at, updated_at
+           FROM public.prodx_tasks
+          WHERE organization_id = $1 AND store_id = $2 AND user_id = $3
+          ORDER BY created_at DESC, id`,
+        [context.principal.organizationId, context.principal.storeId, context.principal.userId]
+      );
+      response.json(result.rows.map(toTask));
+    } catch (error4) {
+      next(error4);
+    }
+  });
+  app.post("/api/v1/tasks", requirePermission("dashboard.read"), async (request, response, next) => {
+    try {
+      const context = request.prodxContext;
+      if (!context) {
+        sendError2(response, request, 500, "REQUEST_CONTEXT_MISSING", "Request context is required.");
+        return;
+      }
+      const body = request.body ?? {};
+      const id = typeof body.id === "string" && body.id.trim() ? body.id.trim() : crypto12.randomUUID();
+      const title = typeof body.title === "string" ? body.title.trim() : "";
+      const description = typeof body.description === "string" ? body.description : "";
+      if (!uuidPattern.test(id)) {
+        sendError2(response, request, 400, "TASK_ID_INVALID", "Task id must be a UUID.");
+        return;
+      }
+      if (!title || title.length > 200) {
+        sendError2(response, request, 400, "TASK_TITLE_INVALID", "Task title must contain 1 to 200 characters.");
+        return;
+      }
+      if (description.length > 1e3) {
+        sendError2(response, request, 400, "TASK_DESCRIPTION_INVALID", "Task description cannot exceed 1000 characters.");
+        return;
+      }
+      await db.query(
+        `INSERT INTO public.prodx_tasks (id, organization_id, store_id, user_id, title, description)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (id) DO NOTHING`,
+        [id, context.principal.organizationId, context.principal.storeId, context.principal.userId, title, description]
+      );
+      const result = await db.query(
+        `SELECT id, user_id, title, description, completed, created_at, updated_at
+           FROM public.prodx_tasks
+          WHERE id = $1 AND organization_id = $2 AND store_id = $3 AND user_id = $4
+          LIMIT 1`,
+        [id, context.principal.organizationId, context.principal.storeId, context.principal.userId]
+      );
+      const row = result.rows[0];
+      if (!row) {
+        sendError2(response, request, 409, "TASK_ID_CONFLICT", "Task id already exists outside this user scope.");
+        return;
+      }
+      response.status(201).json(toTask(row));
+    } catch (error4) {
+      next(error4);
+    }
+  });
+  app.patch("/api/v1/tasks/:taskId", requirePermission("dashboard.read"), async (request, response, next) => {
+    try {
+      const context = request.prodxContext;
+      if (!context) {
+        sendError2(response, request, 500, "REQUEST_CONTEXT_MISSING", "Request context is required.");
+        return;
+      }
+      if (!uuidPattern.test(request.params.taskId)) {
+        sendError2(response, request, 400, "TASK_ID_INVALID", "Task id must be a UUID.");
+        return;
+      }
+      const body = request.body ?? {};
+      if (typeof body.completed !== "boolean") {
+        sendError2(response, request, 400, "TASK_COMPLETION_INVALID", "completed must be a boolean.");
+        return;
+      }
+      const result = await db.query(
+        `UPDATE public.prodx_tasks SET completed = $1, updated_at = CURRENT_TIMESTAMP
+          WHERE id = $2 AND organization_id = $3 AND store_id = $4 AND user_id = $5
+          RETURNING id, user_id, title, description, completed, created_at, updated_at`,
+        [body.completed, request.params.taskId, context.principal.organizationId, context.principal.storeId, context.principal.userId]
+      );
+      if (!result.rows[0]) {
+        sendError2(response, request, 404, "TASK_NOT_FOUND", "Task was not found in the authenticated user scope.");
+        return;
+      }
+      response.json(toTask(result.rows[0]));
+    } catch (error4) {
+      next(error4);
+    }
+  });
+  app.delete("/api/v1/tasks/:taskId", requirePermission("dashboard.read"), async (request, response, next) => {
+    try {
+      const context = request.prodxContext;
+      if (!context) {
+        sendError2(response, request, 500, "REQUEST_CONTEXT_MISSING", "Request context is required.");
+        return;
+      }
+      if (!uuidPattern.test(request.params.taskId)) {
+        sendError2(response, request, 400, "TASK_ID_INVALID", "Task id must be a UUID.");
+        return;
+      }
+      const result = await db.query(
+        `DELETE FROM public.prodx_tasks
+          WHERE id = $1 AND organization_id = $2 AND store_id = $3 AND user_id = $4
+          RETURNING id`,
+        [request.params.taskId, context.principal.organizationId, context.principal.storeId, context.principal.userId]
+      );
+      if (!result.rows[0]) {
+        sendError2(response, request, 404, "TASK_NOT_FOUND", "Task was not found in the authenticated user scope.");
+        return;
+      }
+      response.status(204).end();
+    } catch (error4) {
+      next(error4);
+    }
+  });
 };
 
 // server/shift/shift-service.ts
-import crypto11 from "node:crypto";
+import crypto13 from "node:crypto";
 var ShiftValidationError = class extends Error {
   constructor() {
     super(...arguments);
@@ -2047,8 +2619,13 @@ var dbAmountToCents = (value, label) => {
   if (amount > BigInt(Number.MAX_SAFE_INTEGER)) throw new ShiftValidationError(`${label} exceeds safe monetary range.`);
   return Number(amount);
 };
+var toDecimal = (centsValue) => {
+  const abs = BigInt(Math.trunc(Math.abs(centsValue)));
+  const sign = centsValue < 0 ? "-" : "";
+  return `${sign}${abs / 100n}.${(abs % 100n).toString().padStart(2, "0")}`;
+};
 var money = (value, currency, label = "Amount") => ({ amountInCents: dbAmountToCents(value, label), currency });
-var hash = (value) => crypto11.createHash("sha256").update(JSON.stringify(value)).digest("hex");
+var hash = (value) => crypto13.createHash("sha256").update(JSON.stringify(value)).digest("hex");
 var mapMovement = (r) => ({ id: r.id, shiftId: r.shift_id, type: r.type, amount: money(r.amount, r.currency), reason: r.reason, performedByUserId: r.performed_by_user_id, timestamp: new Date(r.created_at).toISOString() });
 var loadShift = async (db, shiftId, storeId) => {
   const s = await db.query(`SELECT s.id,s.store_id,s.register_id,s.cashier_id,u.display_name AS cashier_name,s.opened_at,s.closed_at,s.status,s.opening_float_amount,s.actual_counted_cash_amount,s.currency FROM prodx_shifts s JOIN prodx_users u ON u.id=s.cashier_id WHERE s.id=$1 AND s.store_id=$2`, [shiftId, storeId]);
@@ -2074,12 +2651,12 @@ var loadShift = async (db, shiftId, storeId) => {
     }
   }
   const actual = row.actual_counted_cash_amount == null ? void 0 : money(row.actual_counted_cash_amount, row.currency, "Counted cash");
-  return { id: row.id, storeId: row.store_id, registerId: row.register_id, cashierId: row.cashier_id, cashierName: row.cashier_name, openedAt: new Date(row.opened_at).toISOString(), closedAt: row.closed_at ? new Date(row.closed_at).toISOString() : void 0, status: row.status, openingFloat: money(row.opening_float_amount, row.currency, "Opening float"), movements: m.rows.map(mapMovement), totalCashSales: money(String(cashSales / 100), row.currency), totalCashRefunds: money(String(cashRefunds / 100), row.currency), totalPaidIn: money(String(paidIn / 100), row.currency), totalPaidOut: money(String(paidOut / 100), row.currency), expectedCashInDrawer: { amountInCents: expected, currency: row.currency }, actualCountedCash: actual, variance: actual ? { amountInCents: actual.amountInCents - expected, currency: row.currency } : void 0 };
+  return { id: row.id, storeId: row.store_id, registerId: row.register_id, cashierId: row.cashier_id, cashierName: row.cashier_name, openedAt: new Date(row.opened_at).toISOString(), closedAt: row.closed_at ? new Date(row.closed_at).toISOString() : void 0, status: row.status, openingFloat: money(row.opening_float_amount, row.currency, "Opening float"), movements: m.rows.map(mapMovement), totalCashSales: money(toDecimal(cashSales), row.currency), totalCashRefunds: money(toDecimal(cashRefunds), row.currency), totalPaidIn: money(toDecimal(paidIn), row.currency), totalPaidOut: money(toDecimal(paidOut), row.currency), expectedCashInDrawer: { amountInCents: expected, currency: row.currency }, actualCountedCash: actual, variance: actual ? { amountInCents: actual.amountInCents - expected, currency: row.currency } : void 0 };
 };
 var operation = async (tx, context, type, shiftId, key, payload) => {
   if (!key.trim()) throw new ShiftValidationError("Idempotency key is required.");
   const h = hash(payload);
-  const inserted = await tx.query(`INSERT INTO prodx_shift_operations(id,organization_id,store_id,shift_id,operation_type,idempotency_key,payload_hash) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(store_id,operation_type,idempotency_key) DO NOTHING RETURNING id`, [crypto11.randomUUID(), context.organizationId, context.storeId, shiftId, type, key.trim(), h]);
+  const inserted = await tx.query(`INSERT INTO prodx_shift_operations(id,organization_id,store_id,shift_id,operation_type,idempotency_key,payload_hash) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(store_id,operation_type,idempotency_key) DO NOTHING RETURNING id`, [crypto13.randomUUID(), context.organizationId, context.storeId, shiftId, type, key.trim(), h]);
   if (inserted.rows[0]) return { id: inserted.rows[0].id, replay: false };
   const existing = await tx.query(`SELECT id,payload_hash FROM prodx_shift_operations WHERE store_id=$1 AND operation_type=$2 AND idempotency_key=$3 FOR UPDATE`, [context.storeId, type, key.trim()]);
   const row = existing.rows[0];
@@ -2109,11 +2686,12 @@ var createShiftService = (db) => ({
       if (registerRow.currency !== openingFloat.currency) throw new ShiftValidationError("Opening float currency does not match the store currency.");
       const existing = await tx.query(`SELECT id FROM prodx_shifts WHERE register_id=$1 AND store_id=$2 AND status='open' FOR UPDATE`, [registerId, context.storeId]);
       if (existing.rows[0]) throw new ShiftConflictError("Register already has an open shift.");
-      const id = crypto11.randomUUID();
-      await tx.query(`INSERT INTO prodx_shifts(id,organization_id,store_id,register_id,cashier_id,status,opening_float_amount,currency) VALUES($1,$2,$3,$4,$5,'open',$6,$7)`, [id, context.organizationId, context.storeId, registerId, context.userId, amount / 100, openingFloat.currency]);
+      const id = crypto13.randomUUID();
+      const decAmount = toDecimal(amount);
+      await tx.query(`INSERT INTO prodx_shifts(id,organization_id,store_id,register_id,cashier_id,status,opening_float_amount,currency) VALUES($1,$2,$3,$4,$5,'open',$6,$7)`, [id, context.organizationId, context.storeId, registerId, context.userId, decAmount, openingFloat.currency]);
       await tx.query(`UPDATE prodx_shift_operations SET shift_id=$1 WHERE id=$2`, [id, op.id]);
-      await tx.query(`INSERT INTO prodx_cash_movements(id,organization_id,store_id,shift_id,type,amount,reason,performed_by_user_id,currency) VALUES($1,$2,$3,$4,'opening_float',$5,$6,$7,$8)`, [crypto11.randomUUID(), context.organizationId, context.storeId, id, amount / 100, "Initial opening cash drawer float", context.userId, openingFloat.currency]);
-      await tx.query(`INSERT INTO prodx_audit_log(id,organization_id,store_id,register_id,user_id,action,severity,details) VALUES($1,$2,$3,$4,$5,'shift_opened','info',$6::jsonb)`, [crypto11.randomUUID(), context.organizationId, context.storeId, registerId, context.userId, JSON.stringify({ shiftId: id, openingFloat: amount })]);
+      await tx.query(`INSERT INTO prodx_cash_movements(id,organization_id,store_id,shift_id,type,amount,reason,performed_by_user_id,currency) VALUES($1,$2,$3,$4,'opening_float',$5,$6,$7,$8)`, [crypto13.randomUUID(), context.organizationId, context.storeId, id, decAmount, "Initial opening cash drawer float", context.userId, openingFloat.currency]);
+      await tx.query(`INSERT INTO prodx_audit_log(id,organization_id,store_id,register_id,user_id,action,severity,details) VALUES($1,$2,$3,$4,$5,'shift_opened','info',$6::jsonb)`, [crypto13.randomUUID(), context.organizationId, context.storeId, registerId, context.userId, JSON.stringify({ shiftId: id, openingFloat: amount })]);
       return loadShift(tx, id, context.storeId);
     });
   },
@@ -2127,8 +2705,8 @@ var createShiftService = (db) => ({
       if (!shift) throw new ShiftConflictError("Shift not found in this store.");
       if (shift.status !== "open") throw new ShiftConflictError("Shift is already closed.");
       if (shift.currency !== actualCountedCash.currency) throw new ShiftValidationError("Counted cash currency does not match the shift.");
-      await tx.query(`UPDATE prodx_shifts SET status='closed',closed_at=CURRENT_TIMESTAMP,actual_counted_cash_amount=$1 WHERE id=$2 AND store_id=$3`, [actual / 100, shiftId, context.storeId]);
-      await tx.query(`INSERT INTO prodx_audit_log(id,organization_id,store_id,register_id,user_id,action,severity,details) VALUES($1,$2,$3,$4,$5,'shift_closed','info',$6::jsonb)`, [crypto11.randomUUID(), context.organizationId, context.storeId, shift.register_id, context.userId, JSON.stringify({ shiftId, actualCountedCash: actual, notes: notes ?? "" })]);
+      await tx.query(`UPDATE prodx_shifts SET status='closed',closed_at=CURRENT_TIMESTAMP,actual_counted_cash_amount=$1 WHERE id=$2 AND store_id=$3`, [toDecimal(actual), shiftId, context.storeId]);
+      await tx.query(`INSERT INTO prodx_audit_log(id,organization_id,store_id,register_id,user_id,action,severity,details) VALUES($1,$2,$3,$4,$5,'shift_closed','info',$6::jsonb)`, [crypto13.randomUUID(), context.organizationId, context.storeId, shift.register_id, context.userId, JSON.stringify({ shiftId, actualCountedCash: actual, notes: notes ?? "" })]);
       return loadShift(tx, shiftId, context.storeId);
     });
   },
@@ -2148,10 +2726,10 @@ var createShiftService = (db) => ({
       if (!s) throw new ShiftConflictError("Shift not found in this store.");
       if (s.status !== "open") throw new ShiftConflictError("Shift is closed.");
       if (s.currency !== amount.currency) throw new ShiftValidationError("Cash movement currency does not match the shift.");
-      const id = crypto11.randomUUID();
-      await tx.query(`INSERT INTO prodx_cash_movements(id,organization_id,store_id,shift_id,type,amount,reason,performed_by_user_id,currency) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, [id, context.organizationId, context.storeId, shiftId, type, value / 100, reason.trim(), context.userId, amount.currency]);
+      const id = crypto13.randomUUID();
+      await tx.query(`INSERT INTO prodx_cash_movements(id,organization_id,store_id,shift_id,type,amount,reason,performed_by_user_id,currency) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, [id, context.organizationId, context.storeId, shiftId, type, toDecimal(value), reason.trim(), context.userId, amount.currency]);
       await tx.query(`UPDATE prodx_shift_operations SET result_id=$1 WHERE id=$2`, [id, op.id]);
-      await tx.query(`INSERT INTO prodx_audit_log(id,organization_id,store_id,user_id,action,severity,details) VALUES($1,$2,$3,$4,$5,'info',$6::jsonb)`, [crypto11.randomUUID(), context.organizationId, context.storeId, context.userId, "cash_movement_recorded", JSON.stringify({ shiftId, type, amount: value, reason })]);
+      await tx.query(`INSERT INTO prodx_audit_log(id,organization_id,store_id,user_id,action,severity,details) VALUES($1,$2,$3,$4,$5,'info',$6::jsonb)`, [crypto13.randomUUID(), context.organizationId, context.storeId, context.userId, "cash_movement_recorded", JSON.stringify({ shiftId, type, amount: value, reason })]);
       const r = await tx.query(`SELECT id,shift_id,type,amount,reason,performed_by_user_id,currency,created_at FROM prodx_cash_movements WHERE id=$1`, [id]);
       return mapMovement(r.rows[0]);
     });
@@ -2167,7 +2745,7 @@ function createMoney(amountInCents, currency = "THB") {
   if (!Number.isFinite(amountInCents)) {
     throw new TypeError(`[Money] Invalid amount: ${amountInCents}`);
   }
-  const sanitized = Math.round(amountInCents);
+  const sanitized = Number.isInteger(amountInCents) ? amountInCents : Math.trunc(amountInCents);
   return Object.freeze({
     amountInCents: sanitized,
     currency: currency.toUpperCase()
@@ -2232,7 +2810,7 @@ var registerShiftRoute = (app, db) => {
 };
 
 // server/shift/timeclock-service.ts
-import crypto12 from "node:crypto";
+import crypto14 from "node:crypto";
 var TimeclockValidationError = class extends Error {
   constructor() {
     super(...arguments);
@@ -2265,8 +2843,8 @@ var getPinPepper = () => {
   if (!pepper) throw new Error("TIMECLOCK_PIN_PEPPER is required for production timeclock credentials.");
   return pepper;
 };
-var lookupHash = (pin) => crypto12.createHmac("sha256", getPinPepper()).update(pin).digest("hex");
-var hashPayload = (value) => crypto12.createHash("sha256").update(JSON.stringify(value)).digest("hex");
+var lookupHash = (pin) => crypto14.createHmac("sha256", getPinPepper()).update(pin).digest("hex");
+var hashPayload = (value) => crypto14.createHash("sha256").update(JSON.stringify(value)).digest("hex");
 var mapRecord = (row) => ({
   id: row.id,
   userId: row.user_id,
@@ -2378,7 +2956,7 @@ var operation2 = async (tx, context, type, key, payload) => {
        (id,organization_id,store_id,user_id,operation_type,idempotency_key,payload_hash)
      VALUES($1,$2,$3,$4,$5,$6,$7)
      ON CONFLICT(organization_id,store_id,user_id,operation_type,idempotency_key) DO NOTHING RETURNING id`,
-    [crypto12.randomUUID(), context.organizationId, context.storeId, context.userId, type, key.trim(), payloadHash]
+    [crypto14.randomUUID(), context.organizationId, context.storeId, context.userId, type, key.trim(), payloadHash]
   );
   if (inserted.rows[0]) return { id: inserted.rows[0].id, replay: false, resultId: null };
   const existing = await tx.query(
@@ -2416,7 +2994,7 @@ var createTimeclockService = (db) => ({
         [context.storeId, user.user_id]
       );
       if (existing.rows[0]) throw new TimeclockConflictError("User is already clocked in at this store.");
-      const id = crypto12.randomUUID();
+      const id = crypto14.randomUUID();
       await tx.query(
         `INSERT INTO prodx_timeclock_records(id,organization_id,store_id,user_id,status)
          VALUES($1,$2,$3,$4,'clocked_in')`,
@@ -2427,7 +3005,7 @@ var createTimeclockService = (db) => ({
         `INSERT INTO prodx_audit_log(id,organization_id,store_id,user_id,action,severity,details)
          VALUES($1,$2,$3,$4,'timeclock_clocked_in','info',$5::jsonb)`,
         [
-          crypto12.randomUUID(),
+          crypto14.randomUUID(),
           context.organizationId,
           context.storeId,
           context.userId,
@@ -2458,7 +3036,7 @@ var createTimeclockService = (db) => ({
         `INSERT INTO prodx_audit_log(id,organization_id,store_id,user_id,action,severity,details)
          VALUES($1,$2,$3,$4,'timeclock_clocked_out','info',$5::jsonb)`,
         [
-          crypto12.randomUUID(),
+          crypto14.randomUUID(),
           context.organizationId,
           context.storeId,
           context.userId,
@@ -2509,7 +3087,7 @@ var createTimeclockService = (db) => ({
         `INSERT INTO prodx_audit_log(id,organization_id,store_id,user_id,action,severity,details)
          VALUES($1,$2,$3,$4,'timeclock_pin_provisioned','info',$5::jsonb)`,
         [
-          crypto12.randomUUID(),
+          crypto14.randomUUID(),
           context.organizationId,
           context.storeId,
           context.userId,
@@ -2693,7 +3271,19 @@ var registerCatalogRoute = (app, db, permission = "catalog.read") => {
 };
 
 // server/http/catalog-import-route.ts
-import crypto13 from "node:crypto";
+import crypto15 from "node:crypto";
+var dbCents3 = (value) => {
+  const match = /^(\d+)(?:\.(\d{1,2}))?$/.exec(String(value ?? "").trim());
+  if (!match) throw new Error(`Invalid database monetary value: ${String(value)}`);
+  const cents3 = BigInt(match[1]) * 100n + BigInt((match[2] ?? "").padEnd(2, "0"));
+  if (cents3 > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error("Database monetary value exceeds safe integer range");
+  return Number(cents3);
+};
+var toDecimal2 = (cents3) => {
+  const abs = BigInt(Math.trunc(Math.abs(cents3)));
+  const sign = cents3 < 0 ? "-" : "";
+  return `${sign}${abs / 100n}.${(abs % 100n).toString().padStart(2, "0")}`;
+};
 var productDto2 = (row) => ({
   id: row.id,
   storeId: row.store_id,
@@ -2701,8 +3291,8 @@ var productDto2 = (row) => ({
   barcode: row.barcode,
   name: row.name,
   categoryId: row.category_id,
-  price: { amountInCents: Math.round(Number(row.price_amount) * 100), currency: row.currency },
-  costPrice: { amountInCents: Math.round(Number(row.cost_price_amount) * 100), currency: row.currency },
+  price: { amountInCents: dbCents3(row.price_amount), currency: row.currency },
+  costPrice: { amountInCents: dbCents3(row.cost_price_amount), currency: row.currency },
   taxRateBps: row.tax_rate_bps,
   currentStock: row.current_stock,
   reorderPoint: row.reorder_point,
@@ -2719,7 +3309,7 @@ var ledgerDto = (row) => ({
   performedByUserId: row.performed_by_user_id,
   timestamp: row.created_at
 });
-var hashPayload2 = (value) => crypto13.createHash("sha256").update(JSON.stringify(value)).digest("hex");
+var hashPayload2 = (value) => crypto15.createHash("sha256").update(JSON.stringify(value)).digest("hex");
 var slugify = (value) => value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "general";
 var registerCatalogImportRoute = (app, db) => {
   app.post("/api/v1/catalog/import", requirePermission("catalog.write"), async (request, response) => {
@@ -2754,7 +3344,7 @@ var registerCatalogImportRoute = (app, db) => {
              (id,organization_id,store_id,actor_user_id,idempotency_key,payload_hash,result)
            VALUES($1,$2,$3,$4,$5,$6,'{}'::jsonb)
            ON CONFLICT(organization_id,store_id,actor_user_id,idempotency_key) DO NOTHING RETURNING id`,
-          [crypto13.randomUUID(), context.principal.organizationId, context.principal.storeId, context.principal.userId, idempotencyKey, payloadHash]
+          [crypto15.randomUUID(), context.principal.organizationId, context.principal.storeId, context.principal.userId, idempotencyKey, payloadHash]
         );
         if (!inserted.rows[0]) {
           const existing = await tx.query(
@@ -2810,7 +3400,7 @@ var registerCatalogImportRoute = (app, db) => {
             )).rows[0];
             if (category) categoryId = category.id;
             else {
-              const createdCategoryId = crypto13.randomUUID();
+              const createdCategoryId = crypto15.randomUUID();
               await tx.query(
                 `INSERT INTO prodx_categories(id,organization_id,store_id,name,slug)
                  VALUES($1,$2,$3,$4,$5)
@@ -2867,11 +3457,11 @@ var registerCatalogImportRoute = (app, db) => {
             await tx.query(
               `UPDATE prodx_products SET
                  name=COALESCE($3,name), barcode=CASE WHEN $4 <> '' THEN $4 ELSE barcode END, category_id=$5,
-                 price_amount=COALESCE($6::numeric/100,price_amount), cost_price_amount=COALESCE($7::numeric/100,cost_price_amount),
+                 price_amount=COALESCE($6::numeric,price_amount), cost_price_amount=COALESCE($7::numeric,cost_price_amount),
                  tax_rate_bps=COALESCE($8,tax_rate_bps), current_stock=$9, reorder_point=COALESCE($10,reorder_point),
                  unit_of_measure=COALESCE($11,unit_of_measure), updated_at=CURRENT_TIMESTAMP
                WHERE id=$1 AND store_id=$2`,
-              [existing.id, context.principal.storeId, requestedName ?? null, barcode, categoryId, requestedPriceCents, requestedCostCents, requestedTax, nextStock, requestedReorder, requestedUnit]
+              [existing.id, context.principal.storeId, requestedName ?? null, barcode, categoryId, requestedPriceCents !== void 0 ? toDecimal2(requestedPriceCents) : null, requestedCostCents !== void 0 ? toDecimal2(requestedCostCents) : null, requestedTax, nextStock, requestedReorder, requestedUnit]
             );
             const updated = (await tx.query(
               `SELECT id,store_id,sku,barcode,name,category_id,price_amount::text,cost_price_amount::text,currency,tax_rate_bps,current_stock,reorder_point,unit_of_measure
@@ -2884,7 +3474,7 @@ var registerCatalogImportRoute = (app, db) => {
                 `INSERT INTO prodx_inventory_ledger(id,organization_id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id)
                  VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
                  RETURNING id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id,created_at`,
-                [crypto13.randomUUID(), context.principal.organizationId, context.principal.storeId, existing.id, delta, nextStock, reason, operationId, context.principal.userId]
+                [crypto15.randomUUID(), context.principal.organizationId, context.principal.storeId, existing.id, delta, nextStock, reason, operationId, context.principal.userId]
               )).rows[0];
               ledgerEntries.push(ledgerDto(ledger));
             }
@@ -2895,14 +3485,14 @@ var registerCatalogImportRoute = (app, db) => {
             }
             const initialStock = mode === "stock_replenish" ? Math.max(0, requestedDelta ?? 0) : Math.max(0, requestedStock ?? requestedDelta ?? 0);
             const priceCents = requestedPriceCents ?? 1e3;
-            const costCents = requestedCostCents ?? Math.round(priceCents * 0.4);
-            const newId = crypto13.randomUUID();
+            const costCents = requestedCostCents ?? Number((BigInt(priceCents) * 4000n + 5000n) / 10000n);
+            const newId = crypto15.randomUUID();
             const finalBarcode = barcode || `IMPORT-${operationId.slice(0, 8)}-${index + 1}`;
             await tx.query(
               `INSERT INTO prodx_products
                  (id,organization_id,store_id,category_id,sku,barcode,name,price_amount,cost_price_amount,currency,tax_rate_bps,current_stock,reorder_point,unit_of_measure)
-               VALUES($1,$2,$3,$4,$5,$6,$7,$8::numeric/100,$9::numeric/100,'THB',$10,$11,$12,$13)`,
-              [newId, context.principal.organizationId, context.principal.storeId, categoryId, sku, finalBarcode, requestedName ?? `Item ${sku}`, priceCents, costCents, requestedTax ?? 700, initialStock, requestedReorder ?? 10, requestedUnit ?? "piece"]
+               VALUES($1,$2,$3,$4,$5,$6,$7,$8::numeric,$9::numeric,'THB',$10,$11,$12,$13)`,
+              [newId, context.principal.organizationId, context.principal.storeId, categoryId, sku, finalBarcode, requestedName ?? `Item ${sku}`, toDecimal2(priceCents), toDecimal2(costCents), requestedTax ?? 700, initialStock, requestedReorder ?? 10, requestedUnit ?? "piece"]
             );
             const created = (await tx.query(
               `SELECT id,store_id,sku,barcode,name,category_id,price_amount::text,cost_price_amount::text,currency,tax_rate_bps,current_stock,reorder_point,unit_of_measure
@@ -2915,7 +3505,7 @@ var registerCatalogImportRoute = (app, db) => {
                 `INSERT INTO prodx_inventory_ledger(id,organization_id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id)
                  VALUES($1,$2,$3,$4,$5,$6,'purchase_received',$7,$8)
                  RETURNING id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id,created_at`,
-                [crypto13.randomUUID(), context.principal.organizationId, context.principal.storeId, newId, initialStock, initialStock, operationId, context.principal.userId]
+                [crypto15.randomUUID(), context.principal.organizationId, context.principal.storeId, newId, initialStock, initialStock, operationId, context.principal.userId]
               )).rows[0];
               ledgerEntries.push(ledgerDto(ledger));
             }
@@ -2926,7 +3516,7 @@ var registerCatalogImportRoute = (app, db) => {
         await tx.query(
           `INSERT INTO prodx_audit_log(id,organization_id,store_id,user_id,action,severity,details)
            VALUES($1,$2,$3,$4,'catalog_bulk_imported','info',$5::jsonb)`,
-          [crypto13.randomUUID(), context.principal.organizationId, context.principal.storeId, context.principal.userId, JSON.stringify({ batchReference, mode, totalItems: normalizedItems.length, createdCount: createdProducts.length, updatedCount: updatedProducts.length, skippedCount: errors.length, notes })]
+          [crypto15.randomUUID(), context.principal.organizationId, context.principal.storeId, context.principal.userId, JSON.stringify({ batchReference, mode, totalItems: normalizedItems.length, createdCount: createdProducts.length, updatedCount: updatedProducts.length, skippedCount: errors.length, notes })]
         );
         return result2;
       });
@@ -2943,7 +3533,14 @@ var registerCatalogImportRoute = (app, db) => {
 };
 
 // server/http/catalog-pricing-route.ts
-import crypto14 from "node:crypto";
+import crypto16 from "node:crypto";
+var dbCents4 = (value) => {
+  const match = /^(\d+)(?:\.(\d{1,2}))?$/.exec(String(value ?? "").trim());
+  if (!match) throw new Error(`Invalid database monetary value: ${String(value)}`);
+  const cents3 = BigInt(match[1]) * 100n + BigInt((match[2] ?? "").padEnd(2, "0"));
+  if (cents3 > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error("Database monetary value exceeds safe integer range");
+  return Number(cents3);
+};
 var productDto3 = (row) => ({
   id: row.id,
   storeId: row.store_id,
@@ -2951,14 +3548,14 @@ var productDto3 = (row) => ({
   barcode: row.barcode,
   name: row.name,
   categoryId: row.category_id,
-  price: { amountInCents: Math.round(Number(row.price_amount) * 100), currency: row.currency },
-  costPrice: { amountInCents: Math.round(Number(row.cost_price_amount) * 100), currency: row.currency },
+  price: { amountInCents: dbCents4(row.price_amount), currency: row.currency },
+  costPrice: { amountInCents: dbCents4(row.cost_price_amount), currency: row.currency },
   taxRateBps: row.tax_rate_bps,
   currentStock: row.current_stock,
   reorderPoint: row.reorder_point,
   unitOfMeasure: row.unit_of_measure
 });
-var hashPayload3 = (value) => crypto14.createHash("sha256").update(JSON.stringify(value)).digest("hex");
+var hashPayload3 = (value) => crypto16.createHash("sha256").update(JSON.stringify(value)).digest("hex");
 var registerCatalogPricingRoute = (app, db) => {
   app.post("/api/v1/catalog/pricing/bulk", requirePermission("catalog.write"), async (request, response) => {
     const context = request.prodxContext;
@@ -3002,7 +3599,7 @@ var registerCatalogPricingRoute = (app, db) => {
           `INSERT INTO prodx_catalog_pricing_operations (id,organization_id,store_id,actor_user_id,idempotency_key,payload_hash,result)
            VALUES($1,$2,$3,$4,$5,$6,'[]'::jsonb)
            ON CONFLICT(organization_id,store_id,actor_user_id,idempotency_key) DO NOTHING RETURNING id`,
-          [crypto14.randomUUID(), context.principal.organizationId, context.principal.storeId, context.principal.userId, idempotencyKey, payloadHash]
+          [crypto16.randomUUID(), context.principal.organizationId, context.principal.storeId, context.principal.userId, idempotencyKey, payloadHash]
         );
         if (!inserted.rows[0]) {
           const existing = await tx.query(
@@ -3032,7 +3629,7 @@ var registerCatalogPricingRoute = (app, db) => {
         await tx.query(
           `INSERT INTO prodx_audit_log(id,organization_id,store_id,user_id,action,severity,details)
            VALUES($1,$2,$3,$4,'catalog_price_bulk_updated','info',$5::jsonb)`,
-          [crypto14.randomUUID(), context.principal.organizationId, context.principal.storeId, context.principal.userId, JSON.stringify({ productIds, priceChangeType, value, idempotencyKey })]
+          [crypto16.randomUUID(), context.principal.organizationId, context.principal.storeId, context.principal.userId, JSON.stringify({ productIds, priceChangeType, value, idempotencyKey })]
         );
         return { idempotencyCached: false, products };
       });
@@ -3249,29 +3846,35 @@ var registerSupervisorAuthorizationRoute = (app, db) => {
       response.status(400).json({ error: { code: "SUPERVISOR_AUTH_VALIDATION_FAILED", message: "Malformed supervisor authorization request." } });
       return;
     }
-    try {
-      const result = await db.transaction((tx) => createSupervisorAuthorizationService({
-        query: async (sql, parameters = []) => (await tx.query(sql, parameters)).rows
-      }).authorize({
-        organizationId: context.principal.organizationId,
-        storeId: context.principal.storeId,
-        requesterUserId: context.principal.userId,
-        requesterSessionId: sessionId,
-        action: request.body.action,
-        orderId: request.body.orderId,
-        supervisorUsername: request.body.supervisorUsername,
-        supervisorUserId: request.body.supervisorUserId,
-        supervisorSecret: request.body.supervisorSecret
-      }));
-      response.status(201).json(result);
-    } catch (error4) {
-      if (error4 instanceof SupervisorAuthorizationError) {
-        const status = error4.code === "SUPERVISOR_NOT_ALLOWED" ? 403 : 401;
-        response.status(status).json({ error: { code: error4.code, message: "Supervisor authorization was not granted." } });
-        return;
+    const outcome = await db.transaction(async (tx) => {
+      try {
+        const result = await createSupervisorAuthorizationService({
+          query: async (sql, parameters = []) => (await tx.query(sql, parameters)).rows
+        }).authorize({
+          organizationId: context.principal.organizationId,
+          storeId: context.principal.storeId,
+          requesterUserId: context.principal.userId,
+          requesterSessionId: sessionId,
+          action: request.body.action,
+          orderId: request.body.orderId,
+          supervisorUsername: request.body.supervisorUsername,
+          supervisorUserId: request.body.supervisorUserId,
+          supervisorSecret: request.body.supervisorSecret
+        });
+        return { ok: true, result };
+      } catch (error4) {
+        if (error4 instanceof SupervisorAuthorizationError) {
+          return { ok: false, error: error4 };
+        }
+        throw error4;
       }
-      throw error4;
+    });
+    if (!outcome.ok) {
+      const status = outcome.error.code === "SUPERVISOR_NOT_ALLOWED" ? 403 : 401;
+      response.status(status).json({ error: { code: outcome.error.code, message: "Supervisor authorization was not granted." } });
+      return;
     }
+    response.status(201).json(outcome.result);
   });
 };
 
@@ -3422,7 +4025,7 @@ var registerOrderReadRoute = (app, db, permission = "pos.sell") => {
 };
 
 // server/transactions/void-service.ts
-import crypto15 from "node:crypto";
+import crypto17 from "node:crypto";
 var VoidValidationError = class extends Error {
   constructor() {
     super(...arguments);
@@ -3441,7 +4044,7 @@ var VoidProviderUnavailableError = class extends Error {
     this.code = "VOID_PROVIDER_UNAVAILABLE";
   }
 };
-var dbCents3 = (value) => {
+var dbCents5 = (value) => {
   const match = /^(\d+)\.(\d{2})$/.exec(String(value));
   if (!match) throw new VoidValidationError("Database monetary value is invalid.");
   return BigInt(match[1]) * 100n + BigInt(match[2]);
@@ -3496,11 +4099,11 @@ var createVoidService = (db) => ({
       if (payments.some((payment) => payment.method !== "cash")) throw new VoidProviderUnavailableError("Card and QR voids require a configured payment-provider void adapter; the server fails closed until one is configured.");
       const orderCurrency = String(order.currency).trim();
       if (payments.some((payment) => String(payment.currency).trim() !== orderCurrency)) throw new VoidConflictError("The order contains a payment recorded in a different currency.");
-      const paid = payments.reduce((sum, payment) => sum + dbCents3(payment.amount), 0n);
-      if (paid !== dbCents3(order.grand_total_amount)) throw new VoidConflictError("Recorded cash payments do not match the order total.");
+      const paid = payments.reduce((sum, payment) => sum + dbCents5(payment.amount), 0n);
+      if (paid !== dbCents5(order.grand_total_amount)) throw new VoidConflictError("Recorded cash payments do not match the order total.");
       const shift = (await tx.query("SELECT id FROM prodx_shifts WHERE id=$1 AND store_id=$2 AND status='open' FOR UPDATE", [order.shift_id, request.storeId])).rows[0];
       if (!shift) throw new VoidConflictError("The originating shift is not open; cash reversal cannot be committed.");
-      const voidId = crypto15.randomUUID();
+      const voidId = crypto17.randomUUID();
       const inserted = (await tx.query(
         "INSERT INTO prodx_voids (id,organization_id,store_id,order_id,reason,authorized_by_user_id,requester_user_id,idempotency_key) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING RETURNING id",
         [voidId, order.organization_id, request.storeId, request.orderId, request.reason.trim(), supervisorUserId, request.requesterUserId, request.idempotencyKey]
@@ -3519,19 +4122,19 @@ var createVoidService = (db) => ({
         if (!stock) throw new VoidConflictError(`Product ${item.product_id} is unavailable for void reversal.`);
         await tx.query(
           "INSERT INTO prodx_inventory_ledger (id,organization_id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id) VALUES($1,$2,$3,$4,$5,$6,'void_reversal',$7,$8)",
-          [crypto15.randomUUID(), order.organization_id, request.storeId, item.product_id, item.quantity, stock.current_stock, voidId, supervisorUserId]
+          [crypto17.randomUUID(), order.organization_id, request.storeId, item.product_id, item.quantity, stock.current_stock, voidId, supervisorUserId]
         );
       }
-      const amount = dbCents3(order.grand_total_amount);
+      const amount = dbCents5(order.grand_total_amount);
       await tx.query(
         "INSERT INTO prodx_cash_movements (id,organization_id,store_id,shift_id,type,amount,reason,performed_by_user_id,currency) VALUES($1,$2,$3,$4,'cash_refund',$5,$6,$7,$8)",
-        [crypto15.randomUUID(), order.organization_id, request.storeId, shift.id, numeric3(amount), `Void for Order #${order.order_number}: ${request.reason.trim()}`, supervisorUserId, orderCurrency]
+        [crypto17.randomUUID(), order.organization_id, request.storeId, shift.id, numeric3(amount), `Void for Order #${order.order_number}: ${request.reason.trim()}`, supervisorUserId, orderCurrency]
       );
       await tx.query("UPDATE prodx_orders SET status=$1 WHERE id=$2 AND store_id=$3", ["voided", request.orderId, request.storeId]);
       await tx.query(
         "INSERT INTO prodx_audit_log (id,organization_id,store_id,register_id,user_id,action,severity,details) VALUES($1,$2,$3,$4,$5,'order_void_committed','critical',$6::jsonb)",
         [
-          crypto15.randomUUID(),
+          crypto17.randomUUID(),
           order.organization_id,
           request.storeId,
           order.register_id,
@@ -3597,7 +4200,7 @@ var registerVoidRoute = (app, db) => {
 };
 
 // server/transactions/inventory-adjustment-service.ts
-import crypto16 from "node:crypto";
+import crypto18 from "node:crypto";
 var InventoryAdjustmentValidationError = class extends Error {
   constructor() {
     super(...arguments);
@@ -3627,16 +4230,16 @@ var createInventoryAdjustmentService = (db) => ({
       const products = (await tx.query("SELECT id,current_stock FROM prodx_products WHERE organization_id=$1 AND store_id=$2 AND id=ANY($3::uuid[]) AND active=true ORDER BY id FOR UPDATE", [request.organizationId, request.storeId, productIds])).rows;
       if (products.length !== productIds.length) throw new InventoryAdjustmentValidationError("One or more products do not belong to the authenticated store or are inactive.");
       if (request.quantityDelta < 0 && products.some((p) => p.current_stock + request.quantityDelta < 0)) throw new InventoryAdjustmentConflictError("Inventory adjustment would make stock negative.");
-      const adjustmentId = crypto16.randomUUID();
+      const adjustmentId = crypto18.randomUUID();
       const inserted = (await tx.query("INSERT INTO prodx_inventory_adjustments (id,organization_id,store_id,requester_user_id,idempotency_key,quantity_delta,reason,product_ids,notes) VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9) ON CONFLICT (store_id,idempotency_key) DO NOTHING RETURNING id", [adjustmentId, request.organizationId, request.storeId, request.requesterUserId, request.idempotencyKey.trim(), request.quantityDelta, request.reason, JSON.stringify(productIds), request.notes?.trim() || null])).rows[0];
       if (!inserted) throw new InventoryAdjustmentConflictError("Concurrent inventory adjustment detected; retry with the same idempotency key.");
       const entries = [];
       for (const product of products) {
         const updated = (await tx.query("UPDATE prodx_products SET current_stock=current_stock+$1,updated_at=CURRENT_TIMESTAMP WHERE id=$2 AND store_id=$3 RETURNING current_stock", [request.quantityDelta, product.id, request.storeId])).rows[0];
-        const entry = (await tx.query("INSERT INTO prodx_inventory_ledger (id,organization_id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id,created_at", [crypto16.randomUUID(), request.organizationId, request.storeId, product.id, request.quantityDelta, updated.current_stock, request.reason, adjustmentId, request.requesterUserId])).rows[0];
+        const entry = (await tx.query("INSERT INTO prodx_inventory_ledger (id,organization_id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id,created_at", [crypto18.randomUUID(), request.organizationId, request.storeId, product.id, request.quantityDelta, updated.current_stock, request.reason, adjustmentId, request.requesterUserId])).rows[0];
         entries.push(entry);
       }
-      await tx.query("INSERT INTO prodx_audit_log (id,organization_id,store_id,user_id,action,severity,details) VALUES($1,$2,$3,$4,'inventory_adjustment_committed','critical',$5::jsonb)", [crypto16.randomUUID(), request.organizationId, request.storeId, request.requesterUserId, JSON.stringify({ adjustmentId, productIds, quantityDelta: request.quantityDelta, reason: request.reason, idempotencyKey: request.idempotencyKey.trim() })]);
+      await tx.query("INSERT INTO prodx_audit_log (id,organization_id,store_id,user_id,action,severity,details) VALUES($1,$2,$3,$4,'inventory_adjustment_committed','critical',$5::jsonb)", [crypto18.randomUUID(), request.organizationId, request.storeId, request.requesterUserId, JSON.stringify({ adjustmentId, productIds, quantityDelta: request.quantityDelta, reason: request.reason, idempotencyKey: request.idempotencyKey.trim() })]);
       return { success: true, idempotencyCached: false, adjustmentId, entries };
     });
   }
@@ -5068,40 +5671,27 @@ var FirmwareRegistryService = class {
 var firmwareRegistryService = new FirmwareRegistryService();
 
 // server/services/systemHealthCheckService.ts
-var CLOUD_SQL_PROJECT_ID = "gen-lang-client-0282713343";
-var CLOUD_SQL_REGION = "asia-southeast1";
-var FIRESTORE_PROJECT_ID = "modified-bit-mct7q";
-var FIRESTORE_DATABASE_ID = "ai-studio-prodxpos-069bc919-d8b1-4f51-9f13-c61a86822990";
-var FIRESTORE_REGION = "asia-southeast1";
+var POSTGRES_PROJECT_ID = "wcyqyiewbzpmrekoljfw";
+var POSTGRES_REGION = "ap-southeast-1";
 var APPLET_ID = "069bc919-d8b1-4f51-9f13-c61a86822990";
-var FIRESTORE_COLLECTIONS = [
-  "audit_logs",
-  "AppErrorLog",
-  "organizations",
-  "branches",
-  "terminals",
-  "diagnostic_logs",
-  "admin_credentials"
-];
 async function pingCloudSql(pool) {
   const started = performance.now();
+  const base = {
+    service: "PostgreSQL (Supabase session pooler)",
+    engine: "PostgreSQL (Supabase session pooler)",
+    region: POSTGRES_REGION,
+    projectId: POSTGRES_PROJECT_ID,
+    database: "postgres"
+  };
   if (!pool) {
-    const latencyMs = Number((performance.now() - started).toFixed(1));
     return {
-      service: "Google Cloud SQL (PostgreSQL)",
+      ...base,
       statusCode: 503,
       status: "unreachable",
-      latencyMs,
-      engine: "PostgreSQL 16 (Google Cloud SQL)",
-      region: CLOUD_SQL_REGION,
-      projectId: CLOUD_SQL_PROJECT_ID,
-      database: "prodx_pos",
-      error: "PostgreSQL pool not available (DATABASE_URL not configured).",
-      code: "DATABASE_URL_MISSING",
-      details: {
-        configured: Boolean(process.env.DATABASE_URL),
-        target: classifyProductionDatabaseTarget(process.env.DATABASE_URL)
-      }
+      latencyMs: Number((performance.now() - started).toFixed(1)),
+      error: "PostgreSQL pool is unavailable.",
+      code: "POSTGRES_POOL_UNAVAILABLE",
+      details: { configured: false }
     };
   }
   try {
@@ -5109,18 +5699,13 @@ async function pingCloudSql(pool) {
       "SELECT 1 AS ping, NOW() AS server_time, version() AS version;"
     );
     const latencyMs = Number((performance.now() - started).toFixed(1));
-    const rawVersion = result.rows[0]?.version || "PostgreSQL 16";
-    const versionMatch = rawVersion.match(/PostgreSQL\s+([\d.]+)/i);
-    const engine = versionMatch ? `PostgreSQL ${versionMatch[1]} (Cloud SQL)` : "PostgreSQL 16 (Cloud SQL)";
+    const versionMatch = (result.rows[0]?.version || "").match(/PostgreSQL\s+([\d.]+)/i);
     return {
-      service: "Google Cloud SQL (PostgreSQL)",
+      ...base,
+      engine: versionMatch ? `PostgreSQL ${versionMatch[1]} (Supabase session pooler)` : base.engine,
       statusCode: 200,
       status: "connected",
       latencyMs,
-      engine,
-      region: CLOUD_SQL_REGION,
-      projectId: CLOUD_SQL_PROJECT_ID,
-      database: "prodx_pos",
       serverTime: result.rows[0]?.server_time || (/* @__PURE__ */ new Date()).toISOString(),
       poolStats: {
         totalConnections: pool.totalCount ?? 1,
@@ -5130,129 +5715,64 @@ async function pingCloudSql(pool) {
       queryProbe: "SELECT 1 -> OK"
     };
   } catch (error4) {
-    const latencyMs = Number((performance.now() - started).toFixed(1));
     const candidate = error4 && typeof error4 === "object" ? error4 : {};
     return {
-      service: "Google Cloud SQL (PostgreSQL)",
+      ...base,
       statusCode: 503,
       status: "unreachable",
-      latencyMs,
-      engine: "PostgreSQL 16 (Google Cloud SQL)",
-      region: CLOUD_SQL_REGION,
-      projectId: CLOUD_SQL_PROJECT_ID,
-      database: "prodx_pos",
-      error: candidate.message || "Database ping query failed.",
-      code: candidate.code || "QUERY_FAILED",
-      details: {
-        configured: Boolean(process.env.DATABASE_URL),
-        target: classifyProductionDatabaseTarget(process.env.DATABASE_URL)
-      }
+      latencyMs: Number((performance.now() - started).toFixed(1)),
+      error: candidate.message || "PostgreSQL health query failed.",
+      code: candidate.code || "QUERY_FAILED"
     };
   }
 }
 async function pingFirestore() {
-  const started = performance.now();
-  const restUrl = `https://firestore.googleapis.com/v1/projects/${FIRESTORE_PROJECT_ID}/databases/${FIRESTORE_DATABASE_ID}/documents`;
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 4e3);
-    const response = await fetch(restUrl, {
-      method: "GET",
-      headers: {
-        Accept: "application/json"
-      },
-      signal: controller.signal
-    }).finally(() => clearTimeout(timer));
-    const latencyMs = Number((performance.now() - started).toFixed(1));
-    const isResponding = response.status === 200 || response.status === 401 || response.status === 403 || response.status === 404;
-    return {
-      service: "Google Cloud Firestore",
-      statusCode: isResponding ? 200 : 503,
-      status: isResponding ? "connected" : "degraded",
-      latencyMs,
-      databaseId: FIRESTORE_DATABASE_ID,
-      projectId: FIRESTORE_PROJECT_ID,
-      region: FIRESTORE_REGION,
-      endpoint: `projects/${FIRESTORE_PROJECT_ID}/databases/${FIRESTORE_DATABASE_ID}`,
-      verifiedCollections: FIRESTORE_COLLECTIONS,
-      httpStatus: response.status,
-      verificationMode: "rest_probe"
-    };
-  } catch (error4) {
-    const latencyMs = Number((performance.now() - started).toFixed(1));
-    const message = error4 instanceof Error ? error4.message : String(error4);
-    return {
-      service: "Google Cloud Firestore",
-      statusCode: 503,
-      status: "unreachable",
-      latencyMs,
-      databaseId: FIRESTORE_DATABASE_ID,
-      projectId: FIRESTORE_PROJECT_ID,
-      region: FIRESTORE_REGION,
-      endpoint: `projects/${FIRESTORE_PROJECT_ID}/databases/${FIRESTORE_DATABASE_ID}`,
-      verifiedCollections: FIRESTORE_COLLECTIONS,
-      verificationMode: "rest_probe",
-      error: message
-    };
-  }
+  return {
+    service: "Firestore (retired)",
+    statusCode: 503,
+    status: "disabled",
+    latencyMs: 0,
+    databaseId: "retired",
+    projectId: "retired",
+    region: "retired",
+    endpoint: "disabled",
+    verifiedCollections: [],
+    verificationMode: "disabled",
+    error: "Firestore integration was retired; PostgreSQL on Supabase is the production data store."
+  };
 }
 async function performEndToEndHealthCheck(pool, requestId2 = `shc-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`) {
   const overallStart = performance.now();
-  const [cloudSql, firestore] = await Promise.all([
-    pingCloudSql(pool),
-    pingFirestore()
-  ]);
+  const [postgres, firestore] = await Promise.all([pingCloudSql(pool), pingFirestore()]);
   const totalDurationMs = Number((performance.now() - overallStart).toFixed(1));
-  let statusCode = 200;
-  let status = "HEALTHY";
-  let summary = "";
-  const isSqlOk = cloudSql.statusCode === 200;
-  const isFirestoreOk = firestore.statusCode === 200;
-  if (isSqlOk && isFirestoreOk) {
-    statusCode = 200;
-    status = "HEALTHY";
-    summary = "All backend services operational (Cloud SQL & Firestore ping succeeded).";
-  } else if (isSqlOk || isFirestoreOk) {
-    statusCode = 207;
-    status = "DEGRADED";
-    const upService = isSqlOk ? "Cloud SQL" : "Firestore";
-    const downService = isSqlOk ? "Firestore" : "Cloud SQL";
-    summary = `Degraded state: ${upService} is operational, but ${downService} returned an error.`;
-  } else {
-    statusCode = 503;
-    status = "DOWN";
-    summary = "All probed backend services are unreachable or degraded.";
-  }
-  const memoryUsage = process.memoryUsage();
-  const memoryUsageMb = Number((memoryUsage.heapUsed / (1024 * 1024)).toFixed(1));
+  const healthy = postgres.statusCode === 200;
+  const memoryUsageMb = Number((process.memoryUsage().heapUsed / (1024 * 1024)).toFixed(1));
   return {
-    statusCode,
-    status,
+    statusCode: healthy ? 200 : 503,
+    status: healthy ? "HEALTHY" : "DOWN",
     timestamp: (/* @__PURE__ */ new Date()).toISOString(),
     requestId: requestId2,
     totalDurationMs,
     environment: {
-      nodeEnv: process.env.NODE_ENV || "development",
+      nodeEnv: process.env.VERCEL_ENV || process.env.NODE_ENV || "unknown",
       appletId: APPLET_ID,
-      region: CLOUD_SQL_REGION,
-      cloudSqlProject: CLOUD_SQL_PROJECT_ID,
-      firestoreDatabaseId: FIRESTORE_DATABASE_ID
+      region: POSTGRES_REGION,
+      cloudSqlProject: POSTGRES_PROJECT_ID,
+      firestoreDatabaseId: "retired"
     },
-    services: {
-      cloudSql,
-      firestore
-    },
-    diagnostics: {
-      uptimeSeconds: Math.floor(process.uptime()),
-      memoryUsageMb
-    },
-    summary
+    services: { cloudSql: postgres, firestore },
+    diagnostics: { uptimeSeconds: Math.floor(process.uptime()), memoryUsageMb },
+    summary: healthy ? "Supabase PostgreSQL health query succeeded. Firestore is retired and is not probed." : "Production PostgreSQL health query failed."
   };
 }
 
 // server/http/infrastructureRoutes.ts
-import { GoogleGenAI as GoogleGenAI2 } from "@google/genai";
-function registerInfrastructureRoutes(app, pool) {
+var registeredPublicInfraApps = /* @__PURE__ */ new WeakSet();
+function registerPublicInfrastructureRoutes(app, pool) {
+  if (registeredPublicInfraApps.has(app)) {
+    return;
+  }
+  registeredPublicInfraApps.add(app);
   app.get("/api/v1/infrastructure/system-health-check", async (req, res) => {
     try {
       const requestId2 = req.headers["x-request-id"] || req.id || `req-${Date.now()}`;
@@ -5301,29 +5821,16 @@ function registerInfrastructureRoutes(app, pool) {
         sqlSuccess = true;
       } catch (err) {
         sqlQueryDurationMs = Number((performance.now() - sqlQueryStart).toFixed(2));
-        sqlError = err?.message || "Cloud SQL query failed";
+        sqlError = err?.message || "PostgreSQL query failed";
       }
     } else {
       sqlError = "PostgreSQL pool not available";
     }
-    const firestoreStart = performance.now();
-    let firestoreDurationMs = 0;
-    let firestoreSuccess = false;
-    try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 2e3);
-      const fsResp = await fetch(
-        "https://firestore.googleapis.com/v1/projects/modified-bit-mct7q/databases/ai-studio-prodxpos-069bc919-d8b1-4f51-9f13-c61a86822990/documents",
-        { signal: controller.signal }
-      ).finally(() => clearTimeout(timer));
-      firestoreDurationMs = Number((performance.now() - firestoreStart).toFixed(2));
-      firestoreSuccess = fsResp.status === 200 || fsResp.status === 401 || fsResp.status === 403 || fsResp.status === 404;
-    } catch {
-      firestoreDurationMs = Number((performance.now() - firestoreStart).toFixed(2));
-    }
+    const firestoreDurationMs = 0;
+    const firestoreSuccess = false;
     const serverProcessTimeMs = Number((performance.now() - serverReceiveTime).toFixed(2));
     res.json({
-      success: true,
+      success: sqlSuccess,
       serverReceiveTimestamp: serverReceiveTime,
       serverTimestampIso: (/* @__PURE__ */ new Date()).toISOString(),
       clientSentTimestamp,
@@ -5332,17 +5839,29 @@ function registerInfrastructureRoutes(app, pool) {
         success: sqlSuccess,
         queryDurationMs: sqlQueryDurationMs,
         error: sqlError,
-        engine: "PostgreSQL 16 (Cloud SQL)",
-        region: "asia-southeast1",
-        projectId: "gen-lang-client-0282713343"
+        engine: "PostgreSQL (Supabase session pooler)",
+        region: "ap-southeast-1",
+        projectId: "wcyqyiewbzpmrekoljfw"
       },
       firestoreBackend: {
         success: firestoreSuccess,
         probeDurationMs: firestoreDurationMs,
-        databaseId: "ai-studio-prodxpos-069bc919-d8b1-4f51-9f13-c61a86822990",
-        region: "asia-southeast1"
+        databaseId: "retired",
+        region: "retired",
+        disabled: true
       }
     });
+  });
+}
+function registerInfrastructureRoutes(app, pool) {
+  registerPublicInfrastructureRoutes(app, pool);
+  const enforceInfraRbac = requirePermission("settings.manage");
+  app.use("/api/v1/infrastructure", (req, res, next) => {
+    if (req.path === "/system-health-check" || req.path === "/latency-ping") {
+      next();
+      return;
+    }
+    void enforceInfraRbac(req, res, next);
   });
   app.get("/api/v1/infrastructure/health", (_req, res) => {
     try {
@@ -5637,37 +6156,14 @@ function registerInfrastructureRoutes(app, pool) {
       res.status(500).json({ success: false, error: error4.message || "Single hardware device test failed" });
     }
   });
-  app.post("/api/v1/ai/frontend-assistant", async (req, res) => {
-    try {
-      const { prompt, history } = req.body;
-      if (!prompt) {
-        return res.status(400).json({ success: false, error: "prompt is required" });
-      }
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) {
-        return res.json({
-          success: true,
-          response: `\u0E22\u0E34\u0E19\u0E14\u0E35\u0E15\u0E49\u0E2D\u0E19\u0E23\u0E31\u0E1A\u0E04\u0E23\u0E31\u0E1A! \u0E43\u0E19\u0E10\u0E32\u0E19\u0E30 Gemini AI Assistant \u0E1B\u0E23\u0E30\u0E08\u0E33 PRODX-POS \u0E1C\u0E21\u0E1E\u0E23\u0E49\u0E2D\u0E21\u0E0A\u0E48\u0E27\u0E22\u0E40\u0E2B\u0E25\u0E37\u0E2D\u0E04\u0E38\u0E13\u0E43\u0E19\u0E01\u0E32\u0E23\u0E43\u0E0A\u0E49\u0E07\u0E32\u0E19\u0E23\u0E30\u0E1A\u0E1A POS, \u0E01\u0E32\u0E23\u0E08\u0E31\u0E14\u0E01\u0E32\u0E23\u0E2A\u0E15\u0E47\u0E2D\u0E01, \u0E01\u0E32\u0E23\u0E0A\u0E33\u0E23\u0E30\u0E40\u0E07\u0E34\u0E19 \u0E2B\u0E23\u0E37\u0E2D\u0E01\u0E32\u0E23\u0E15\u0E23\u0E27\u0E08\u0E2A\u0E2D\u0E1A\u0E2D\u0E38\u0E1B\u0E01\u0E23\u0E13\u0E4C\u0E04\u0E23\u0E31\u0E1A (\u0E2B\u0E21\u0E32\u0E22\u0E40\u0E2B\u0E15\u0E38: \u0E01\u0E23\u0E38\u0E13\u0E32\u0E15\u0E31\u0E49\u0E07\u0E04\u0E48\u0E32 GEMINI_API_KEY \u0E40\u0E1E\u0E37\u0E48\u0E2D\u0E40\u0E1B\u0E34\u0E14\u0E43\u0E0A\u0E49\u0E07\u0E32\u0E19\u0E04\u0E27\u0E32\u0E21\u0E2A\u0E32\u0E21\u0E32\u0E23\u0E16\u0E40\u0E15\u0E47\u0E21\u0E23\u0E39\u0E1B\u0E41\u0E1A\u0E1A)`
-        });
-      }
-      const ai = new GoogleGenAI2({ apiKey });
-      const interaction = await ai.interactions.create({
-        model: "gemini-3.8-flash",
-        system_instruction: "You are the intelligent frontend AI assistant for PRODX-POS, a professional Point of Sale system. Assist cashiers and store managers in polite, professional Thai language regarding POS operations, sales, refunds, inventory, and hardware.",
-        input: prompt
-      });
-      const responseText = interaction.output_text || "\u0E02\u0E2D\u0E2D\u0E20\u0E31\u0E22\u0E04\u0E23\u0E31\u0E1A \u0E44\u0E21\u0E48\u0E2A\u0E32\u0E21\u0E32\u0E23\u0E16\u0E1B\u0E23\u0E30\u0E21\u0E27\u0E25\u0E1C\u0E25\u0E04\u0E33\u0E15\u0E2D\u0E1A\u0E44\u0E14\u0E49\u0E43\u0E19\u0E02\u0E13\u0E30\u0E19\u0E35\u0E49";
-      res.json({ success: true, response: responseText });
-    } catch (error4) {
-      res.status(500).json({ success: false, error: error4.message || "AI Assistant request failed" });
-    }
-  });
 }
 
 // server/ai/http-route.ts
 var DEFAULT_PERMISSION = "ai:use";
 var MAX_BODY_BYTES = 64 * 1024;
 var ALLOWED_ROLES = ["system", "user", "assistant"];
+var ALLOWED_HISTORY_ROLES = ["user", "assistant"];
+var FRONTEND_ASSISTANT_CONTEXT_PROMPT = "You are the intelligent frontend AI assistant for PRODX-POS, a professional Point of Sale system. Assist authorized store staff in polite, professional Thai language regarding POS operations, sales, refunds, inventory, and hardware.";
 function installAIHttpRoute(router, options) {
   const permission = options.permission ?? DEFAULT_PERMISSION;
   router.post("/chat", requirePermission(permission), async (request, response, next) => {
@@ -5707,6 +6203,55 @@ function installAIHttpRoute(router, options) {
       next(error4);
     }
   });
+  router.post("/frontend-assistant", requirePermission(permission), async (request, response, next) => {
+    try {
+      const context = request.prodxContext;
+      if (!context) {
+        response.status(401).json({
+          success: false,
+          error: { code: "UNAUTHENTICATED", message: "Authentication is required.", requestId: request.id }
+        });
+        return;
+      }
+      const body = parseFrontendAssistantBody(request.body);
+      const result = await options.gateway.chat({
+        requestId: request.id,
+        scope: context.principal,
+        permission,
+        messages: body.messages,
+        model: body.model,
+        temperature: body.temperature,
+        max_tokens: body.max_tokens
+      });
+      const responseText = extractFirstChoiceContent(result.choices);
+      response.status(200).json({
+        success: true,
+        response: responseText,
+        id: result.id,
+        model: result.model,
+        choices: result.choices,
+        usage: result.usage,
+        provider: result.provider,
+        requestId: request.id
+      });
+    } catch (error4) {
+      if (error4 instanceof AIRequestValidationError) {
+        response.status(error4.status).json({
+          success: false,
+          error: { code: error4.code, message: error4.message, requestId: request.id }
+        });
+        return;
+      }
+      if (error4 instanceof AIGatewayRequestValidationError) {
+        response.status(400).json({
+          success: false,
+          error: { code: error4.code, message: error4.message, requestId: request.id }
+        });
+        return;
+      }
+      next(error4);
+    }
+  });
 }
 function parseBody3(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -5738,6 +6283,70 @@ function parseBody3(value) {
   }
   return { messages, model: model || void 0, temperature, max_tokens: maxTokens };
 }
+function parseFrontendAssistantBody(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new AIRequestValidationError(400, "INVALID_REQUEST", "Request body must be an object.");
+  }
+  if (JSON.stringify(value).length > MAX_BODY_BYTES) {
+    throw new AIRequestValidationError(413, "REQUEST_TOO_LARGE", "AI request is too large.");
+  }
+  const body = value;
+  const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
+  if (!prompt) {
+    throw new AIRequestValidationError(400, "INVALID_PROMPT", "prompt is required.");
+  }
+  const historyMessages = [];
+  if (body.history !== void 0) {
+    if (!Array.isArray(body.history)) {
+      throw new AIRequestValidationError(400, "INVALID_HISTORY", "AI conversation history must be an array.");
+    }
+    for (const entry of body.history) {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+        throw new AIRequestValidationError(400, "INVALID_HISTORY", "Each AI history message must be an object.");
+      }
+      const candidate = entry;
+      if (!ALLOWED_HISTORY_ROLES.includes(candidate.role) || typeof candidate.content !== "string" || !candidate.content.trim()) {
+        throw new AIRequestValidationError(
+          400,
+          "INVALID_HISTORY",
+          "Each AI history message must contain a valid user/assistant role and non-empty string content."
+        );
+      }
+      historyMessages.push({
+        role: candidate.role,
+        content: candidate.content
+      });
+    }
+  }
+  const model = body.model === void 0 ? void 0 : typeof body.model === "string" ? body.model.trim() : null;
+  const temperature = body.temperature === void 0 ? void 0 : typeof body.temperature === "number" ? body.temperature : null;
+  const maxTokens = body.max_tokens === void 0 ? void 0 : typeof body.max_tokens === "number" ? body.max_tokens : null;
+  if (model === null || temperature === null || maxTokens === null) {
+    throw new AIRequestValidationError(400, "INVALID_OPTIONS", "AI model, temperature, and max_tokens must use valid types.");
+  }
+  return {
+    messages: [
+      { role: "system", content: FRONTEND_ASSISTANT_CONTEXT_PROMPT },
+      ...historyMessages,
+      { role: "user", content: prompt }
+    ],
+    model: model || void 0,
+    temperature,
+    max_tokens: maxTokens
+  };
+}
+function extractFirstChoiceContent(choices) {
+  const first = choices?.[0];
+  if (!first || typeof first !== "object" || Array.isArray(first)) {
+    return "";
+  }
+  const message = first.message;
+  if (!message || typeof message !== "object" || Array.isArray(message)) {
+    return "";
+  }
+  const content = message.content;
+  return typeof content === "string" ? content.trim() : "";
+}
 var AIRequestValidationError = class extends Error {
   constructor(status, code, message) {
     super(message);
@@ -5747,31 +6356,50 @@ var AIRequestValidationError = class extends Error {
   }
 };
 
+// server/http/retryable-initialization.ts
+var createRetryableInitialization = (initialize) => {
+  let current;
+  return (...args) => {
+    if (!current) {
+      let guarded;
+      guarded = Promise.resolve().then(() => initialize(...args)).catch((error4) => {
+        if (current === guarded) current = void 0;
+        throw error4;
+      });
+      current = guarded;
+    }
+    return current;
+  };
+};
+
 // server/entrypoint.ts
 var createProductionApp = async (options = {}) => {
   const pool = await createProductionPostgresPool({}, options.vercelOidcToken);
   const sql = asSqlExecutor(pool);
   const transactions = createTransactionalPostgresExecutor(pool);
-  const sessions = createPostgresAuthentication(sql);
-  const authorize = createPostgresAuthorization(sql);
-  const aiGateway = createAIGatewayService(sql, authorize);
+  const requestScopedSql = {
+    async query(statement, parameters = []) {
+      const result = await transactions.query(statement, parameters);
+      return result.rows;
+    }
+  };
+  const sessions = createPostgresAuthentication(sql, options.checkCompromisedPassword);
+  const authorize = createPostgresAuthorization(requestScopedSql);
+  const aiGateway = createAIGatewayService(requestScopedSql, authorize);
   const app = createApp({
     readinessCheck: async () => {
-      try {
-        await sql.query("SELECT 1 AS ok");
-      } catch (error4) {
-        const candidate = error4 && typeof error4 === "object" ? error4 : {};
-        throw Object.assign(new Error("Database readiness query failed."), {
-          stage: "database_query",
-          ...typeof candidate.code === "string" ? { code: candidate.code } : {},
-          ...candidate.syscall === "getaddrinfo" || candidate.syscall === "connect" || candidate.syscall === "read" || candidate.syscall === "write" ? { syscall: candidate.syscall } : {},
-          ...typeof candidate.port === "number" && Number.isInteger(candidate.port) && candidate.port >= 1 && candidate.port <= 65535 ? { port: candidate.port } : {}
-        });
-      }
+      await assertPostgresReady(pool);
     },
     configurePublicRoutes: (configuredApp) => {
-      registerAuthRoutes(configuredApp, sql, sessions);
-      registerInfrastructureRoutes(configuredApp, pool);
+      registerAuthRoutes(configuredApp, requestScopedSql, sessions, {
+        // Do not expose ordinary Supabase session exchange until the explicit production rollout gate is enabled.
+        supabaseSessionEnabled: process.env.SUPABASE_POS_AUTH_ENABLED === "true",
+        firstTenantBootstrap: {
+          repository: createPostgresFirstTenantBootstrapRepository(requestScopedSql),
+          config: readFirstTenantBootstrapConfig(process.env)
+        }
+      });
+      registerPublicInfrastructureRoutes(configuredApp, pool);
     },
     authenticateRequest: async (request) => {
       const header = request.header("authorization");
@@ -5781,6 +6409,7 @@ var createProductionApp = async (options = {}) => {
     authorizeRequest: authorize,
     configureRoutes: (configuredApp) => {
       registerAuditRoute(configuredApp, transactions);
+      registerTasksRoute(configuredApp, transactions);
       registerShiftRoute(configuredApp, transactions);
       registerTimeclockRoute(configuredApp, transactions);
       registerCheckoutRoute(configuredApp, transactions);
@@ -5794,6 +6423,7 @@ var createProductionApp = async (options = {}) => {
       registerOrderReadRoute(configuredApp, transactions);
       registerVoidRoute(configuredApp, transactions);
       registerInventoryAdjustmentRoute(configuredApp, transactions);
+      registerInfrastructureRoutes(configuredApp, pool);
       const aiRouter = express2.Router();
       installAIHttpRoute(aiRouter, { gateway: aiGateway });
       configuredApp.use("/api/v1/ai", aiRouter);
@@ -5825,5 +6455,6 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 }
 export {
   createProductionApp,
+  createRetryableInitialization,
   startProductionServer
 };

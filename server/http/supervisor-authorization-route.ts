@@ -102,9 +102,8 @@ export const registerSupervisorAuthorizationRoute = (app: Express, db: Transacti
         return;
       }
     }
-    try {
-      const outcome = await db.transaction(async (tx) => {
-        try {
+    const outcome = await db.transaction(async (tx) => {
+      try {
         const service = createSupervisorAuthorizationService({
           query: async <T extends Record<string, unknown>>(sql: string, parameters: readonly unknown[] = []) =>
             (await tx.query<T>(sql, parameters)).rows,
@@ -158,7 +157,7 @@ export const registerSupervisorAuthorizationRoute = (app: Express, db: Transacti
             [crypto.randomUUID(), context.principal.organizationId, context.principal.userId,
              JSON.stringify({ action: 'discount', idempotencyKey: checkout.idempotencyKey, payloadHash: checkoutAuthorizationFingerprint(checkout), thresholdBps: Number(policy.max_discount_without_approval_bps) })],
           );
-          return { result: await service.authorize({
+          const result = await service.authorize({
             organizationId: context.principal.organizationId,
             storeId: context.principal.storeId,
             requesterUserId: context.principal.userId,
@@ -172,9 +171,10 @@ export const registerSupervisorAuthorizationRoute = (app: Express, db: Transacti
             supervisorUserId,
             supervisorSecret: body.supervisorSecret,
             supervisorIdentityVerified,
-          }) };
+          });
+          return { ok: true as const, result };
         }
-        return { result: await service.authorize({
+        const result = await service.authorize({
           organizationId: context.principal.organizationId,
           storeId: context.principal.storeId,
           requesterUserId: context.principal.userId,
@@ -185,21 +185,22 @@ export const registerSupervisorAuthorizationRoute = (app: Express, db: Transacti
           supervisorUserId,
           supervisorSecret: body.supervisorSecret,
           supervisorIdentityVerified,
-        }) };
-        } catch (error) {
-          if (error instanceof SupervisorAuthorizationError) return { authorizationError: error };
-          throw error;
+        });
+        return { ok: true as const, result };
+      } catch (error) {
+        if (error instanceof SupervisorAuthorizationError) {
+          return { ok: false as const, error };
         }
-      });
-      if ('authorizationError' in outcome) throw outcome.authorizationError;
-      response.status(201).json(outcome.result);
-    } catch (error) {
-      if (error instanceof SupervisorAuthorizationError) {
-        const status = error.code === 'SUPERVISOR_NOT_ALLOWED' ? 403 : 401;
-        response.status(status).json({ error: { code: error.code, message: 'Supervisor authorization was not granted.' } });
-        return;
+        throw error;
       }
-      throw error;
+    });
+
+    if (!outcome.ok) {
+      const status = outcome.error.code === 'SUPERVISOR_NOT_ALLOWED' ? 403 : 401;
+      response.status(status).json({ error: { code: outcome.error.code, message: 'Supervisor authorization was not granted.' } });
+      return;
     }
+
+    response.status(201).json(outcome.result);
   });
 };

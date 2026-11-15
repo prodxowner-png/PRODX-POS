@@ -24,20 +24,19 @@ const input = {
   supervisorSecret: 'correct horse battery staple',
 };
 
-test('supervisor authorization issues scoped token and audit event atomically', async () => {
+test('supervisor authorization issues scoped token and audit event atomically via SECURITY DEFINER credential RPCs', async () => {
   const secretHash = await hashPassword(input.supervisorSecret);
   const calls: string[] = [];
   const db: SqlExecutor = {
     async query<T extends Record<string, unknown>>(sql: string): Promise<readonly T[]> {
       calls.push(sql);
-      if (sql.includes('prodx_auth_find_supervisor_credential')) {
-        return [{ userId: ids.supervisor, organizationId: ids.org, status: 'active', secretHash, failedAttempts: 0, lockedUntil: null }] as unknown as T[];
+      if (sql.includes('prodx_supervisor_find_credential')) {
+        return [{ userId: ids.supervisor, status: 'active', secretHash, failedAttempts: 0, lockedUntil: null }] as unknown as T[];
       }
-      if (sql.includes('prodx_auth_reset_failed_attempts')) return [] as unknown as T[];
+      if (sql.includes('prodx_supervisor_reset_failed_attempts')) return [] as unknown as T[];
       if (sql.includes('SELECT m.user_id AS "userId"')) return [{ userId: ids.supervisor }] as unknown as T[];
-      if (sql.includes('prodx_auth_record_failed_attempt')) return [] as unknown as T[];
       if (sql.includes('INSERT INTO prodx_supervisor_authorizations')) return [] as unknown as T[];
-      if (sql.includes('prodx_record_security_audit_event')) return [] as unknown as T[];
+      if (sql.includes('prodx_record_supervisor_authorization_event') || sql.includes('prodx_record_security_audit_event')) return [] as unknown as T[];
       throw new Error(`Unexpected SQL: ${sql}`);
     },
   };
@@ -45,20 +44,25 @@ test('supervisor authorization issues scoped token and audit event atomically', 
   const result = await createSupervisorAuthorizationService(db, () => new Date('2026-09-20T00:00:00.000Z')).authorize(input);
   assert.equal(result.supervisorUserId, ids.supervisor);
   assert.equal(new Date(result.expiresAt).toISOString(), '2026-09-20T00:02:00.000Z');
-  assert.ok(calls.some((sql) => sql.includes('prodx_record_security_audit_event')));
+  const auditRpc = calls.find((sql) => sql.includes('prodx_record_supervisor_authorization_event')) ?? '';
+  assert.ok(auditRpc, 'supervisor events must use the scoped SECURITY DEFINER audit RPC');
+  assert.doesNotMatch(auditRpc, /INSERT INTO prodx_security_audit_events/i);
+  assert.ok(calls.some((sql) => sql.includes('prodx_supervisor_find_credential')));
+  assert.ok(calls.some((sql) => sql.includes('prodx_supervisor_reset_failed_attempts')));
+  assert.equal(calls.some((sql) => /prodx_user_credentials/i.test(sql)), false, 'must never query or mutate prodx_user_credentials directly');
   assert.ok(calls.some((sql) => sql.includes('INSERT INTO prodx_supervisor_authorizations')));
 });
 
-test('failed supervisor attempts use an atomic SQL increment and emit an audit event', async () => {
+test('failed supervisor attempts use the atomic SECURITY DEFINER failed-attempt RPC and emit an audit event', async () => {
   const calls: string[] = [];
   const db: SqlExecutor = {
     async query<T extends Record<string, unknown>>(sql: string): Promise<readonly T[]> {
       calls.push(sql);
-      if (sql.includes('prodx_auth_find_supervisor_credential')) {
-        return [{ userId: ids.supervisor, organizationId: ids.org, status: 'active', secretHash: 'not-a-valid-hash', failedAttempts: 4, lockedUntil: null }] as unknown as T[];
+      if (sql.includes('prodx_supervisor_find_credential')) {
+        return [{ userId: ids.supervisor, status: 'active', secretHash: 'not-a-valid-hash', failedAttempts: 4, lockedUntil: null }] as unknown as T[];
       }
-      if (sql.includes('prodx_auth_record_failed_attempt')) return [] as unknown as T[];
-      if (sql.includes('prodx_record_security_audit_event')) return [] as unknown as T[];
+      if (sql.includes('prodx_supervisor_record_failed_attempt')) return [] as unknown as T[];
+      if (sql.includes('prodx_record_supervisor_authorization_event') || sql.includes('prodx_record_security_audit_event')) return [] as unknown as T[];
       throw new Error(`Unexpected SQL: ${sql}`);
     },
   };
@@ -67,7 +71,10 @@ test('failed supervisor attempts use an atomic SQL increment and emit an audit e
     createSupervisorAuthorizationService(db, () => new Date('2026-09-20T00:00:00.000Z')).authorize(input),
     (error: unknown) => error instanceof SupervisorAuthorizationError && error.code === 'INVALID_CREDENTIALS',
   );
-  assert.ok(calls.some((sql) => sql.includes('prodx_record_security_audit_event')));
+  const recordFailureRpc = calls.find((sql) => sql.includes('prodx_supervisor_record_failed_attempt')) ?? '';
+  assert.ok(recordFailureRpc, 'failed attempts must use prodx_supervisor_record_failed_attempt');
+  assert.equal(calls.some((sql) => /prodx_user_credentials/i.test(sql)), false);
+  assert.ok(calls.some((sql) => sql.includes('prodx_record_supervisor_authorization_event')));
 });
 
 test('supervisor authorization token is one-time and distinguishes replay from expiry', async () => {
@@ -78,7 +85,7 @@ test('supervisor authorization token is one-time and distinguishes replay from e
         consumeCount += 1;
         return consumeCount === 1 ? [{ supervisorUserId: ids.supervisor }] as unknown as T[] : [] as unknown as T[];
       }
-      if (sql.includes('prodx_record_security_audit_event')) return [] as unknown as T[];
+      if (sql.includes('prodx_record_supervisor_authorization_event') || sql.includes('prodx_record_security_audit_event')) return [] as unknown as T[];
       if (sql.includes('SELECT consumed_at')) return [{ consumedAt: new Date(), expiresAt: new Date('2026-09-20T00:02:00.000Z') }] as unknown as T[];
       throw new Error(`Unexpected SQL: ${sql}`);
     },
@@ -88,7 +95,6 @@ test('supervisor authorization token is one-time and distinguishes replay from e
   assert.deepEqual(await service.consume(consumeInput), { supervisorUserId: ids.supervisor });
   await assert.rejects(service.consume(consumeInput), (error: unknown) => error instanceof SupervisorAuthorizationError && error.code === 'AUTHORIZATION_REPLAYED');
 });
-
 
 test('supervisor authorization token is isolated by store and expires when no matching live authorization exists', async () => {
   const calls: Array<{ sql: string; parameters: readonly unknown[] }> = [];
@@ -101,7 +107,7 @@ test('supervisor authorization token is isolated by store and expires when no ma
           ? [{ supervisorUserId: ids.supervisor }] as unknown as T[]
           : [] as unknown as T[];
       }
-      if (sql.includes('prodx_record_security_audit_event')) return [] as unknown as T[];
+      if (sql.includes('prodx_record_supervisor_authorization_event') || sql.includes('prodx_record_security_audit_event')) return [] as unknown as T[];
       if (sql.includes('SELECT consumed_at')) {
         const storeId = parameters[2];
         return storeId === ids.store

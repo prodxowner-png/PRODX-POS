@@ -30,12 +30,20 @@ test('supervisor authorization route issues a server-scoped token from authentic
       transactionCalls += 1;
       return work({
         query: async <T extends Record<string, unknown>>(sql: string) => {
+<<<<<<< HEAD
           if (sql.includes('prodx_auth_find_supervisor_credential')) return { rows: [{ userId: 'supervisor-1', organizationId: principal.organizationId, status: 'active', secretHash, failedAttempts: 0, lockedUntil: null }] as unknown as T[] };
           if (sql.includes('SELECT m.user_id AS "userId"')) return { rows: [{ userId: 'supervisor-1' }] as unknown as T[] };
           if (sql.includes('prodx_auth_record_failed_attempt')) return { rows: [] as T[] };
           if (sql.includes('prodx_auth_reset_failed_attempts')) return { rows: [] as T[] };
           if (sql.includes('INSERT INTO prodx_supervisor_authorizations')) return { rows: [] as T[] };
           if (sql.includes('prodx_record_security_audit_event')) return { rows: [] as T[] };
+=======
+          if (sql.includes('prodx_supervisor_find_credential')) return { rows: [{ userId: 'supervisor-1', status: 'active', secretHash, failedAttempts: 0, lockedUntil: null }] as unknown as T[] };
+          if (sql.includes('SELECT m.user_id AS "userId"')) return { rows: [{ userId: 'supervisor-1' }] as unknown as T[] };
+          if (sql.includes('prodx_supervisor_reset_failed_attempts')) return { rows: [] as T[] };
+          if (sql.includes('INSERT INTO prodx_supervisor_authorizations')) return { rows: [] as T[] };
+          if (sql.includes('prodx_record_supervisor_authorization_event')) return { rows: [] as T[] };
+>>>>>>> main
           throw new Error(`Unexpected SQL in supervisor authorization transaction: ${sql}`);
         },
       });
@@ -132,6 +140,49 @@ test('supervisor authorization route rejects malformed requests before database 
   } finally { await server.close(); }
 });
 
+test('supervisor authorization route commits failed-attempt and audit RPC calls when credentials are invalid', async () => {
+  const secretHash = await hashPassword('correct horse battery staple');
+  let committed = false;
+  const executedSql: string[] = [];
+  const db: TransactionalSqlExecutor = {
+    query: async () => {
+      throw new Error('direct db.query must not be used');
+    },
+    transaction: async (work) => {
+      const result = await work({
+        query: async <T extends Record<string, unknown>>(sql: string) => {
+          executedSql.push(sql);
+          if (sql.includes('prodx_supervisor_find_credential')) {
+            return { rows: [{ userId: 'supervisor-1', status: 'active', secretHash, failedAttempts: 0, lockedUntil: null }] as unknown as T[] };
+          }
+          if (sql.includes('prodx_supervisor_record_failed_attempt')) return { rows: [] as T[] };
+          if (sql.includes('prodx_record_supervisor_authorization_event') || sql.includes('prodx_record_security_audit_event')) return { rows: [] as T[] };
+          throw new Error(`Unexpected SQL: ${sql}`);
+        },
+      });
+      committed = true;
+      return result;
+    },
+  };
+  const app = createApp({
+    authenticateRequest: () => principal,
+    authorizeRequest: (_context, permission) => permission === 'pos.refund',
+    configureRoutes: (configuredApp) => registerSupervisorAuthorizationRoute(configuredApp, db),
+  });
+  const server = await start(app);
+  try {
+    const response = await fetch(`${server.baseUrl}/api/v1/authorizations/supervisor`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ action: 'refund', orderId: 'order-1', supervisorUsername: 'supervisor', supervisorSecret: 'wrong-secret' }),
+    });
+    assert.equal(response.status, 401);
+    assert.equal(committed, true, 'transaction must commit so failed_attempts and security audit event are persisted');
+    assert.ok(executedSql.some((sql) => sql.includes('prodx_supervisor_record_failed_attempt')));
+    assert.ok(executedSql.some((sql) => sql.includes('prodx_record_supervisor_authorization_event') || sql.includes('prodx_record_security_audit_event')));
+  } finally { await server.close(); }
+});
+
 test('discount supervisor route binds approval to server policy, checkout fingerprint, and requester session', async () => {
   const secretHash = await hashPassword('manager-pin-1234');
   const inserted: { sql: string; parameters: readonly unknown[] }[] = [];
@@ -152,7 +203,7 @@ test('discount supervisor route binds approval to server policy, checkout finger
       query: async <T extends Record<string, unknown>>(sql: string, parameters: readonly unknown[] = []) => {
         inserted.push({ sql, parameters });
         if (sql.includes('FROM prodx_discount_policies')) return { rows: [{ require_supervisor_approval: true, max_discount_without_approval_bps: 1500 }] as unknown as T[] };
-        if (sql.includes('prodx_auth_find_supervisor_credential')) return { rows: [{ userId: 'manager-1', organizationId: principal.organizationId, status: 'active', secretHash, failedAttempts: 0, lockedUntil: null }] as unknown as T[] };
+        if (sql.includes('prodx_supervisor_find_credential') || sql.includes('prodx_auth_find_supervisor_credential')) return { rows: [{ userId: 'manager-1', organizationId: principal.organizationId, status: 'active', secretHash, failedAttempts: 0, lockedUntil: null }] as unknown as T[] };
         if (sql.includes('SELECT m.user_id AS "userId"')) return { rows: [{ userId: 'manager-1' }] as unknown as T[] };
         return { rows: [] as T[] };
       },
@@ -195,7 +246,7 @@ test('discount supervisor route accepts a verified Supabase subject without requ
         if (sql.includes('FROM prodx_discount_policies')) return { rows: [{ require_supervisor_approval: true, max_discount_without_approval_bps: 1500 }] as unknown as T[] };
         if (sql.includes('prodx_auth_find_supervisor_by_supabase_subject')) return { rows: [{ userId: 'manager-1', status: 'active' }] as unknown as T[] };
         if (sql.includes('SELECT m.user_id AS "userId"')) return { rows: [{ userId: 'manager-1' }] as unknown as T[] };
-        if (sql.includes('prodx_auth_find_supervisor_credential')) throw new Error('Supabase identity must not require a local password credential');
+        if (sql.includes('prodx_auth_find_supervisor_credential') || sql.includes('prodx_supervisor_find_credential')) throw new Error('Supabase identity must not require a local password credential');
         return { rows: [] as T[] };
       },
     }),
@@ -217,9 +268,9 @@ test('discount supervisor route accepts a verified Supabase subject without requ
     const mapping = calls.find(({ sql }) => sql.includes('prodx_auth_find_supervisor_by_supabase_subject'));
     assert.ok(mapping);
     assert.deepEqual(mapping.parameters, [principal.organizationId, principal.storeId, '00000000-0000-4000-8000-000000001015']);
-    assert.equal(calls.some(({ sql }) => sql.includes('prodx_auth_find_supervisor_credential')), false);
+    assert.equal(calls.some(({ sql }) => sql.includes('prodx_auth_find_supervisor_credential') || sql.includes('prodx_supervisor_find_credential')), false);
     assert.ok(calls.some(({ sql }) => sql.includes('pos.discount.approve')));
-    assert.ok(calls.some(({ sql, parameters }) => sql.includes('prodx_record_security_audit_event') && parameters[3] === 'SUPERVISOR_AUTHORIZATION_GRANTED'));
+    assert.ok(calls.some(({ sql, parameters }) => (sql.includes('prodx_record_security_audit_event') || sql.includes('prodx_record_supervisor_authorization_event')) && (parameters[3] === 'SUPERVISOR_AUTHORIZATION_GRANTED' || parameters[4] === 'SUPERVISOR_AUTHORIZATION_GRANTED')));
   } finally { await server.close(); }
 });
 
@@ -234,8 +285,8 @@ test('invalid Supabase supervisor reauthentication is audited and fails closed',
   try {
     const response = await fetch(`${server.baseUrl}/api/v1/authorizations/supervisor`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'refund', orderId: 'order-1', supervisorUserId: 'manager-1', supervisorAccessToken: 'invalid-token' }) });
     assert.equal(response.status, 401);
-    assert.ok(calls.some(({ sql }) => sql.includes('prodx_record_security_audit_event') && sql.includes('SUPERVISOR_AUTH_FAILED')));
-    assert.equal(calls.some(({ sql }) => sql.includes('prodx_auth_find_supervisor_credential')), false);
+    assert.ok(calls.some(({ sql }) => (sql.includes('prodx_record_security_audit_event') || sql.includes('prodx_record_supervisor_authorization_event')) && sql.includes('SUPERVISOR_AUTH_FAILED')));
+    assert.equal(calls.some(({ sql }) => sql.includes('prodx_auth_find_supervisor_credential') || sql.includes('prodx_supervisor_find_credential')), false);
   } finally { await server.close(); }
 });
 
@@ -277,3 +328,4 @@ test('supervisor directory returns only active, Supabase-mapped supervisors for 
     assert.match(queryText, /p\.permission_key IN \('pos\.discount\.approve', 'pos\.refund', 'pos\.void'\)/i);
   } finally { await server.close(); }
 });
+

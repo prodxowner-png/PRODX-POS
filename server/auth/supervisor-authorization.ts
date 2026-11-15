@@ -38,11 +38,13 @@ export const hashAuthorizationToken = (token: string): string =>
 
 const recordSecurityEvent = async (
   db: SqlExecutor,
-  input: { organizationId: string; userId?: string | null; eventType: string; metadata: Record<string, unknown> },
+  input: { organizationId: string; storeId: string; userId?: string | null; eventType: string; metadata: Record<string, unknown> },
 ): Promise<void> => {
   await db.query(
-    `SELECT public.prodx_record_security_audit_event($1, $2, $3, $4, $5::jsonb)`,
-    [crypto.randomUUID(), input.organizationId, input.userId ?? null, input.eventType, JSON.stringify(input.metadata)],
+    `SELECT public.prodx_record_supervisor_authorization_event(
+      $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::text, $6::jsonb
+    )`,
+    [crypto.randomUUID(), input.organizationId, input.storeId, input.userId ?? null, input.eventType, JSON.stringify(input.metadata)],
   );
 };
 
@@ -60,7 +62,7 @@ export const createSupervisorAuthorizationService = (db: SqlExecutor, now: () =>
 
     let supervisorUserId = input.supervisorUserId ?? null;
     let credential: {
-      userId: string; organizationId: string; status: 'active' | 'disabled';
+      userId: string; status: 'active' | 'disabled';
       secretHash: string; failedAttempts: number; lockedUntil: Date | null;
     } | undefined;
     const current = now();
@@ -70,10 +72,15 @@ export const createSupervisorAuthorizationService = (db: SqlExecutor, now: () =>
     // local-password credentials remain supported without granting table access.
     if (!identityVerified) {
       const credentials = await db.query<{
-        userId: string; organizationId: string; status: 'active' | 'disabled';
+        userId: string; status: 'active' | 'disabled';
         secretHash: string; failedAttempts: number; lockedUntil: Date | null;
       }>(
-        `SELECT * FROM public.prodx_auth_find_supervisor_credential($1, $2, $3)`,
+        `SELECT supervisor_user_id AS "userId",
+                user_status AS "status",
+                secret_hash AS "secretHash",
+                failed_attempts AS "failedAttempts",
+                locked_until AS "lockedUntil"
+           FROM public.prodx_supervisor_find_credential($1::uuid, $2::uuid, $3::text)`,
         [input.organizationId, input.storeId, (input.supervisorUserId ?? input.supervisorUsername ?? '').trim()],
       );
       credential = credentials[0];
@@ -83,6 +90,7 @@ export const createSupervisorAuthorizationService = (db: SqlExecutor, now: () =>
           (credential.lockedUntil && credential.lockedUntil > current)) {
         await recordSecurityEvent(db, {
           organizationId: input.organizationId,
+          storeId: input.storeId,
           userId: credential?.userId ?? null,
           eventType: 'SUPERVISOR_AUTH_REJECTED',
           metadata: { action: input.action, orderId: input.orderId, requesterUserId: input.requesterUserId, reason: 'invalid_or_locked' },
@@ -92,12 +100,15 @@ export const createSupervisorAuthorizationService = (db: SqlExecutor, now: () =>
 
       const valid = await verifyPassword(input.supervisorSecret!, credential.secretHash);
       if (!valid) {
+        // Increment in SQL via tenant-bound SECURITY DEFINER RPC so prodx_app never
+        // needs direct table access to prodx_user_credentials and concurrent failures serialize.
         await db.query(
-          `SELECT public.prodx_auth_record_failed_attempt($1, $2, $3)`,
-          [credential.userId, input.organizationId, crypto.randomUUID()],
+          `SELECT public.prodx_supervisor_record_failed_attempt($1::uuid, $2::uuid, $3::uuid)`,
+          [input.organizationId, input.storeId, credential.userId],
         );
         await recordSecurityEvent(db, {
           organizationId: input.organizationId,
+          storeId: input.storeId,
           userId: credential.userId,
           eventType: 'SUPERVISOR_AUTH_FAILED',
           metadata: { action: input.action, orderId: input.orderId, requesterUserId: input.requesterUserId },
@@ -134,6 +145,7 @@ export const createSupervisorAuthorizationService = (db: SqlExecutor, now: () =>
     if (!allowed[0]) {
       await recordSecurityEvent(db, {
         organizationId: input.organizationId,
+        storeId: input.storeId,
         userId: supervisorUserId,
         eventType: 'SUPERVISOR_AUTH_DENIED',
         metadata: { action: input.action, orderId: input.orderId, requesterUserId: input.requesterUserId, reason: 'store_permission_missing' },
@@ -143,8 +155,8 @@ export const createSupervisorAuthorizationService = (db: SqlExecutor, now: () =>
 
     if (credential) {
       await db.query(
-        `SELECT public.prodx_auth_reset_failed_attempts($1, $2, $3)`,
-        [credential.userId, input.organizationId, crypto.randomUUID()],
+        `SELECT public.prodx_supervisor_reset_failed_attempts($1::uuid, $2::uuid, $3::uuid, $4::text)`,
+        [input.organizationId, input.storeId, credential.userId, input.action],
       );
     }
 
@@ -164,6 +176,7 @@ export const createSupervisorAuthorizationService = (db: SqlExecutor, now: () =>
     );
     await recordSecurityEvent(db, {
       organizationId: input.organizationId,
+      storeId: input.storeId,
       userId: supervisorUserId,
       eventType: 'SUPERVISOR_AUTHORIZATION_GRANTED',
       metadata: { action: input.action, orderId: input.orderId, requesterUserId: input.requesterUserId, requesterSessionId: input.requesterSessionId, expiresAt: expiresAt.toISOString() },
@@ -202,9 +215,13 @@ export const createSupervisorAuthorizationService = (db: SqlExecutor, now: () =>
        input.checkoutPayloadHash ?? null, input.policyThresholdBps ?? null, input.policyRequiresApproval ?? null],
     );
     if (rows[0]) {
-      await recordSecurityEvent(db, { organizationId: input.organizationId, userId: rows[0].supervisorUserId,
+      await recordSecurityEvent(db, {
+        organizationId: input.organizationId,
+        storeId: input.storeId,
+        userId: rows[0].supervisorUserId,
         eventType: 'SUPERVISOR_AUTHORIZATION_CONSUMED',
-        metadata: { action: input.action, orderId: input.orderId ?? null, idempotencyKey: input.checkoutIdempotencyKey ?? null, requesterUserId: input.requesterUserId } });
+        metadata: { action: input.action, orderId: input.orderId ?? null, idempotencyKey: input.checkoutIdempotencyKey ?? null, requesterUserId: input.requesterUserId }
+      });
       return { supervisorUserId: rows[0].supervisorUserId };
     }
 
@@ -228,9 +245,13 @@ export const createSupervisorAuthorizationService = (db: SqlExecutor, now: () =>
        input.checkoutPayloadHash ?? null, input.policyThresholdBps ?? null, input.policyRequiresApproval ?? null],
     );
     if (state[0]?.consumedAt) {
-      await recordSecurityEvent(db, { organizationId: input.organizationId, userId: input.requesterUserId,
+      await recordSecurityEvent(db, {
+        organizationId: input.organizationId,
+        storeId: input.storeId,
+        userId: input.requesterUserId,
         eventType: 'SUPERVISOR_AUTHORIZATION_REPLAYED',
-        metadata: { action: input.action, orderId: input.orderId ?? null, idempotencyKey: input.checkoutIdempotencyKey ?? null } });
+        metadata: { action: input.action, orderId: input.orderId ?? null, idempotencyKey: input.checkoutIdempotencyKey ?? null }
+      });
       throw new SupervisorAuthorizationError('AUTHORIZATION_REPLAYED');
     }
     throw new SupervisorAuthorizationError('AUTHORIZATION_EXPIRED');
