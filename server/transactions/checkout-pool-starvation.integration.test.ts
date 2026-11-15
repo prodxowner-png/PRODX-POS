@@ -114,7 +114,11 @@ test('PRODX-REV-001: pool max = 1 never starves or deadlocks on invalid supervis
   }
   await seed();
   t.after(async () => {
-    await pool.end();
+    try {
+      await pool.query('DELETE FROM prodx_supervisor_authorizations WHERE organization_id = $1', [id.org]);
+    } finally {
+      await pool.end();
+    }
   });
 
   const service = createCheckoutService(db);

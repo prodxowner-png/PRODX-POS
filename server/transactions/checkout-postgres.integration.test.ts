@@ -90,8 +90,14 @@ async function seed() {
 
 test('PostgreSQL checkout proves atomicity, authoritative pricing, idempotency and store isolation', async (t) => {
   if (!pool || !db) { t.skip('DATABASE_URL not configured'); return; }
+  t.after(async () => {
+    try {
+      await pool.query('DELETE FROM prodx_supervisor_authorizations WHERE organization_id = $1', [id.org]);
+    } finally {
+      await pool.end();
+    }
+  });
   await seed();
-  t.after(async () => { await pool.end(); });
 
   const service = createCheckoutService(db);
   const first = await service.checkout(req('success'));
