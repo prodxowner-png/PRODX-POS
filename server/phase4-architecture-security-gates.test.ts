@@ -270,6 +270,8 @@ test('Security Gate 9: PRODX public tables and RPC functions are backend-only', 
   const runner = fs.readFileSync(path.join(workspaceRoot, 'scripts/migrate.ts'), 'utf8');
   assert.match(runner, /REVOKE\s+ALL\s+PRIVILEGES\s+ON\s+TABLE\s+public\.%I\s+FROM\s+PUBLIC/i);
   assert.match(runner, /REVOKE\s+EXECUTE\s+ON\s+FUNCTION\s+%s\s+FROM\s+PUBLIC/i);
+  assert.match(runner, /p\.prorettype\s*=\s*'pg_catalog\.trigger'::regtype/i);
+  assert.match(runner, /REVOKE\s+EXECUTE\s+ON\s+FUNCTION\s+%s\s+FROM\s+prodx_app/i);
 });
 
 test('Security Gate 10: supervisor authorization uses narrow SECURITY DEFINER RPCs and never touches prodx_user_credentials or prodx_security_audit_events directly', () => {
