@@ -26,6 +26,7 @@ jobs:
           --health-retries 20
     env:
       DATABASE_URL: postgresql://prodx:prodx@127.0.0.1:5432/prodx_test
+      PRODX_BOOTSTRAP_TEST_DATABASE_URL: postgresql://prodx:prodx@127.0.0.1:5432/prodx_bootstrap_test
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -33,15 +34,32 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: 20
+          node-version: 24.12.0
+
+      - name: Pin npm 11 and verify strict lifecycle policy
+        run: |
+          set -euo pipefail
+          npm install --global npm@11.21.2
+          test "$(npm --version)" = "11.21.2"
+          npm --version
+          test "$(npm config get strict-allow-scripts)" = "true"
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.3
 
-      - name: Install dependencies
-        run: npm install --no-audit --no-fund
+      - name: Install dependencies with lockfile and strict script policy
+        run: npm ci --no-fund
+
+      - name: Verify dependency override parity across lockfiles
+        run: npm run dependency:overrides:check
+
+      - name: Verify npm registry signatures and provenance
+        run: npm audit signatures
+
+      - name: Audit locked dependencies (no moderate or higher)
+        run: npm audit --audit-level=moderate
 
       - name: Apply PostgreSQL migrations
         shell: bash
@@ -60,10 +78,21 @@ jobs:
       - name: M2 PostgreSQL authentication integration
         run: npm run server:test:integration
 
+      - name: Prepare isolated first-tenant bootstrap database
+        env:
+          PGPASSWORD: prodx
+        shell: bash
+        run: |
+          set -euo pipefail
+          createdb --host 127.0.0.1 --username prodx prodx_bootstrap_test
+          test -n "$PRODX_BOOTSTRAP_TEST_DATABASE_URL"
+          for migration in db/migrations/*.sql; do
+            psql "$PRODX_BOOTSTRAP_TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration"
+          done
+
       - name: First-tenant bootstrap PostgreSQL integration
         env:
           PRODX_RUN_BOOTSTRAP_POSTGRES_INTEGRATION: '1'
-          PRODX_BOOTSTRAP_TEST_DATABASE_URL: ${{ env.DATABASE_URL }}
         run: node --import tsx --test server/auth/first-tenant-bootstrap.integration.test.ts
 
       - name: Reject direct mock auth wiring

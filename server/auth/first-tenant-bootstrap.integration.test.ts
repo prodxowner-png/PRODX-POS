@@ -1,11 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createPostgresPool, resolveConfiguredDatabaseUrl } from '../db/postgres';
+import { createPostgresPool } from '../db/postgres';
+import { resolveBootstrapIntegrationDatabaseUrl } from './bootstrap-test-database';
 import { createPostgresFirstTenantBootstrapRepository, type FirstTenantBootstrapInput } from './postgres-repository';
 
-const databaseUrl = process.env.PRODX_RUN_BOOTSTRAP_POSTGRES_INTEGRATION === '1'
-  ? resolveConfiguredDatabaseUrl(process.env.PRODX_BOOTSTRAP_TEST_DATABASE_URL)
-  : null;
+const databaseUrl = resolveBootstrapIntegrationDatabaseUrl(process.env);
 const pool = databaseUrl ? createPostgresPool({ connectionString: databaseUrl, max: 4 }) : null;
 const repository = pool ? createPostgresFirstTenantBootstrapRepository({
   async query<T extends Record<string, unknown>>(sql: string, parameters: readonly unknown[] = []) {
@@ -29,7 +28,13 @@ const makeInput = (subject: string, suffix: string): FirstTenantBootstrapInput =
 
 const cleanup = async (): Promise<void> => {
   if (!pool) return;
-  await pool.query(`DELETE FROM public.prodx_security_audit_events WHERE event_type = 'first_tenant_bootstrapped'`);
+  await pool.query(`
+    DELETE FROM public.prodx_security_audit_events
+    WHERE event_type = 'first_tenant_bootstrapped'
+      AND organization_id IN (
+        SELECT id FROM public.prodx_organizations WHERE code LIKE 'bootstrap-%'
+      )
+  `);
   await pool.query(`DELETE FROM public.prodx_sessions WHERE organization_id IN (SELECT id FROM public.prodx_organizations WHERE code LIKE 'bootstrap-%')`);
   await pool.query(`DELETE FROM public.prodx_user_roles WHERE organization_id IN (SELECT id FROM public.prodx_organizations WHERE code LIKE 'bootstrap-%')`);
   await pool.query(`DELETE FROM public.prodx_role_permissions WHERE organization_id IN (SELECT id FROM public.prodx_organizations WHERE code LIKE 'bootstrap-%')`);
@@ -43,7 +48,10 @@ const cleanup = async (): Promise<void> => {
 
 test('first-tenant PostgreSQL bootstrap is atomic, concurrent-safe, idempotent, and tenant-scoped', async (t) => {
   if (!pool || !repository) {
-    t.skip('PRODX_BOOTSTRAP_TEST_DATABASE_URL is not configured; run the isolated bootstrap PostgreSQL gate.');
+    if (process.env.PRODX_RUN_BOOTSTRAP_POSTGRES_INTEGRATION === '1') {
+      throw new Error('PRODX_BOOTSTRAP_TEST_DATABASE_URL is required when the bootstrap PostgreSQL integration gate is enabled.');
+    }
+    t.skip('Set PRODX_RUN_BOOTSTRAP_POSTGRES_INTEGRATION=1 with a dedicated PRODX_BOOTSTRAP_TEST_DATABASE_URL to run this isolated gate.');
     return;
   }
   t.after(async () => {
