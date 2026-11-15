@@ -221,6 +221,10 @@ jobs:
             psql "$STAGING_MIGRATION_DATABASE_URL" --set=ON_ERROR_STOP=1 --file "$migration"
           done
           psql "$STAGING_MIGRATION_DATABASE_URL" --set=ON_ERROR_STOP=1 --file scripts/grant-runtime-role.sql
+          # Verify table-level permissions only after migrations created all 13 tables.
+          psql "$STAGING_MIGRATION_DATABASE_URL" --set=ON_ERROR_STOP=1 \
+            --file scripts/verify-runtime-role-privileges.sql \
+            2>&1 | tee artifacts/logs/verify-runtime-role-privileges.log
           psql "$STAGING_RLS_AUDIT_DATABASE_URL" --set=ON_ERROR_STOP=1 --file scripts/rls-smoke.sql
 
       - name: Generate Staging Wrangler bindings
