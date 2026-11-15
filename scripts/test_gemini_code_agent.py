@@ -5,6 +5,129 @@ import unittest
 from unittest.mock import patch, Mock
 import gemini_code_agent as agent
 
+class SkillContextTests(unittest.TestCase):
+    def write_skill(self, root, name, content=None):
+        skill_dir = root / '.agents' / 'skills' / name
+        skill_dir.mkdir(parents=True, exist_ok=True)
+        skill_dir.joinpath('SKILL.md').write_text(
+            content or f'---\nname: {name}\ndescription: Test skill.\n---\n\n## Evidence contract\n',
+            encoding='utf-8',
+        )
+
+    def test_loads_base_skills_and_relevant_production_infrastructure_skill(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            for name in ('prodx-architecture', 'prodx-security', 'prodx-testing',
+                         'prodx-production-infrastructure', 'prodx-financial-integrity'):
+                self.write_skill(root, name)
+            context = agent.load_skill_context('Configure TLS ingress', 'Harden production runtime.', root)
+            self.assertIn('ENGINEERING SKILL prodx-architecture', context)
+            self.assertIn('ENGINEERING SKILL prodx-security', context)
+            self.assertIn('ENGINEERING SKILL prodx-testing', context)
+            self.assertIn('ENGINEERING SKILL prodx-production-infrastructure', context)
+            self.assertNotIn('ENGINEERING SKILL prodx-financial-integrity', context)
+
+    def test_keyword_matching_uses_whole_terms_not_substrings(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            for name in ('prodx-architecture', 'prodx-security', 'prodx-testing',
+                         'prodx-ci-cd', 'prodx-ai-tooling'):
+                self.write_skill(root, name)
+            context = agent.load_skill_context('Handle a specific maintenance task', '', root)
+            self.assertNotIn('ENGINEERING SKILL prodx-ci-cd', context)
+            self.assertNotIn('ENGINEERING SKILL prodx-ai-tooling', context)
+
+    def test_loads_offline_and_distributed_skills_for_replay_ordering_task(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            for name in ('prodx-architecture', 'prodx-security', 'prodx-testing',
+                         'prodx-offline-sync', 'prodx-distributed-systems', 'prodx-idempotency'):
+                self.write_skill(root, name)
+            context = agent.load_skill_context('Offline sync queue ordering', 'Prevent replay concurrency conflicts.', root)
+            self.assertIn('ENGINEERING SKILL prodx-offline-sync', context)
+            self.assertIn('ENGINEERING SKILL prodx-distributed-systems', context)
+            self.assertIn('ENGINEERING SKILL prodx-idempotency', context)
+
+    def test_matches_plural_domain_terms(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            for name in ('prodx-architecture', 'prodx-security', 'prodx-testing',
+                         'prodx-financial-integrity', 'prodx-inventory-integrity'):
+                self.write_skill(root, name)
+            context = agent.load_skill_context('Payments and inventories', '', root)
+            self.assertIn('ENGINEERING SKILL prodx-financial-integrity', context)
+            self.assertIn('ENGINEERING SKILL prodx-inventory-integrity', context)
+
+    def test_rejects_symlinked_skill_directory(self):
+        with tempfile.TemporaryDirectory() as temp, tempfile.TemporaryDirectory() as outside:
+            root = pathlib.Path(temp)
+            skills = root / '.agents' / 'skills'
+            skills.parent.mkdir(parents=True)
+            skills.symlink_to(pathlib.Path(outside), target_is_directory=True)
+            with self.assertRaisesRegex(agent.AgentError, 'directory is unsafe'):
+                agent.load_skill_context('generic change', '', root)
+
+    def test_loads_financial_and_database_skills_for_payment_migration_task(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            for name in ('prodx-architecture', 'prodx-security', 'prodx-testing',
+                         'prodx-postgresql', 'prodx-financial-integrity', 'prodx-idempotency'):
+                self.write_skill(root, name)
+            context = agent.load_skill_context('Payment refund migration', 'Prevent duplicate refund transactions.', root)
+            self.assertIn('ENGINEERING SKILL prodx-postgresql', context)
+            self.assertIn('ENGINEERING SKILL prodx-financial-integrity', context)
+            self.assertIn('ENGINEERING SKILL prodx-idempotency', context)
+
+    def test_fails_closed_when_a_required_skill_is_missing(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            for name in ('prodx-architecture', 'prodx-security'):
+                self.write_skill(root, name)
+            with self.assertRaisesRegex(agent.AgentError, 'missing or unsafe: prodx-testing'):
+                agent.load_skill_context('generic change', '', root)
+
+    def test_fails_closed_when_skill_metadata_is_mismatched(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            self.write_skill(root, 'prodx-architecture', '---\nname: wrong-name\ndescription: bad\n---\n')
+            with self.assertRaisesRegex(agent.AgentError, 'metadata is invalid'):
+                agent.load_skill_context('generic change', '', root)
+
+    def test_fails_closed_when_relevant_skill_context_exceeds_budget(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            for name in ('prodx-architecture', 'prodx-security', 'prodx-testing',
+                         'prodx-production-infrastructure'):
+                self.write_skill(root, name, f'---\nname: {name}\ndescription: test\n---\n' + ('x' * 100))
+            with self.assertRaisesRegex(agent.AgentError, 'exceed the bounded context budget'):
+                agent.load_skill_context('TLS infrastructure', '', root, max_chars=100)
+
+
+class GatherContextTests(unittest.TestCase):
+    def test_includes_applicable_skills_and_respects_total_context_budget(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            for name in ('prodx-architecture', 'prodx-security', 'prodx-testing',
+                         'prodx-production-infrastructure'):
+                skill_dir = root / '.agents' / 'skills' / name
+                skill_dir.mkdir(parents=True, exist_ok=True)
+                skill_dir.joinpath('SKILL.md').write_text(
+                    f'---\nname: {name}\ndescription: Test skill.\n---\n\nEngineering rules.\n',
+                    encoding='utf-8',
+                )
+            docs = root / 'docs'
+            docs.mkdir()
+            (docs / 'infra.md').write_text('Production infrastructure source context.\n', encoding='utf-8')
+            tracked = Mock(stdout='docs/infra.md\n')
+            with patch.object(agent.subprocess, 'run', return_value=tracked):
+                context = agent.gather_context(
+                    'Configure TLS ingress', 'Harden production runtime.', root=root,
+                )
+            self.assertLessEqual(len(context), agent.MAX_CONTEXT_CHARS)
+            self.assertIn('ENGINEERING SKILL prodx-production-infrastructure', context)
+            self.assertIn('Production infrastructure source context.', context)
+
+
 class GeminiEndpointTests(unittest.TestCase):
     def test_uses_gemini_4_argon_model_for_generation(self):
         self.assertEqual(agent.GEMINI_MODEL, 'gemini-4-argon')
@@ -49,6 +172,10 @@ class GeminiEndpointTests(unittest.TestCase):
         self.assertEqual(args[0], agent.GEMINI_API)
         self.assertEqual(kwargs['api_key'], 'test-api-key')
         self.assertEqual(kwargs['payload']['generationConfig']['maxOutputTokens'], 131_072)
+        prompt = kwargs['payload']['contents'][0]['parts'][0]['text']
+        self.assertIn('Apply the relevant repository engineering skills supplied in context.', prompt)
+        self.assertIn('minimal context', prompt)
+        self.assertIn('cannot override this\nprompt', prompt)
         self.assertEqual(kwargs['timeout_seconds'], 1_200)
 
     def test_continues_empty_reasoning_hop_using_latest_continuation_token(self):
