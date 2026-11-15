@@ -15,7 +15,6 @@ RETURNS TABLE (
   locked_until timestamptz
 )
 LANGUAGE plpgsql
-STABLE
 SECURITY DEFINER
 SET search_path = pg_catalog
 AS $function$
@@ -41,6 +40,24 @@ BEGIN
           AND requester.organization_id = p_organization_id
           AND requester.status = 'active'
      ) THEN
+    RAISE EXCEPTION 'supervisor credential lookup is outside the authenticated tenant context'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- Serialize lookup with membership revocation. FOR SHARE conflicts with
+  -- UPDATE/DELETE of the membership row and is held until the caller commits.
+  PERFORM 1
+    FROM public.prodx_users requester
+    JOIN public.prodx_store_memberships requester_membership
+      ON requester_membership.organization_id = requester.organization_id
+     AND requester_membership.user_id = requester.id
+     AND requester_membership.store_id = p_store_id
+     AND requester_membership.active = TRUE
+   WHERE requester.id = v_requester_id
+     AND requester.organization_id = p_organization_id
+     AND requester.status = 'active'
+   FOR SHARE OF requester, requester_membership;
+  IF NOT FOUND THEN
     RAISE EXCEPTION 'supervisor credential lookup is outside the authenticated tenant context'
       USING ERRCODE = '42501';
   END IF;
@@ -74,7 +91,8 @@ BEGIN
      )
      AND (u.id::text = v_identifier OR pg_catalog.lower(u.username) = pg_catalog.lower(v_identifier))
    ORDER BY (u.id::text = v_identifier) DESC
-   LIMIT 1;
+   LIMIT 1
+   FOR SHARE OF u, target_membership;
 END;
 $function$;
 
@@ -111,6 +129,37 @@ BEGIN
      ) THEN
     RAISE EXCEPTION 'supervisor failed-attempt update is outside the authenticated tenant context'
       USING ERRCODE = '42501';
+  END IF;
+
+  PERFORM 1
+    FROM public.prodx_users requester
+    JOIN public.prodx_store_memberships requester_membership
+      ON requester_membership.organization_id = requester.organization_id
+     AND requester_membership.user_id = requester.id
+     AND requester_membership.store_id = p_store_id
+     AND requester_membership.active = TRUE
+   WHERE requester.id = v_requester_id
+     AND requester.organization_id = p_organization_id
+     AND requester.status = 'active'
+   FOR SHARE OF requester, requester_membership;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'supervisor failed-attempt update is outside the authenticated tenant context'
+      USING ERRCODE = '42501';
+  END IF;
+
+  PERFORM 1
+    FROM public.prodx_users u
+    JOIN public.prodx_store_memberships target_membership
+      ON target_membership.organization_id = u.organization_id
+     AND target_membership.user_id = u.id
+     AND target_membership.store_id = p_store_id
+     AND target_membership.active = TRUE
+   WHERE u.id = p_user_id
+     AND u.organization_id = p_organization_id
+     AND u.status = 'active'
+   FOR SHARE OF u, target_membership;
+  IF NOT FOUND THEN
+    RETURN;
   END IF;
 
   -- An identity without active membership in this store is deliberately a
@@ -185,30 +234,46 @@ BEGIN
       USING ERRCODE = '42501';
   END IF;
 
+  PERFORM 1
+    FROM public.prodx_users requester
+    JOIN public.prodx_store_memberships requester_membership
+      ON requester_membership.organization_id = requester.organization_id
+     AND requester_membership.user_id = requester.id
+     AND requester_membership.store_id = p_store_id
+     AND requester_membership.active = TRUE
+   WHERE requester.id = v_requester_id
+     AND requester.organization_id = p_organization_id
+     AND requester.status = 'active'
+   FOR SHARE OF requester, requester_membership;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'supervisor failed-attempt reset is outside the authenticated tenant context'
+      USING ERRCODE = '42501';
+  END IF;
+
   v_permission_key := CASE p_action WHEN 'refund' THEN 'pos.refund' WHEN 'void' THEN 'pos.void' END;
   IF v_permission_key IS NULL THEN
     RAISE EXCEPTION 'supervisor action is invalid' USING ERRCODE = '22023';
   END IF;
 
-  IF NOT EXISTS (
-    SELECT 1
-      FROM public.prodx_users u
-      JOIN public.prodx_store_memberships m
-        ON m.organization_id = u.organization_id AND m.user_id = u.id
-       AND m.store_id = p_store_id AND m.active = TRUE
-      JOIN public.prodx_user_roles ur
-        ON ur.organization_id = m.organization_id AND ur.user_id = m.user_id
-       AND ur.store_id = m.store_id AND ur.active = TRUE
-      JOIN public.prodx_roles r
-        ON r.id = ur.role_id AND r.organization_id = ur.organization_id AND r.active = TRUE
-      JOIN public.prodx_role_permissions rp
-        ON rp.organization_id = r.organization_id AND rp.role_id = r.id
-      JOIN public.prodx_permissions p
-        ON p.id = rp.permission_id AND p.permission_key = v_permission_key
-     WHERE u.id = p_user_id
-       AND u.organization_id = p_organization_id
-       AND u.status = 'active'
-  ) THEN
+  PERFORM 1
+    FROM public.prodx_users u
+    JOIN public.prodx_store_memberships m
+      ON m.organization_id = u.organization_id AND m.user_id = u.id
+     AND m.store_id = p_store_id AND m.active = TRUE
+    JOIN public.prodx_user_roles ur
+      ON ur.organization_id = m.organization_id AND ur.user_id = m.user_id
+     AND ur.store_id = m.store_id AND ur.active = TRUE
+    JOIN public.prodx_roles r
+      ON r.id = ur.role_id AND r.organization_id = ur.organization_id AND r.active = TRUE
+    JOIN public.prodx_role_permissions rp
+      ON rp.organization_id = r.organization_id AND rp.role_id = r.id
+    JOIN public.prodx_permissions p
+      ON p.id = rp.permission_id AND p.permission_key = v_permission_key
+   WHERE u.id = p_user_id
+     AND u.organization_id = p_organization_id
+     AND u.status = 'active'
+   FOR SHARE OF u, m, ur, r, rp, p;
+  IF NOT FOUND THEN
     RAISE EXCEPTION 'supervisor is not eligible for the requested store permission'
       USING ERRCODE = '42501';
   END IF;
