@@ -1,4 +1,5 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
+import type { JWTPayload } from "jose";
 import type { AuthContext, TerminalCheckpoint } from "./contracts";
 import { readTerminalCheckpoint } from "./terminal-recovery";
 
@@ -14,6 +15,12 @@ function jwksFor(issuer: string) {
   return jwks;
 }
 
+function customClaim(payload: JWTPayload, name: string): unknown {
+  const custom = (payload as JWTPayload & { custom?: unknown }).custom;
+  if (custom === null || typeof custom !== "object" || Array.isArray(custom)) return undefined;
+  return (custom as Record<string, unknown>)[name];
+}
+
 async function verifiedClaims(request: Request, env: Env) {
   const token = request.headers.get("cf-access-jwt-assertion");
   if (!token) throw new Response("Unauthorized", { status: 401 });
@@ -26,8 +33,10 @@ async function verifiedClaims(request: Request, env: Env) {
 
 export async function authenticate(request: Request, env: Env): Promise<AuthContext> {
   const payload = await verifiedClaims(request, env);
-  const tenantId = payload.tenant_id;
-  const terminalId = payload.terminal_id;
+  // Cloudflare Access nests custom OIDC claims under the signed `custom` object.
+  // Do not accept lookalike top-level claims outside that namespace.
+  const tenantId = customClaim(payload, "tenant_id");
+  const terminalId = customClaim(payload, "terminal_id");
   if (typeof tenantId !== "string" || typeof terminalId !== "string" ||
       !UUID.test(tenantId) || !UUID.test(terminalId)) {
     throw new Response("Forbidden", { status: 403 });
@@ -40,11 +49,12 @@ export async function authenticateTenantOperator(request: Request, env: Env): Pr
 }> {
   const payload = await verifiedClaims(request, env);
   const subject = typeof payload.sub === "string" ? payload.sub.trim() : "";
-  if (payload.role !== "POS_SYNC_AUDITOR" || typeof payload.tenant_id !== "string" ||
-      !UUID.test(payload.tenant_id) || subject.length < 1 || subject.length > 255) {
+  const tenantId = customClaim(payload, "tenant_id");
+  if (customClaim(payload, "role") !== "POS_SYNC_AUDITOR" || typeof tenantId !== "string" ||
+      !UUID.test(tenantId) || subject.length < 1 || subject.length > 255) {
     throw new Response("Forbidden", { status: 403 });
   }
-  return { tenantId: payload.tenant_id, subject };
+  return { tenantId, subject };
 }
 
 export async function authenticateRecoveryOperator(request: Request, env: Env): Promise<{
@@ -52,11 +62,12 @@ export async function authenticateRecoveryOperator(request: Request, env: Env): 
 }> {
   const payload = await verifiedClaims(request, env);
   const subject = typeof payload.sub === "string" ? payload.sub.trim() : "";
-  if (payload.role !== "POS_SYNC_RECOVERY_ADMIN" || typeof payload.tenant_id !== "string" ||
-      !UUID.test(payload.tenant_id) || subject.length < 1 || subject.length > 255) {
+  const tenantId = customClaim(payload, "tenant_id");
+  if (customClaim(payload, "role") !== "POS_SYNC_RECOVERY_ADMIN" || typeof tenantId !== "string" ||
+      !UUID.test(tenantId) || subject.length < 1 || subject.length > 255) {
     throw new Response("Forbidden", { status: 403 });
   }
-  return { tenantId: payload.tenant_id, subject };
+  return { tenantId, subject };
 }
 
 export async function verifyTerminalCertificate(request: Request, env: Env, auth: AuthContext): Promise<TerminalCheckpoint> {
