@@ -299,7 +299,9 @@ test('supervisor authorization works end-to-end under the real prodx_app runtime
       SELECT event_type, count(*)::int AS count FROM public.prodx_security_audit_events
        WHERE organization_id = $1 GROUP BY event_type ORDER BY event_type COLLATE "C"`, [ids.org]);
     assert.deepEqual(audit.rows, [
+      { event_type: 'SUPERVISOR_AUTHORIZATION_CONSUMED', count: 1 },
       { event_type: 'SUPERVISOR_AUTHORIZATION_GRANTED', count: 1 },
+      { event_type: 'SUPERVISOR_AUTHORIZATION_REPLAYED', count: 1 },
       { event_type: 'SUPERVISOR_AUTH_DENIED', count: 1 },
       { event_type: 'SUPERVISOR_AUTH_FAILED', count: 9 },
       { event_type: 'SUPERVISOR_AUTH_REJECTED', count: 2 },
