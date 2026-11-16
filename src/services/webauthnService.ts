@@ -82,7 +82,7 @@ export function createWebAuthnChallengeRecord(targetUser?: { id?: string; email?
   const challenge = crypto.getRandomValues(new Uint8Array(32)); const id = crypto.getRandomValues(new Uint8Array(24));
   const now = Date.now(); const rpId = typeof window !== 'undefined' && window.location?.hostname ? window.location.hostname : 'localhost';
   const origin = typeof window !== 'undefined' && window.location?.origin ? window.location.origin : `https://${rpId}`;
-  return { challengeId: bufferToBase64URL(id.buffer as ArrayBuffer), challenge: bufferToBase64URL(challenge.buffer as ArrayBuffer), rpId, origin,
+  return { challengeId: `wauthn-chal-${bufferToBase64URL(id.buffer as ArrayBuffer)}`, challenge: bufferToBase64URL(challenge.buffer as ArrayBuffer), rpId, origin,
     issuedAt: now, expiresAt: now + ttlMs, used: false, targetUserId: targetUser?.id, targetUserEmail: targetUser?.email };
 }
 export async function registerPasskey(_user: { id: string; email: string; name: string; role: 'cashier' | 'manager' | 'admin' }, _deviceLabel?: string): Promise<{ success: boolean; credential?: PasskeyCredentialRecord; error?: string; isVirtual?: boolean }> {
