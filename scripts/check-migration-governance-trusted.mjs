@@ -166,6 +166,20 @@ export async function verifyMigrationGovernance(candidateRoot, trustedRoot) {
   // immutable, including migrations merged after that manifest was created.
   const trustedMigrationDir = path.join(trusted, 'db/migrations');
   const trustedMigrationNames = (await readdir(trustedMigrationDir)).filter((name) => name.endsWith('.sql')).sort();
+  const trustedMigrationPaths = new Set(
+    trustedMigrationNames.map((name) => path.posix.join('db/migrations', name)),
+  );
+  const trustedMigrationIds = [];
+  for (const name of trustedMigrationNames) {
+    const match = /^([0-9]{4})_[a-z0-9][a-z0-9_-]*\.sql$/.exec(name);
+    if (!match) {
+      errors.push(`Trusted base migration filename is invalid: ${name}`);
+      continue;
+    }
+    trustedMigrationIds.push(Number(match[1]));
+  }
+  const trustedBaseMaxId = Math.max(manifest.baselineMaxId, ...trustedMigrationIds);
+
   for (const name of trustedMigrationNames) {
     const relativePath = path.posix.join('db/migrations', name);
     if (!currentPaths.has(relativePath)) {
@@ -195,6 +209,11 @@ export async function verifyMigrationGovernance(candidateRoot, trustedRoot) {
     const id = match[1];
     if (Number(id) <= manifest.baselineMaxId) {
       errors.push(`New migration ID ${id} must be greater than baseline maximum 0045: ${relativePath}`);
+    }
+    if (!trustedMigrationPaths.has(relativePath) && Number(id) <= trustedBaseMaxId) {
+      errors.push(
+        `New migration ID ${id} must be greater than trusted base maximum ${String(trustedBaseMaxId).padStart(4, '0')}: ${relativePath}`,
+      );
     }
     const previous = seenNewIds.get(id);
     if (previous) errors.push(`Duplicate new migration ID ${id}: ${previous} and ${relativePath}`);
