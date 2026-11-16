@@ -78,6 +78,48 @@ const loadGoogleIdentityScript = async (): Promise<GoogleIdentity> => {
   return googleIdentity;
 };
 
+const validateSingleRecipient = (recipient: string): string => {
+  const value = recipient.trim();
+  if (!value || /[\r\n]/.test(value) || /[,;<>]/.test(value)) {
+    throw new Error('Gmail recipient must be exactly one valid email address.');
+  }
+
+  const parts = value.split('@');
+  if (parts.length !== 2) {
+    throw new Error('Gmail recipient must be exactly one valid email address.');
+  }
+
+  const [localPart, domain] = parts;
+  const labels = domain.split('.');
+  const localPartValid =
+    localPart.length > 0 &&
+    localPart.length <= 64 &&
+    !localPart.startsWith('.') &&
+    !localPart.endsWith('.') &&
+    !localPart.includes('..') &&
+    /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+$/.test(localPart);
+  const domainValid =
+    domain.length <= 253 &&
+    labels.length >= 2 &&
+    labels.every((label) =>
+      label.length > 0 &&
+      label.length <= 63 &&
+      /^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$/.test(label)
+    );
+
+  if (!localPartValid || !domainValid) {
+    throw new Error('Gmail recipient must be exactly one valid email address.');
+  }
+  return value;
+};
+
+const validateHeaderValue = (value: string, field: string): string => {
+  if (/[\r\n]/.test(value)) {
+    throw new Error(`Gmail ${field} must not contain CR or LF characters.`);
+  }
+  return value;
+};
+
 export const createGmailService = ({
   getClientId = defaultClientId,
   loadGoogleIdentity = loadGoogleIdentityScript,
@@ -163,15 +205,16 @@ export const createGmailService = ({
   };
 
   const sendGmailMessage = async (accessToken: string, to: string, subject: string, body: string) => {
-    // Prevent CR/LF header injection
-    const cleanTo = to.replace(/[\r\n]/g, '');
-    const cleanSubject = subject.replace(/[\r\n]/g, '');
-    
+    // Reject header control characters and multiple recipients; never sanitize an
+    // attacker-controlled address into a different, potentially valid address.
+    const recipient = validateSingleRecipient(to);
+    const safeSubject = validateHeaderValue(subject, 'subject');
+
     // RFC 2047 encode subject (e.g. for Thai characters)
-    const encodedSubject = `=?utf-8?B?${btoa(unescape(encodeURIComponent(cleanSubject)))}?=`;
+    const encodedSubject = `=?utf-8?B?${btoa(unescape(encodeURIComponent(safeSubject)))}?=`;
 
     const emailLines = [
-      `To: ${cleanTo}`,
+      `To: ${recipient}`,
       `Subject: ${encodedSubject}`,
       'Content-Type: text/plain; charset="UTF-8"',
       'MIME-Version: 1.0',

@@ -106,7 +106,36 @@ test('Gmail API 401 invalidates the cached OAuth session', async () => {
   assert.equal(revoked, true);
 });
 
-test('sendGmailMessage prevents CR/LF header injection and encodes subject', async () => {
+test('sendGmailMessage rejects CR/LF and recipient smuggling before calling Gmail', async () => {
+  let fetchCalls = 0;
+  const service = createGmailService({
+    getClientId: () => 'client-id',
+    loadGoogleIdentity: async () => ({ accounts: { oauth2: {
+      initTokenClient: () => ({ requestAccessToken: () => undefined }),
+      revoke: (_token, callback) => callback?.(),
+    } } }),
+    fetcher: async () => {
+      fetchCalls += 1;
+      return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+    },
+  });
+
+  await assert.rejects(
+    service.sendGmailMessage('token', 'test\r\nBcc: evil@example.com', 'Subject', 'body'),
+    /exactly one valid email address/,
+  );
+  await assert.rejects(
+    service.sendGmailMessage('token', 'victim@example.test,evil@example.test', 'Subject', 'body'),
+    /exactly one valid email address/,
+  );
+  await assert.rejects(
+    service.sendGmailMessage('token', 'victim@example.test', 'Subject\r\nBcc: evil@example.com', 'body'),
+    /must not contain CR or LF/,
+  );
+  assert.equal(fetchCalls, 0, 'Invalid recipients and headers must never reach Gmail API');
+});
+
+test('sendGmailMessage accepts one valid recipient and encodes subject', async () => {
   let requestBody: any;
   const service = createGmailService({
     getClientId: () => 'client-id',
@@ -114,15 +143,14 @@ test('sendGmailMessage prevents CR/LF header injection and encodes subject', asy
       initTokenClient: () => ({ requestAccessToken: () => undefined }),
       revoke: (_token, callback) => callback?.(),
     } } }),
-    fetcher: async (input, init) => {
+    fetcher: async (_input, init) => {
       requestBody = JSON.parse(init?.body as string);
       return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
     },
   });
 
-  await service.sendGmailMessage('token', 'test\r\nBcc: evil@example.com', 'Sub\r\nject', 'body');
-  
+  await service.sendGmailMessage('token', 'victim+pos@example.test', 'หัวข้อทดสอบ', 'body');
   const rawDecoded = decodeURIComponent(escape(atob(requestBody.raw.replace(/-/g, '+').replace(/_/g, '/'))));
-  assert.match(rawDecoded, /To: testBcc: evil@example\.com/);
-  assert.match(rawDecoded, /Subject: =\?utf-8\?B\?U3ViamVjdA==\?=/);
+  assert.match(rawDecoded, /To: victim\+pos@example\.test/);
+  assert.match(rawDecoded, /Subject: =\?utf-8\?B\?/);
 });
