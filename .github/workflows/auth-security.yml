@@ -79,8 +79,6 @@ jobs:
         run: npm run server:test:integration
 
       - name: Prepare isolated first-tenant bootstrap database
-        env:
-          PGPASSWORD: prodx
         shell: bash
         run: |
           set -euo pipefail
