@@ -1,7 +1,7 @@
 import type { IAuthApi, LoginRequest } from './types';
 import type { SessionContext, Store } from '../domain/auth';
 import { createProductionAuthApi } from './productionAuthApi';
-import { getSupabasePosAuthClient } from '../lib/supabasePosAuth';
+import { getSupabasePosAuthClient, SupabaseAuthConfigurationError } from '../lib/supabasePosAuth';
 
 type SupabaseAuthClient = ReturnType<typeof getSupabasePosAuthClient>;
 type SupabaseAuthApiDependencies = {
@@ -79,7 +79,7 @@ export const createSupabaseAuthApi = ({
       const { error } = await getClient().auth.signOut({ scope: 'local' });
       if (error) throw error;
     } catch (error) {
-      if (error instanceof Error && error.message.includes('POS Supabase Auth is not configured')) return;
+      if (error instanceof SupabaseAuthConfigurationError) return;
       throw error;
     }
   },

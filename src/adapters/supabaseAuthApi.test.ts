@@ -3,6 +3,7 @@ import test from 'node:test';
 import type { IAuthApi } from './types';
 import type { getSupabasePosAuthClient } from '../lib/supabasePosAuth';
 import { createSupabaseAuthApi } from './supabaseAuthApi';
+import { SupabaseAuthConfigurationError } from '../lib/supabasePosAuth';
 
 type Client = ReturnType<typeof getSupabasePosAuthClient>;
 const loginRequest = { organizationSlug: 'demo-org', storeCode: 'STORE-01', registerId: 'ADMIN-CONSOLE', emailOrPin: 'admin@example.test', passwordOrPin: 'test-password', requireAdminRole: true };
@@ -89,4 +90,16 @@ test('Supabase renewal preserves HTTP status so revoked POS sessions fail closed
     assert.match((error as Error).message, /Session revoked/);
     return true;
   });
+});
+
+
+test('successful POS logout tolerates missing local Supabase configuration after server revocation', async () => {
+  const api = createSupabaseAuthApi({
+    getClient: () => { throw new SupabaseAuthConfigurationError(); },
+    fetcher: async (input) => {
+      assert.equal(String(input), '/auth/logout');
+      return new Response(null, { status: 204 });
+    },
+  });
+  await assert.doesNotReject(api.logout('pos-session-token'));
 });
