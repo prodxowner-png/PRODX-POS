@@ -4,12 +4,14 @@ import React, { type ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import {
   getSafeRuntimeErrorName,
+  GlobalErrorRecoveryProvider,
   InternalCrashBoundary,
   reloadApplicationPreservingLocalData,
   sanitizeAndRestoreAppState,
 } from './GlobalErrorRecoveryProvider';
 import fs from 'node:fs';
 import path from 'node:path';
+import { AUTH_SESSION_STORAGE_KEY } from './authSessionStorage';
 
 class MockStorage {
   private store = new Map<string, string>();
@@ -161,96 +163,124 @@ test('InternalCrashBoundary: React runtime test proves fallback rendering markup
   assert.ok(!markup.includes('10.0.1.44'), 'Internal IP address must never appear in fallback HTML');
 });
 
-test('InternalCrashBoundary: React 19 tree mount catches runtime child render crash and executes native lifecycle', async () => {
+test('GlobalErrorRecoveryProvider: mounted production boundary catches descendant crashes and audits only redacted metadata', async () => {
   const secretToken = 'sk-super-secret-postgres-auth-token-12345';
+  const originalConsoleError = console.error;
+  const globalKeys = ['window', 'document', 'HTMLIFrameElement', 'HTMLElement', 'localStorage', 'sessionStorage', 'location', 'fetch', 'addEventListener', 'removeEventListener'];
+  const originalDescriptors = new Map(globalKeys.map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+  const localStore = new MockStorage();
+  const sessionStore = new MockStorage();
+  localStore.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify({ token: 'test-pos-session-token' }));
+
+  let auditPayload: Record<string, any> | null = null;
+  let auditAuthorization = '';
 
   class DummyElement {
     nodeType = 1;
     tagName = 'DIV';
-    style = {};
+    style = { setProperty() {}, removeProperty() {} };
     children: any[] = [];
     props: Record<string, any> = {};
-    appendChild(c: any) { this.children.push(c); }
-    removeChild(c: any) { this.children = this.children.filter((x) => x !== c); }
-    insertBefore(c: any) { this.children.push(c); }
+    parentNode: any = null;
+    ownerDocument: any = null;
+    private ownText = '';
+
+    appendChild(child: any) { this.children.push(child); child.parentNode = this; return child; }
+    removeChild(child: any) { this.children = this.children.filter((item) => item !== child); child.parentNode = null; return child; }
+    insertBefore(child: any, before: any) {
+      const index = before ? this.children.indexOf(before) : -1;
+      if (index < 0) this.children.push(child); else this.children.splice(index, 0, child);
+      child.parentNode = this;
+      return child;
+    }
     addEventListener() {}
     removeEventListener() {}
-    setAttribute(k: string, v: any) { this.props[k] = v; }
+    setAttribute(key: string, value: any) { this.props[key] = value; }
+    removeAttribute(key: string) { delete this.props[key]; }
+    get textContent(): string {
+      return this.ownText + this.children.map((child) => child.nodeType === 3 ? child.nodeValue : (child.textContent || '')).join('');
+    }
+    set textContent(value: string) { this.ownText = value; this.children = []; }
   }
 
-  const doc = {
+  const doc: any = {
     nodeType: 9,
     documentElement: new DummyElement(),
     activeElement: null,
     createElement(tag: string) {
-      const el = new DummyElement();
-      el.tagName = tag.toUpperCase();
-      return el;
+      const element = new DummyElement();
+      element.tagName = tag.toUpperCase();
+      element.ownerDocument = doc;
+      return element;
     },
-    createElementNS(_ns: string, tag: string) { return this.createElement(tag); },
-    createTextNode(text: string) { return { nodeType: 3, nodeValue: text }; },
-    createComment() { return { nodeType: 8 }; },
+    createElementNS(_namespace: string, tag: string) { return this.createElement(tag); },
+    createTextNode(text: string) { return { nodeType: 3, nodeValue: text, parentNode: null }; },
+    createComment() { return { nodeType: 8, nodeValue: '', parentNode: null }; },
     addEventListener() {},
     removeEventListener() {},
     defaultView: globalThis,
   };
+  doc.documentElement.ownerDocument = doc;
 
-  (globalThis as any).HTMLIFrameElement = class {};
-  (globalThis as any).HTMLElement = DummyElement;
-  (globalThis as any).window = globalThis;
-  (globalThis as any).document = doc;
+  const location = {
+    origin: 'http://localhost',
+    pathname: '/pos',
+    href: 'http://localhost/pos',
+    reload: () => {},
+  };
+  Object.assign(globalThis, {
+    HTMLIFrameElement: class {},
+    HTMLElement: DummyElement,
+    window: globalThis,
+    document: doc,
+    localStorage: localStore,
+    sessionStorage: sessionStore,
+    location,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    fetch: async (_input: RequestInfo | URL, init?: RequestInit) => {
+      auditAuthorization = new Headers(init?.headers).get('authorization') || '';
+      auditPayload = init?.body ? JSON.parse(String(init.body)) : null;
+      return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+    },
+  });
 
   const container = new DummyElement();
-  (container as any).ownerDocument = doc;
-
+  container.ownerDocument = doc;
   const CrashingChild: React.FC = () => {
     throw new Error(`CRITICAL_DATABASE_ERROR: connection refused with token ${secretToken}`);
   };
-
-  let caughtError: Error | null = null;
-  let caughtInfo: React.ErrorInfo | null = null;
-
   const { createRoot } = await import('react-dom/client');
   const root = createRoot(container as any);
-
-  // Suppress expected React console.error during deliberate error boundary test
-  const originalConsoleError = console.error;
   console.error = () => {};
 
   try {
-    await new Promise<void>((resolve) => {
-      root.render(
-        React.createElement(InternalCrashBoundary, {
-          children: React.createElement(CrashingChild),
-          onCatch: (err, info) => {
-            caughtError = err;
-            caughtInfo = info;
-            resolve();
-          },
-        })
-      );
-    });
+    root.render(
+      React.createElement(GlobalErrorRecoveryProvider, null, React.createElement(CrashingChild))
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.ok(container.textContent.includes('PRODX POS encountered a runtime error'), 'The mounted provider must render the internal crash fallback');
+    assert.ok(!container.textContent.includes(secretToken), 'The cashier fallback must not expose raw exception details');
+    assert.ok(auditPayload, 'The caught crash must be sent through the existing authenticated audit endpoint');
+    assert.equal(auditAuthorization, 'Bearer test-pos-session-token');
+    assert.equal(auditPayload?.details?.message, 'An unexpected application error occurred. Sensitive details are withheld.');
+    assert.equal(auditPayload?.details?.errorName, 'Error');
+    assert.ok(!JSON.stringify(auditPayload).includes(secretToken), 'Audit payload must not contain raw exception data');
+    assert.ok(!JSON.stringify(auditPayload).includes('connection refused'));
+    assert.equal(auditPayload?.details?.errorStack, undefined, 'Raw stack must not be persisted to the audit API');
   } finally {
+    root.unmount();
+    // React schedules passive-effect cleanup after unmount; let it remove the
+    // provider's window listeners before restoring the Node test globals.
+    await new Promise((resolve) => setTimeout(resolve, 50));
     console.error = originalConsoleError;
+    for (const [key, descriptor] of originalDescriptors) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else delete (globalThis as any)[key];
+    }
   }
-
-  // 1. Verify getDerivedStateFromError and componentDidCatch executed natively in React runtime
-  assert.ok(caughtError !== null, 'Native React ErrorBoundary must catch the child render crash');
-  assert.ok((caughtError as Error).message.includes(secretToken), 'Caught error must retain original error');
-  assert.ok(caughtInfo !== null, 'componentDidCatch must receive React componentStack');
-
-  // 2. Render fallback markup and verify zero secret leakage
-  const boundary = new InternalCrashBoundary({
-    children: React.createElement(CrashingChild),
-    onCatch: () => {},
-  });
-  const state = InternalCrashBoundary.getDerivedStateFromError(caughtError!);
-  boundary.state = state;
-  const rendered = boundary.render() as ReactElement;
-  const markup = renderToStaticMarkup(rendered);
-
-  assert.ok(markup.includes('id="global-crash-boundary-fallback"'));
-  assert.ok(!markup.includes(secretToken), 'Secret token must never leak into fallback markup');
 });
 
 test('InternalCrashBoundary: componentDidCatch invokes onCatch callback for auditing', () => {

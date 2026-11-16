@@ -835,12 +835,17 @@ export const GlobalErrorRecoveryProvider: React.FC<{ children: ReactNode }> = ({
 
   const handleCrashBoundaryCatch = useCallback(
     (error: Error, info: ErrorInfo) => {
+      // Retain only a validated error class for audit metadata; never forward
+      // the original exception object or its message/stack.
+      const safeError = new Error('A React render error was caught.');
+      safeError.name = getSafeRuntimeErrorName(error) ?? 'Error';
       reportCriticalFailure({
         type: 'RUNTIME_CRASH',
         title: 'Application Core Loop Render Crash',
         message: 'A React render error was caught. Sensitive error details are withheld.',
+        error: safeError,
         contextData: {
-          errorName: getSafeRuntimeErrorName(error),
+          errorName: safeError.name,
           componentStack: info.componentStack,
         },
         module: 'react_core_tree',
