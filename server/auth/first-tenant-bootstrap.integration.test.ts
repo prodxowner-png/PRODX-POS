@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createPostgresPool, resolveConfiguredDatabaseUrl } from '../db/postgres';
+import { assertDisposableTestDatabaseUrl } from '../db/test-database-guard';
 import { createPostgresFirstTenantBootstrapRepository, type FirstTenantBootstrapInput } from './postgres-repository';
 
 const databaseUrl = process.env.PRODX_RUN_BOOTSTRAP_POSTGRES_INTEGRATION === '1'
-  ? resolveConfiguredDatabaseUrl(process.env.PRODX_BOOTSTRAP_TEST_DATABASE_URL)
+  ? assertDisposableTestDatabaseUrl(
+    resolveConfiguredDatabaseUrl(process.env.PRODX_BOOTSTRAP_TEST_DATABASE_URL),
+    'server/auth/first-tenant-bootstrap.integration.test.ts',
+  )
   : null;
 const pool = databaseUrl ? createPostgresPool({ connectionString: databaseUrl, max: 4 }) : null;
 const repository = pool ? createPostgresFirstTenantBootstrapRepository({
