@@ -51,12 +51,24 @@ These contracts are not interchangeable by a field rename. The conversion requir
 The following are confirmed from the current `main` source and the owner-selected Preview database:
 
 - **Legacy schema is absent from Preview.** The Worker directly queries/writes `terminal_devices`, `terminal_sync_state`, `pos_idempotency`, `sales`, `sale_lines`, `inventory_ledger`, `audit_logs`, and `tenant_catalog_versions`. None of these tables exist in `PRODX-POS-PREVIEW`. The Preview database instead contains the established `prodx_orders`, `prodx_order_items`, `prodx_payments`, `prodx_cash_movements`, `prodx_inventory_ledger`, and `prodx_audit_log` tables. Do not apply the legacy Edge migration to make the current Worker run.
-- **Existing checkout idempotency is not payload-bound.** `createCheckoutService()` looks up `prodx_orders` by `store_id + idempotency_key` and returns the existing order without comparing a canonical payload hash, sale ID, terminal ID, or sequence. The current `prodx_orders` schema has no `payload_hash`, `sale_id`, or `terminal_seq_no` columns. B3/B4 therefore require a durable, transactionally enforced identity/hash mapping and a same-key/different-payload rejection before the adapter can safely reuse the service.
+- **Existing checkout idempotency is now partially payload-bound (main update 2026-11-16).** Migration `0050_checkout_idempotency_payload_fingerprint.sql` adds `prodx_orders.idempotency_payload_hash`; `checkout-service.ts` computes a semantic `checkoutFingerprint` and rejects same-store/same-key replays whose fingerprint differs. The fingerprint binds store/register/cashier, item identity/quantity/discount/currency, and payment identity/tender/amount fields. It does **not** bind Edge `terminal_id`, `sale_id`, `terminal_seq_no`, HLC, device-key ID, or signed price-proof identity, and `prodx_orders` still has no Edge sale/sequence columns. B3/B4 therefore still require a durable, transactionally enforced mapping from the immutable Edge identity to the committed order; do not rely on DO-local state or the existing checkout fingerprint alone.
 - **Register identity is not currently server-derived by the sync route.** `sync-route.ts` overwrites `storeId` and `cashierId` from the authenticated principal but retains `registerId` from the payload. The adapter must resolve the terminal's authorized register from backend-owned device/session mappings and override or strictly validate the client field.
 - **Catalog proof custody is Worker-local today.** `catalog-crypto.ts` signs and verifies HMAC-SHA256 catalog/price proofs using `CATALOG_SIGNING_KEY`, loaded from a Worker secret. The backend CheckoutService does not currently verify these proofs. The backend must independently verify offline price evidence. Prefer an asymmetric signing design with the signing private key held only by the trusted backend and a public verification key distributed to verifiers; do not ship or copy the HMAC signing secret to POS clients or duplicate it across environments without a documented key-custody decision.
 - **Preview DB guardrails were inspected read-only.** `prodx_app` is a login role with `NOBYPASSRLS`, is not table owner, and has INSERT but not UPDATE/DELETE on audit, inventory-ledger, and cash-movement tables. The 39 PRODX tables have RLS enabled and are owned by `postgres`; no grants or policies were changed.
 
 These are implementation gaps, not approvals to modify the database. They must be closed by reviewed code/schema changes and exact-head tests before staging deployment.
+
+### 2.5 Mainline verification update (2026-11-16; baseline `26c49244f3725e07fc39fa4ac3d1457a62f69151`)
+
+The following current-main changes were verified from repository source after the historical 2026-11-11 snapshot:
+
+- Migration `0050_checkout_idempotency_payload_fingerprint.sql` and `checkoutFingerprint()` now provide a semantic checkout payload fingerprint. This closes the basic same-key/different-checkout-command gap for the fields included in that fingerprint, but it does not bind the Edge terminal/sale/sequence identity described under B3/B4.
+- `CheckoutService` selects active products in the authenticated store with `FOR UPDATE`, conditionally decrements `current_stock` only when sufficient stock remains, appends `prodx_inventory_ledger`, persists payments and cash movements, and appends the checkout audit event within the same transaction.
+- `createTransactionalPostgresExecutor()` sets transaction-local `app.organization_id`, `app.store_id`, and `app.user_id` from the server-verified request principal. This is the required backend transaction boundary; the Worker must not reproduce it with a separate database role.
+- `POST /api/v1/sync/commands` currently overwrites `storeId` and `cashierId` from the authenticated principal, but retains `registerId` from the outbox payload. The Edge adapter must resolve the authorized register from backend-owned device/session mapping and must not trust the client field.
+- PR #386's supervisor-authorization connection-pool starvation fix is now in main. This is relevant to checkout transaction reliability but does not close the Edge adapter's B1–B8 contract.
+
+These changes improve the existing financial authority; they do not make the direct-PostgreSQL Edge Worker a valid adapter. The Worker must still call the backend integration endpoint and existing `CheckoutService`.
 
 ## 3. Required adapter boundary
 
@@ -125,7 +137,7 @@ Edge's `SaleLine` model currently has no payment/tender breakdown. Core checkout
 
 ### B6 — Inventory concurrency (High / Blocking)
 
-The financial transaction must preserve product row locking, atomic stock decrement, non-negative stock enforcement, append-only inventory ledger and tenant/store constraints. Edge must not write inventory balances or ledger tables directly.
+The current main `CheckoutService` already locks store-scoped products with `FOR UPDATE`, performs a conditional stock decrement, appends `prodx_inventory_ledger`, and records order/payment/cash/audit effects in the same transaction. CF-01 must call this existing service and prove the same concurrency/non-negative-stock invariants through the adapter. Edge must not write inventory balances or ledger tables directly or introduce a parallel inventory schema.
 
 ### B7 — RLS and grants (High / Blocking)
 

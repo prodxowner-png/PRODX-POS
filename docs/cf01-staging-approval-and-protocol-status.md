@@ -70,3 +70,44 @@ Runtime implementation remains blocked until:
 ## Safety boundary
 
 No Runtime code, migration, DB credential, Cloudflare resource/secret, RLS policy, grant, Production configuration, deployment, or merge is authorized by this record. Do not apply `prodx-pos-edge-sync/migrations/001_pos_ledger.sql` to Preview or Production. CF-01 remains HOLD pending implementation gates and isolated live Staging E2E.
+
+
+## Status update (2026-11-16; current main `26c49244`)
+
+This update supersedes no historical owner decision above; it records the current repository and Cloudflare evidence.
+
+### Verified repository progress
+
+- Main now contains migration `0050_checkout_idempotency_payload_fingerprint.sql` and a semantic checkout fingerprint in `CheckoutService`. It rejects same-store/same-key commands whose fingerprint differs. The fingerprint still does not bind Edge `terminal_id`, `sale_id`, `terminal_seq_no`, HLC, device key ID, or signed price-proof identity; B3/B4 remain open for CF-01.
+- Main `CheckoutService` uses store-scoped product row locks, conditional stock decrement, append-only `prodx_inventory_ledger`, payment/cash persistence, and audit append in one transaction. CF-01 must reuse this path; the Edge Worker must not create a parallel financial/inventory ledger.
+- The transaction executor derives transaction-local organization/store/user context from the server-verified request principal. The existing sync route still accepts `registerId` from the outbox payload after overriding store/cashier; the adapter must derive/validate register identity from backend-owned device/session records.
+- PR #386's checkout connection-pool starvation fix is merged into main. It does not close the Edge adapter requirements.
+- PR #387's updated design document now defines Direct PWA → Worker → DO/Queue → authenticated backend adapter → existing `CheckoutService` → existing PRODX PostgreSQL. It explicitly forbids Worker DB credentials, Hyperdrive financial writes, and a parallel Edge ledger. This is a design refinement only, not Runtime authorization.
+
+### Verified Cloudflare account inventory (read-only, 2026-11-16)
+
+- No `prodx-pos-edge-sync` or `prodx-pos-edge-sync-staging` Worker is deployed; only the OCI bridge Workers are present.
+- Durable Object namespaces: 0. Hyperdrive configurations: 0.
+- The two existing staging Queues are present but have zero producers and zero consumers.
+- No dedicated POS terminal Access application or Access mTLS certificate is present. Access mTLS plan entitlement remains unverified.
+- Account-wide `enforce_twofactor` is false; this does not prove the MFA state of individual users. Enforce MFA before production account administration.
+
+### Existing PR disposition / architecture boundary
+
+- PR #360's current Edge implementation still writes directly to the separate Edge schema (`sales`, `sale_lines`, `inventory_ledger`, `audit_logs`, `pos_idempotency`, and terminal checkpoints). Its green CI and 300-terminal PostgreSQL harness do not prove the approved backend adapter and must not be treated as Production readiness. Do not apply its `001_pos_ledger.sql` migration to the existing PRODX database or deploy this direct writer.
+- PR #373 adds store-scoped tables/columns to that same parallel Edge schema. Do not combine it into PR #360 as a production financial implementation; the existing PRODX schema already has store-scoped products and inventory through `CheckoutService`.
+- PR #356's Gate 6 workflow targets a Vercel Preview proxy and cannot prove direct PWA ingress or the backend CheckoutService commit/acknowledgement path. Do not dispatch it as the CF-01 acceptance test.
+- The Edge package README now marks the direct-PostgreSQL implementation as a legacy prototype and removes deployment/migration instructions from the approved setup path.
+
+### Remaining CF-01 work
+
+- B1: backend-owned session/device/key enrollment, rotation, revocation, and trusted Worker-to-backend service identity.
+- B2: backend verification of signed historical price evidence and exact integer/VAT policy.
+- B3: transactionally authoritative terminal sequence/HLC mapping tied to the financial commit.
+- B4: bind tenant/store/register/terminal/sale ID/sequence and canonical payload identity to the existing `idempotency_payload_hash` and committed order.
+- B5: map offline tender/payment evidence; define which tender methods may be accepted offline and provider reconciliation for non-cash methods.
+- B6/B7: reuse and prove the existing CheckoutService, transaction executor, RLS, grants, append-only inventory/audit/cash controls; no Worker financial DML.
+- B8: streaming request-size enforcement, Queue at-least-once semantics, authenticated committed receipt, and exact outbox acknowledgement.
+- Cross-runtime RFC 8785/ECDSA test vectors, independent security review, Quarantine dual-control workflow, browser/OS device compatibility, and isolated direct-browser staging E2E remain outstanding.
+
+**Status remains HOLD.** No Runtime implementation, database migration/application, DB credential/grant change, Cloudflare resource/secret change, deployment, PR merge, or Production change is authorized by this status update. The owner-approved 2026-11-11 direction remains Staging design only. The current request to clear existing work does not change this explicit safety boundary; obtain separate explicit authorization before crossing it.
