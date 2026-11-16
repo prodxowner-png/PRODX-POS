@@ -1,14 +1,10 @@
+import { resolveProductionApiBaseUrl } from './apiBaseUrl';
 import type { InventoryLedgerEntry, StockMovementReason } from '../domain/catalog';
 
 const configuredBaseUrl = (): string | undefined => import.meta.env?.VITE_AUTH_API_BASE_URL;
 
-const requireBaseUrl = (baseUrl?: string): string => {
-  const resolved = (baseUrl ?? configuredBaseUrl())?.trim();
-  if (!resolved) {
-    throw new Error('Production inventory adjustment API is not configured: VITE_AUTH_API_BASE_URL is missing.');
-  }
-  return resolved.replace(/\/$/, '');
-};
+const requireBaseUrl = (baseUrl?: string): string =>
+  resolveProductionApiBaseUrl(baseUrl ?? configuredBaseUrl());
 
 const requireToken = (token: string): string => {
   const normalized = (token || '').trim();

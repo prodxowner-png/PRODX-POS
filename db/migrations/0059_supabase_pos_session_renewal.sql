@@ -1,5 +1,5 @@
--- 0058: safely renew an existing POS session after server verification of a fresh Supabase JWT.
--- This migration follows the 0044-0049 database/index sequence introduced by PR #340.
+-- 0059: safely renew an existing POS session after server verification of a fresh Supabase JWT.
+-- This migration follows the trusted mainline through migration 0058.
 -- The existing POS bearer remains hashed and stable. Expired/revoked sessions cannot be revived.
 CREATE OR REPLACE FUNCTION public.prodx_auth_renew_supabase_session(
   p_session_id uuid,
@@ -13,21 +13,31 @@ SECURITY DEFINER
 SET search_path = pg_catalog, public
 AS $function$
 DECLARE
+  locked_session_id uuid;
+  locked_expiry timestamptz;
   renewed_expiry timestamptz;
   renewed_user_id uuid;
   renewed_organization_id uuid;
 BEGIN
+  -- CURRENT_TIMESTAMP is fixed at transaction start. Validate against wall-clock
+  -- time both before and after row locks so a lock wait cannot revive an expired JWT.
   IF p_expires_at IS NULL
-     OR p_expires_at <= CURRENT_TIMESTAMP
-     OR p_expires_at > CURRENT_TIMESTAMP + INTERVAL '8 hours' THEN
+     OR p_expires_at <= clock_timestamp()
+     OR p_expires_at > clock_timestamp() + INTERVAL '8 hours' THEN
     RETURN NULL;
   END IF;
 
-  UPDATE public.prodx_sessions AS ses
-     SET expires_at = GREATEST(ses.expires_at, p_expires_at)
-    FROM public.prodx_users AS u
-    JOIN public.prodx_devices AS d ON d.organization_id = u.organization_id
-    JOIN public.prodx_stores AS s ON s.id = d.store_id AND s.organization_id = d.organization_id
+  -- Serialize renewal against revocation and user/device/store/membership changes.
+  -- If another transaction wins a lock, PostgreSQL rechecks the predicates after it commits.
+  SELECT ses.id, ses.expires_at, ses.user_id, ses.organization_id
+    INTO locked_session_id, locked_expiry, renewed_user_id, renewed_organization_id
+    FROM public.prodx_sessions AS ses
+    JOIN public.prodx_users AS u
+      ON u.id = ses.user_id AND u.organization_id = ses.organization_id
+    JOIN public.prodx_devices AS d
+      ON d.id = ses.device_id AND d.organization_id = ses.organization_id
+    JOIN public.prodx_stores AS s
+      ON s.id = d.store_id AND s.organization_id = d.organization_id
     JOIN public.prodx_store_memberships AS m
       ON m.organization_id = u.organization_id
      AND m.store_id = d.store_id
@@ -36,16 +46,29 @@ BEGIN
    WHERE ses.id = p_session_id
      AND ses.token_hash = p_token_hash
      AND ses.revoked_at IS NULL
-     AND ses.expires_at > CURRENT_TIMESTAMP
      AND ses.user_id = u.id
      AND ses.organization_id = u.organization_id
      AND u.supabase_auth_user_id = p_supabase_user_id
      AND u.status = 'active'
-     AND d.id = ses.device_id
      AND d.status = 'active'
      AND s.active = TRUE
-  RETURNING ses.expires_at, ses.user_id, ses.organization_id
-       INTO renewed_expiry, renewed_user_id, renewed_organization_id;
+   FOR UPDATE OF ses, u, d, s, m;
+
+  -- Recheck both expiries after acquiring every authority-bearing row lock.
+  IF NOT FOUND
+     OR locked_expiry <= clock_timestamp()
+     OR p_expires_at <= clock_timestamp() THEN
+    RETURN NULL;
+  END IF;
+
+  UPDATE public.prodx_sessions AS ses
+     SET expires_at = GREATEST(ses.expires_at, p_expires_at)
+   WHERE ses.id = locked_session_id
+     AND ses.token_hash = p_token_hash
+     AND ses.revoked_at IS NULL
+     AND ses.expires_at > clock_timestamp()
+     AND p_expires_at > clock_timestamp()
+  RETURNING ses.expires_at INTO renewed_expiry;
 
   -- Record the security event in the same transaction as the successful renewal.
   -- A rejected/expired/revoked session returns NULL and produces no audit row.
@@ -89,5 +112,5 @@ $privileges$;
 GRANT EXECUTE ON FUNCTION public.prodx_auth_renew_supabase_session(uuid, text, uuid, timestamptz) TO prodx_app;
 
 INSERT INTO public.prodx_schema_migrations(version)
-VALUES ('0058_m8_supabase_pos_session_renewal')
+VALUES ('0059_supabase_pos_session_renewal')
 ON CONFLICT (version) DO NOTHING;

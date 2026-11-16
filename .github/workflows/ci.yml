@@ -65,13 +65,8 @@ jobs:
     - name: Verify migration governance
       run: bun run db:migrations:check
 
-    - name: Apply PostgreSQL migrations
-      shell: bash
-      run: |
-        set -euo pipefail
-        for migration in db/migrations/*.sql; do
-          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration"
-        done
+    - name: Apply PostgreSQL migrations with production runner
+      run: bun run db:migrate
 
     - name: Exercise production migration runner on a clean PostgreSQL database
       shell: bash
@@ -81,9 +76,9 @@ jobs:
         DATABASE_URL=postgresql://prodx:prodx@127.0.0.1:5432/prodx_migration_runner_test bun run db:migrate
         psql postgresql://prodx:prodx@127.0.0.1:5432/prodx_migration_runner_test -v ON_ERROR_STOP=1 -Atc "
           SELECT CASE
-            WHEN count(*) = 59
+            WHEN count(*) = 60
              AND (SELECT count(*) FROM prodx_schema_migrations WHERE version LIKE '004%') = 9
-             AND (SELECT count(*) FROM prodx_schema_migrations WHERE version LIKE '005%') = 9
+             AND (SELECT count(*) FROM prodx_schema_migrations WHERE version LIKE '005%') = 10
              AND (SELECT count(*) FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
                   JOIN pg_namespace n ON n.oid = c.relnamespace
                   WHERE n.nspname = 'public'
@@ -100,6 +95,9 @@ jobs:
           END
           FROM prodx_schema_migrations
         " | grep -Fx 'migration runner verified'
+
+    - name: Run client tests
+      run: bun run client:test
 
     - name: Run server tests
       run: bun run server:test

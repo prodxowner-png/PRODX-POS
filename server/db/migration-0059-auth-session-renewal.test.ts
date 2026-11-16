@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 const migration = readFileSync(
-  new URL('../../db/migrations/0058_m8_supabase_pos_session_renewal.sql', import.meta.url),
+  new URL('../../db/migrations/0059_supabase_pos_session_renewal.sql', import.meta.url),
   'utf8',
 );
 
@@ -13,8 +13,12 @@ test('Supabase POS renewal migration keeps expiry monotonic and cannot revive ex
   assert.match(migration, /SECURITY DEFINER\s+SET search_path = pg_catalog, public/);
   assert.match(migration, /GREATEST\(ses\.expires_at, p_expires_at\)/);
   assert.match(migration, /ses\.revoked_at IS NULL/);
-  assert.match(migration, /ses\.expires_at > CURRENT_TIMESTAMP/);
-  assert.match(migration, /p_expires_at > CURRENT_TIMESTAMP \+ INTERVAL '8 hours'/);
+  assert.match(migration, /locked_expiry <= clock_timestamp\(\)/);
+  assert.match(migration, /p_expires_at <= clock_timestamp\(\)/);
+  assert.match(migration, /ses\.expires_at > clock_timestamp\(\)/);
+  assert.match(migration, /p_expires_at > clock_timestamp\(\)/);
+  assert.match(migration, /FOR UPDATE OF ses, u, d, s, m/);
+  assert.match(migration, /p_expires_at > clock_timestamp\(\) \+ INTERVAL '8 hours'/);
   assert.match(migration, /u\.supabase_auth_user_id = p_supabase_user_id/);
   assert.match(migration, /u\.status = 'active'/);
   assert.match(migration, /d\.status = 'active'/);
@@ -25,7 +29,8 @@ test('Supabase POS renewal migration keeps expiry monotonic and cannot revive ex
 });
 
 test('Supabase POS renewal appends an audit event atomically only after a successful session update', () => {
-  assert.match(migration, /RETURNING ses\.expires_at, ses\.user_id, ses\.organization_id[\s\S]*?INTO renewed_expiry, renewed_user_id, renewed_organization_id/);
+  assert.match(migration, /SELECT ses\.id, ses\.expires_at, ses\.user_id, ses\.organization_id[\s\S]*?INTO locked_session_id, locked_expiry, renewed_user_id, renewed_organization_id/);
+  assert.match(migration, /UPDATE public\.prodx_sessions[\s\S]*?RETURNING ses\.expires_at INTO renewed_expiry/);
   assert.match(migration, /IF renewed_expiry IS NOT NULL THEN[\s\S]*?INSERT INTO public\.prodx_security_audit_events/);
   assert.match(migration, /'POS_SESSION_RENEWED'/);
   assert.match(migration, /'session_id', p_session_id/);
@@ -40,5 +45,5 @@ test('Supabase POS renewal RPC is executable only by the backend runtime role', 
   assert.ok(migration.includes("'authenticated'"));
   assert.ok(migration.includes("'service_role'"));
   assert.match(migration, /GRANT EXECUTE ON FUNCTION public\.prodx_auth_renew_supabase_session[\s\S]*?TO prodx_app/);
-  assert.match(migration, /0058_m8_supabase_pos_session_renewal/);
+  assert.match(migration, /0059_supabase_pos_session_renewal/);
 });

@@ -49,8 +49,10 @@ import {
   readPersistedSession,
   writePersistedSession,
 } from './authSessionStorage';
-import { shouldReadMock } from '../adapters/env';
+import { isDevelopmentMode } from '../adapters/env';
 import { isCurrentSessionRenewal } from './sessionRenewalGuard';
+import { startSessionRenewalController } from './sessionRenewalController';
+import { canClearRestoredSession, isCurrentSessionRestore } from './sessionRestoreGuard';
 import { createAuthDiagnosticRequest } from './authDiagnostics';
 
 export interface AddStaffPayload {
@@ -129,7 +131,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const STORAGE_KEY = AUTH_SESSION_STORAGE_KEY;
 const TIMEOUT_STORAGE_KEY = 'prodx_pos_inactivity_timeout';
 const CUSTOM_STORE_KEY = 'prodx_custom_store_profile';
-const IS_DEVELOPMENT = shouldReadMock();
+const IS_DEVELOPMENT = isDevelopmentMode();
 
 function applyOperationalScopeToSession(
   baseSession: SessionContext,
@@ -433,7 +435,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
 
   useEffect(() => {
+    const clearRestoredSessionIfCurrent = (expectedToken: string): void => {
+      try {
+        const latestPersisted = readPersistedSession(sessionStorage);
+        if (!canClearRestoredSession(
+          expectedToken,
+          latestPersisted?.token,
+          sessionRef.current?.token,
+        )) return;
+        clearPersistedSession(sessionStorage);
+        localStorage.removeItem(STORAGE_KEY);
+      } catch {}
+    };
+
     async function restoreSession() {
+      let persistedToken: string | null = null;
       try {
         localStorage.removeItem(STORAGE_KEY);
         const persisted = readPersistedSession(sessionStorage);
@@ -441,26 +457,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           clearPersistedSession(sessionStorage);
           return;
         }
+        persistedToken = persisted.token;
         const verified = await authApi.verifySession(persisted.token);
         if (!verified) {
-          clearPersistedSession(sessionStorage);
+          clearRestoredSessionIfCurrent(persisted.token);
           return;
         }
+        const latestPersisted = readPersistedSession(sessionStorage);
+        if (!isCurrentSessionRestore(
+          persisted.token,
+          latestPersisted?.token,
+          sessionRef.current?.token,
+        )) return;
         const storedScope = verified.operationalScope ?? getStoredOperationalScope();
         if (storedScope) {
           setOperationalScopeState(storedScope);
           saveStoredOperationalScope(storedScope);
         }
         const scopedSession = applyOperationalScopeToSession(verified, storedScope);
+        sessionRef.current = scopedSession;
         setSession(scopedSession);
         writePersistedSession(sessionStorage, scopedSession.token);
         lastActivityRef.current = Date.now();
       } catch (err) {
         console.error('[AuthContext] Session restore error:', err);
-        try {
-          clearPersistedSession(sessionStorage);
-          localStorage.removeItem(STORAGE_KEY);
-        } catch {}
+        if (persistedToken) clearRestoredSessionIfCurrent(persistedToken);
       } finally {
         setIsLoading(false);
       }
@@ -492,7 +513,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           message: `Session auto-logged out due to ${autoLogoutTimeoutMinutes} minutes of inactivity.`,
           metadata: { userId: session.currentUser.id, autoLogoutTimeoutMinutes },
         });
-        void logout();
+        void logout(session.token);
         return;
       }
 
@@ -735,59 +756,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     if (!session || IS_DEVELOPMENT) return;
 
-    let disposed = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const expiry = Date.parse(session.expiresAt);
-    if (!Number.isFinite(expiry)) {
-      void logout(session.token);
-      return;
-    }
-
-    const attemptRenewal = async (): Promise<void> => {
-      if (disposed) return;
-      if (expiry - Date.now() <= 0) {
-        await logout(session.token);
-        return;
-      }
-
-      try {
-        const renewed = await authApi.renewSession(session.token);
-        if (!isCurrentSessionRenewal(disposed, sessionRef.current?.token, session.token)) return;
-        if (renewed) {
-          setSession((current) => current?.token === session.token
-            ? applyOperationalScopeToSession(renewed, current.operationalScope ?? null)
-            : current);
-          return;
-        }
-      } catch (error) {
-        const status = typeof error === 'object' && error !== null && 'status' in error
-          ? (error as { status?: unknown }).status
-          : undefined;
-        if (status === 401 || status === 403) {
-          if (!isCurrentSessionRenewal(disposed, sessionRef.current?.token, session.token)) return;
-          await logout(session.token);
-          return;
-        }
-        console.warn(
-          '[AuthContext] POS session renewal failed; retrying only while the current session remains valid.',
-          error instanceof Error ? error.message : 'unknown error',
-        );
-      }
-
-      if (disposed) return;
-      const remaining = expiry - Date.now();
-      if (remaining <= 0) {
-        await logout(session.token);
-        return;
-      }
-      timer = setTimeout(() => { void attemptRenewal(); }, Math.min(30_000, Math.max(1_000, remaining - 500)));
-    };
-
-    timer = setTimeout(() => { void attemptRenewal(); }, Math.max(0, expiry - Date.now() - 60_000));
-    return () => {
-      disposed = true;
-      if (timer) clearTimeout(timer);
-    };
+    return startSessionRenewalController({
+      token: session.token,
+      expiresAt: session.expiresAt,
+      getActiveToken: () => sessionRef.current?.token,
+      renew: (token) => authApi.renewSession(token),
+      onRenewed: (renewed) => {
+        setSession((current) => current?.token === session.token
+          ? applyOperationalScopeToSession(renewed, current.operationalScope ?? null)
+          : current);
+      },
+      logout: (token) => logout(token),
+      onTransientError: (failure) => {
+        console.warn('[AuthContext] POS session renewal failed; retrying while the current session remains valid.', failure);
+      },
+    });
   }, [session?.token, session?.expiresAt]);
 
   const switchStore = (store: Store) => {
@@ -878,6 +861,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       const scopedReplacement = applyOperationalScopeToSession(replacement, activeScope ?? null);
       writePersistedSession(sessionStorage, scopedReplacement.token);
+      sessionRef.current = scopedReplacement;
       setSession(scopedReplacement);
       setIsLocked(false);
       lastActivityRef.current = Date.now();

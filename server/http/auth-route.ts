@@ -223,7 +223,7 @@ const loadSessionContext = async (
  */
 export type AuthRouteOptions = {
   /**
-   * Server-side kill switch for ordinary Supabase session exchange.
+   * Server-side kill switch for Supabase POS session exchange and renewal.
    * Bootstrap remains separately protected by its operator secret and allowlisted subject.
    */
   supabaseSessionEnabled?: boolean;
@@ -355,6 +355,10 @@ export const registerAuthRoutes = (
   }));
 
   app.post('/auth/supabase/renew', asyncRoute(async (request, response) => {
+    if (options.supabaseSessionEnabled !== true) {
+      response.status(404).json(errorBody(request, 'NOT_FOUND', 'Not found.'));
+      return;
+    }
     const posToken = bearerToken(request);
     const supabaseHeader = request.header('x-supabase-authorization')?.trim() ?? '';
     const bearerPrefix = 'Bearer ';

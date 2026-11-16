@@ -23,11 +23,11 @@ The migration adds a nullable UUID column, a unique partial index, and a narrow 
 
 ## POS session renewal
 
-The browser refreshes the Supabase Auth session with `supabase.auth.refreshSession()` and sends the new access JWT together with the existing POS bearer to `POST /auth/supabase/renew`.
+The browser refreshes the Supabase Auth session with `supabase.auth.refreshSession()` and sends the new access JWT together with the existing POS bearer to `POST /auth/supabase/renew`. Production builds use same-origin relative API routes when `VITE_AUTH_API_BASE_URL` is omitted; `/` may be set explicitly. A non-empty invalid value fails closed, and a missing value never selects mock adapters or local discount policy.
 
 The server verifies the Supabase JWT and re-resolves its immutable subject against the explicit POS identity binding for the existing session's device. It does not accept browser-supplied user, organization, store, role, or permission claims.
 
-Renewal deliberately keeps the existing POS bearer stable rather than creating a replacement session. PostgreSQL atomically extends the existing session expiry using the greater of its current expiry and the expiry bounded by the verified Supabase JWT and the eight-hour POS maximum. The database function also rechecks the linked subject, active user, active device/store, active store membership, unrevoked state, and unexpired session. The function is executable only by `prodx_app`.
+Renewal deliberately keeps the existing POS bearer stable rather than creating a replacement session. PostgreSQL atomically extends the existing session expiry using the greater of its current expiry and the expiry bounded by the verified Supabase JWT and the eight-hour POS maximum. Migration `0059_supabase_pos_session_renewal` installs the database function. It locks the session, user, device, store, and active store-membership rows before rechecking the linked subject and expiry with wall-clock time, so concurrent revocation/deactivation wins if it acquires its row lock first and a session that expires while waiting cannot be revived. The function is executable only by `prodx_app`.
 
 Duplicate and concurrent renewal requests are idempotent without creating duplicate sessions. An expired or revoked POS bearer cannot be revived. If Supabase refresh or POS renewal fails, the client retries only while the current POS session remains valid and clears the local session at its authoritative expiry. Password/PIN sessions without a Supabase identity do not use this renewal endpoint.
 

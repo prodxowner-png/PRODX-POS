@@ -50,7 +50,7 @@ test('Supabase renewal HTTP route requires both bearer credentials and returns s
 
   const app = express();
   app.use(express.json());
-  registerAuthRoutes(app, db, sessions);
+  registerAuthRoutes(app, db, sessions, { supabaseSessionEnabled: true });
   const server = app.listen(0);
   t.after(async () => new Promise<void>((resolve, reject) => {
     server.close((error?: Error) => error ? reject(error) : resolve());
