@@ -161,6 +161,135 @@ export class InternalCrashBoundary extends Component<ErrorBoundaryProps, ErrorBo
   }
 }
 
+export interface StateSanitationResult {
+  success: boolean;
+  message: string;
+  quarantinedKeys?: string[];
+}
+
+// State sanitation helper: cleans corrupt keys while preserving critical offline outbox, session & inventory integrity
+export function sanitizeAndRestoreAppState(
+  target: 'cart' | 'outbox' | 'cache' | 'all' = 'all',
+  storage?: {
+    getItem(key: string): string | null;
+    setItem(key: string, value: string): void;
+    removeItem(key: string): void;
+  }
+): StateSanitationResult {
+  const store = storage || (typeof localStorage !== 'undefined' ? localStorage : null);
+  if (!store) {
+    return {
+      success: true,
+      message: 'No web storage available in runtime environment',
+      quarantinedKeys: [],
+    };
+  }
+
+  const actionsTaken: string[] = [];
+  const quarantinedKeys: string[] = [];
+  let hasFailure = false;
+  let failureReason = '';
+
+  try {
+    if (target === 'cart' || target === 'all') {
+      const heldCarts = store.getItem('prodx_held_carts');
+      if (heldCarts) {
+        try {
+          const parsed = JSON.parse(heldCarts);
+          if (!Array.isArray(parsed)) {
+            const qKey = `prodx_held_carts_quarantine_${Date.now()}`;
+            store.setItem(qKey, heldCarts);
+            quarantinedKeys.push(qKey);
+            store.setItem('prodx_held_carts', JSON.stringify([]));
+            actionsTaken.push(`Quarantined malformed held carts to ${qKey}`);
+          }
+        } catch {
+          const qKey = `prodx_held_carts_quarantine_${Date.now()}`;
+          store.setItem(qKey, heldCarts);
+          quarantinedKeys.push(qKey);
+          store.setItem('prodx_held_carts', JSON.stringify([]));
+          actionsTaken.push(`Quarantined unparseable held carts to ${qKey}`);
+        }
+      }
+      actionsTaken.push('Verified in-memory decimal financial invariants');
+    }
+
+    if (target === 'outbox' || target === 'all') {
+      const outbox = store.getItem('prodx_pos_outbox');
+      if (outbox) {
+        try {
+          const parsed = JSON.parse(outbox);
+          if (Array.isArray(parsed)) {
+            // Filter out corrupt items without payload or id
+            const validItems = parsed.filter(
+              (item) => item && typeof item === 'object' && item.id && item.idempotencyKey
+            );
+            const corruptedItems = parsed.filter(
+              (item) => !(item && typeof item === 'object' && item.id && item.idempotencyKey)
+            );
+
+            if (corruptedItems.length > 0) {
+              const qKey = `prodx_pos_outbox_quarantine_${Date.now()}`;
+              store.setItem(qKey, JSON.stringify(corruptedItems));
+              quarantinedKeys.push(qKey);
+              store.setItem('prodx_pos_outbox', JSON.stringify(validItems));
+              actionsTaken.push(
+                `Quarantined ${corruptedItems.length} corrupted outbox queue items to ${qKey}; preserved ${validItems.length} valid pending transactions`
+              );
+            } else {
+              actionsTaken.push(`Verified ${validItems.length} pending offline transactions intact`);
+            }
+          } else {
+            // Malformed queue: parsed is not an array.
+            // Invariant: Do not overwrite outbox with "[]" without quarantine backup.
+            const qKey = `prodx_pos_outbox_quarantine_${Date.now()}`;
+            store.setItem(qKey, outbox);
+            quarantinedKeys.push(qKey);
+            hasFailure = true;
+            failureReason = `Offline outbox is not a valid queue array. Original content preserved and quarantined to ${qKey}. Automated recovery failed to protect unsynced transactions.`;
+          }
+        } catch {
+          // Invariant 1: Never delete or overwrite offline outbox that cannot be parsed.
+          // Invariant 2: Never change outbox to "[]" without backup and quarantining the original.
+          // Invariant 4: Never report recovery success when data recovery failed.
+          const qKey = `prodx_pos_outbox_quarantine_${Date.now()}`;
+          store.setItem(qKey, outbox);
+          quarantinedKeys.push(qKey);
+          hasFailure = true;
+          failureReason = `Offline outbox contains unparseable corrupted JSON. Raw content quarantined to ${qKey} and original preserved intact to prevent transaction data loss.`;
+        }
+      }
+    }
+
+    if (target === 'cache' || target === 'all') {
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.removeItem('prodx_temp_query_cache');
+        actionsTaken.push('Flushed volatile session query cache');
+      }
+    }
+
+    if (hasFailure) {
+      return {
+        success: false,
+        message: failureReason,
+        quarantinedKeys,
+      };
+    }
+
+    return {
+      success: true,
+      message: actionsTaken.length > 0 ? actionsTaken.join(' • ') : 'State sanity check passed with 0 corruptions',
+      quarantinedKeys,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      message: `State sanitation failed: ${err?.message || 'Unknown error'}`,
+      quarantinedKeys,
+    };
+  }
+}
+
 export const GlobalErrorRecoveryProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [activeFailures, setActiveFailures] = useState<CriticalFailure[]>([]);
   const [isRecovering, setIsRecovering] = useState<boolean>(false);
@@ -214,68 +343,9 @@ export const GlobalErrorRecoveryProvider: React.FC<{ children: ReactNode }> = ({
     }
   };
 
-  // State sanitation: cleans corrupt keys while preserving critical session & inventory integrity
+  // State sanitation wrapper
   const sanitizeAndRestoreState = useCallback((target: 'cart' | 'outbox' | 'cache' | 'all' = 'all') => {
-    const actionsTaken: string[] = [];
-
-    try {
-      if (target === 'cart' || target === 'all') {
-        // Verify cart items in storage
-        const heldCarts = localStorage.getItem('prodx_held_carts');
-        if (heldCarts) {
-          try {
-            const parsed = JSON.parse(heldCarts);
-            if (!Array.isArray(parsed)) {
-              localStorage.removeItem('prodx_held_carts');
-              actionsTaken.push('Reset corrupted held carts array to clean empty list');
-            }
-          } catch {
-            localStorage.removeItem('prodx_held_carts');
-            actionsTaken.push('Purged unparseable held carts JSON payload');
-          }
-        }
-        actionsTaken.push('Verified in-memory decimal financial invariants');
-      }
-
-      if (target === 'outbox' || target === 'all') {
-        const outbox = localStorage.getItem('prodx_pos_outbox');
-        if (outbox) {
-          try {
-            const parsed = JSON.parse(outbox);
-            if (Array.isArray(parsed)) {
-              // Filter out corrupt items without payload or id
-              const sanitized = parsed.filter((item) => item && typeof item === 'object' && item.id && item.idempotencyKey);
-              if (sanitized.length !== parsed.length) {
-                localStorage.setItem('prodx_pos_outbox', JSON.stringify(sanitized));
-                actionsTaken.push(`Quarantined ${parsed.length - sanitized.length} corrupted outbox queue items`);
-              }
-            } else {
-              localStorage.setItem('prodx_pos_outbox', JSON.stringify([]));
-              actionsTaken.push('Re-initialized outbox to clean array');
-            }
-          } catch {
-            localStorage.setItem('prodx_pos_outbox', JSON.stringify([]));
-            actionsTaken.push('Repaired malformed outbox queue storage');
-          }
-        }
-      }
-
-      if (target === 'cache' || target === 'all') {
-        // Clear stale temporary telemetry / query caches
-        sessionStorage.removeItem('prodx_temp_query_cache');
-        actionsTaken.push('Flushed volatile session query cache');
-      }
-
-      return {
-        success: true,
-        message: actionsTaken.length > 0 ? actionsTaken.join(' • ') : 'State sanity check passed with 0 corruptions',
-      };
-    } catch (err: any) {
-      return {
-        success: false,
-        message: `State sanitation failed: ${err?.message || 'Unknown error'}`,
-      };
-    }
+    return sanitizeAndRestoreAppState(target);
   }, []);
 
   // Force hard reload & clear local cache
@@ -383,9 +453,11 @@ export const GlobalErrorRecoveryProvider: React.FC<{ children: ReactNode }> = ({
 
         case 'RUNTIME_CRASH':
         default: {
-          sanitizeAndRestoreState('all');
-          recoverySuccess = true;
-          resolutionMessage = 'Runtime boundary sanitized. State restored to clean deterministic snapshot.';
+          const res = sanitizeAndRestoreState('all');
+          recoverySuccess = res.success;
+          resolutionMessage = res.success
+            ? (res.message || 'Runtime boundary sanitized. State restored to clean deterministic snapshot.')
+            : (res.message || 'Runtime state sanitation failed.');
           break;
         }
       }
