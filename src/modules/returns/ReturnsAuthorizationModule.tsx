@@ -6,6 +6,7 @@ import { Order, CartLineItem } from '../../domain/order';
 import { formatMoney, createMoney } from '../../domain/money';
 import { createRefundApi } from '../../adapters/refundApiFactory';
 import { createProductionSupervisorAuthorizationApi } from '../../adapters/productionSupervisorAuthorizationApi';
+import { authenticateSupervisorWithSupabase } from '../../lib/supabaseSupervisorAuth';
 import { Modal } from '../../components/common/Modal';
 import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
@@ -77,10 +78,10 @@ export const ReturnsAuthorizationModule: React.FC<ReturnsAuthorizationModuleProp
 
   const handleVerifySupervisorPin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!supervisorPin.trim()) {
+    if (!supervisorPin) {
       playScannerSound('error');
       addToast({
-        title: language === 'th' ? 'กรุณาระบุรหัสผู้จัดการ' : 'Supervisor Secret Required',
+        title: language === 'th' ? 'กรุณาระบุรหัสผู้จัดการ' : 'Supervisor Account Password Required',
         message: language === 'th' ? 'กรุณากรอกรหัส PIN หรือรหัสผ่านผู้จัดการเพื่อยืนยันสิทธิ์บนเซิร์ฟเวอร์' : 'Enter a valid manager credential.',
         type: 'error',
       });
@@ -88,12 +89,13 @@ export const ReturnsAuthorizationModule: React.FC<ReturnsAuthorizationModuleProp
     }
 
     try {
+      const proof = await authenticateSupervisorWithSupabase(session.currentUser.email, supervisorPin);
       const authApi = createProductionSupervisorAuthorizationApi(session.token);
       const grant = await authApi.authorize({
         action: 'refund',
         orderId: order.id,
         supervisorUserId: session.currentUser.id,
-        supervisorSecret: supervisorPin.trim(),
+        supervisorAccessToken: proof.accessToken,
       });
       setSupervisorToken(grant.authorizationToken);
       setIsPinValidated(true);
@@ -295,19 +297,18 @@ export const ReturnsAuthorizationModule: React.FC<ReturnsAuthorizationModuleProp
           <form onSubmit={handleVerifySupervisorPin} className="p-3.5 rounded-xl border border-amber-500/30 bg-amber-500/10 space-y-2">
             <div className="flex items-center gap-2 text-xs font-bold text-amber-900 dark:text-amber-200">
               <Lock className="h-4 w-4 text-amber-500" />
-              <span>{language === 'th' ? 'การอนุมัติสิทธิ์จากผู้จัดการ (Supervisor Verification)' : 'Manager Authorization PIN Required'}</span>
+              <span>{language === 'th' ? 'การอนุมัติสิทธิ์จากผู้จัดการ (Supervisor Verification)' : 'Manager Account Password Required'}</span>
             </div>
             <div className="flex items-center gap-2">
               <input
                 type="password"
-                maxLength={6}
                 value={supervisorPin}
                 onChange={(e) => setSupervisorPin(e.target.value)}
-                placeholder="PIN e.g. 1234"
+                placeholder={language === 'th' ? 'รหัสผ่านบัญชีผู้จัดการ' : 'Supervisor account password'}
                 className="flex-1 h-9 px-3 rounded-lg border border-border bg-card text-xs font-mono font-bold text-text focus:outline-none"
               />
               <Button size="sm" variant="primary" type="submit" leftIcon={<ShieldCheck className="h-4 w-4" />}>
-                {language === 'th' ? 'ยืนยัน PIN' : 'Verify'}
+                {language === 'th' ? 'ยืนยันรหัสผ่าน' : 'Verify Password'}
               </Button>
             </div>
           </form>

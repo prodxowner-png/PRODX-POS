@@ -38,6 +38,49 @@ const numeric = (cents: bigint): string => `${cents / 100n}.${(cents % 100n).toS
 // PostgreSQL ROUND for non-negative monetary cents: ties round up.
 const roundDivide = (numerator: bigint, denominator: bigint): bigint =>
   (numerator + denominator / 2n) / denominator;
+
+type RefundOrderItemRow = { id: string; product_id: string; quantity: number; line_total: string };
+
+const getDiscountAdjustedLineTotals = (
+  orderItems: readonly RefundOrderItemRow[],
+  orderDiscountAmount: unknown,
+  grandTotalAmount: unknown,
+): Map<string, bigint> => {
+  const lineTotals = orderItems.map((item) => ({ ...item, lineCents: dbCents(item.line_total) }));
+  const subtotal = lineTotals.reduce((sum, item) => sum + item.lineCents, 0n);
+  const discount = dbCents(orderDiscountAmount);
+  const grandTotal = dbCents(grandTotalAmount);
+
+  if (discount > subtotal || subtotal - discount !== grandTotal) {
+    throw new RefundConflictError('Order line values, order discount, and grand total are inconsistent; restock is blocked.');
+  }
+  if (subtotal === 0n) return new Map(lineTotals.map((item) => [item.id, 0n]));
+
+  // Allocate every discount cent across lines by largest remainder. Stable ID
+  // ordering breaks ties, so the adjusted line values always sum exactly to
+  // the persisted grand total regardless of the order items' input order.
+  const shares = lineTotals.map((item) => {
+    const numerator = discount * item.lineCents;
+    return { id: item.id, lineCents: item.lineCents, discountCents: numerator / subtotal, remainder: numerator % subtotal };
+  });
+  const floorTotal = shares.reduce((sum, share) => sum + share.discountCents, 0n);
+  let remainingCents = discount - floorTotal;
+  const byRemainder = [...shares].sort((a, b) => {
+    if (a.remainder === b.remainder) return a.id.localeCompare(b.id);
+    return a.remainder > b.remainder ? -1 : 1;
+  });
+  const extraCentIds = new Set<string>();
+  for (const share of byRemainder) {
+    if (remainingCents === 0n) break;
+    extraCentIds.add(share.id);
+    remainingCents -= 1n;
+  }
+
+  return new Map(shares.map((share) => [
+    share.id,
+    share.lineCents - share.discountCents - (extraCentIds.has(share.id) ? 1n : 0n),
+  ]));
+};
 const dbCents = (value: unknown): bigint => {
   const text = String(value);
   const withDecimals = /^(\d+)\.(\d{2})$/.exec(text);
@@ -184,15 +227,21 @@ export const createRefundService = (db: TransactionalSqlExecutor) => ({
         quantity: number;
         amount: bigint;
       }> = [];
+      const orderItemRows = restock.length > 0
+        ? (await tx.query(`SELECT oi.id, oi.product_id, oi.quantity, oi.line_total_amount::text AS line_total
+            FROM prodx_order_items oi WHERE oi.store_id=$1 AND oi.order_id=$2 ORDER BY oi.id FOR UPDATE`,
+            [request.storeId, request.orderId])).rows as RefundOrderItemRow[]
+        : [];
+      const adjustedLineTotals = restock.length > 0
+        ? getDiscountAdjustedLineTotals(orderItemRows, order.order_discount_amount, order.grand_total_amount)
+        : new Map<string, bigint>();
 
       for (const item of restock) {
-        const orderItemRows = (await tx.query(`SELECT oi.id, oi.quantity, oi.line_total_amount::text AS line_total
-          FROM prodx_order_items oi WHERE oi.store_id=$1 AND oi.order_id=$2 AND oi.product_id=$3 ORDER BY oi.id FOR UPDATE`,
-          [request.storeId, request.orderId, item.productId])).rows as { id: string; quantity: number; line_total: string }[];
-        if (orderItemRows.length === 0) throw new RefundValidationError(`Product ${item.productId} is not part of the order.`);
+        const productOrderItems = orderItemRows.filter((row) => row.product_id === item.productId);
+        if (productOrderItems.length === 0) throw new RefundValidationError(`Product ${item.productId} is not part of the order.`);
 
         let remaining = item.quantity;
-        for (const orderItem of orderItemRows) {
+        for (const orderItem of productOrderItems) {
           if (remaining === 0) break;
           const previous = (await tx.query(`SELECT COALESCE(SUM(quantity),0)::int AS quantity
             FROM prodx_refund_items WHERE store_id=$1 AND order_item_id=$2`,
@@ -202,7 +251,8 @@ export const createRefundService = (db: TransactionalSqlExecutor) => ({
           if (available <= 0) continue;
 
           const allocatedQuantity = Math.min(remaining, available);
-          const totalLineCents = dbCents(orderItem.line_total);
+          const totalLineCents = adjustedLineTotals.get(orderItem.id);
+          if (totalLineCents === undefined) throw new RefundConflictError('Discount-adjusted order item value is unavailable.');
           const cumulativeQuantity = previousQuantity + allocatedQuantity;
           const cumulativeAllocated = roundDivide(totalLineCents * BigInt(cumulativeQuantity), BigInt(orderItem.quantity));
           const previouslyAllocated = roundDivide(totalLineCents * BigInt(previousQuantity), BigInt(orderItem.quantity));
