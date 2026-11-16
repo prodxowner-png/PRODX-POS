@@ -285,4 +285,114 @@ test('PRODX-REV-001: pool max = 1 never starves or deadlocks on invalid supervis
   const finalOrder = await runWithRequestContext(requestContext, () => service.checkout(finalRequest, authContext));
   assert.equal(finalOrder.order.idempotencyKey, finalSuccessKey);
   assert.equal(finalOrder.serverConfirmed, true);
+
+  // 10. Insufficient stock failure path injection: rolls back order, payments, and releases connection on pool max = 1
+  const insufficientStockKey = `starve-insufficient-stock-${runSuffix}`;
+  const stockBeforeInsufficient = (await pool.query('SELECT current_stock FROM prodx_products WHERE id = $1', [id.product])).rows[0].current_stock;
+  const insufficientStockRequest = buildRequest(insufficientStockKey, {
+    items: [{
+      ...buildRequest(insufficientStockKey).items[0],
+      quantity: 9999, // Exceeds current available stock
+      lineSubtotal: { amountInCents: 9999000, currency: 'THB' },
+      lineTotal: { amountInCents: 9999000, currency: 'THB' },
+    }],
+    totals: {
+      ...buildRequest(insufficientStockKey).totals,
+      grossSubtotal: { amountInCents: 9999000, currency: 'THB' },
+      netSubtotal: { amountInCents: 9999000, currency: 'THB' },
+      grandTotal: { amountInCents: 9999000, currency: 'THB' },
+      totalItemsCount: 9999,
+    },
+    payments: [{
+      id: randomUUID(),
+      method: 'cash',
+      amount: { amountInCents: 9999000, currency: 'THB' },
+      tenderedCash: { amountInCents: 9999000, currency: 'THB' },
+      changeGiven: { amountInCents: 0, currency: 'THB' },
+      timestamp: '2026-11-04T00:00:00.000Z',
+    }],
+  });
+  await assert.rejects(
+    runWithRequestContext(requestContext, () => service.checkout(insufficientStockRequest, authContext)),
+    (error: unknown) => error instanceof CheckoutConflictError && (error as Error).message.includes('Insufficient stock'),
+  );
+  assert.equal((await pool.query('SELECT count(*)::int AS count FROM prodx_orders WHERE store_id = $1 AND idempotency_key = $2', [id.store, insufficientStockKey])).rows[0].count, 0);
+  assert.equal((await pool.query('SELECT current_stock FROM prodx_products WHERE id = $1', [id.product])).rows[0].current_stock, stockBeforeInsufficient);
+
+  // 11. Supervisor token replay failure path: already-consumed token is rejected, audited, and connection released on pool max = 1
+  const replayTokenKey = `starve-token-replay-${runSuffix}`;
+  const replayTokenRequest = buildRequest(replayTokenKey, {
+    items: [{
+      ...buildRequest(replayTokenKey).items[0],
+      discountBps: 2000,
+      lineSubtotal: { amountInCents: 1600, currency: 'THB' },
+      lineTotal: { amountInCents: 1600, currency: 'THB' },
+    }],
+    totals: {
+      grossSubtotal: { amountInCents: 2000, currency: 'THB' },
+      itemDiscounts: { amountInCents: 400, currency: 'THB' },
+      orderDiscount: { amountInCents: 0, currency: 'THB' },
+      netSubtotal: { amountInCents: 1600, currency: 'THB' },
+      totalTax: { amountInCents: 0, currency: 'THB' },
+      grandTotal: { amountInCents: 1600, currency: 'THB' },
+      totalItemsCount: 2,
+    },
+    payments: [{
+      id: randomUUID(),
+      method: 'cash',
+      amount: { amountInCents: 1600, currency: 'THB' },
+      tenderedCash: { amountInCents: 1600, currency: 'THB' },
+      changeGiven: { amountInCents: 0, currency: 'THB' },
+      timestamp: '2026-11-04T00:00:00.000Z',
+    }],
+    supervisorAuthorizationToken: validToken, // validToken was already consumed in step 5
+  });
+  await assert.rejects(
+    runWithRequestContext(requestContext, () => service.checkout(replayTokenRequest, authContext)),
+    (error: unknown) => error instanceof CheckoutAuthorizationError && error.code === 'DISCOUNT_SUPERVISOR_AUTHORIZATION_INVALID',
+  );
+  assert.equal((await pool.query('SELECT count(*)::int AS count FROM prodx_orders WHERE store_id = $1 AND idempotency_key = $2', [id.store, replayTokenKey])).rows[0].count, 0);
+  assert.equal((await pool.query('SELECT current_stock FROM prodx_products WHERE id = $1', [id.product])).rows[0].current_stock, stockBeforeInsufficient);
+
+  // 12. Audit log failure injection: failure to insert audit log rolls back order, payments, ledger, stock, and releases connection on pool max = 1
+  const auditFailKey = `starve-audit-fail-injection-${runSuffix}`;
+  await pool.query(`
+    CREATE OR REPLACE FUNCTION fail_injected_audit_test() RETURNS trigger AS $$
+    BEGIN
+      IF NEW.details->>'idempotencyKey' LIKE '%audit-fail-injection%' THEN
+        RAISE EXCEPTION 'INJECTED_AUDIT_LOG_FAILURE';
+      END IF;
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql;
+
+    DROP TRIGGER IF EXISTS trg_test_audit_failure_injection ON prodx_audit_log;
+    CREATE TRIGGER trg_test_audit_failure_injection
+    BEFORE INSERT ON prodx_audit_log
+    FOR EACH ROW EXECUTE FUNCTION fail_injected_audit_test();
+  `);
+
+  try {
+    const auditFailRequest = buildRequest(auditFailKey);
+    await assert.rejects(
+      runWithRequestContext(requestContext, () => service.checkout(auditFailRequest, authContext)),
+      /INJECTED_AUDIT_LOG_FAILURE/,
+    );
+    // Verify atomic rollback of order, payments, ledger, and stock
+    assert.equal((await pool.query('SELECT count(*)::int AS count FROM prodx_orders WHERE store_id = $1 AND idempotency_key = $2', [id.store, auditFailKey])).rows[0].count, 0);
+    assert.equal((await pool.query('SELECT count(*)::int AS count FROM prodx_payments WHERE store_id = $1 AND id = $2', [id.store, auditFailRequest.payments[0].id])).rows[0].count, 0);
+    assert.equal((await pool.query('SELECT current_stock FROM prodx_products WHERE id = $1', [id.product])).rows[0].current_stock, stockBeforeInsufficient);
+  } finally {
+    await pool.query(`
+      DROP TRIGGER IF EXISTS trg_test_audit_failure_injection ON prodx_audit_log;
+      DROP FUNCTION IF EXISTS fail_injected_audit_test();
+    `);
+  }
+
+  // 13. Verify connection was safely released even after audit injection failure: next checkout succeeds on pool max = 1
+  const postInjectionKey = `starve-post-injection-success-${runSuffix}`;
+  const postInjectionRequest = buildRequest(postInjectionKey);
+  const postInjectionOrder = await runWithRequestContext(requestContext, () => service.checkout(postInjectionRequest, authContext));
+  assert.equal(postInjectionOrder.order.idempotencyKey, postInjectionKey);
+  assert.equal(postInjectionOrder.serverConfirmed, true);
 });
