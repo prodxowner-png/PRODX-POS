@@ -25,6 +25,7 @@ import { registerCatalogPricingRoute } from './http/catalog-pricing-route.ts';
 import { registerPaymentLifecycleRoute } from './http/payment-lifecycle-route.ts';
 import { registerSyncRoute } from './http/sync-route.ts';
 import { registerSupervisorAuthorizationRoute } from './http/supervisor-authorization-route.ts';
+import { registerDiscountPolicyRoute } from './http/discount-policy-route.ts';
 import { registerOrderReadRoute } from './http/order-read-route.ts';
 import { registerVoidRoute } from './http/void-route.ts';
 import { registerInventoryAdjustmentRoute } from './http/inventory-adjustment-route.ts';
@@ -61,6 +62,8 @@ export const createProductionApp = async (options: ProductionAppOptions = {}) =>
     },
     configurePublicRoutes: (configuredApp) => {
       registerAuthRoutes(configuredApp, requestScopedSql, sessions, {
+        // Do not expose ordinary Supabase session exchange until the explicit production rollout gate is enabled.
+        supabaseSessionEnabled: process.env.SUPABASE_POS_AUTH_ENABLED === 'true',
         firstTenantBootstrap: {
           repository: createPostgresFirstTenantBootstrapRepository(requestScopedSql),
           config: readFirstTenantBootstrapConfig(process.env),
@@ -87,6 +90,7 @@ export const createProductionApp = async (options: ProductionAppOptions = {}) =>
       registerPaymentLifecycleRoute(configuredApp, transactions);
       registerSyncRoute(configuredApp, transactions);
       registerSupervisorAuthorizationRoute(configuredApp, transactions);
+      registerDiscountPolicyRoute(configuredApp, transactions);
       registerOrderReadRoute(configuredApp, transactions);
       registerVoidRoute(configuredApp, transactions);
       registerInventoryAdjustmentRoute(configuredApp, transactions);
