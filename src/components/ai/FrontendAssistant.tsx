@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Bot, X, Send, Sparkles, MessageSquare } from 'lucide-react';
+import { Bot, X, Send, Sparkles } from 'lucide-react';
+import { aiService } from '../../services/aiService';
 
 export function FrontendAssistant() {
   const [isOpen, setIsOpen] = useState(false);
@@ -17,24 +18,19 @@ export function FrontendAssistant() {
     if (!input.trim() || loading) return;
 
     const userMsg = input.trim();
+    const priorHistory = messages;
     setInput('');
     setMessages((prev) => [...prev, { role: 'user', content: userMsg }]);
     setLoading(true);
 
     try {
-      const res = await fetch('/api/v1/ai/frontend-assistant', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: userMsg }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setMessages((prev) => [...prev, { role: 'assistant', content: data.response }]);
-      } else {
-        setMessages((prev) => [...prev, { role: 'assistant', content: 'ขออภัยครับ เกิดข้อผิดพลาดในการเชื่อมต่อกับ AI Assistant' }]);
-      }
-    } catch {
-      setMessages((prev) => [...prev, { role: 'assistant', content: 'ไม่สามารถติดต่อเซิร์ฟเวอร์ AI ได้ในขณะนี้ กรุณาลองใหม่อีกครั้ง' }]);
+      const reply = await aiService.askFrontendAssistant(userMsg, priorHistory);
+      setMessages((prev) => [...prev, { role: 'assistant', content: reply }]);
+    } catch (error) {
+      const fallback = error instanceof Error && error.message
+        ? error.message
+        : 'ไม่สามารถติดต่อเซิร์ฟเวอร์ AI ได้ในขณะนี้ กรุณาลองใหม่อีกครั้ง';
+      setMessages((prev) => [...prev, { role: 'assistant', content: fallback }]);
     } finally {
       setLoading(false);
     }

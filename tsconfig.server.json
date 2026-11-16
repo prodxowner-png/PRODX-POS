@@ -13,6 +13,8 @@
     "noEmit": true
   },
   "include": [
-    "server/**/*.ts"
+    "server/**/*.ts",
+    "scripts/bootstrap-first-tenant.ts",
+    "scripts/bootstrap-first-tenant.test.ts"
   ]
 }
