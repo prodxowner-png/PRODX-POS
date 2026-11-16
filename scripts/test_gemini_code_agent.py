@@ -381,14 +381,14 @@ class ArtifactTests(unittest.TestCase):
             old = os.getcwd()
             try:
                 os.chdir(root)
-                original_write_text = pathlib.Path.write_text
+                original_write_bytes = pathlib.Path.write_bytes
 
-                def failing_write_text(self, data, *args, **kwargs):
-                    if self.name == 'new.ts':
+                def failing_write_bytes(self, data, *args, **kwargs):
+                    if 'new.ts' in self.name:
                         raise OSError("Simulated disk error during multi-file apply")
-                    return original_write_text(self, data, *args, **kwargs)
+                    return original_write_bytes(self, data, *args, **kwargs)
 
-                with patch.object(pathlib.Path, 'write_text', side_effect=failing_write_text, autospec=True):
+                with patch.object(pathlib.Path, 'write_bytes', side_effect=failing_write_bytes, autospec=True):
                     with self.assertRaisesRegex(agent.AgentError, 'rolled back partial changes'):
                         agent.apply_artifact(artifact)
             finally:
@@ -397,6 +397,202 @@ class ArtifactTests(unittest.TestCase):
             # Assert complete rollback: existing file restored, new file and directory never left partially written
             self.assertEqual(existing_file.read_text(), 'original existing content\n')
             self.assertFalse((root / 'server' / 'sub' / 'new.ts').exists())
+
+    def test_existing_binary_file_preserved_byte_identical_on_write_failure(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            existing_binary = root / 'server' / 'asset.bin'
+            existing_binary.parent.mkdir(parents=True)
+            raw_binary = b'\x00\xff\xfe\x80\xaa\xbb\xcc\xdd\xee\xff\x12\x34'
+            existing_binary.write_bytes(raw_binary)
+
+            artifact = root / 'candidate.json'
+            artifact.write_text(json.dumps({'files': [
+                {'path': 'server/asset.bin', 'content': 'new ascii content\n'},
+                {'path': 'server/failing.ts', 'content': 'will fail\n'},
+            ]}))
+
+            import os
+            old = os.getcwd()
+            try:
+                os.chdir(root)
+                original_write_bytes = pathlib.Path.write_bytes
+
+                def failing_write_bytes(self, data, *args, **kwargs):
+                    if 'failing.ts' in self.name:
+                        raise OSError("Disk full error")
+                    return original_write_bytes(self, data, *args, **kwargs)
+
+                with patch.object(pathlib.Path, 'write_bytes', side_effect=failing_write_bytes, autospec=True):
+                    with self.assertRaisesRegex(agent.AgentError, 'rolled back partial changes'):
+                        agent.apply_artifact(artifact)
+            finally:
+                os.chdir(old)
+
+            self.assertEqual(existing_binary.read_bytes(), raw_binary)
+            self.assertFalse((root / 'server' / 'failing.ts').exists())
+
+    def test_existing_unreadable_file_aborts_before_mutation(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            existing_file = root / 'server' / 'locked.ts'
+            existing_file.parent.mkdir(parents=True)
+            existing_file.write_text('trusted content\n')
+
+            artifact = root / 'candidate.json'
+            artifact.write_text(json.dumps({'files': [
+                {'path': 'server/locked.ts', 'content': 'overwritten content\n'},
+                {'path': 'server/new.ts', 'content': 'new file\n'},
+            ]}))
+
+            import os
+            old = os.getcwd()
+            try:
+                os.chdir(root)
+                original_read_bytes = pathlib.Path.read_bytes
+
+                def failing_read_bytes(self, *args, **kwargs):
+                    if self.name == 'locked.ts':
+                        raise PermissionError("Permission denied reading file")
+                    return original_read_bytes(self, *args, **kwargs)
+
+                with patch.object(pathlib.Path, 'read_bytes', side_effect=failing_read_bytes, autospec=True):
+                    with self.assertRaisesRegex(agent.AgentError, 'Cannot safely snapshot existing file before mutation'):
+                        agent.apply_artifact(artifact)
+            finally:
+                os.chdir(old)
+
+            self.assertEqual(existing_file.read_text(), 'trusted content\n')
+            self.assertFalse((root / 'server' / 'new.ts').exists())
+
+    def test_atomic_replace_failure_triggers_rollback(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            existing_file = root / 'server' / 'existing.ts'
+            existing_file.parent.mkdir(parents=True)
+            existing_file.write_text('original text\n')
+
+            artifact = root / 'candidate.json'
+            artifact.write_text(json.dumps({'files': [
+                {'path': 'server/existing.ts', 'content': 'updated text\n'},
+                {'path': 'server/second.ts', 'content': 'second file\n'},
+            ]}))
+
+            import os
+            old = os.getcwd()
+            try:
+                os.chdir(root)
+                original_replace = os.replace
+                call_count = 0
+
+                def failing_replace(src, dst):
+                    nonlocal call_count
+                    call_count += 1
+                    if call_count == 2:
+                        raise OSError("Simulated os.replace failure on second file")
+                    return original_replace(src, dst)
+
+                with patch('os.replace', side_effect=failing_replace):
+                    with self.assertRaisesRegex(agent.AgentError, 'rolled back partial changes'):
+                        agent.apply_artifact(artifact)
+            finally:
+                os.chdir(old)
+
+            self.assertEqual(existing_file.read_text(), 'original text\n')
+            self.assertFalse((root / 'server' / 'second.ts').exists())
+
+    def test_incomplete_rollback_reports_affected_paths(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            existing_file = root / 'server' / 'existing.ts'
+            existing_file.parent.mkdir(parents=True)
+            existing_file.write_text('original text\n')
+
+            artifact = root / 'candidate.json'
+            artifact.write_text(json.dumps({'files': [
+                {'path': 'server/existing.ts', 'content': 'updated text\n'},
+                {'path': 'server/second.ts', 'content': 'second file\n'},
+            ]}))
+
+            import os
+            old = os.getcwd()
+            try:
+                os.chdir(root)
+                original_write_bytes = pathlib.Path.write_bytes
+
+                def failing_write_bytes(self, data, *args, **kwargs):
+                    if 'second.ts' in self.name:
+                        raise OSError("Write error on second file")
+                    # Also fail when attempting rollback restore of existing.ts
+                    if 'existing.ts' in self.name and data == b'original text\n':
+                        raise OSError("Disk failure during rollback restore")
+                    return original_write_bytes(self, data, *args, **kwargs)
+
+                with patch.object(pathlib.Path, 'write_bytes', side_effect=failing_write_bytes, autospec=True):
+                    with self.assertRaisesRegex(agent.AgentError, r'CRITICAL: Rollback failed for paths: .*server/existing\.ts'):
+                        agent.apply_artifact(artifact)
+            finally:
+                os.chdir(old)
+
+    def test_concurrent_target_modification_detected_and_rejected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            existing_file = root / 'server' / 'modified.ts'
+            existing_file.parent.mkdir(parents=True)
+            existing_file.write_text('original\n')
+
+            artifact = root / 'candidate.json'
+            artifact.write_text(json.dumps({'files': [
+                {'path': 'server/modified.ts', 'content': 'new\n'},
+            ]}))
+
+            import os
+            old = os.getcwd()
+            try:
+                os.chdir(root)
+                original_mkdir = pathlib.Path.mkdir
+
+                def tamper_on_mkdir(self, *args, **kwargs):
+                    res = original_mkdir(self, *args, **kwargs)
+                    st = existing_file.stat()
+                    os.utime(existing_file, ns=(st.st_atime_ns, st.st_mtime_ns + 5_000_000_000))
+                    return res
+
+                with patch.object(pathlib.Path, 'mkdir', side_effect=tamper_on_mkdir, autospec=True):
+                    with self.assertRaisesRegex(agent.AgentError, 'Target path was concurrently modified'):
+                        agent.apply_artifact(artifact)
+            finally:
+                os.chdir(old)
+
+    def test_concurrent_target_deletion_detected_and_rejected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            existing_file = root / 'server' / 'deleted.ts'
+            existing_file.parent.mkdir(parents=True)
+            existing_file.write_text('original\n')
+
+            artifact = root / 'candidate.json'
+            artifact.write_text(json.dumps({'files': [
+                {'path': 'server/deleted.ts', 'content': 'new\n'},
+            ]}))
+
+            import os
+            old = os.getcwd()
+            try:
+                os.chdir(root)
+                original_mkdir = pathlib.Path.mkdir
+
+                def delete_on_mkdir(self, *args, **kwargs):
+                    res = original_mkdir(self, *args, **kwargs)
+                    if existing_file.exists():
+                        existing_file.unlink()
+                    return res
+
+                with patch.object(pathlib.Path, 'mkdir', side_effect=delete_on_mkdir, autospec=True):
+                    with self.assertRaisesRegex(agent.AgentError, 'Target path was concurrently deleted'):
+                        agent.apply_artifact(artifact)
+            finally:
+                os.chdir(old)
 
     def test_rejects_artifact_with_extraneous_file_schema_keys(self):
         with tempfile.TemporaryDirectory() as temp:

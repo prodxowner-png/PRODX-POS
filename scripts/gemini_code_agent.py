@@ -15,6 +15,7 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
+import uuid
 from typing import Any
 
 GITHUB_API = "https://api.github.com"
@@ -38,6 +39,10 @@ PROTECTED_FILES = {
 PROTECTED_SCRIPT_PREFIXES = ("scripts/ci/", "scripts/deploy/", "scripts/release/", "scripts/security/")
 ALLOWED_PREFIXES = ("server/", "src/", "tests/", "test/", "docs/", "db/migrations/", "scripts/")
 ALLOWED_ROOT_FILES = {"README.md"}
+
+STATUS_NON_EXISTENT = "NON_EXISTENT"
+STATUS_BACKED_UP = "BACKED_UP"
+STATUS_BACKUP_FAILED = "BACKUP_FAILED"
 
 BASE_SKILLS = ("prodx-architecture", "prodx-security", "prodx-testing")
 SKILL_KEYWORDS = {
@@ -433,8 +438,8 @@ def apply_artifact(artifact_path: pathlib.Path) -> None:
         seen.add(name)
         validated.append((target, content))
 
-    # Atomic application: track original state for complete rollback on partial failure.
-    backups: list[tuple[pathlib.Path, str | None]] = []
+    # Phase 1: Snapshot original state and track newly needed directories.
+    backups: list[dict[str, Any]] = []
     created_dirs: list[pathlib.Path] = []
     for target, _ in validated:
         parent = target.parent
@@ -442,36 +447,126 @@ def apply_artifact(artifact_path: pathlib.Path) -> None:
             if parent not in created_dirs:
                 created_dirs.append(parent)
             parent = parent.parent
-        if target.is_file():
+        if target.exists():
+            if target.is_dir() or target.is_symlink():
+                raise AgentError(f"Target path is an existing directory or symlink: {target.relative_to(root).as_posix()}")
             try:
-                backups.append((target, target.read_text(encoding="utf-8")))
-            except (OSError, UnicodeDecodeError):
-                backups.append((target, None))
+                content_bytes = target.read_bytes()
+                st = target.stat()
+                backups.append({
+                    "target": target,
+                    "status": STATUS_BACKED_UP,
+                    "content_bytes": content_bytes,
+                    "mode": st.st_mode,
+                    "mtime_ns": st.st_mtime_ns,
+                })
+            except Exception as exc:
+                raise AgentError(
+                    f"Cannot safely snapshot existing file before mutation: {target.relative_to(root).as_posix()} ({exc})"
+                ) from None
         else:
-            backups.append((target, None))
+            backups.append({
+                "target": target,
+                "status": STATUS_NON_EXISTENT,
+                "content_bytes": None,
+                "mode": None,
+                "mtime_ns": None,
+            })
 
+    # Phase 2: Atomic staging and application using temporary sibling files.
+    staged_tmp_files: list[pathlib.Path] = []
     try:
-        for target, content in validated:
+        for target, _ in validated:
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(content, encoding="utf-8")
+
+        for i, (target, content) in enumerate(validated):
+            backup = backups[i]
+            if target.is_symlink():
+                raise AgentError(f"Target path was converted to a symbolic link: {target.relative_to(root).as_posix()}")
+            cursor = target.parent
+            while cursor != root:
+                if cursor.is_symlink():
+                    raise AgentError(f"Target parent path was converted to a symbolic link: {cursor.relative_to(root).as_posix()}")
+                cursor = cursor.parent
+
+            if backup["status"] == STATUS_BACKED_UP:
+                if not target.exists():
+                    raise AgentError(f"Target path was concurrently deleted: {target.relative_to(root).as_posix()}")
+                current_st = target.stat()
+                if current_st.st_mtime_ns != backup["mtime_ns"]:
+                    raise AgentError(f"Target path was concurrently modified: {target.relative_to(root).as_posix()}")
+            elif backup["status"] == STATUS_NON_EXISTENT:
+                if target.exists():
+                    raise AgentError(f"Target path was concurrently created: {target.relative_to(root).as_posix()}")
+
+            tmp_path = target.with_name(f".{target.name}.tmp.{uuid.uuid4().hex}")
+            staged_tmp_files.append(tmp_path)
+            tmp_path.write_bytes(content.encode("utf-8"))
+            if backup["status"] == STATUS_BACKED_UP and backup["mode"] is not None:
+                try:
+                    tmp_path.chmod(backup["mode"])
+                except Exception:
+                    pass
+
+            os.replace(tmp_path, target)
+            staged_tmp_files.remove(tmp_path)
     except Exception as exc:
-        # Roll back all written files to their exact pre-apply state
-        for target, original_content in backups:
+        failed_rollbacks: list[str] = []
+        for tmp_file in staged_tmp_files:
             try:
-                if original_content is None:
+                if tmp_file.exists():
+                    tmp_file.unlink()
+            except Exception as e:
+                failed_rollbacks.append(f"{tmp_file.as_posix()} (tmp cleanup failed: {e})")
+
+        for backup in backups:
+            target = backup["target"]
+            status = backup["status"]
+            if status == STATUS_NON_EXISTENT:
+                try:
                     if target.exists() and not target.is_dir():
                         target.unlink()
-                else:
-                    target.write_text(original_content, encoding="utf-8")
-            except Exception:
-                pass
-        # Clean up empty parent directories created during this attempt (deepest first)
+                except Exception as e:
+                    failed_rollbacks.append(f"{target.as_posix()} (unlink failed: {e})")
+            elif status == STATUS_BACKED_UP:
+                try:
+                    target.write_bytes(backup["content_bytes"])
+                    if backup["mode"] is not None:
+                        target.chmod(backup["mode"])
+                except Exception as e:
+                    failed_rollbacks.append(f"{target.as_posix()} (restore failed: {e})")
+
         for directory in sorted(created_dirs, key=lambda p: len(p.parts), reverse=True):
             try:
                 if directory.exists() and not any(directory.iterdir()):
                     directory.rmdir()
             except Exception:
                 pass
+
+        for backup in backups:
+            target = backup["target"]
+            status = backup["status"]
+            if status == STATUS_NON_EXISTENT:
+                if target.exists():
+                    msg = f"{target.as_posix()} (still exists on disk after rollback)"
+                    if msg not in failed_rollbacks:
+                        failed_rollbacks.append(msg)
+            elif status == STATUS_BACKED_UP:
+                try:
+                    if target.read_bytes() != backup["content_bytes"]:
+                        msg = f"{target.as_posix()} (content mismatch after rollback)"
+                        if msg not in failed_rollbacks:
+                            failed_rollbacks.append(msg)
+                except Exception as verify_err:
+                    msg = f"{target.as_posix()} (verification failed: {verify_err})"
+                    if msg not in failed_rollbacks:
+                        failed_rollbacks.append(msg)
+
+        if failed_rollbacks:
+            raise AgentError(
+                f"Failed to apply artifact files: {exc}; CRITICAL: Rollback failed for paths: {', '.join(failed_rollbacks)}"
+            ) from None
+
         raise AgentError(f"Failed to apply artifact files: {exc}; rolled back partial changes.") from None
 
     print(f"Applied validated candidate artifact: {len(validated)} file(s).")
