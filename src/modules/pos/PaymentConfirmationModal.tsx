@@ -19,6 +19,8 @@ import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
 import { ReceiptPrintModal } from '../../components/receipt/ReceiptPrintModal';
 import { FullTaxInvoiceModal } from '../../components/receipt/FullTaxInvoiceModal';
+import { SupervisorAuthModal } from '../../components/auth/SupervisorAuthModal';
+import type { User as AuthUser } from '../../domain/auth';
 import { QuickCashCalculator } from './QuickCashCalculator';
 import { playScannerSound } from '../../services/soundService';
 import { triggerHaptic } from '../../services/hapticService';
@@ -39,6 +41,10 @@ import {
   formatMoney,
 } from '../../domain/money';
 import { createOrderTransactionApi } from '../../adapters/orderTransactionApiFactory';
+import type { CheckoutRequest } from '../../adapters/types';
+import { createProductionSupervisorAuthorizationApi } from '../../adapters/productionSupervisorAuthorizationApi';
+import { createProductionDiscountPolicyApi, getLocalDiscountPolicy } from '../../adapters/productionDiscountPolicyApi';
+import { hasProductionUrl } from '../../adapters/env';
 import {
   Banknote,
   CreditCard,
@@ -202,6 +208,8 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
   const [isItemListExpanded, setIsItemListExpanded] = useState(false);
   const [cardAuthReference, setCardAuthReference] = useState('');
   const [orderRemarkNote, setOrderRemarkNote] = useState(notes || '');
+  const [pendingDiscountCheckout, setPendingDiscountCheckout] = useState<CheckoutRequest | null>(null);
+  const [isDiscountSupervisorModalOpen, setIsDiscountSupervisorModalOpen] = useState(false);
 
   const grandTotal = totals.grandTotal;
   const currency = grandTotal.currency;
@@ -382,10 +390,12 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
     });
   };
 
-  const handleConfirmPayment = async () => {
-    let finalPayments: TenderPayment[] = [];
+  const handleConfirmPayment = async (authorizedPayload?: CheckoutRequest) => {
+    let finalPayments: TenderPayment[] = authorizedPayload ? [...authorizedPayload.payments] : [];
 
-    if (isSplitMode || stagedPayments.length > 0) {
+    if (authorizedPayload) {
+      // Reuse the exact command and idempotency key approved by the supervisor.
+    } else if (isSplitMode || stagedPayments.length > 0) {
       if (!isFullyTendered || stagedPayments.length === 0 || isProcessing) return;
       finalPayments = [...stagedPayments];
     } else {
@@ -415,9 +425,12 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
     }
 
     setIsProcessing(true);
-    const idempotencyKey = `idemp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const idempotencyKey = authorizedPayload?.idempotencyKey ?? `idemp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
-    const checkoutPayload = {
+    const orderDiscountBps = totals.grossSubtotal.amountInCents > totals.itemDiscounts.amountInCents
+      ? Math.round(totals.orderDiscount.amountInCents / (totals.grossSubtotal.amountInCents - totals.itemDiscounts.amountInCents) * 10000)
+      : 0;
+    const checkoutPayload: CheckoutRequest = authorizedPayload ?? {
       idempotencyKey,
       storeId: session.currentStore.id,
       registerId: session.registerId,
@@ -432,12 +445,28 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
         : undefined,
       items,
       totals,
+      orderDiscountBps,
       payments: finalPayments,
       notes: orderRemarkNote || notes,
       isOfflineSubmission: !isOnline,
     };
 
     try {
+      const hasDiscount = items.some((item) => item.discountBps > 0) || totals.orderDiscount.amountInCents > 0;
+      if (authorizedPayload && !isOnline && hasProductionUrl()) throw new Error('A server-issued discount approval cannot be replayed while offline.');
+      if (!authorizedPayload && hasDiscount) {
+        if (!isOnline && hasProductionUrl()) throw new Error(language === 'th' ? 'ไม่สามารถใช้ส่วนลดออฟไลน์ได้ เนื่องจากต้องยืนยันสิทธิ์ผู้จัดการกับเซิร์ฟเวอร์' : 'Discounted checkout requires an online server authorization.');
+        const policy = hasProductionUrl() ? await createProductionDiscountPolicyApi(session.token).getPolicy() : getLocalDiscountPolicy();
+        const grossCents = totals.grossSubtotal.amountInCents;
+        const effectiveDiscountBps = grossCents > 0 ? Math.round((grossCents - totals.grandTotal.amountInCents) / grossCents * 10000) : 0;
+        const maxDiscountBps = Math.max(effectiveDiscountBps, orderDiscountBps, ...items.map((item) => item.discountBps), 0);
+        if (policy.requireSupervisorApproval && maxDiscountBps > policy.maxDiscountWithoutApprovalBps) {
+          setPendingDiscountCheckout(checkoutPayload);
+          setIsDiscountSupervisorModalOpen(true);
+          setIsProcessing(false);
+          return;
+        }
+      }
       if (!isOnline) {
         // Queue in offline outbox
         await queueOutboxItem('order_transaction', idempotencyKey, checkoutPayload);
@@ -557,6 +586,30 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
       });
     } finally {
       setIsProcessing(false);
+    }
+  };
+
+  const handleDiscountSupervisorAuthorized = async (supervisor: AuthUser, _notes?: string, proof?: string) => {
+    if (!pendingDiscountCheckout) return;
+    if (!hasProductionUrl()) {
+      const payload = pendingDiscountCheckout;
+      setPendingDiscountCheckout(null);
+      setIsDiscountSupervisorModalOpen(false);
+      await handleConfirmPayment(payload);
+      return;
+    }
+    if (!session?.token || !proof || proof.length < 20) return;
+    try {
+      const grant = await createProductionSupervisorAuthorizationApi(session.token).authorize({
+        action: 'discount', checkout: pendingDiscountCheckout,
+        supervisorUserId: supervisor.id, supervisorAccessToken: proof,
+      });
+      const payload = { ...pendingDiscountCheckout, supervisorAuthorizationToken: grant.authorizationToken };
+      setPendingDiscountCheckout(null);
+      setIsDiscountSupervisorModalOpen(false);
+      await handleConfirmPayment(payload);
+    } catch (error) {
+      addToast({ title: language === 'th' ? 'อนุมัติส่วนลดไม่สำเร็จ' : 'Discount Approval Failed', message: error instanceof Error ? error.message : String(error), type: 'error' });
     }
   };
 
@@ -1584,6 +1637,17 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
           </div>
         )}
       </Modal>
+
+      {isDiscountSupervisorModalOpen && pendingDiscountCheckout && (
+        <SupervisorAuthModal
+          isOpen={isDiscountSupervisorModalOpen}
+          onClose={() => { setIsDiscountSupervisorModalOpen(false); setPendingDiscountCheckout(null); }}
+          title={language === 'th' ? 'อนุมัติส่วนลดรายการขาย' : 'Authorize Checkout Discount'}
+          actionDescription={language === 'th' ? 'ส่วนลดเกินวงเงินที่กำหนด กรุณาให้ผู้จัดการยืนยันรหัสผ่านบัญชี POS Auth' : 'Discount exceeds the store policy threshold. A manager must reauthenticate with their POS Auth account.'}
+          requiredRole="manager"
+          onAuthorized={handleDiscountSupervisorAuthorized}
+        />
+      )}
 
       {/* Submodals for Receipt Preview & Full Tax Invoice */}
       {completedOrder && (

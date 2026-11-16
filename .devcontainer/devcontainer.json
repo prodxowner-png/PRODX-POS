@@ -1,20 +1,22 @@
 {
   "name": "PRODX POS Dev",
-  "image": "mcr.microsoft.com/devcontainers/typescript-node:1-22-bookworm",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:1-24-bookworm",
   "features": {
     "ghcr.io/devcontainers/features/docker-in-docker:2": {
       "version": "latest",
       "moby": true
     }
   },
-  "forwardPorts": [3000],
+  "forwardPorts": [
+    3000
+  ],
   "portsAttributes": {
     "3000": {
       "label": "PRODX POS",
       "onAutoForward": "openBrowser"
     }
   },
-  "postCreateCommand": "curl -fsSL https://bun.sh/install | bash && echo 'export BUN_INSTALL=\"$HOME/.bun\"' >> ~/.bashrc && echo 'export PATH=\"$BUN_INSTALL/bin:$PATH\"' >> ~/.bashrc && $HOME/.bun/bin/bun install --frozen-lockfile && bash .devcontainer/install-ai-clis.sh",
+  "postCreateCommand": "npm install --global npm@11.21.2 && test \"$(npm --version)\" = \"11.21.2\" && curl -fsSL https://bun.sh/install | bash && echo 'export BUN_INSTALL=\"$HOME/.bun\"' >> ~/.bashrc && echo 'export PATH=\"$BUN_INSTALL/bin:$PATH\"' >> ~/.bashrc && $HOME/.bun/bin/bun install --frozen-lockfile && bash .devcontainer/install-ai-clis.sh",
   "remoteEnv": {
     "DATABASE_URL": "postgresql://prodx:prodx@127.0.0.1:5432/prodx_test"
   },

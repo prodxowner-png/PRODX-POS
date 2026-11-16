@@ -1,13 +1,15 @@
 # Supabase POS identity binding
 
-The POS Supabase Auth exchange binds a verified JWT `sub` to `public.prodx_users.supabase_auth_user_id`. It does not match accounts by email, username, user metadata, or client-supplied role flags. Owner Console Auth must use its separate issuer and must never be configured as `SUPABASE_POS_AUTH_URL`.
+The POS Supabase Auth exchange binds a verified JWT `sub` to `public.prodx_users.supabase_auth_user_id`. It does not match accounts by email, username, user metadata, or client-supplied role flags. Owner Console Auth must use its separate issuer and must never be configured as the POS Auth issuer.
 
-## Deployment requirements (breaking configuration change)
+## Deployment requirements
 
-- The POS verifier now reads `SUPABASE_POS_AUTH_URL` (and optionally `SUPABASE_POS_AUTH_JWKS_URL`). It no longer falls back to the legacy `SUPABASE_URL` / `SUPABASE_JWKS_URL` variables.
-- Set `SUPABASE_POS_AUTH_URL` on the production Vercel project **before** deploying this change. If it is unset or invalid, Supabase sign-in fails closed (every Supabase token is rejected); password and PIN sign-in are unaffected.
-- `SUPABASE_OWNER_URL` / `SUPABASE_OWNER_JWKS_URL` belong to the Owner Console issuer and must point at a different Auth project than the POS variables.
-- Apply migration `0039_m5_supabase_identity_binding` with an administrative connection. The migration is additive and idempotent; it creates no links, so no existing account can sign in through Supabase until an operator provisions one.
+- The POS browser client reads `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`; both must identify the approved PRODX-ORG project.
+- The POS server verifier reads `SUPABASE_URL` and `SUPABASE_JWKS_URL`; these server-side values must identify the same PRODX-ORG Auth issuer. Never use the Owner Console issuer for POS JWT verification.
+- Ordinary POS Supabase session exchange is disabled unless `SUPABASE_POS_AUTH_ENABLED=true` is explicitly set on the server. Keep it false until first-tenant bootstrap, identity checks, and live E2E authorization tests have passed. The bootstrap route remains separately protected by its operator secret and exact allowlisted Auth subject.
+- Missing or invalid URL/JWKS configuration fails closed; password/PIN authentication remains on the existing production provider.
+- `SUPABASE_OWNER_URL` / `SUPABASE_OWNER_JWKS_URL` belong to the separate Owner Console issuer and must not be substituted for the POS variables.
+- Migration `0039_m5_supabase_identity_binding` is additive and creates no links. Existing accounts remain unlinked until an operator provisions an explicit identity mapping.
 
 ## Provisioning requirements
 

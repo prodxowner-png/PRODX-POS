@@ -86,6 +86,7 @@ test('first-tenant bootstrap HTTP boundary requires operator secret and allowlis
   const app = express();
   app.use(express.json());
   registerAuthRoutes(app, db, sessions, {
+    supabaseSessionEnabled: false,
     firstTenantBootstrap: {
       config,
       repository,
@@ -114,6 +115,7 @@ test('first-tenant bootstrap HTTP boundary requires operator secret and allowlis
   const wrongSubjectApp = express();
   wrongSubjectApp.use(express.json());
   registerAuthRoutes(wrongSubjectApp, db, sessions, {
+    supabaseSessionEnabled: false,
     firstTenantBootstrap: {
       config,
       repository,

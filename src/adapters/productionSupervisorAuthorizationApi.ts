@@ -1,4 +1,8 @@
-export type SupervisorAuthorizationRequest = { action: 'refund' | 'void'; orderId: string; supervisorUsername?: string; supervisorUserId?: string; supervisorSecret: string; };
+import type { CheckoutRequest } from './types';
+
+export type SupervisorAuthorizationRequest =
+  | { action: 'refund' | 'void'; orderId: string; supervisorUsername?: string; supervisorUserId?: string; supervisorSecret?: string; supervisorAccessToken?: string }
+  | { action: 'discount'; checkout: CheckoutRequest; supervisorUsername?: string; supervisorUserId?: string; supervisorSecret?: string; supervisorAccessToken?: string };
 
 export type SupervisorAuthorizationResponse = { authorizationToken: string; supervisorUserId: string; expiresAt: string; };
 

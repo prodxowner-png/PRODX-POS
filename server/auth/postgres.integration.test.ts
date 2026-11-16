@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 import { createPostgresPool, asSqlExecutor, resolveConfiguredDatabaseUrl } from '../db/postgres';
 import { createPostgresAuthentication } from './composition';
@@ -9,16 +10,16 @@ import { hashSessionToken } from './session';
 const databaseUrl = resolveConfiguredDatabaseUrl(process.env.DATABASE_URL);
 
 const ids = {
-  organizationA: '00000000-0000-4000-8000-000000000201',
-  organizationB: '00000000-0000-4000-8000-000000000202',
-  storeA: '00000000-0000-4000-8000-000000000211',
-  storeB: '00000000-0000-4000-8000-000000000212',
-  userA: '00000000-0000-4000-8000-000000000221',
-  userB: '00000000-0000-4000-8000-000000000222',
-  deviceA: '00000000-0000-4000-8000-000000000231',
-  deviceB: '00000000-0000-4000-8000-000000000232',
-  supabaseUserA: '00000000-0000-4000-8000-000000000241',
-  supabaseUserB: '00000000-0000-4000-8000-000000000242',
+  organizationA: randomUUID(),
+  organizationB: randomUUID(),
+  storeA: randomUUID(),
+  storeB: randomUUID(),
+  userA: randomUUID(),
+  userB: randomUUID(),
+  deviceA: randomUUID(),
+  deviceB: randomUUID(),
+  supabaseUserA: randomUUID(),
+  supabaseUserB: randomUUID(),
 };
 
 const pool = databaseUrl ? createPostgresPool({ connectionString: databaseUrl, max: 2 }) : null;
@@ -29,7 +30,6 @@ const authentication = pool
 const seed = async (): Promise<void> => {
   if (!pool) throw new Error('DATABASE_URL is required for PostgreSQL integration tests.');
   const passwordHash = await hashPassword('correct-password');
-  await pool.query('DELETE FROM prodx_security_audit_events WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
   await pool.query('DELETE FROM prodx_sessions WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
   await pool.query('DELETE FROM prodx_store_memberships WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
   await pool.query('DELETE FROM prodx_user_credentials WHERE user_id IN ($1, $2)', [ids.userA, ids.userB]);
@@ -74,7 +74,6 @@ const seed = async (): Promise<void> => {
 
 const cleanup = async (): Promise<void> => {
   if (!pool) return;
-  await pool.query('DELETE FROM prodx_security_audit_events WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
   await pool.query('DELETE FROM prodx_sessions WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
   await pool.query('DELETE FROM prodx_store_memberships WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
   await pool.query('DELETE FROM prodx_user_credentials WHERE user_id IN ($1, $2)', [ids.userA, ids.userB]);

@@ -15,6 +15,7 @@ These agent skills turn PRODX-POS production principles into repeatable review p
 - [prodx-observability](prodx-observability/SKILL.md) — safe diagnostics, correlation, metrics, alerts, and audit boundaries.
 - [prodx-ci-cd](prodx-ci-cd/SKILL.md) — CI gates, branch protection, artifact provenance, release, and rollback.
 - [prodx-backup-recovery](prodx-backup-recovery/SKILL.md) — restore drills, integrity checks, RPO/RTO, and DR.
+- [prodx-production-infrastructure](prodx-production-infrastructure/SKILL.md) — platform wiring, network/TLS, secrets delivery, runtime health, capacity, and operational configuration.
 - [prodx-production-readiness](prodx-production-readiness/SKILL.md) — aggregate hard-gate decision and status reporting.
 - [prodx-code-review](prodx-code-review/SKILL.md) — adversarial pull-request review contract already present in this repository.
 - [prodx-ai-tooling](prodx-ai-tooling/SKILL.md) — safe AI tool-calling, permission boundaries, prompt injection, idempotency, and auditable execution.
