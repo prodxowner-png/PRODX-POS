@@ -2,12 +2,16 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 import { createPostgresPool, asSqlExecutor, resolveConfiguredDatabaseUrl } from '../db/postgres';
+import { assertDisposableTestDatabaseUrl } from '../db/test-database-guard';
 import { createPostgresAuthentication } from './composition';
 import { createPostgresAuthenticationRepository } from './postgres-repository';
 import { hashPassword } from './password';
 import { hashSessionToken } from './session';
 
-const databaseUrl = resolveConfiguredDatabaseUrl(process.env.DATABASE_URL);
+const databaseUrl = assertDisposableTestDatabaseUrl(
+  resolveConfiguredDatabaseUrl(process.env.DATABASE_URL),
+  'server/auth/postgres.integration.test.ts',
+);
 
 const ids = {
   organizationA: randomUUID(),
@@ -108,11 +112,11 @@ test('M2 PostgreSQL authentication enforces credential, tenant, session, token-h
     return;
   }
 
-  await seed();
   t.after(async () => {
     await cleanup();
     await pool.end();
   });
+  await seed();
 
   const identityRepository = createPostgresAuthenticationRepository(asSqlExecutor(pool));
   const linkedIdentity = await identityRepository.findUserBySupabaseUserId(ids.supabaseUserA, ids.deviceA);
