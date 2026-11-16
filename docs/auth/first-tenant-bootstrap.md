@@ -36,6 +36,32 @@ A transaction-scoped advisory lock serializes competing first-tenant requests. T
 
 A failed insert (including audit failure) rolls back the entire provisioning transaction. No local password credential is created. No Production records are written merely by deploying this migration.
 
+## Operator CLI
+
+Run the operator helper only after the Production deployment containing the secure bootstrap route is Ready.
+
+1. Create a temporary `.env.bootstrap` file in the repository root containing only these non-secret values copied from the Production Vercel environment. Do not run `vercel env pull` for this task because it downloads unrelated Production secrets.
+
+```dotenv
+VITE_SUPABASE_URL=https://wcyqyiewbzpmrekoljfw.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=<PRODX-ORG publishable key>
+PRODX_FIRST_TENANT_BOOTSTRAP_SUBJECT=<configured Auth subject UUID>
+```
+
+2. Run the operator helper in an interactive terminal:
+
+```bash
+chmod 600 .env.bootstrap
+npm run auth:bootstrap:first-tenant
+rm -f .env.bootstrap
+```
+
+The CLI prompts for the existing PRODX-ORG Auth email, password, and operator bootstrap secret. Password and secret input are hidden. The bootstrap secret is stored in Vercel as a `sensitive` variable and is intentionally not retrievable through the Vercel API; it must be supplied from the operator's password manager. If the original secret is unavailable, generate a new 32-byte random secret locally (for example, `openssl rand -hex 32`), update `PRODX_FIRST_TENANT_BOOTSTRAP_SECRET` as a Sensitive Production variable in Vercel, and redeploy before running the helper. Never paste the secret into ChatGPT or commit it.
+
+Before sending any request, the CLI checks that the signed-in JWT subject matches `PRODX_FIRST_TENANT_BOOTSTRAP_SUBJECT`. It sends the secret only to `https://prodx-pos.vercel.app`, rejects redirects, does not print or persist the returned POS bearer token, and verifies the Owner/Admin role contract. The temporary file contains only the public publishable key and configured subject; it is ignored by git and must still be removed after use.
+
+If the request times out after the database transaction commits, rerun with the same Auth identity, secret, and unchanged server configuration. The database function permits an exact idempotent retry without duplicating tenant rows or audit events. Do not change identifiers between retries.
+
 ## Verification and activation
 
 Before configuring the operator secret in a production runtime:

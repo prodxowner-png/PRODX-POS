@@ -145,8 +145,9 @@ export const createApp = (options: BackendBoundaryOptions) => {
     }
   }
 
-  app.use(express.json({ limit: '1mb' }));
+  // Attach correlation before parsing so malformed JSON receives a request id too.
   app.use(attachRequestId);
+  app.use(express.json({ limit: '1mb' }));
   app.locals.prodxAuthorize = options.authorizeRequest;
   options.configurePublicRoutes?.(app);
   app.get('/api/v1/healthz', (_request, response) => {
@@ -183,6 +184,18 @@ export const createApp = (options: BackendBoundaryOptions) => {
   });
 
   app.use((error: unknown, request: Request, response: Response, _next: NextFunction) => {
+    const parserError = error && typeof error === 'object'
+      ? error as { type?: unknown; status?: unknown }
+      : undefined;
+    if (
+      error instanceof SyntaxError &&
+      parserError?.type === 'entity.parse.failed' &&
+      parserError.status === 400
+    ) {
+      sendError(response, 400, 'INVALID_JSON', 'Request body must be valid JSON.', request.id);
+      return;
+    }
+
     console.error('PRODX unhandled request error', {
       requestId: request.id,
       method: request.method,
