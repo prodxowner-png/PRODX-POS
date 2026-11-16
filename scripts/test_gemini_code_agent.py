@@ -364,5 +364,83 @@ class ArtifactTests(unittest.TestCase):
                 os.chdir(old)
             self.assertEqual((root / 'server/new.ts').read_text(), 'export const ok = true;\n')
 
+    def test_atomic_rollback_on_partial_write_failure(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            existing_file = root / 'server' / 'existing.ts'
+            existing_file.parent.mkdir(parents=True)
+            existing_file.write_text('original existing content\n')
+
+            artifact = root / 'candidate.json'
+            artifact.write_text(json.dumps({'files': [
+                {'path': 'server/existing.ts', 'content': 'modified content\n'},
+                {'path': 'server/sub/new.ts', 'content': 'new content\n'},
+            ]}))
+
+            import os
+            old = os.getcwd()
+            try:
+                os.chdir(root)
+                original_write_text = pathlib.Path.write_text
+
+                def failing_write_text(self, data, *args, **kwargs):
+                    if self.name == 'new.ts':
+                        raise OSError("Simulated disk error during multi-file apply")
+                    return original_write_text(self, data, *args, **kwargs)
+
+                with patch.object(pathlib.Path, 'write_text', side_effect=failing_write_text, autospec=True):
+                    with self.assertRaisesRegex(agent.AgentError, 'rolled back partial changes'):
+                        agent.apply_artifact(artifact)
+            finally:
+                os.chdir(old)
+
+            # Assert complete rollback: existing file restored, new file and directory never left partially written
+            self.assertEqual(existing_file.read_text(), 'original existing content\n')
+            self.assertFalse((root / 'server' / 'sub' / 'new.ts').exists())
+
+    def test_rejects_artifact_with_extraneous_file_schema_keys(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            artifact = root / 'candidate.json'
+            artifact.write_text(json.dumps({'files': [
+                {'path': 'server/test.ts', 'content': 'content', 'executable': True}
+            ]}))
+            import os
+            old = os.getcwd()
+            try:
+                os.chdir(root)
+                with self.assertRaisesRegex(agent.AgentError, 'invalid file entry'):
+                    agent.apply_artifact(artifact)
+            finally:
+                os.chdir(old)
+            self.assertFalse((root / 'server' / 'test.ts').exists())
+
+    def test_rejects_percent_encoded_path_traversal(self):
+        for path in ('server/%2e%2e/etc/passwd', 'server/%2froot', 'src/%2e%2e'):
+            with self.subTest(path=path), self.assertRaises(agent.AgentError):
+                agent.validate_path(path)
+
+    def test_rejects_target_file_that_is_symlink(self):
+        with tempfile.TemporaryDirectory() as temp, tempfile.TemporaryDirectory() as outside:
+            root = pathlib.Path(temp)
+            server_dir = root / 'server'
+            server_dir.mkdir(parents=True)
+            outside_target = pathlib.Path(outside) / 'escaped.ts'
+            outside_target.write_text('trusted: true\n')
+            link = server_dir / 'linked.ts'
+            link.symlink_to(outside_target)
+
+            artifact = root / 'candidate.json'
+            artifact.write_text(json.dumps({'files': [{'path': 'server/linked.ts', 'content': 'pwned\n'}]}))
+            import os
+            old = os.getcwd()
+            try:
+                os.chdir(root)
+                with self.assertRaisesRegex(agent.AgentError, 'symbolic link'):
+                    agent.apply_artifact(artifact)
+            finally:
+                os.chdir(old)
+            self.assertEqual(outside_target.read_text(), 'trusted: true\n')
+
 if __name__ == '__main__':
     unittest.main()
