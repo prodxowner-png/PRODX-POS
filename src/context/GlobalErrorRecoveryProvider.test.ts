@@ -3,7 +3,9 @@ import test from 'node:test';
 import React, { type ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import {
+  getSafeRuntimeErrorName,
   InternalCrashBoundary,
+  reloadApplicationPreservingLocalData,
   sanitizeAndRestoreAppState,
 } from './GlobalErrorRecoveryProvider';
 import fs from 'node:fs';
@@ -32,6 +34,48 @@ class MockStorage {
     return Array.from(this.store.keys());
   }
 }
+
+test('ErrorBoundary source: recovery UI withholds raw exceptions and never clears browser storage', () => {
+  const source = fs.readFileSync(path.resolve(process.cwd(), 'src/components/common/ErrorBoundary.tsx'), 'utf8');
+  assert.match(source, /errorName/);
+  assert.match(source, /message and stack withheld/);
+  assert.match(source, /Reloading preserves local transaction and session data/);
+  assert.doesNotMatch(source, /localStorage\.clear\s*\(/);
+  assert.doesNotMatch(source, /sessionStorage\.clear\s*\(/);
+  assert.doesNotMatch(source, /error\?\.message/);
+  assert.doesNotMatch(source, /error\?\.stack/);
+  assert.doesNotMatch(source, /error\.message/);
+  assert.doesNotMatch(source, /error\.stack/);
+  assert.doesNotMatch(source, /this\.props\.onError\(error, errorInfo\)/);
+  assert.match(source, /const safeError = new Error/);
+  assert.doesNotMatch(source, /btn-error-hard-reload-clear/);
+});
+
+test('getSafeRuntimeErrorName rejects attacker-controlled names and bounds diagnostic metadata', () => {
+  assert.equal(getSafeRuntimeErrorName(new TypeError('sensitive exception')), 'TypeError');
+  assert.equal(getSafeRuntimeErrorName(Object.assign(new Error('secret'), { name: 'Bearer secret-token' })), 'Error');
+  assert.equal(getSafeRuntimeErrorName({ name: 'TypeError' }), null);
+});
+
+test('reloadApplicationPreservingLocalData removes only the transient query cache and preserves POS data', () => {
+  const localStorage = new MockStorage();
+  const sessionStorage = new MockStorage();
+  const outbox = JSON.stringify([{ id: 'sale-1', idempotencyKey: 'idem-1' }]);
+  const authSession = JSON.stringify({ token: 'opaque-pos-session' });
+  localStorage.setItem('prodx_pos_outbox', outbox);
+  localStorage.setItem('prodx_pos_session', authSession);
+  sessionStorage.setItem('prodx_temp_query_cache', 'stale');
+  sessionStorage.setItem('unrelated-session-state', 'keep');
+  let reloadCount = 0;
+
+  reloadApplicationPreservingLocalData(sessionStorage, () => { reloadCount += 1; });
+
+  assert.equal(reloadCount, 1);
+  assert.equal(localStorage.getItem('prodx_pos_outbox'), outbox);
+  assert.equal(localStorage.getItem('prodx_pos_session'), authSession);
+  assert.equal(sessionStorage.getItem('prodx_temp_query_cache'), null);
+  assert.equal(sessionStorage.getItem('unrelated-session-state'), 'keep');
+});
 
 test('InternalCrashBoundary: getDerivedStateFromError catches error and transitions state', () => {
   const sampleError = new Error('Sensitive database query failed at column 4');

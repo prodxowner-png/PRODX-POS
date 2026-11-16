@@ -95,13 +95,31 @@ export interface GlobalErrorRecoveryContextType {
   simulateFailure: (type: CriticalFailureType) => string;
   isOverlayOpen: boolean;
   setIsOverlayOpen: (open: boolean) => void;
-  forceReloadAndClearCache: () => void;
+  reloadPreservingTransactionData: () => void;
 }
 
 const GlobalErrorRecoveryContext = createContext<GlobalErrorRecoveryContextType | undefined>(undefined);
 
 const AUDIT_STORAGE_KEY = 'prodx_recovery_audit_log';
 const MAX_LOG_HISTORY = 40;
+
+export function getSafeRuntimeErrorName(error: unknown): string | null {
+  if (!(error instanceof Error)) return null;
+  const name = typeof error.name === 'string' ? error.name : '';
+  return /^[A-Za-z][A-Za-z0-9_]{0,79}$/.test(name) ? name : 'Error';
+}
+
+export function reloadApplicationPreservingLocalData(
+  transientStorage: { removeItem(key: string): void } | undefined,
+  reload: () => void,
+): void {
+  try {
+    transientStorage?.removeItem('prodx_temp_query_cache');
+  } catch {
+    // Reload is still safe when the transient cache is unavailable.
+  }
+  reload();
+}
 
 // Internal boundary for React render crashes
 interface ErrorBoundaryProps {
@@ -332,7 +350,7 @@ export function sanitizeAndRestoreAppState(
   } catch (err: any) {
     return {
       success: false,
-      message: `State sanitation failed: ${err?.message || 'Unknown error'}`,
+      message: 'State sanitation failed due to an unexpected error. Verify local transaction data before retrying.',
       quarantinedKeys,
     };
   }
@@ -396,22 +414,14 @@ export const GlobalErrorRecoveryProvider: React.FC<{ children: ReactNode }> = ({
     return sanitizeAndRestoreAppState(target);
   }, []);
 
-  // Force hard reload & clear local cache
-  const forceReloadAndClearCache = useCallback(() => {
-    try {
-      localStorage.clear();
-      sessionStorage.clear();
-      if (typeof window !== 'undefined' && 'caches' in window) {
-        caches.keys().then((names) => {
-          names.forEach((name) => caches.delete(name));
-        }).catch(() => {});
-      }
-    } catch (e) {
-      console.error('[GlobalErrorRecovery] Cache clearing error:', e);
-    }
-    setTimeout(() => {
-      window.location.href = window.location.origin + window.location.pathname;
-    }, 300);
+  // A crash-recovery reload must never clear POS sessions, durable outbox,
+  // carts, inventory snapshots, or application caches. Only remove this
+  // explicitly disposable query-cache entry before reloading.
+  const reloadPreservingTransactionData = useCallback(() => {
+    reloadApplicationPreservingLocalData(
+      typeof sessionStorage !== 'undefined' ? sessionStorage : undefined,
+      () => window.location.reload(),
+    );
   }, []);
 
   // Core Auto-Recovery Engine
@@ -511,7 +521,7 @@ export const GlobalErrorRecoveryProvider: React.FC<{ children: ReactNode }> = ({
       }
     } catch (err: any) {
       recoverySuccess = false;
-      resolutionMessage = `Auto-recovery routine exception: ${err?.message || 'Unknown error'}`;
+      resolutionMessage = 'Auto-recovery failed due to an unexpected error. Manual review is required.';
     }
 
     const durationMs = Math.round(performance.now() - startTime);
@@ -581,17 +591,21 @@ export const GlobalErrorRecoveryProvider: React.FC<{ children: ReactNode }> = ({
       const id = `crit-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
       const strategy = input.strategy || getRecommendedStrategy(input.type);
 
-      const errObj = input.error instanceof Error ? input.error : undefined;
-      const errorStack = errObj?.stack || (typeof input.error === 'string' ? input.error : undefined);
+      // Runtime exception messages and stacks can contain access tokens,
+      // SQL, request bodies, or customer data. Keep raw exception objects
+      // out of browser state, audit payloads, and cashier-visible diagnostics.
+      const safeMessage = input.error
+        ? 'An unexpected application error occurred. Sensitive details are withheld.'
+        : input.message;
 
       const newFailure: CriticalFailure = {
         id,
         type: input.type,
         title: input.title,
-        message: input.message,
+        message: safeMessage,
         module: input.module || 'pos_core',
         timestamp: new Date().toISOString(),
-        errorStack,
+        errorStack: undefined,
         contextData: input.contextData,
         autoRecoveryAttempt: 0,
         maxAttempts: 3,
@@ -600,7 +614,7 @@ export const GlobalErrorRecoveryProvider: React.FC<{ children: ReactNode }> = ({
         recoveryStrategy: strategy,
       };
 
-      console.warn(`[GlobalErrorRecovery] Critical failure intercepted [${input.type} in ${newFailure.module}]:`, input.message);
+      console.warn(`[GlobalErrorRecovery] Critical failure intercepted [${input.type} in ${newFailure.module}]`, { failureId: id });
 
       // Persist diagnostics through the authenticated PostgreSQL-backed audit API.
       // Never write browser diagnostics directly to a retired Firebase project.
@@ -624,9 +638,9 @@ export const GlobalErrorRecoveryProvider: React.FC<{ children: ReactNode }> = ({
               details: {
                 id,
                 title: input.title,
-                message: input.message,
+                message: safeMessage,
                 module: newFailure.module,
-                errorStack: errorStack || null,
+                errorName: getSafeRuntimeErrorName(input.error),
                 timestamp: newFailure.timestamp,
               },
             }),
@@ -634,8 +648,8 @@ export const GlobalErrorRecoveryProvider: React.FC<{ children: ReactNode }> = ({
           if (!response.ok) {
             console.warn('[GlobalErrorRecovery] PostgreSQL audit API rejected diagnostic log:', response.status);
           }
-        } catch (error) {
-          console.warn('[GlobalErrorRecovery] Failed to persist diagnostic log to PostgreSQL audit API:', error);
+        } catch {
+          console.warn('[GlobalErrorRecovery] Failed to persist diagnostic log to PostgreSQL audit API.', { failureId: id });
         }
       })();
 
@@ -739,7 +753,7 @@ export const GlobalErrorRecoveryProvider: React.FC<{ children: ReactNode }> = ({
   useEffect(() => {
     const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
       const reason = event.reason;
-      const message = reason?.message || String(reason || 'Unhandled Promise Rejection');
+      const message = 'An unhandled asynchronous error interrupted the application.';
       reportCriticalFailure({
         type: 'RUNTIME_CRASH',
         title: 'Unhandled Async Promise Rejection',
@@ -753,7 +767,7 @@ export const GlobalErrorRecoveryProvider: React.FC<{ children: ReactNode }> = ({
       reportCriticalFailure({
         type: 'RUNTIME_CRASH',
         title: 'Global JavaScript Exception',
-        message: event.message || 'Unknown window runtime error',
+        message: 'An unhandled browser runtime error interrupted the application.',
         error: event.error,
         module: 'global_window',
       });
@@ -816,7 +830,7 @@ export const GlobalErrorRecoveryProvider: React.FC<{ children: ReactNode }> = ({
     simulateFailure,
     isOverlayOpen,
     setIsOverlayOpen,
-    forceReloadAndClearCache,
+    reloadPreservingTransactionData,
   };
 
   const handleCrashBoundaryCatch = useCallback(
@@ -824,9 +838,11 @@ export const GlobalErrorRecoveryProvider: React.FC<{ children: ReactNode }> = ({
       reportCriticalFailure({
         type: 'RUNTIME_CRASH',
         title: 'Application Core Loop Render Crash',
-        message: error.message,
-        error,
-        contextData: { componentStack: info.componentStack },
+        message: 'A React render error was caught. Sensitive error details are withheld.',
+        contextData: {
+          errorName: getSafeRuntimeErrorName(error),
+          componentStack: info.componentStack,
+        },
         module: 'react_core_tree',
       });
     },

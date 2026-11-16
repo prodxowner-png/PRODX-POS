@@ -55,41 +55,52 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
   }
 
   public override componentDidCatch(error: Error, errorInfo: React.ErrorInfo): void {
-    this.setState({ errorInfo });
+    // Persist and forward only bounded, non-sensitive metadata. Raw exception
+    // messages/stacks can contain bearer tokens, SQL, URLs, or customer data.
+    const candidateErrorName = typeof error.name === 'string' ? error.name : '';
+    const errorName = /^[A-Za-z][A-Za-z0-9_]{0,79}$/.test(candidateErrorName)
+      ? candidateErrorName
+      : 'Error';
+    const componentStack = typeof errorInfo.componentStack === 'string'
+      ? errorInfo.componentStack.slice(0, 8000)
+      : '';
+    this.setState({ errorInfo: { componentStack } });
 
-    // 1. Fire optional external logging callback
+    // Optional consumers receive a sanitized exception, never the raw object.
     if (this.props.onError) {
-      this.props.onError(error, errorInfo);
+      const safeError = new Error('An unexpected application rendering error occurred.');
+      safeError.name = errorName;
+      this.props.onError(safeError, { componentStack });
     }
 
-    // 2. Persist diagnostic crash event to localStorage for terminal audits
+    // Raw exception messages and stacks are never persisted or logged.
+    const safeUrl = typeof window !== 'undefined'
+      ? `${window.location.origin}${window.location.pathname}`
+      : 'unknown';
+
     try {
       const crashLog = {
         id: `crash_${Date.now()}`,
         timestamp: new Date().toISOString(),
         moduleName: this.props.moduleName || 'Global Root',
-        message: error.message,
-        stack: error.stack,
-        componentStack: errorInfo.componentStack,
-        url: window.location.href,
-        userAgent: navigator.userAgent,
+        errorName,
+        componentStack,
+        url: safeUrl,
+        userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown',
       };
-
       const existing = localStorage.getItem('prodx_crash_logs');
       const logs = existing ? JSON.parse(existing) : [];
       logs.unshift(crashLog);
-      // Keep last 20 crash logs
       localStorage.setItem('prodx_crash_logs', JSON.stringify(logs.slice(0, 20)));
     } catch {
-      // Ignore storage errors during crash recovery
+      // Ignore storage errors during crash recovery.
     }
 
-    // 3. Output structured error to developer console
-    console.error(
-      `[PRODX ErrorBoundary Caught in ${this.props.moduleName || 'Global'}]`,
-      error,
-      errorInfo
-    );
+    // Never write raw exception objects/messages to the production console.
+    console.error(`[PRODX ErrorBoundary Caught in ${this.props.moduleName || 'Global'}]`, {
+      errorName,
+      componentStack,
+    });
   }
 
   public resetBoundary = (): void => {
@@ -109,19 +120,19 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
     const { error, errorInfo } = this.state;
     const { moduleName } = this.props;
 
+    const safeUrl = typeof window !== 'undefined'
+      ? `${window.location.origin}${window.location.pathname}`
+      : 'unknown';
     const report = `[PRODX POS Error Diagnostic Report]
 Time: ${new Date().toLocaleString()}
 Module: ${moduleName || 'Global Application'}
-Error: ${error?.name || 'Error'}: ${error?.message || 'Unknown error'}
-
-Stack Trace:
-${error?.stack || 'No stack trace available'}
+Error: ${error && /^[A-Za-z][A-Za-z0-9_]{0,79}$/.test(error.name) ? error.name : 'Error'} (message and stack withheld)
 
 Component Stack:
 ${errorInfo?.componentStack || 'No component stack available'}
 
-URL: ${window.location.href}
-User Agent: ${navigator.userAgent}`;
+URL: ${safeUrl}
+User Agent: ${typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown'}`;
 
     navigator.clipboard.writeText(report).then(() => {
       this.setState({ copied: true });
@@ -188,7 +199,7 @@ User Agent: ${navigator.userAgent}`;
                   <AlertTriangle className="h-3.5 w-3.5 text-rose-600 dark:text-rose-400" />
                   <span>Exception Caught:</span>
                 </div>
-                <div>{error?.message || 'An unexpected rendering error occurred.'}</div>
+                <div>An unexpected application error occurred. Detailed error content is withheld to protect session and transaction data.</div>
               </div>
 
               {/* Primary Recovery Actions */}
@@ -213,21 +224,9 @@ User Agent: ${navigator.userAgent}`;
                   <span>รีเฟรชระบบ (Reload POS)</span>
                 </button>
 
-                <button
-                  id="btn-error-hard-reload-clear"
-                  type="button"
-                  onClick={() => {
-                    try {
-                      localStorage.clear();
-                      sessionStorage.clear();
-                    } catch {}
-                    window.location.reload();
-                  }}
-                  className="py-2.5 px-4 rounded-xl font-bold text-rose-600 dark:text-rose-400 text-xs bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 active:scale-[0.99] transition-all flex items-center justify-center gap-2 cursor-pointer sm:col-span-2"
-                >
-                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                  <span>บังคับรีโหลดและล้างแคช (Force Reload & Clear Local Cache)</span>
-                </button>
+                <p className="sm:col-span-2 text-[11px] text-text/60">
+                  Reloading preserves local transaction and session data. Browser storage must not be cleared from this recovery screen.
+                </p>
               </div>
 
               {/* Diagnostic Tools Toggle */}
@@ -269,7 +268,7 @@ User Agent: ${navigator.userAgent}`;
                   <div className="text-amber-400 font-bold mb-1">// Component Stack Trace</div>
                   <pre className="whitespace-pre-wrap">{errorInfo?.componentStack || 'No component stack.'}</pre>
                   <div className="text-amber-400 font-bold mt-2 mb-1">// Error Stack</div>
-                  <pre className="whitespace-pre-wrap">{error?.stack || 'No JS stack available.'}</pre>
+                  <pre className="whitespace-pre-wrap">Detailed error stack is withheld to protect session and transaction data.</pre>
                 </div>
               )}
             </div>
@@ -312,7 +311,7 @@ User Agent: ${navigator.userAgent}`;
 
           {/* Error Message */}
           <div className="mt-3 p-2.5 rounded-xl bg-background border border-border border-crisp text-left text-[11px] font-mono text-text/80 break-words max-h-24 overflow-y-auto">
-            {error?.message || 'Unexpected module rendering failure'}
+            An unexpected module error occurred. Detailed error content is withheld to protect session and transaction data.
           </div>
 
           {/* Action Buttons */}
@@ -359,7 +358,7 @@ User Agent: ${navigator.userAgent}`;
             </button>
             {showDetails && (
               <div className="mt-2 p-2 rounded-lg bg-background text-text/60 text-[9.5px] font-mono text-left max-h-32 overflow-y-auto leading-normal">
-                <pre className="whitespace-pre-wrap">{errorInfo?.componentStack || error?.stack}</pre>
+                <pre className="whitespace-pre-wrap">{errorInfo?.componentStack || 'Detailed error stack is withheld.'}</pre>
               </div>
             )}
           </div>
