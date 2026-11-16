@@ -61,6 +61,8 @@ export const createProductionApp = async (options: ProductionAppOptions = {}) =>
     },
     configurePublicRoutes: (configuredApp) => {
       registerAuthRoutes(configuredApp, requestScopedSql, sessions, {
+        // Do not expose ordinary Supabase session exchange until the explicit production rollout gate is enabled.
+        supabaseSessionEnabled: process.env.SUPABASE_POS_AUTH_ENABLED === 'true',
         firstTenantBootstrap: {
           repository: createPostgresFirstTenantBootstrapRepository(requestScopedSql),
           config: readFirstTenantBootstrapConfig(process.env),

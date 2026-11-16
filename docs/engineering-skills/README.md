@@ -14,6 +14,7 @@ The skills in [`.agents/skills/`](../../.agents/skills/README.md) operationalize
 | Offline queue or replay | `prodx-offline-sync`, `prodx-idempotency`, `prodx-testing` |
 | Logs, metrics, readiness, alerts | `prodx-observability`, `prodx-production-readiness` |
 | Workflows, release, deployment | `prodx-ci-cd`, `prodx-backup-recovery`, `prodx-production-readiness` |
+| Runtime platform, ingress, TLS, secrets, health/readiness, capacity | `prodx-production-infrastructure`, `prodx-observability`, `prodx-security` |
 | Backup, restore, DR | `prodx-backup-recovery`, `prodx-postgresql`, `prodx-production-readiness` |
 
 ## Evidence and status
