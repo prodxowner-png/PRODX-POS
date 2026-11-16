@@ -117,6 +117,98 @@ test('InternalCrashBoundary: React runtime test proves fallback rendering markup
   assert.ok(!markup.includes('10.0.1.44'), 'Internal IP address must never appear in fallback HTML');
 });
 
+test('InternalCrashBoundary: React 19 tree mount catches runtime child render crash and executes native lifecycle', async () => {
+  const secretToken = 'sk-super-secret-postgres-auth-token-12345';
+
+  class DummyElement {
+    nodeType = 1;
+    tagName = 'DIV';
+    style = {};
+    children: any[] = [];
+    props: Record<string, any> = {};
+    appendChild(c: any) { this.children.push(c); }
+    removeChild(c: any) { this.children = this.children.filter((x) => x !== c); }
+    insertBefore(c: any) { this.children.push(c); }
+    addEventListener() {}
+    removeEventListener() {}
+    setAttribute(k: string, v: any) { this.props[k] = v; }
+  }
+
+  const doc = {
+    nodeType: 9,
+    documentElement: new DummyElement(),
+    activeElement: null,
+    createElement(tag: string) {
+      const el = new DummyElement();
+      el.tagName = tag.toUpperCase();
+      return el;
+    },
+    createElementNS(_ns: string, tag: string) { return this.createElement(tag); },
+    createTextNode(text: string) { return { nodeType: 3, nodeValue: text }; },
+    createComment() { return { nodeType: 8 }; },
+    addEventListener() {},
+    removeEventListener() {},
+    defaultView: globalThis,
+  };
+
+  (globalThis as any).HTMLIFrameElement = class {};
+  (globalThis as any).HTMLElement = DummyElement;
+  (globalThis as any).window = globalThis;
+  (globalThis as any).document = doc;
+
+  const container = new DummyElement();
+  (container as any).ownerDocument = doc;
+
+  const CrashingChild: React.FC = () => {
+    throw new Error(`CRITICAL_DATABASE_ERROR: connection refused with token ${secretToken}`);
+  };
+
+  let caughtError: Error | null = null;
+  let caughtInfo: React.ErrorInfo | null = null;
+
+  const { createRoot } = await import('react-dom/client');
+  const root = createRoot(container as any);
+
+  // Suppress expected React console.error during deliberate error boundary test
+  const originalConsoleError = console.error;
+  console.error = () => {};
+
+  try {
+    await new Promise<void>((resolve) => {
+      root.render(
+        React.createElement(InternalCrashBoundary, {
+          children: React.createElement(CrashingChild),
+          onCatch: (err, info) => {
+            caughtError = err;
+            caughtInfo = info;
+            resolve();
+          },
+        })
+      );
+    });
+  } finally {
+    console.error = originalConsoleError;
+  }
+
+  // 1. Verify getDerivedStateFromError and componentDidCatch executed natively in React runtime
+  assert.ok(caughtError !== null, 'Native React ErrorBoundary must catch the child render crash');
+  assert.ok((caughtError as Error).message.includes(secretToken), 'Caught error must retain original error');
+  assert.ok(caughtInfo !== null, 'componentDidCatch must receive React componentStack');
+
+  // 2. Render fallback markup and verify zero secret leakage
+  const boundary = new InternalCrashBoundary({
+    children: React.createElement(CrashingChild),
+    onCatch: () => {},
+  });
+  const state = InternalCrashBoundary.getDerivedStateFromError(caughtError!);
+  boundary.state = state;
+  const rendered = boundary.render() as ReactElement;
+  const markup = renderToStaticMarkup(rendered);
+
+  assert.ok(markup.includes('id="global-crash-boundary-fallback"'));
+  assert.ok(!markup.includes(secretToken), 'Secret token must never leak into fallback markup');
+});
+
 test('InternalCrashBoundary: componentDidCatch invokes onCatch callback for auditing', () => {
   let reportedError: Error | null = null;
   let reportedInfo: React.ErrorInfo | null = null;
@@ -178,18 +270,40 @@ test('sanitizeAndRestoreAppState: malformed non-array outbox is quarantined and 
 
 test('sanitizeAndRestoreAppState: preserves valid pending transactions and quarantines only corrupted items', () => {
   const storage = new MockStorage();
-  const validTx1 = { id: 'tx-001', idempotencyKey: 'idem-001', payload: { amount: 1500 } };
-  const validTx2 = { id: 'tx-002', idempotencyKey: 'idem-002', payload: { amount: 2500 } };
-  const corruptedItem = { badDataWithoutId: true }; // missing id and idempotencyKey
+  const validTx1 = {
+    id: 'tx-001',
+    type: 'order_transaction',
+    idempotencyKey: 'idem-001',
+    payload: { amount: 1500 },
+    createdAt: '2026-11-15T12:00:00.000Z',
+    syncState: 'queued',
+  };
+  const validTx2 = {
+    id: 'tx-002',
+    type: 'stock_adjustment',
+    idempotencyKey: 'idem-002',
+    payload: { amount: 2500 },
+    createdAt: '2026-11-15T12:01:00.000Z',
+    syncState: 'queued',
+  };
+  const corruptedItem1 = { badDataWithoutId: true }; // missing id, type, idempotencyKey
+  const corruptedItem2 = {
+    id: 'tx-003',
+    type: 'invalid_type', // violates domain enum
+    idempotencyKey: 'idem-003',
+    payload: { amount: 100 },
+    createdAt: '2026-11-15T12:02:00.000Z',
+    syncState: 'queued',
+  };
   const nullItem = null;
 
-  const rawQueue = [validTx1, corruptedItem, validTx2, nullItem];
+  const rawQueue = [validTx1, corruptedItem1, validTx2, corruptedItem2, nullItem];
   storage.setItem('prodx_pos_outbox', JSON.stringify(rawQueue));
 
   const result = sanitizeAndRestoreAppState('outbox', storage);
 
   assert.equal(result.success, true, 'Recovery must succeed when valid transactions are preserved');
-  assert.match(result.message, /Quarantined 2 corrupted outbox queue items/);
+  assert.match(result.message, /Quarantined 3 corrupted outbox queue items/);
   assert.match(result.message, /preserved 2 valid pending transactions/);
 
   // Outbox now holds only the 2 valid transactions
@@ -201,12 +315,19 @@ test('sanitizeAndRestoreAppState: preserves valid pending transactions and quara
   // Corrupted items must be in quarantine storage
   assert.ok(result.quarantinedKeys && result.quarantinedKeys.length > 0);
   const quarantined = JSON.parse(storage.getItem(result.quarantinedKeys![0])!);
-  assert.equal(quarantined.length, 2, 'Quarantined array must hold the 2 invalid items');
+  assert.equal(quarantined.length, 3, 'Quarantined array must hold the 3 invalid items');
 });
 
 test('sanitizeAndRestoreAppState: healthy pending transactions remain intact without modification', () => {
   const storage = new MockStorage();
-  const validTx = [{ id: 'tx-100', idempotencyKey: 'idem-100', payload: { amount: 500 } }];
+  const validTx = [{
+    id: 'tx-100',
+    type: 'order_transaction',
+    idempotencyKey: 'idem-100',
+    payload: { amount: 500 },
+    createdAt: '2026-11-15T12:00:00.000Z',
+    syncState: 'queued',
+  }];
   storage.setItem('prodx_pos_outbox', JSON.stringify(validTx));
 
   const result = sanitizeAndRestoreAppState('outbox', storage);
@@ -215,6 +336,65 @@ test('sanitizeAndRestoreAppState: healthy pending transactions remain intact wit
   assert.match(result.message, /Verified 1 pending offline transactions intact/);
   assert.equal(storage.getItem('prodx_pos_outbox'), JSON.stringify(validTx));
   assert.equal(result.quarantinedKeys?.length ?? 0, 0, 'No keys should be quarantined for healthy outbox');
+});
+
+test('sanitizeAndRestoreAppState: storage failure during quarantine fails closed and preserves outbox intact', () => {
+  const store = new Map<string, string>();
+  const failingStorage = {
+    getItem(key: string): string | null {
+      return store.get(key) ?? null;
+    },
+    setItem(key: string, value: string): void {
+      if (key.includes('quarantine')) {
+        throw new Error('QuotaExceededError: DOM Exception 22');
+      }
+      store.set(key, value);
+    },
+    removeItem(key: string): void {
+      store.delete(key);
+    },
+  };
+
+  const rawOutbox = JSON.stringify([
+    { id: 'tx-001', type: 'order_transaction', idempotencyKey: 'idem-1', payload: { ok: true }, createdAt: '2026-11-15T12:00:00.000Z', syncState: 'queued' },
+    { corrupted: true },
+  ]);
+  store.set('prodx_pos_outbox', rawOutbox);
+
+  const result = sanitizeAndRestoreAppState('outbox', failingStorage);
+
+  assert.equal(result.success, false, 'Must fail closed when quarantine storage throws');
+  assert.match(result.message, /fail-closed preservation kept original outbox intact/i);
+  assert.equal(failingStorage.getItem('prodx_pos_outbox'), rawOutbox, 'Original outbox must remain byte-identical');
+});
+
+test('sanitizeAndRestoreAppState: quarantine read-after-write mismatch fails closed and preserves outbox intact', () => {
+  const store = new Map<string, string>();
+  const corruptedStorage = {
+    getItem(key: string): string | null {
+      if (key.includes('quarantine')) {
+        return 'CORRUPTED_READ_BACK'; // Simulate storage silent truncation or corruption
+      }
+      return store.get(key) ?? null;
+    },
+    setItem(key: string, value: string): void {
+      store.set(key, value);
+    },
+    removeItem(key: string): void {
+      store.delete(key);
+    },
+  };
+
+  const rawOutbox = JSON.stringify([
+    { id: 'tx-001', type: 'order_transaction', idempotencyKey: 'idem-1', payload: { ok: true }, createdAt: '2026-11-15T12:00:00.000Z', syncState: 'queued' },
+    { corrupted: true },
+  ]);
+  store.set('prodx_pos_outbox', rawOutbox);
+
+  const result = sanitizeAndRestoreAppState('outbox', corruptedStorage);
+
+  assert.equal(result.success, false, 'Must fail closed when quarantine read-after-write verification fails');
+  assert.equal(corruptedStorage.getItem('prodx_pos_outbox'), rawOutbox, 'Original outbox must remain untouched');
 });
 
 test('sanitizeAndRestoreAppState: held carts corrupted JSON is quarantined before reset', () => {

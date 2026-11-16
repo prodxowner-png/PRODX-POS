@@ -167,6 +167,42 @@ export interface StateSanitationResult {
   quarantinedKeys?: string[];
 }
 
+const VALID_OUTBOX_TYPES = new Set(['order_transaction', 'shift_movement', 'stock_adjustment']);
+const VALID_SYNC_STATES = new Set(['queued', 'syncing', 'synced', 'failed', 'conflict_requires_attention']);
+
+export function isValidOutboxQueueItem(item: any): boolean {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
+  if (typeof item.id !== 'string' || item.id.trim() === '') return false;
+  if (!VALID_OUTBOX_TYPES.has(item.type)) return false;
+  if (typeof item.idempotencyKey !== 'string' || item.idempotencyKey.trim() === '') return false;
+  if (!item.payload || typeof item.payload !== 'object') return false;
+  if (typeof item.createdAt !== 'string' || isNaN(Date.parse(item.createdAt))) return false;
+  if (item.syncState !== undefined && !VALID_SYNC_STATES.has(item.syncState)) return false;
+  if (item.attempts !== undefined && (typeof item.attempts !== 'number' || item.attempts < 0 || !Number.isFinite(item.attempts))) return false;
+  return true;
+}
+
+function generateQuarantineKey(prefix: string): string {
+  const entropy = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID().replace(/-/g, '')
+    : `${Date.now()}_${Math.random().toString(36).substring(2, 12)}`;
+  return `${prefix}_${Date.now()}_${entropy}`;
+}
+
+function safeQuarantineWrite(
+  store: { getItem(k: string): string | null; setItem(k: string, v: string): void },
+  key: string,
+  value: string
+): boolean {
+  try {
+    store.setItem(key, value);
+    const readBack = store.getItem(key);
+    return readBack === value;
+  } catch {
+    return false;
+  }
+}
+
 // State sanitation helper: cleans corrupt keys while preserving critical offline outbox, session & inventory integrity
 export function sanitizeAndRestoreAppState(
   target: 'cart' | 'outbox' | 'cache' | 'all' = 'all',
@@ -197,18 +233,26 @@ export function sanitizeAndRestoreAppState(
         try {
           const parsed = JSON.parse(heldCarts);
           if (!Array.isArray(parsed)) {
-            const qKey = `prodx_held_carts_quarantine_${Date.now()}`;
-            store.setItem(qKey, heldCarts);
-            quarantinedKeys.push(qKey);
-            store.setItem('prodx_held_carts', JSON.stringify([]));
-            actionsTaken.push(`Quarantined malformed held carts to ${qKey}`);
+            const qKey = generateQuarantineKey('prodx_held_carts_quarantine');
+            if (safeQuarantineWrite(store, qKey, heldCarts)) {
+              quarantinedKeys.push(qKey);
+              store.setItem('prodx_held_carts', JSON.stringify([]));
+              actionsTaken.push(`Quarantined malformed held carts to ${qKey}`);
+            } else {
+              hasFailure = true;
+              failureReason = 'Failed to quarantine malformed held carts (storage write error); preserved intact without reset.';
+            }
           }
         } catch {
-          const qKey = `prodx_held_carts_quarantine_${Date.now()}`;
-          store.setItem(qKey, heldCarts);
-          quarantinedKeys.push(qKey);
-          store.setItem('prodx_held_carts', JSON.stringify([]));
-          actionsTaken.push(`Quarantined unparseable held carts to ${qKey}`);
+          const qKey = generateQuarantineKey('prodx_held_carts_quarantine');
+          if (safeQuarantineWrite(store, qKey, heldCarts)) {
+            quarantinedKeys.push(qKey);
+            store.setItem('prodx_held_carts', JSON.stringify([]));
+            actionsTaken.push(`Quarantined unparseable held carts to ${qKey}`);
+          } else {
+            hasFailure = true;
+            failureReason = 'Failed to quarantine unparseable held carts (storage write error); preserved intact without reset.';
+          }
         }
       }
       actionsTaken.push('Verified in-memory decimal financial invariants');
@@ -220,41 +264,45 @@ export function sanitizeAndRestoreAppState(
         try {
           const parsed = JSON.parse(outbox);
           if (Array.isArray(parsed)) {
-            // Filter out corrupt items without payload or id
-            const validItems = parsed.filter(
-              (item) => item && typeof item === 'object' && item.id && item.idempotencyKey
-            );
-            const corruptedItems = parsed.filter(
-              (item) => !(item && typeof item === 'object' && item.id && item.idempotencyKey)
-            );
+            // Validate items against full production OutboxItem domain schema
+            const validItems = parsed.filter(isValidOutboxQueueItem);
+            const corruptedItems = parsed.filter((item) => !isValidOutboxQueueItem(item));
 
             if (corruptedItems.length > 0) {
-              const qKey = `prodx_pos_outbox_quarantine_${Date.now()}`;
-              store.setItem(qKey, JSON.stringify(corruptedItems));
-              quarantinedKeys.push(qKey);
-              store.setItem('prodx_pos_outbox', JSON.stringify(validItems));
-              actionsTaken.push(
-                `Quarantined ${corruptedItems.length} corrupted outbox queue items to ${qKey}; preserved ${validItems.length} valid pending transactions`
-              );
+              const qKey = generateQuarantineKey('prodx_pos_outbox_quarantine');
+              if (safeQuarantineWrite(store, qKey, JSON.stringify(corruptedItems))) {
+                quarantinedKeys.push(qKey);
+                store.setItem('prodx_pos_outbox', JSON.stringify(validItems));
+                actionsTaken.push(
+                  `Quarantined ${corruptedItems.length} corrupted outbox queue items to ${qKey}; preserved ${validItems.length} valid pending transactions`
+                );
+              } else {
+                hasFailure = true;
+                failureReason = `Storage failure while quarantining ${corruptedItems.length} corrupted outbox items; fail-closed preservation kept original outbox intact.`;
+              }
             } else {
               actionsTaken.push(`Verified ${validItems.length} pending offline transactions intact`);
             }
           } else {
             // Malformed queue: parsed is not an array.
             // Invariant: Do not overwrite outbox with "[]" without quarantine backup.
-            const qKey = `prodx_pos_outbox_quarantine_${Date.now()}`;
-            store.setItem(qKey, outbox);
-            quarantinedKeys.push(qKey);
+            const qKey = generateQuarantineKey('prodx_pos_outbox_quarantine');
+            const quarantined = safeQuarantineWrite(store, qKey, outbox);
+            if (quarantined) {
+              quarantinedKeys.push(qKey);
+            }
             hasFailure = true;
-            failureReason = `Offline outbox is not a valid queue array. Original content preserved and quarantined to ${qKey}. Automated recovery failed to protect unsynced transactions.`;
+            failureReason = `Offline outbox is not a valid queue array. Original content preserved${quarantined ? ` and quarantined to ${qKey}` : ' intact (quarantine write failed)'}. Automated recovery failed to protect unsynced transactions.`;
           }
         } catch {
           // Invariant 1: Never delete or overwrite offline outbox that cannot be parsed.
           // Invariant 2: Never change outbox to "[]" without backup and quarantining the original.
           // Invariant 4: Never report recovery success when data recovery failed.
-          const qKey = `prodx_pos_outbox_quarantine_${Date.now()}`;
-          store.setItem(qKey, outbox);
-          quarantinedKeys.push(qKey);
+          const qKey = generateQuarantineKey('prodx_pos_outbox_quarantine');
+          const quarantined = safeQuarantineWrite(store, qKey, outbox);
+          if (quarantined) {
+            quarantinedKeys.push(qKey);
+          }
           hasFailure = true;
           failureReason = `Offline outbox contains unparseable corrupted JSON. Raw content quarantined to ${qKey} and original preserved intact to prevent transaction data loss.`;
         }
