@@ -1,8 +1,9 @@
 # PRODX-POS Direct PWA → Cloudflare Worker Device Authentication
 
-- **Status:** Draft — owner decision required before implementation
+- **Status:** Draft — Free-plan Staging device-signature direction approved; Runtime implementation remains gated
 - **Date:** 2026-11-16
-- **Repository baseline:** `origin/main` at `eb9da5b97411cae1356896ec271793fafa799679`
+- **Repository baseline:** `origin/main` at `26c49244f3725e07fc39fa4ac3d1457a62f69151`
+- **Companion contract:** PR #376 (`CF-01 Checkout Adapter Contract`), including the owner-approved 2026-11-11 device-signature and Quarantine decisions
 - **Scope:** Direct browser/PWA-to-Worker Edge Sync for a mixed-OS POS fleet
 - **Safety:** Design only. No application code, database, DNS, Cloudflare, Vercel, secrets, or production resources changed.
 
@@ -11,7 +12,7 @@
 
 The product direction is **PWA → Cloudflare Worker directly**, without the Vercel Preview proxy in the Edge Sync data path. Vercel remains the PWA hosting platform and continues serving unrelated application APIs.
 
-The previously proposed universal browser mTLS design is **not currently deployable on the connected Cloudflare account**, and the Edge Sync staging Worker is not deployed there yet.
+The connected account currently provides no evidence of a deployable Zone-level browser mTLS path: it has no active zones or Access mTLS certificates, and Access mTLS plan entitlement remains unverified. The Edge Sync staging Worker is not deployed. Do not claim Access mTLS is unavailable solely from the empty certificate inventory.
 
 A read-only Cloudflare API inventory on **2026-11-16** for account `3c0c1c843f861164db9de3fb31f062f5` found:
 
@@ -24,15 +25,15 @@ A read-only Cloudflare API inventory on **2026-11-16** for account `3c0c1c843f86
 - `prodx-pos-edge-sync/wrangler.jsonc` defines a staging environment with `workers_dev: true`, but its Hyperdrive IDs and `ACCESS_AUD` are placeholders. This is source configuration, not a deployed endpoint or usable binding.
 - `.github/workflows/verify-gate6-staging.yml` can provision the staging resources and deploy `prodx-pos-edge-sync-staging`, but its current E2E request target is a Vercel Preview URL at `/__staging/edge`. That exercises the Vercel proxy → Worker path, not a direct browser/PWA → Worker path. The proxy terminates the terminal's TLS connection, so this workflow cannot prove the original terminal's mTLS identity reaches Cloudflare.
 
-Consequently, there is **no currently deployed Edge Sync staging endpoint** in the connected account. `workers_dev: true` means the staging deployment is configured to use a `workers.dev` hostname after deployment; it does not mean that hostname currently exists or is serving this Worker. The two staging Queues are present but are not wired to a deployed Edge Sync Worker, and Hyperdrive still needs to be provisioned.
+Consequently, there is **no currently deployed Edge Sync staging endpoint** in the connected account. `workers_dev: true` means the staging deployment is configured to use a `workers.dev` hostname after deployment; it does not mean that hostname currently exists or is serving this Worker. The two staging Queues are present but are not wired to a deployed Edge Sync Worker. Under the approved backend-adapter architecture below, the Worker must not connect directly to PostgreSQL, so Hyperdrive is not a prerequisite for the Worker data path.
 
 Cloudflare Zone-level mTLS requires a hostname in an active Cloudflare Zone, which this account inventory does not show. Cloudflare Access mTLS is a separate feature; the account's current plan entitlement and Access mTLS configuration were not verified in this read-only check. Cloudflare-managed client certificates have a documented default limit of 100 active certificates per zone; BYOCA requires Enterprise.
 
 The repository also has an explicit Free-plan/no-domain-purchase constraint in `docs/edge-sync-free-plan-device-auth-rfc.md`. Treat that as a project constraint, not proof of the connected account's current billing entitlement.
 
-**Recommendation under the currently evidenced constraints:** retain the Direct PWA → Worker data path, but use per-terminal application-layer device signatures with WebCrypto (ECDSA P-256 / SHA-256) as the primary device identity. This is **not mTLS** and must never be described as equivalent to transport-layer mTLS. Keep zone-level mTLS as an optional future transport-hardening layer if an active Cloudflare Zone, device management, certificate quota, and owner approval become available.
+**Owner-approved Staging direction (2026-11-11):** retain the Direct PWA → Worker data path and use per-terminal application-layer device signatures with WebCrypto (ECDSA P-256 / SHA-256) as the primary device identity, with Cloudflare Access Service Token as a separate Worker-to-backend integration identity. This is **not mTLS** and must never be described as equivalent to transport-layer mTLS. Keep true mTLS as an optional future transport-hardening layer if an active Cloudflare Zone, device management, certificate quota, and owner approval become available. This approval covers protocol/design only; it does not authorize Runtime implementation, database changes, Cloudflare resources/secrets, deployment, merge, or Production changes.
 
-If the owner requires true mTLS now, stop before implementation and obtain approval for an existing/new Cloudflare Zone hostname and resolve the device-count/OS provisioning constraints first.
+If true mTLS is required, stop before implementation and obtain approval for the required Cloudflare plan/hostname/device provisioning. Do not silently substitute application-layer signatures and call them mTLS.
 
 ## 2. Evidence from the current repository
 
@@ -62,7 +63,9 @@ flowchart TD
   EDGE["Cloudflare Worker<br/>workers.dev after staging deployment"]
   DO["Durable Object<br/>idempotency + sequence + gaps"]
   Q["Cloudflare Queue<br/>at-least-once delivery"]
-  PG["PostgreSQL<br/>RLS + financial source of truth"]
+  AUTHZ["Trusted PRODX backend adapter<br/>session + device + store/register checks"]
+  CHECKOUT["Existing CheckoutService<br/>single financial authority"]
+  PG["Existing PRODX PostgreSQL<br/>orders + payments + cash + inventory + audit"]
   PWA --> IDB
   PWA --> AUTH
   PWA --> KEY
@@ -71,13 +74,16 @@ flowchart TD
   KEY --> EDGE
   EDGE --> DO
   DO --> Q
-  Q --> PG
-  PG -->|"committed receipt"| DO
+  Q --> AUTHZ
+  AUTHZ --> CHECKOUT
+  CHECKOUT --> PG
+  PG -->|"committed receipt"| AUTHZ
+  AUTHZ -->|"authenticated commit result"| DO
   DO -->|"receipt status"| EDGE
   EDGE -->|"committed / failed / pending"| PWA
 ```
 
-No Vercel Function proxies Edge Sync. The browser's TLS connection terminates at Cloudflare, but device identity is proven at the application layer by a per-terminal key.
+No Vercel Function proxies Edge Sync. The browser's TLS connection terminates at Cloudflare, but device identity is proven at the application layer by a per-terminal key. The Worker is a transport/verification/queueing tier only: it must not use Hyperdrive or write a parallel `sales` / `inventory_ledger` financial schema. Queue consumers call the authenticated backend adapter, which invokes the existing `CheckoutService` through the existing transaction executor. PostgreSQL remains the existing PRODX schema and financial source of truth.
 
 ### 3.2 Why WebCrypto is the current recommendation
 
@@ -104,23 +110,23 @@ Limitations must remain explicit:
 
 ### 4.2 Server-derived identity
 
-The Worker must hash the bearer token with SHA-256 and resolve it through a narrowly scoped database authentication function. The function must return only the minimum required identity context and must enforce:
+The Worker must not connect directly to PostgreSQL or receive a database role. It forwards the opaque POS session bearer and signed device proof to a private backend identity/adapter endpoint over an authenticated Worker-to-backend channel. The backend hashes the bearer token, resolves it through the existing session store, and enforces:
 
 - session exists, is not revoked, and has not expired;
 - user is active;
-- device is active;
+- device is active and bound to the session;
 - session organization matches device organization;
-- store is active;
-- active user/store membership exists;
-- device/key enrollment is active and not revoked.
+- store and register are active;
+- active user/store membership and required permission exist;
+- device-key enrollment is active and not revoked.
 
-The existing session lookup function is not automatically sufficient: its current result does not include all device/store checks, and its grant is not currently assigned to the Edge runtime role. Prefer a new narrowly scoped `SECURITY DEFINER` function with fixed `search_path`, `REVOKE ALL FROM PUBLIC`, explicit execute grant to the least-privilege Edge role, and integration tests. Do not grant broad SELECT or BYPASSRLS to make authentication work.
+The existing session lookup function is not automatically sufficient: its current result does not include all device/store/register checks. Any additional lookup must remain behind the backend transaction/authentication boundary, use fixed `search_path`, `REVOKE ALL FROM PUBLIC`, narrow grants, and integration tests. Do not grant a Worker broad SELECT, a direct database connection, or BYPASSRLS to make authentication work.
 
-The Edge Worker must establish transaction-local tenant context only after it has resolved the trusted session. `tenant_id` must be explicitly mapped to the canonical `organization_id`; `terminal_id` must be explicitly mapped to the session's `prodx_devices.id` or to a separately governed mapping. Do not assume the two IDs are interchangeable without a database invariant.
+The backend maps `tenant_id` to canonical `organization_id` and `terminal_id` to the backend-owned `prodx_devices.id` or a separately governed mapping. The backend transaction executor sets transaction-local `app.organization_id`, `app.store_id`, and `app.user_id` from the verified principal. The Worker never sets database tenant context and never treats caller-provided IDs as authority.
 
 ### 4.3 Device-key registry and lifecycle
 
-Use a dedicated device-key registry (proposed name: `terminal_device_keys`) rather than overloading the existing certificate-fingerprint column. Exact DDL is a later migration decision.
+Use a dedicated device-key registry (proposed name: `prodx_terminal_device_keys`) in the existing PRODX backend database rather than overloading the Edge prototype certificate-fingerprint column. The registry is backend-owned; the Worker obtains only the minimum verification material through the authenticated backend API and has no direct DB grant. Exact DDL is a later, separately reviewed migration decision.
 
 Minimum fields:
 - tenant/organization ID and canonical device/terminal ID;
@@ -186,17 +192,17 @@ The PWA sends an `X-PRODX-Device-Proof` compact signed proof with:
 - SHA-256 hash of the POS session token (never the raw token);
 - SHA-256 hash of the exact request body (empty hash for GET).
 
-The Worker:
-1. Resolves the POS session and device identity from the server-side session record.
-2. Loads the public key only for that server-derived tenant/device.
-3. Verifies the proof signature, method, URL, body hash, session-token hash, key state, and a narrow timestamp window.
-4. Atomically consumes the `jti` in the terminal's Durable Object nonce store with bounded retention; duplicate `jti` values are rejected.
-5. Prunes expired nonce rows opportunistically during nonce consumption. Do not introduce a second Durable Object alarm: the current DO has one alarm dedicated to outbox recovery.
-6. Proceeds to the endpoint only after all checks pass.
+The Worker calls the private backend identity endpoint using its separate service credential. The backend resolves the POS session and device identity from server-owned records and returns a narrowly scoped verification result (or rejects). The Worker may verify the proof with backend-supplied public-key material, but the backend must independently re-verify the signed immutable sale before financial commit. The Worker must not query the key registry or session tables directly.
+
+After the trusted identity result, the Worker:
+1. Verifies the proof signature, method, URL, body hash, session-token hash, key state, and a narrow timestamp window using server-derived identity.
+2. Atomically consumes the `jti` in the terminal's Durable Object nonce store with bounded retention; duplicate `jti` values are rejected.
+3. Prunes expired nonce rows opportunistically during nonce consumption. Do not introduce a second Durable Object alarm: the current DO has one alarm dedicated to outbox recovery.
+4. Proceeds to the endpoint only after all checks pass.
 
 The request proof protects online API calls. Each sale still needs its own durable sale signature created when the sale is enqueued, so offline replay remains verifiable after the request proof expires. A request proof must never be treated as a substitute for per-sale signatures, idempotency, or sequence checks.
 
-The exact header encoding, canonical URL rules, body hashing, nonce retention, and error contract must be specified with shared test vectors. Do not accept caller-supplied public keys or use request headers as a substitute for registry lookup.
+The exact header encoding, canonical URL rules, body hashing, nonce retention, and error contract must be specified with shared test vectors. Do not accept caller-supplied public keys or use request headers as a substitute for backend registry lookup. The Access Service Token is Worker-to-backend integration identity only; it is not a human role or a device identity.
 
 ### 5.3 Canonical payload
 
@@ -231,7 +237,7 @@ Initial endpoint remains the existing Worker route:
 
 All terminal endpoints must enforce both session and device-key authentication. The operator diagnostics endpoint remains a separate auditor-only contract.
 
-The current PWA production adapter is not compatible with this contract. A new Edge Sync adapter and an explicit domain mapping are required; do not repoint `VITE_AUTH_API_BASE_URL` or silently route all application APIs to the Worker.
+The current PWA production adapter is not compatible with this contract. A new Edge Sync adapter and an explicit domain mapping are required; do not repoint `VITE_AUTH_API_BASE_URL` or silently route all application APIs to the Worker. The Worker Queue consumer must call the private backend adapter; it must not write to the Edge prototype PostgreSQL schema.
 
 | Endpoint | Required proof |
 |---|---|
@@ -241,7 +247,7 @@ The current PWA production adapter is not compatible with this contract. A new E
 | `GET /api/v1/ops/terminal-sync-diagnostics` | Separate tenant-scoped auditor authorization; never trust terminal/user claims supplied by the browser |
 | `OPTIONS` preflight | Exact-origin CORS response only; no business data, no receipt creation, no database writes |
 
-The current `cf-access-jwt-assertion` authentication path must not be confused with the POS session. Terminal routes should validate the existing opaque POS session through the narrowly scoped database contract described above. Keep any Cloudflare Access-based operator diagnostics contract separate.
+The current `cf-access-jwt-assertion` authentication path must not be confused with the POS session. Terminal routes must validate the existing opaque POS session through the private backend identity endpoint described above; the Worker must not query the session database directly. Keep any Cloudflare Access-based operator diagnostics contract separate.
 
 ### 6.2 Outbox mapping and batching
 
@@ -325,7 +331,7 @@ Do not enable mTLS in production or change DNS/Cloudflare settings as part of th
 | Revoked device | Immediate key-state check; preserve and quarantine local outbox; audited recovery |
 | Browser storage cleared | Re-enrollment; never regenerate silently under the old device identity |
 | Compromised tenant admin | Separate enrollment approval, least privilege, append-only security audit |
-| Worker/Queue compromise | Verify signatures again at trusted origin; least-privilege DB role; no BYPASSRLS |
+| Worker/Queue compromise | Verify signatures again at trusted origin; backend-only least-privilege DB role; no Worker DB credential or BYPASSRLS |
 | Offline clock manipulation | Treat client timestamps as hints only; server sequence/HLC and policy govern acceptance |
 
 ## 10. Implementation phases and acceptance gates
@@ -346,8 +352,8 @@ Do not enable mTLS in production or change DNS/Cloudflare settings as part of th
 
 ### Phase 2 — Isolated implementation
 
-- Add narrow server-side Edge session verification.
-- Add device-key enrollment and verification behind application boundaries.
+- Add narrow backend-side Edge session verification; no direct Worker database access.
+- Add device-key enrollment and verification behind backend application boundaries.
 - Add PWA key lifecycle and signed-outbox persistence.
 - Add Edge authentication to every terminal endpoint.
 - Reconcile 1–50 batch semantics and the current PWA outbox model.
@@ -362,7 +368,7 @@ Do not enable mTLS in production or change DNS/Cloudflare settings as part of th
 ### Phase 4 — Isolated staging only
 
 - Provision a dedicated disposable database/tenant/store and verify exact database host/name allowlists before any staging writes.
-- Provision/verify the staging Queues and Hyperdrive, then deploy `prodx-pos-edge-sync-staging` through the approved staging workflow only after the required environment secrets, reviewers, and account permissions are confirmed. As of 2026-11-16, the two staging Queues exist without producers/consumers, no Hyperdrive configuration exists, and the Edge Sync staging Worker is not deployed.
+- Verify the existing staging Queues and backend staging adapter; do not provision Hyperdrive for the Worker. Deploy `prodx-pos-edge-sync-staging` only after the required service identity, device-key registry, backend URL, reviewers, and account permissions are approved. As of 2026-11-16, the two staging Queues exist without producers/consumers and the Edge Sync staging Worker is not deployed.
 - The current Gate 6 workflow targets a Vercel Preview proxy and therefore does **not** satisfy the Direct PWA → Worker acceptance gate. Add a separate browser-level test that calls the deployed staging `workers.dev` endpoint directly from the exact allowlisted PWA origin and verifies CORS, session/device proofs, DO idempotency, Queue delivery, and PostgreSQL commit/receipt status.
 - Keep the existing proxy-based Gate 6 results separate; they may verify the proxy-to-Worker path but cannot establish direct-browser ingress or terminal TLS identity.
 - Preserve append-only ledger and audit rows; rollback never deletes them.
@@ -383,11 +389,11 @@ Require exact-head independent review and applicable gates for authentication, a
 
 ## 12. Owner decisions required
 
-1. **Device authentication:** approve Direct PWA with WebCrypto per-device signatures under the current Free/no-domain constraints, or explicitly authorize the prerequisites for true mTLS (active Cloudflare Zone hostname and managed certificate provisioning).
+1. **Device authentication:** the owner approved Direct PWA with WebCrypto per-device signatures for CF-01 Staging design on 2026-11-11 (see PR #376). This does not authorize Runtime implementation or Production replacement of mTLS; those remain separately gated.
 2. **Fleet scale:** confirm the expected maximum number of active POS terminals. Cloudflare-managed mTLS has a 100 active certificate/zone default; the existing Edge chaos harness models 300 terminal identities.
 3. **Device management:** confirm whether all supported Windows, Android, ChromeOS, macOS, and iOS/iPadOS devices can be managed and re-enrolled by an operator.
 
-No implementation should begin until decision 1 is explicit and the corresponding acceptance criteria are approved.
+The Staging design direction is explicit. Runtime implementation remains blocked by the PR #376 B1–B8 contracts, independent security review, cross-runtime test vectors, the owner-approved Quarantine workflow, and separate explicit authorization for Runtime/DB/Cloudflare changes.
 
 ## 13. Official references
 
