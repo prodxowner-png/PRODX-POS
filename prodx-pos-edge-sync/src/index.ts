@@ -1,5 +1,12 @@
 import type { SyncBatch, QueueSale } from "./contracts";
-import { canonicalize, sha256Hex, assertSaleShape, isUuid } from "./canonical";
+import {
+  canonicalize,
+  sha256Hex,
+  assertSaleShape,
+  isUuid,
+  computeCanonicalPayloadHash,
+  assertNoDuplicateJsonKeys
+} from "./canonical";
 import { authenticate, authenticateTenantOperator, verifyTerminalCertificate } from "./auth";
 import { commitSale, PermanentDataError } from "./postgres";
 import { verifySalePrices, signCatalogSnapshot, signCatalogPriceProofs } from "./catalog-crypto";
@@ -29,6 +36,12 @@ async function handleSync(request: Request, env: Env, ctx: ExecutionContext): Pr
     return json({ error: "PAYLOAD_TOO_LARGE" }, 413);
   }
 
+  try {
+    assertNoDuplicateJsonKeys(raw);
+  } catch {
+    return json({ error: "MALFORMED_OR_DUPLICATE_JSON_KEYS" }, 400);
+  }
+
   let batch: SyncBatch;
   try {
     batch = JSON.parse(raw) as SyncBatch;
@@ -51,10 +64,8 @@ async function handleSync(request: Request, env: Env, ctx: ExecutionContext): Pr
         return json({ batch_id: batch.batch_id, error: "SALE_EXCEEDS_QUEUE_MESSAGE_BUDGET",
           idempotency_key: sale.idempotency_key }, 413);
       }
-      const { payload_hash: claimedHash, ...payload } = sale;
-      const canonicalPayload = canonicalize(payload);
-      const actualHash = await sha256Hex(canonicalPayload);
-      if (actualHash !== claimedHash.toLowerCase()) {
+      const actualHash = await computeCanonicalPayloadHash(auth.tenantId, auth.terminalId, sale);
+      if (actualHash !== sale.payload_hash.toLowerCase()) {
         return json({
           batch_id: batch.batch_id,
           error: "PAYLOAD_HASH_MISMATCH",
