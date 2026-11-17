@@ -44,8 +44,13 @@ try{
      VALUES($1,$2,$3,$4,true)`,[tenantId,terminalId,storeId,certificateFingerprint]
   );
   await admin.query(
-    `INSERT INTO inventory_ledger(tenant_id,store_id,product_id,quantity_delta,reason)
-     VALUES($1,$2,$3,2,'OPENING_BALANCE')`,[tenantId,storeId,productId]
+    "SELECT set_config('app.inventory_actor_id',$1,true), set_config('app.inventory_payload_hash',$2,true)",
+    [terminalId,randomUUID().replace(/-/g,"")+randomUUID().replace(/-/g,"").slice(0,32)]
+  );
+  const openingReferenceId=randomUUID();
+  await admin.query(
+    `INSERT INTO inventory_ledger(tenant_id,store_id,product_id,reference_id,quantity_delta,reason)
+     VALUES($1,$2,$3,$4,2,'OPENING_BALANCE')`,[tenantId,storeId,productId,openingReferenceId]
   );
   const versionResult=await admin.query(
     `SELECT catalog_version FROM tenant_catalog_versions WHERE tenant_id=$1`,[tenantId]

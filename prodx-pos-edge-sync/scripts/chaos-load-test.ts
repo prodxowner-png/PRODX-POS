@@ -80,7 +80,12 @@ async function runCiMode(): Promise<void> {
     );
     if (versionResult.rowCount !== 1) throw new Error("CI_CATALOG_VERSION_FIXTURE_MISSING");
     const catalogVersion = Number(versionResult.rows[0]!.catalog_version);
-    // Opening stock is recorded through the immutable ledger; its trigger updates balances.
+    // Opening stock is recorded through the immutable ledger; its trigger updates
+    // balances and appends the required audit event in the same transaction.
+    await admin.query(
+      "SELECT set_config('app.inventory_actor_id',$1,true), set_config('app.inventory_payload_hash',$2,true)",
+      [terminalIds[0]!,randomUUID().replace(/-/g,"")+randomUUID().replace(/-/g,"").slice(0,32)]
+    );
     await admin.query(
       `INSERT INTO inventory_ledger(tenant_id,store_id,product_id,reference_id,quantity_delta,reason)
        VALUES($1,$2,$3,$4,15000,'OPENING_BALANCE')`,

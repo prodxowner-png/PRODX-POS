@@ -201,6 +201,11 @@ ALTER TABLE inventory_balances DROP CONSTRAINT inventory_balances_pkey;
 ALTER TABLE inventory_balances ADD CONSTRAINT inventory_balances_pkey
   PRIMARY KEY (tenant_id,store_id,product_id);
 
+-- A retry must reuse an explicit reference_id. The base migration's random default
+-- would turn an omitted ID into a fresh stock movement on every retry. Preserve the
+-- reason-sensitive unique index so a sale can be followed by its void/return movement.
+ALTER TABLE inventory_ledger ALTER COLUMN reference_id DROP DEFAULT;
+
 CREATE INDEX IF NOT EXISTS idx_inventory_ledger_store_product
   ON inventory_ledger(tenant_id,store_id,product_id,id);
 
@@ -214,11 +219,29 @@ SET search_path=pg_catalog,public,pg_temp AS $$
 DECLARE
   allow_negative boolean;
   resulting_quantity bigint;
+  audit_actor_id uuid;
+  audit_payload_hash text;
+  audit_action text;
 BEGIN
+  IF NEW.reference_id IS NULL THEN
+    RAISE EXCEPTION 'INVENTORY_REFERENCE_ID_REQUIRED'
+      USING ERRCODE='23502';
+  END IF;
+
   IF NEW.reason <> 'POS_SALE'
      AND session_user NOT IN ('prodx_inventory_admin','postgres') THEN
     RAISE EXCEPTION 'INVENTORY_ADMIN_ROLE_REQUIRED'
       USING ERRCODE='42501';
+  END IF;
+
+  IF NEW.reason <> 'POS_SALE' THEN
+    audit_actor_id := NULLIF(current_setting('app.inventory_actor_id',true),'')::uuid;
+    audit_payload_hash := lower(NULLIF(current_setting('app.inventory_payload_hash',true),''));
+    IF audit_actor_id IS NULL OR audit_payload_hash IS NULL
+       OR audit_payload_hash !~ '^[0-9a-f]{64}$' THEN
+      RAISE EXCEPTION 'INVENTORY_AUDIT_CONTEXT_REQUIRED'
+        USING ERRCODE='23514';
+    END IF;
   END IF;
 
   SELECT cfg.allow_negative_stock
@@ -249,6 +272,30 @@ BEGIN
       USING ERRCODE='23514',
             DETAIL=format('tenant=%s store=%s product=%s delta=%s',
               NEW.tenant_id,NEW.store_id,NEW.product_id,NEW.quantity_delta);
+  END IF;
+
+  -- Every non-POS stock movement is audited by the database, not merely by an
+  -- operator script. This shares the ledger/balance transaction and cannot be bypassed
+  -- by a direct INSERT using prodx_inventory_admin.
+  IF NEW.reason <> 'POS_SALE' THEN
+    audit_action := CASE NEW.reason
+      WHEN 'OPENING_BALANCE' THEN 'OPENING_BALANCE_RECORDED'
+      ELSE 'INVENTORY_ADJUSTMENT_RECORDED'
+    END;
+    INSERT INTO public.audit_logs(
+      tenant_id,actor_type,actor_id,action,entity_type,entity_id,
+      payload_hash,catalog_version,metadata
+    ) VALUES (
+      NEW.tenant_id,'USER',audit_actor_id,audit_action,'INVENTORY_ADJUSTMENT',
+      NEW.reference_id,audit_payload_hash,NULL,
+      jsonb_build_object(
+        'store_id',NEW.store_id,
+        'product_id',NEW.product_id,
+        'quantity_delta',NEW.quantity_delta,
+        'reason',NEW.reason,
+        'reference_id',NEW.reference_id
+      )
+    );
   END IF;
   RETURN NEW;
 END;

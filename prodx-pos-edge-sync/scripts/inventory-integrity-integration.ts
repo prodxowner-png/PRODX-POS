@@ -20,6 +20,7 @@ const tenantId=randomUUID();
 const storeId=randomUUID();
 const otherStoreId=randomUUID();
 const productId=randomUUID();
+const auditProductId=randomUUID();
 const terminalIds=[randomUUID(),randomUUID(),randomUUID(),randomUUID()];
 const [terminalA,terminalB,terminalBackorder,terminalOtherStore]=terminalIds;
 const admin=new Client({connectionString:adminUrl});
@@ -61,8 +62,9 @@ try{
   );
   await admin.query(
     `INSERT INTO products(id,tenant_id,sku,name,unit_price_minor,tax_bps,version,active)
-     VALUES($1,$2,$3,'Inventory concurrency fixture',100,0,1,true)`,
-    [productId,tenantId,"INV-"+productId.slice(0,12)]
+     VALUES($1,$2,$3,'Inventory concurrency fixture',100,0,1,true),
+           ($4,$2,$5,'Inventory audit-role fixture',100,0,1,true)`,
+    [productId,tenantId,"INV-"+productId.slice(0,12),auditProductId,"AUD-"+auditProductId.slice(0,12)]
   );
   for(let i=0;i<terminalIds.length;i++){
     const fingerprint=randomUUID().replace(/-/g,"")+randomUUID().replace(/-/g,"").slice(0,32);
@@ -72,11 +74,262 @@ try{
       [tenantId,terminalIds[i],i===3?otherStoreId:storeId,fingerprint]
     );
   }
+
+  // Commit the disposable fixture so the separately authenticated inventory-admin
+  // connection can see its Store policy and product under normal transaction isolation.
+  await admin.query("COMMIT");
+  await admin.query("BEGIN");
+  await admin.query("SELECT set_config('app.current_tenant_id',$1,true)",[tenantId]);
+
+  // Exercise the actual inventory-admin database role, not only the superuser test
+  // connection. Direct INSERT without audit context must fail; a valid direct INSERT
+  // must commit exactly one immutable audit event from the database trigger.
+  const inventoryAdmin=new Client({connectionString:adminUrl});
+  await inventoryAdmin.connect();
+  try{
+    await inventoryAdmin.query("SET SESSION AUTHORIZATION prodx_inventory_admin");
+    await inventoryAdmin.query("BEGIN");
+    await inventoryAdmin.query("SELECT set_config('app.current_tenant_id',$1,true)",[tenantId]);
+    const roleRejectedReferenceId=randomUUID();
+    let inventoryAdminMissingContextRejected=false;
+    try{
+      await inventoryAdmin.query(
+        `INSERT INTO inventory_ledger(tenant_id,store_id,product_id,reference_id,quantity_delta,reason)
+         VALUES($1,$2,$3,$4,1,'STOCK_ADJUSTMENT')`,
+        [tenantId,storeId,auditProductId,roleRejectedReferenceId]
+      );
+    }catch(error){
+      const e=error as {code?:string;message?:string};
+      inventoryAdminMissingContextRejected=e.code==="23514"&&String(e.message).includes("INVENTORY_AUDIT_CONTEXT_REQUIRED");
+    }
+    await inventoryAdmin.query("ROLLBACK");
+    if(!inventoryAdminMissingContextRejected) throw new Error("INVENTORY_ADMIN_BYPASSED_MANDATORY_AUDIT_CONTEXT");
+
+    const roleAuditedReferenceId=randomUUID();
+    await inventoryAdmin.query("BEGIN");
+    await inventoryAdmin.query("SELECT set_config('app.current_tenant_id',$1,true)",[tenantId]);
+    await inventoryAdmin.query(
+      "SELECT set_config('app.inventory_actor_id',$1,true), set_config('app.inventory_payload_hash',$2,true)",
+      [terminalA,randomUUID().replace(/-/g,"")+randomUUID().replace(/-/g,"").slice(0,32)]
+    );
+    await inventoryAdmin.query(
+      `INSERT INTO inventory_ledger(tenant_id,store_id,product_id,reference_id,quantity_delta,reason)
+       VALUES($1,$2,$3,$4,1,'STOCK_ADJUSTMENT')`,
+      [tenantId,storeId,auditProductId,roleAuditedReferenceId]
+    );
+    await inventoryAdmin.query("COMMIT");
+    const roleAudit=await admin.query(
+      `SELECT COUNT(*)::integer AS count FROM audit_logs
+        WHERE tenant_id=$1 AND entity_id=$2 AND action='INVENTORY_ADJUSTMENT_RECORDED'`,
+      [tenantId,roleAuditedReferenceId]
+    );
+    if(Number(roleAudit.rows[0]?.count)!==1) throw new Error("INVENTORY_ADMIN_DIRECT_INSERT_MISSING_AUDIT");
+  }finally{
+    await inventoryAdmin.end();
+  }
+
+  // The audit row must share the ledger transaction: rolling back a valid movement
+  // must remove the audit, ledger, and balance effects together.
+  const rolledBackReferenceId=randomUUID();
+  await admin.query(
+    "SELECT set_config('app.inventory_actor_id',$1,true), set_config('app.inventory_payload_hash',$2,true)",
+    [terminalA,randomUUID().replace(/-/g,"")+randomUUID().replace(/-/g,"").slice(0,32)]
+  );
+  await admin.query("SAVEPOINT inventory_audit_rollback_attempt");
+  await admin.query(
+    `INSERT INTO inventory_ledger(tenant_id,store_id,product_id,reference_id,quantity_delta,reason)
+     VALUES($1,$2,$3,$4,1,'STOCK_ADJUSTMENT')`,
+    [tenantId,storeId,productId,rolledBackReferenceId]
+  );
+  const inTransactionAudit=await admin.query(
+    `SELECT (SELECT COUNT(*) FROM inventory_ledger WHERE tenant_id=$1 AND reference_id=$2) AS ledger,
+            (SELECT COUNT(*) FROM inventory_balances WHERE tenant_id=$1 AND store_id=$3 AND product_id=$4) AS balance,
+            (SELECT COUNT(*) FROM audit_logs WHERE tenant_id=$1 AND entity_id=$2 AND action='INVENTORY_ADJUSTMENT_RECORDED') AS audit`,
+    [tenantId,rolledBackReferenceId,storeId,productId]
+  );
+  const inTransactionRow=inTransactionAudit.rows[0];
+  await admin.query("ROLLBACK TO SAVEPOINT inventory_audit_rollback_attempt");
+  await admin.query("RELEASE SAVEPOINT inventory_audit_rollback_attempt");
+  if(Number(inTransactionRow?.ledger)!==1||Number(inTransactionRow?.balance)!==1||Number(inTransactionRow?.audit)!==1){
+    throw new Error("INVENTORY_LEDGER_AND_AUDIT_NOT_ATOMIC");
+  }
+  const rolledBackEffects=await admin.query(
+    `SELECT (SELECT COUNT(*) FROM inventory_ledger WHERE tenant_id=$1 AND reference_id=$2) AS ledger,
+            (SELECT COUNT(*) FROM inventory_balances WHERE tenant_id=$1 AND store_id=$3 AND product_id=$4) AS balance,
+            (SELECT COUNT(*) FROM audit_logs WHERE tenant_id=$1 AND entity_id=$2) AS audit`,
+    [tenantId,rolledBackReferenceId,storeId,productId]
+  );
+  const rolledBackRow=rolledBackEffects.rows[0];
+  if(Number(rolledBackRow?.ledger)!==0||Number(rolledBackRow?.balance)!==0||Number(rolledBackRow?.audit)!==0){
+    throw new Error("INVENTORY_AUDIT_ROLLBACK_LEFT_PARTIAL_EFFECTS");
+  }
+  await admin.query(
+    "SELECT set_config('app.inventory_actor_id','',true), set_config('app.inventory_payload_hash','',true)"
+  );
+
+
+  // A malformed payload hash must be rejected even when the actor identity is present.
+  const malformedAuditReferenceId=randomUUID();
+  await admin.query(
+    "SELECT set_config('app.inventory_actor_id',$1,true), set_config('app.inventory_payload_hash',$2,true)",
+    [terminalA,"not-a-sha256"]
+  );
+  await admin.query("SAVEPOINT malformed_inventory_audit_attempt");
+  let malformedAuditHashRejected=false;
+  try{
+    await admin.query(
+      `INSERT INTO inventory_ledger(tenant_id,store_id,product_id,reference_id,quantity_delta,reason)
+       VALUES($1,$2,$3,$4,1,'STOCK_ADJUSTMENT')`,
+      [tenantId,storeId,productId,malformedAuditReferenceId]
+    );
+  }catch(error){
+    const e=error as {code?:string;message?:string};
+    malformedAuditHashRejected=e.code==="23514"&&String(e.message).includes("INVENTORY_AUDIT_CONTEXT_REQUIRED");
+  }
+  await admin.query("ROLLBACK TO SAVEPOINT malformed_inventory_audit_attempt");
+  await admin.query("RELEASE SAVEPOINT malformed_inventory_audit_attempt");
+  if(!malformedAuditHashRejected) throw new Error("MALFORMED_INVENTORY_AUDIT_HASH_ACCEPTED");
+  await admin.query(
+    "SELECT set_config('app.inventory_actor_id','',true), set_config('app.inventory_payload_hash','',true)"
+  );
+
+  // Replaying one adjustment reference for the same product and reason must not
+  // create a second stock effect.
+  const duplicateReferenceId=randomUUID();
+  const duplicateReferenceHash=randomUUID().replace(/-/g,"")+randomUUID().replace(/-/g,"").slice(0,32);
+  await admin.query(
+    "SELECT set_config('app.inventory_actor_id',$1,true), set_config('app.inventory_payload_hash',$2,true)",
+    [terminalA,duplicateReferenceHash]
+  );
+  await admin.query("SAVEPOINT duplicate_inventory_reference_outer");
+  await admin.query(
+    `INSERT INTO inventory_ledger(tenant_id,store_id,product_id,reference_id,quantity_delta,reason)
+     VALUES($1,$2,$3,$4,1,'STOCK_ADJUSTMENT')`,
+    [tenantId,storeId,productId,duplicateReferenceId]
+  );
+  await admin.query("SAVEPOINT duplicate_inventory_reference_replay");
+  let duplicateReferenceRejected=false;
+  try{
+    await admin.query(
+      `INSERT INTO inventory_ledger(tenant_id,store_id,product_id,reference_id,quantity_delta,reason)
+       VALUES($1,$2,$3,$4,1,'STOCK_ADJUSTMENT')`,
+      [tenantId,storeId,productId,duplicateReferenceId]
+    );
+  }catch(error){
+    const e=error as {code?:string;constraint?:string};
+    duplicateReferenceRejected=e.code==="23505"&&e.constraint==="uq_inventory_ledger_reference_product_reason";
+  }
+  await admin.query("ROLLBACK TO SAVEPOINT duplicate_inventory_reference_replay");
+  await admin.query("RELEASE SAVEPOINT duplicate_inventory_reference_replay");
+  const firstMovement=await admin.query(
+    `SELECT (SELECT COUNT(*) FROM inventory_ledger WHERE tenant_id=$1 AND reference_id=$2) AS ledger,
+            (SELECT COUNT(*) FROM inventory_balances WHERE tenant_id=$1 AND store_id=$3 AND product_id=$4) AS balance_rows,
+            (SELECT COALESCE(MAX(quantity),0) FROM inventory_balances WHERE tenant_id=$1 AND store_id=$3 AND product_id=$4) AS quantity,
+            (SELECT COUNT(*) FROM audit_logs WHERE tenant_id=$1 AND entity_id=$2 AND action='INVENTORY_ADJUSTMENT_RECORDED') AS audit`,
+    [tenantId,duplicateReferenceId,storeId,productId]
+  );
+  const firstMovementRow=firstMovement.rows[0];
+  await admin.query("ROLLBACK TO SAVEPOINT duplicate_inventory_reference_outer");
+  await admin.query("RELEASE SAVEPOINT duplicate_inventory_reference_outer");
+  if(!duplicateReferenceRejected||Number(firstMovementRow?.ledger)!==1||Number(firstMovementRow?.balance_rows)!==1||Number(firstMovementRow?.quantity)!==1||Number(firstMovementRow?.audit)!==1){
+    throw new Error("INVENTORY_REFERENCE_ID_REUSE_CREATED_DUPLICATE_EFFECT");
+  }
+  const duplicateRollback=await admin.query(
+    `SELECT (SELECT COUNT(*) FROM inventory_ledger WHERE tenant_id=$1 AND reference_id=$2) AS ledger,
+            (SELECT COUNT(*) FROM inventory_balances WHERE tenant_id=$1 AND store_id=$3 AND product_id=$4) AS balance,
+            (SELECT COUNT(*) FROM audit_logs WHERE tenant_id=$1 AND entity_id=$2) AS audit`,
+    [tenantId,duplicateReferenceId,storeId,productId]
+  );
+  const duplicateRollbackRow=duplicateRollback.rows[0];
+  if(Number(duplicateRollbackRow?.ledger)!==0||Number(duplicateRollbackRow?.balance)!==0||Number(duplicateRollbackRow?.audit)!==0){
+    throw new Error("DUPLICATE_REFERENCE_ROLLBACK_LEFT_PARTIAL_EFFECTS");
+  }
+  await admin.query(
+    "SELECT set_config('app.inventory_actor_id','',true), set_config('app.inventory_payload_hash','',true)"
+  );
+
+  // An inventory movement must carry an explicit idempotency reference; a random
+  // database default would turn a retry with an omitted ID into a second movement.
+  const missingReferenceHash=randomUUID().replace(/-/g,"")+randomUUID().replace(/-/g,"").slice(0,32);
+  await admin.query(
+    "SELECT set_config('app.inventory_actor_id',$1,true), set_config('app.inventory_payload_hash',$2,true)",
+    [terminalA,missingReferenceHash]
+  );
+  await admin.query("SAVEPOINT missing_inventory_reference_attempt");
+  let missingReferenceRejected=false;
+  try{
+    await admin.query(
+      `INSERT INTO inventory_ledger(tenant_id,store_id,product_id,quantity_delta,reason)
+       VALUES($1,$2,$3,1,'STOCK_ADJUSTMENT')`,
+      [tenantId,storeId,productId]
+    );
+  }catch(error){
+    const e=error as {code?:string;message?:string};
+    missingReferenceRejected=e.code==="23502"&&String(e.message).includes("INVENTORY_REFERENCE_ID_REQUIRED");
+  }
+  await admin.query("ROLLBACK TO SAVEPOINT missing_inventory_reference_attempt");
+  await admin.query("RELEASE SAVEPOINT missing_inventory_reference_attempt");
+  if(!missingReferenceRejected) throw new Error("INVENTORY_LEDGER_REFERENCE_ID_WAS_DEFAULTED");
+  const missingReferenceEffects=await admin.query(
+    `SELECT (SELECT COUNT(*) FROM inventory_ledger WHERE tenant_id=$1 AND store_id=$2 AND product_id=$3 AND reason='STOCK_ADJUSTMENT') AS ledger,
+            (SELECT COUNT(*) FROM inventory_balances WHERE tenant_id=$1 AND store_id=$2 AND product_id=$3) AS balance,
+            (SELECT COUNT(*) FROM audit_logs WHERE tenant_id=$1 AND entity_type='INVENTORY_ADJUSTMENT' AND metadata->>'product_id'=$3::text) AS audit`,
+    [tenantId,storeId,productId]
+  );
+  const missingReferenceRow=missingReferenceEffects.rows[0];
+  if(Number(missingReferenceRow?.ledger)!==0||Number(missingReferenceRow?.balance)!==0||Number(missingReferenceRow?.audit)!==0){
+    throw new Error("MISSING_INVENTORY_REFERENCE_LEFT_PARTIAL_EFFECTS");
+  }
+  await admin.query(
+    "SELECT set_config('app.inventory_actor_id','',true), set_config('app.inventory_payload_hash','',true)"
+  );
+
+  // Direct INSERT by an inventory-capable DB role must not bypass the audit trail.
+  // Use a savepoint so the pre-fix behavior can be observed without retaining writes.
+  const unauditedReferenceId=randomUUID();
+  await admin.query("SAVEPOINT unaudited_inventory_attempt");
+  let missingAuditContextRejected=false;
+  try{
+    await admin.query(
+      `INSERT INTO inventory_ledger(tenant_id,store_id,product_id,reference_id,quantity_delta,reason)
+       VALUES($1,$2,$3,$4,1,'STOCK_ADJUSTMENT')`,
+      [tenantId,storeId,productId,unauditedReferenceId]
+    );
+  }catch(error){
+    const e=error as {code?:string;message?:string};
+    missingAuditContextRejected=e.code==="23514"&&String(e.message).includes("INVENTORY_AUDIT_CONTEXT_REQUIRED");
+  }
+  await admin.query("ROLLBACK TO SAVEPOINT unaudited_inventory_attempt");
+  await admin.query("RELEASE SAVEPOINT unaudited_inventory_attempt");
+  if(!missingAuditContextRejected) throw new Error("NON_SALE_INVENTORY_WRITE_BYPASSED_AUDIT_CONTEXT");
+  const unauditedWrites=await admin.query(
+    `SELECT (SELECT COUNT(*) FROM inventory_ledger WHERE tenant_id=$1 AND reference_id=$2) AS ledger,
+            (SELECT COUNT(*) FROM inventory_balances WHERE tenant_id=$1 AND store_id=$3 AND product_id=$4) AS balance,
+            (SELECT COUNT(*) FROM audit_logs WHERE tenant_id=$1 AND entity_id=$2) AS audit`,
+    [tenantId,unauditedReferenceId,storeId,productId]
+  );
+  const unauditedRow=unauditedWrites.rows[0];
+  if(Number(unauditedRow?.ledger)!==0||Number(unauditedRow?.balance)!==0||Number(unauditedRow?.audit)!==0){
+    throw new Error("REJECTED_UNAUDITED_INVENTORY_WRITE_LEFT_PARTIAL_EFFECTS");
+  }
+
+  const openingReferenceId=randomUUID();
+  const openingPayloadHash=randomUUID().replace(/-/g,"")+randomUUID().replace(/-/g,"").slice(0,32);
+  await admin.query(
+    "SELECT set_config('app.inventory_actor_id',$1,true), set_config('app.inventory_payload_hash',$2,true)",
+    [terminalA,openingPayloadHash]
+  );
   await admin.query(
     `INSERT INTO inventory_ledger(tenant_id,store_id,product_id,reference_id,quantity_delta,reason)
      VALUES($1,$2,$3,$4,1,'OPENING_BALANCE')`,
-    [tenantId,storeId,productId,randomUUID()]
+    [tenantId,storeId,productId,openingReferenceId]
   );
+  const openingAudit=await admin.query(
+    `SELECT COUNT(*)::integer AS count FROM audit_logs
+      WHERE tenant_id=$1 AND entity_id=$2 AND action='OPENING_BALANCE_RECORDED'`,
+    [tenantId,openingReferenceId]
+  );
+  if(Number(openingAudit.rows[0]?.count)!==1) throw new Error("OPENING_BALANCE_AUDIT_NOT_ATOMIC");
   const versionResult=await admin.query(
     `SELECT catalog_version FROM tenant_catalog_versions WHERE tenant_id=$1`,[tenantId]
   );
@@ -221,12 +474,24 @@ try{
   }
   if(!unauthorizedReceiptRejected) throw new Error("POS_WORKER_CAN_INJECT_INVENTORY_RECEIPTS");
 
+  const receiptReferenceId=randomUUID();
+  const receiptPayloadHash=randomUUID().replace(/-/g,"")+randomUUID().replace(/-/g,"").slice(0,32);
   await admin.query("BEGIN");
   await admin.query("SELECT set_config('app.current_tenant_id',$1,true)",[tenantId]);
   await admin.query(
-    `INSERT INTO inventory_ledger(tenant_id,store_id,product_id,reference_id,quantity_delta,reason)
-     VALUES($1,$2,$3,$4,1,'PURCHASE_RECEIPT')`,[tenantId,storeId,productId,randomUUID()]
+    "SELECT set_config('app.inventory_actor_id',$1,true), set_config('app.inventory_payload_hash',$2,true)",
+    [terminalA,receiptPayloadHash]
   );
+  await admin.query(
+    `INSERT INTO inventory_ledger(tenant_id,store_id,product_id,reference_id,quantity_delta,reason)
+     VALUES($1,$2,$3,$4,1,'PURCHASE_RECEIPT')`,[tenantId,storeId,productId,receiptReferenceId]
+  );
+  const receiptAudit=await admin.query(
+    `SELECT COUNT(*)::integer AS count FROM audit_logs
+      WHERE tenant_id=$1 AND entity_id=$2 AND action='INVENTORY_ADJUSTMENT_RECORDED'`,
+    [tenantId,receiptReferenceId]
+  );
+  if(Number(receiptAudit.rows[0]?.count)!==1) throw new Error("PURCHASE_RECEIPT_AUDIT_NOT_ATOMIC");
   await admin.query("COMMIT");
 
   // A second Store has no opening stock; it cannot consume the first Store's unit.
@@ -256,6 +521,7 @@ try{
     cross_store_inventory:"isolated",
     positive_receipt_after_policy_disabled:"accepted",
     pos_worker_cannot_inject_receipts:unauthorizedReceiptRejected,
+    non_sale_inventory_audit:"mandatory and atomic",
     store_policy_changes_audited:2,
     final_balance:0
   },null,2));
