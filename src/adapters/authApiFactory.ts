@@ -9,13 +9,25 @@ import { createSupabaseAuthApi } from './supabaseAuthApi';
 
 const productionAuthApi: IAuthApi = createProductionAuthApi();
 const supabaseAuthApi: IAuthApi = createSupabaseAuthApi();
-const authProvider = import.meta.env.VITE_AUTH_PROVIDER?.trim().toLowerCase();
+const authProvider =
+  typeof import.meta.env !== 'undefined'
+    ? import.meta.env.VITE_AUTH_PROVIDER?.trim().toLowerCase()
+    : undefined;
 
 // Supabase Auth is opt-in until first-tenant bootstrap and identity binding are fully verified.
 // Only explicit local development may load the isolated mock adapter.
-if (!import.meta.env.DEV && authProvider !== 'supabase' && authProvider !== 'production') {
-  throw new Error('Authentication provider must be explicitly configured for non-development builds.');
-}
+const createUnconfiguredAuthApi = (): IAuthApi => {
+  const failClosed = async (): Promise<never> => {
+    throw new Error('Authentication provider must be explicitly configured for non-development builds.');
+  };
+  return {
+    login: failClosed,
+    logout: failClosed,
+    verifySession: failClosed,
+    getStores: failClosed,
+    forgotPin: failClosed,
+  };
+};
 
 const createDevelopmentMockAuthApi = (): IAuthApi => ({
   async login(request) {
@@ -40,8 +52,11 @@ const createDevelopmentMockAuthApi = (): IAuthApi => ({
   },
 });
 
-export const authApi: IAuthApi = import.meta.env.DEV
-  ? createDevelopmentMockAuthApi()
-  : authProvider === 'supabase'
-    ? supabaseAuthApi
-    : productionAuthApi;
+export const authApi: IAuthApi =
+  typeof import.meta.env !== 'undefined' && import.meta.env.DEV
+    ? createDevelopmentMockAuthApi()
+    : authProvider === 'supabase'
+      ? supabaseAuthApi
+      : authProvider === 'production'
+        ? productionAuthApi
+        : createUnconfiguredAuthApi();
