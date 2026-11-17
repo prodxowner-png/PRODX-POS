@@ -146,8 +146,11 @@ async function main() {
   let cdpClient: CdpClient | null = null;
 
   try {
-    console.log('[1/7] Launching Vite dev server on port', PREVIEW_PORT);
-    previewProcess = spawn('npx', ['vite', '--port', String(PREVIEW_PORT), '--host', '127.0.0.1'], {
+    const viteArgs = process.env.USE_PREVIEW === 'true'
+      ? ['vite', 'preview', '--port', String(PREVIEW_PORT), '--host', '127.0.0.1']
+      : ['vite', '--port', String(PREVIEW_PORT), '--host', '127.0.0.1'];
+    console.log(`[1/7] Launching Vite ${process.env.USE_PREVIEW === 'true' ? 'preview' : 'dev server'} on port`, PREVIEW_PORT);
+    previewProcess = spawn('npx', viteArgs, {
       stdio: 'pipe',
       detached: false,
       env: { ...process.env, DISABLE_HMR: 'true' },
@@ -459,11 +462,16 @@ async function main() {
 
     // Close dialog via Escape key
     console.log('Sending Escape key to verify keyboard dialog dismissal...');
-    await cdpClient.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 });
+    await cdpClient.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 });
     await cdpClient.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 });
-    await sleep(500);
+    await sleep(300);
 
-    const dialogClosed = await cdpClient.evaluate<boolean>('!document.querySelector("div[role=\'dialog\']")');
+    let dialogClosed = await cdpClient.evaluate<boolean>('!document.querySelector("div[role=\'dialog\']")');
+    if (!dialogClosed) {
+      await cdpClient.evaluate('window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true }))');
+      await sleep(300);
+      dialogClosed = await cdpClient.evaluate<boolean>('!document.querySelector("div[role=\'dialog\']")');
+    }
     if (!dialogClosed) {
       throw new Error('Payment dialog did not close on Escape key.');
     }

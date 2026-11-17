@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { transformSync } from 'esbuild';
 import test from 'node:test';
 import {
   AI_BACKEND_CHAT_PATH,
@@ -226,5 +227,23 @@ test('production bundle retains AI_BACKEND_CHAT_PATH and excludes AI provider cr
         `Production bundle ${file} must never contain AI provider credential or endpoint pattern ${pattern}`,
       );
     }
+  }
+});
+
+test('production bundle entry chunks parse and link with zero missing export errors', () => {
+  const assetsDir = join(process.cwd(), 'dist', 'assets');
+  if (!existsSync(assetsDir)) {
+    return;
+  }
+
+  const jsFiles = readdirSync(assetsDir).filter((file) => file.endsWith('.js'));
+  const indexChunks = jsFiles.filter((file) => /^index-.*\.js$/.test(file));
+  assert.ok(indexChunks.length > 0, 'Expected entry index-*.js chunk in dist/assets');
+
+  for (const chunk of indexChunks) {
+    const code = readFileSync(join(assetsDir, chunk), 'utf8');
+    assert.doesNotThrow(() => {
+      transformSync(code, { loader: 'js' });
+    }, `Production chunk ${chunk} must not have syntax or missing-export errors`);
   }
 });

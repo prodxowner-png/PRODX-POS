@@ -16,8 +16,17 @@ const authProvider =
 
 // Supabase Auth is opt-in until first-tenant bootstrap and identity binding are fully verified.
 // Only explicit local development may load the isolated mock adapter.
+const ensureConfiguredAuthProvider = (): void => {
+  const isDev = Boolean(typeof import.meta.env !== 'undefined' && import.meta.env.DEV);
+  const isUnconfigured = !isDev && (authProvider !== 'supabase' && authProvider !== 'production');
+  if (isUnconfigured) {
+    throw new Error('Authentication provider must be explicitly configured for non-development builds.');
+  }
+};
+
 const createUnconfiguredAuthApi = (): IAuthApi => {
   const failClosed = async (): Promise<never> => {
+    ensureConfiguredAuthProvider();
     throw new Error('Authentication provider must be explicitly configured for non-development builds.');
   };
   return {
