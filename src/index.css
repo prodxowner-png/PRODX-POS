@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./prodx-brand-tokens.css";
 
 @theme {
   --font-k2d: 'K2D', 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -16,6 +17,30 @@
   --color-text-muted: var(--text-muted);
   --color-border: var(--border-color);
   --color-border-hover: var(--border-hover);
+
+  /* Semantic Brand Roles for Tailwind */
+  --color-brand-bg: var(--brand-bg);
+  --color-brand-surface: var(--brand-surface);
+  --color-brand-surface-raised: var(--brand-surface-raised);
+  --color-brand-surface-muted: var(--brand-surface-muted);
+  --color-brand-surface-selected: var(--brand-surface-selected);
+  --color-brand-surface-hover: var(--brand-surface-hover);
+  --color-brand-text: var(--brand-text);
+  --color-brand-text-secondary: var(--brand-text-secondary);
+  --color-brand-text-muted: var(--brand-text-muted);
+  --color-brand-border: var(--brand-border);
+  --color-brand-border-strong: var(--brand-border-strong);
+
+  /* Semantic CTA and Status Utilities */
+  --color-cta: var(--brand-cta);
+  --color-cta-hover: var(--brand-cta-hover);
+  --color-cta-pressed: var(--brand-cta-pressed);
+  --color-cta-text: var(--brand-cta-text);
+  --color-cta-subtle: var(--brand-cta-subtle);
+  --color-warning-subtle: var(--brand-warning-subtle);
+  --color-success-subtle: var(--brand-success-subtle);
+  --color-danger-subtle: var(--brand-danger-subtle);
+  --color-info-subtle: var(--brand-info-subtle);
 
   /* Override standard Tailwind neutral shades for cohesive enterprise SaaS theme */
   --color-white: var(--card-color);
