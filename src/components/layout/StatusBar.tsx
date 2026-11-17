@@ -37,9 +37,9 @@ export const StatusBar: React.FC = () => {
         </span>
 
         <span className="hidden sm:inline-flex items-center gap-1.5">
-          <Shield className="h-3 w-3 text-emerald-600 dark:text-emerald-500" />
+          <Shield className="h-3 w-3 text-success" />
           <span className="text-text/60">ROLE:</span>
-          <span className="text-emerald-600 dark:text-emerald-400 font-bold">{session.currentUser.role}</span>
+          <span className="text-success font-bold">{session.currentUser.role}</span>
         </span>
 
         <span className="hidden md:inline-flex items-center gap-1">
@@ -58,7 +58,7 @@ export const StatusBar: React.FC = () => {
           </span>
         </span>
 
-        <span className="hidden lg:inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+        <span className="hidden lg:inline-flex items-center gap-1 text-success">
           <Cpu className="h-3 w-3" />
           <span>DECIMAL-SAFE FINANCIAL CORE</span>
         </span>
@@ -67,7 +67,7 @@ export const StatusBar: React.FC = () => {
         <span className="hidden md:inline-flex items-center gap-1.5" title="Keyboard Focus Strategy">
           <Keyboard className="h-3 w-3 text-text/40" />
           <span className="text-text/60">KBD:</span>
-          <span className={config.hardware?.keyboardFocusCapture !== false ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-amber-600 dark:text-amber-400 font-bold'}>
+          <span className={config.hardware?.keyboardFocusCapture !== false ? 'text-success font-bold' : 'text-warning font-bold'}>
             {config.hardware?.keyboardFocusCapture !== false ? 'CAPTURE' : 'PASSTHROUGH'}
           </span>
         </span>
@@ -84,12 +84,12 @@ export const StatusBar: React.FC = () => {
         >
           <Database className="h-3 w-3 text-primary" />
           <span className="hidden sm:inline text-text/60">OUTBOX:</span>
-          <span className={`font-bold ${pendingCount > 0 ? 'text-amber-600 dark:text-amber-400 animate-pulse' : 'text-text/80'}`}>
+          <span className={`font-bold ${pendingCount > 0 ? 'text-warning animate-pulse' : 'text-text/80'}`}>
             {pendingCount}
           </span>
           <span className="text-text/30">|</span>
-          <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-emerald-500' : 'bg-amber-500'}`} />
-          <span className={isOnline ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-amber-600 dark:text-amber-400 font-bold'}>
+          <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-success' : 'bg-warning'}`} />
+          <span className={isOnline ? 'text-success font-bold' : 'text-warning font-bold'}>
             {isOnline ? 'LIVE' : 'OFFLINE'}
           </span>
         </button>

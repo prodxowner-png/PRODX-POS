@@ -46,9 +46,14 @@ test('TopNav: search shortcut, mobile menu trigger, and action buttons have acce
 
   // Minimum 44px touch targets on interactive controls
   assert.match(source, /min-h-\[44px\]/);
+
+  // Semantic status design tokens
+  assert.match(source, /bg-success/);
+  assert.match(source, /bg-warning/);
+  assert.match(source, /text-warning/);
 });
 
-test('StatusBar: semantic footer landmark and explicit status labels for offline/sync and RBAC', () => {
+test('StatusBar: semantic footer landmark, status labels, and semantic design tokens for RBAC & sync', () => {
   const source = readSource('./StatusBar.tsx');
 
   // Semantic footer
@@ -56,6 +61,12 @@ test('StatusBar: semantic footer landmark and explicit status labels for offline
 
   // RBAC indicator
   assert.match(source, /ROLE:/);
+
+  // Semantic status design tokens
+  assert.match(source, /text-success/);
+  assert.match(source, /bg-success/);
+  assert.match(source, /bg-warning/);
+  assert.match(source, /text-warning/);
 
   // Sync / outbox connection status label
   assert.match(source, /isOnline \? 'LIVE' : 'OFFLINE'/);

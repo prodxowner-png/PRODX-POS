@@ -79,7 +79,22 @@ All contrast ratios calculated using the standard relative luminance formula $CR
 
 ---
 
-## 7. QA Summary
+## 7. Real Headless Browser Verification (`VERIFIED BY BROWSER`)
 
-- **Automated Verification:** All contrast calculations, responsive layout contracts, accessible names, focus indicators, and behavioral unit tests passed (`contrastEvidence.test.ts`, `PosVisualBehavior.test.ts`, `ShellAccessibilityBehavior.test.ts`, `semanticTokenContract.test.ts`).
-- **Physical Device Exclusions:** Real-world tactile touch latency on physical POS display hardware and manual screen reader audio sessions are marked as **NOT TESTED** with documented technical reasons in accordance with project governance.
+Executed via [`scripts/run-browser-tests.ts`](file:///home/antigravity/prodxowner-png/PRODX-POS/scripts/run-browser-tests.ts) against live Vite dev server (`http://127.0.0.1:4173/`) using headless Chromium (`/usr/bin/chromium`) over native Chrome DevTools Protocol (CDP):
+
+| Browser Test Suite | Measured Evidence / Computed DOM Values | Screenshot Artifact | Status |
+| :--- | :--- | :--- | :---: |
+| **Desktop Shell (`1440x900`)** | `aside`, `header`, `footer`, `main` landmarks mounted; active route `aria-current="page"`; StatusBar renders tenant/store/register/RBAC/decimal status. | `tests/browser-evidence/desktop-1440x900-pos.png` | **VERIFIED BY BROWSER** |
+| **POS Interaction & Dialog A11y** | 9 product cards rendered; clicking `Double Espresso, ฿65.00` adds to cart and enables `#cart-full-checkout-btn` (`ชำระเงิน฿65.00`); Payment modal opens with `role="dialog"`, `aria-modal="true"`, `aria-labelledby="modal-title"` and closes on `Escape` key. | `tests/browser-evidence/payment-confirmation-modal.png` | **VERIFIED BY BROWSER** |
+| **Computed Contrast (Light Mode)** | Body bg `rgb(248, 250, 252)` vs text `rgb(15, 23, 42)` = **17.06:1** ($\ge 4.5:1$); Active CTA fill `rgb(232, 137, 74)` vs text `rgb(32, 36, 43)` = **6.01:1** ($\ge 4.5:1$). | — | **VERIFIED BY BROWSER** |
+| **Responsive Viewports** | `1024x768` Tablet Landscape split workspace cart visible (`true`); `768x1024` Tablet Portrait rendered; `390x844` Mobile bottom quick nav rendered (`true`); `320x700` Mobile Narrow horizontal overflow = `false`. | `tests/browser-evidence/tablet-landscape-1024x768.png`, `tablet-portrait-768x1024.png`, `mobile-portrait-390x844.png`, `mobile-narrow-320x700.png` | **VERIFIED BY BROWSER** |
+| **Dark Mode Switching** | Clicking theme toggle adds `.dark` to `<html>`; Dark body bg `rgb(9, 13, 22)` vs text `rgb(248, 250, 252)` = **18.57:1** ($\ge 4.5:1$). | `tests/browser-evidence/desktop-dark-mode.png` | **VERIFIED BY BROWSER** |
+
+---
+
+## 8. QA Summary
+
+- **VERIFIED BY AUTOMATED TEST:** Contrast calculations, theme token adapter, responsive layout contracts, accessible names, focus indicators, and behavioral unit tests passed (`contrastEvidence.test.ts`, `PosVisualBehavior.test.ts`, `ShellAccessibilityBehavior.test.ts`, `semanticTokenContract.test.ts`, `themePresets.test.ts`, `themeTokenAdapter.test.ts`).
+- **VERIFIED BY BROWSER:** Live headless Chromium CDP interaction, computed DOM contrast, dialog `Escape` dismissal, dark mode toggle, and multi-viewport (`1440x900`, `1024x768`, `768x1024`, `390x844`, `320x700`) tests passed via `scripts/run-browser-tests.ts`.
+- **NOT TESTED (Physical Hardware / Audio):** Real-world tactile touch latency on physical POS display hardware and manual screen reader audio sessions (NVDA / VoiceOver / JAWS) are marked as **NOT TESTED** in accordance with project governance.

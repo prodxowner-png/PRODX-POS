@@ -37,9 +37,17 @@
   --color-cta-pressed: var(--brand-cta-pressed);
   --color-cta-text: var(--brand-cta-text);
   --color-cta-subtle: var(--brand-cta-subtle);
-  --color-warning-subtle: var(--brand-warning-subtle);
+  --color-success: var(--brand-success);
+  --color-success-text: var(--brand-success-text);
   --color-success-subtle: var(--brand-success-subtle);
+  --color-warning: var(--brand-warning);
+  --color-warning-text: var(--brand-warning-text);
+  --color-warning-subtle: var(--brand-warning-subtle);
+  --color-danger: var(--brand-danger);
+  --color-danger-text: var(--brand-danger-text);
   --color-danger-subtle: var(--brand-danger-subtle);
+  --color-info: var(--brand-info);
+  --color-info-text: var(--brand-info-text);
   --color-info-subtle: var(--brand-info-subtle);
 
   /* Override standard Tailwind neutral shades for cohesive enterprise SaaS theme */
