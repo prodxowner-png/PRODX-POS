@@ -81,6 +81,13 @@ var createPostgresAuthenticationRepository = (db) => ({
       [input.id, input.organizationId, input.userId, input.deviceId, input.tokenHash, input.expiresAt]
     );
   },
+  async renewSession(input) {
+    const rows = await db.query(
+      "SELECT public.prodx_auth_renew_supabase_session($1::uuid, $2, $3::uuid, $4::timestamptz) AS expires_at",
+      [input.sessionId, input.tokenHash, input.supabaseUserId, input.expiresAt]
+    );
+    return rows[0]?.expires_at ?? null;
+  },
   async findSessionByTokenHash(tokenHash) {
     const rows = await db.query(
       `SELECT * FROM public.prodx_auth_find_session_by_token_hash($1)`,
@@ -271,6 +278,27 @@ var createSessionIssuer = (repository, verifySecret, now = () => /* @__PURE__ */
       expiresAt
     });
     return { token: localToken, sessionId, expiresAt };
+  },
+  renewSupabaseSession: async ({ supabaseToken, posToken }) => {
+    const verified = await verifySupabaseIdentity(supabaseToken);
+    if (!verified) return null;
+    const tokenHash = hashSessionToken(posToken);
+    const session = await repository.findSessionByTokenHash(tokenHash);
+    const nowValue = now();
+    if (!session || session.revokedAt || session.expiresAt <= nowValue || session.userStatus !== "active") return null;
+    const device = await repository.findDevice(session.deviceId);
+    if (!device || device.status !== "active" || device.organizationId !== session.organizationId) return null;
+    const principal = await repository.findUserBySupabaseUserId(verified.userId, device.id);
+    if (!principal || principal.status !== "active" || principal.userId !== session.userId || principal.organizationId !== session.organizationId || verified.expiresAt <= nowValue) return null;
+    const maxExpiry = new Date(nowValue.getTime() + SESSION_TTL_MS);
+    const requestedExpiry = verified.expiresAt < maxExpiry ? verified.expiresAt : maxExpiry;
+    const persistedExpiry = await repository.renewSession({
+      sessionId: session.id,
+      tokenHash,
+      supabaseUserId: verified.userId,
+      expiresAt: requestedExpiry
+    });
+    return persistedExpiry ? { expiresAt: persistedExpiry } : null;
   },
   authenticateBearer: async (token) => {
     if (!token) return null;
@@ -2197,6 +2225,38 @@ var registerAuthRoutes = (app, db, sessions, options = {}) => {
       sendAdminRoleRequired(request, response);
       return;
     }
+    response.status(200).json(context);
+  }));
+  app.post("/auth/supabase/renew", asyncRoute(async (request, response) => {
+    if (options.supabaseSessionEnabled !== true) {
+      response.status(404).json(errorBody(request, "NOT_FOUND", "Not found."));
+      return;
+    }
+    const posToken = bearerToken(request);
+    const supabaseHeader = request.header("x-supabase-authorization")?.trim() ?? "";
+    const bearerPrefix = "Bearer ";
+    const hasBearerPrefix = supabaseHeader.slice(0, bearerPrefix.length).toLowerCase() === bearerPrefix.toLowerCase();
+    const supabaseToken = hasBearerPrefix ? supabaseHeader.slice(bearerPrefix.length).trim() : "";
+    if (!posToken || !supabaseToken) {
+      sendUnauthenticated(request, response, "Both POS and Supabase bearer tokens are required.");
+      return;
+    }
+    const renewed = await sessions.renewSupabaseSession({ supabaseToken, posToken });
+    if (!renewed) {
+      sendUnauthenticated(request, response, "Authentication session cannot be renewed.");
+      return;
+    }
+    const principal = await sessions.authenticateBearer(posToken);
+    if (!principal) {
+      sendUnauthenticated(request, response, "Authentication session is invalid.");
+      return;
+    }
+    const context = await withPrincipalContext(request, principal, () => loadSessionContext(db, principal, posToken, renewed.expiresAt));
+    if (!context) {
+      sendUnauthenticated(request, response, "Session scope could not be established.");
+      return;
+    }
+    response.setHeader("Cache-Control", "private, no-store");
     response.status(200).json(context);
   }));
   const handleCredentialLogin = (forceAdminRole) => async (request, response) => {

@@ -6,14 +6,22 @@
 import type { IAuthApi } from './types';
 import { createProductionAuthApi } from './productionAuthApi';
 import { createSupabaseAuthApi } from './supabaseAuthApi';
+import { isProductionApiBaseUrl } from './apiBaseUrl';
+import { shouldReadMock } from './env';
 
 const productionAuthApi: IAuthApi = createProductionAuthApi();
 const supabaseAuthApi: IAuthApi = createSupabaseAuthApi();
 const authProvider = import.meta.env.VITE_AUTH_PROVIDER?.trim().toLowerCase();
+const authApiBaseUrl = import.meta.env.VITE_AUTH_API_BASE_URL?.trim() || '';
+const useDevelopmentMock = shouldReadMock();
+
+if (!import.meta.env.DEV && !useDevelopmentMock && authApiBaseUrl && !isProductionApiBaseUrl(authApiBaseUrl)) {
+  throw new Error('VITE_AUTH_API_BASE_URL must be a same-origin path or an absolute HTTP(S) URL when explicitly configured.');
+}
 
 // Supabase Auth is opt-in until first-tenant bootstrap and identity binding are fully verified.
-// Only explicit local development may load the isolated mock adapter.
-if (!import.meta.env.DEV && authProvider !== 'supabase' && authProvider !== 'production') {
+// Only explicit development/preview runtimes may load the isolated mock adapter.
+if (!import.meta.env.DEV && !useDevelopmentMock && authProvider !== 'supabase' && authProvider !== 'production') {
   throw new Error('Authentication provider must be explicitly configured for non-development builds.');
 }
 
@@ -25,6 +33,10 @@ const createDevelopmentMockAuthApi = (): IAuthApi => ({
   async logout(token) {
     const { developmentMockAuthApi } = await import('./developmentMockAuthApi');
     return developmentMockAuthApi.logout(token);
+  },
+  async renewSession(token) {
+    const { developmentMockAuthApi } = await import('./developmentMockAuthApi');
+    return developmentMockAuthApi.renewSession(token);
   },
   async verifySession(token) {
     const { developmentMockAuthApi } = await import('./developmentMockAuthApi');
@@ -40,7 +52,7 @@ const createDevelopmentMockAuthApi = (): IAuthApi => ({
   },
 });
 
-export const authApi: IAuthApi = import.meta.env.DEV
+export const authApi: IAuthApi = useDevelopmentMock
   ? createDevelopmentMockAuthApi()
   : authProvider === 'supabase'
     ? supabaseAuthApi
