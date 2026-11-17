@@ -204,7 +204,8 @@ export const AppShell: React.FC<AppShellProps> = ({
                 key={tab.id}
                 type="button"
                 onClick={() => onNavigate(tab.id)}
-                className={`flex-1 min-h-[44px] py-1 rounded-xl flex flex-col items-center justify-center gap-0.5 transition-all cursor-pointer active:scale-95 ${
+                aria-current={active ? 'page' : undefined}
+                className={`flex-1 min-h-[44px] py-1 rounded-xl flex flex-col items-center justify-center gap-0.5 transition-all cursor-pointer active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
                   active
                     ? 'text-primary font-black bg-primary/10'
                     : 'text-text/60 hover:text-text font-semibold'
@@ -220,7 +221,7 @@ export const AppShell: React.FC<AppShellProps> = ({
           <button
             type="button"
             onClick={() => setIsMobileMenuOpen(true)}
-            className="flex-1 min-h-[44px] py-1 rounded-xl flex flex-col items-center justify-center gap-0.5 text-text/60 hover:text-text font-semibold transition-all cursor-pointer active:scale-95"
+            className="flex-1 min-h-[44px] py-1 rounded-xl flex flex-col items-center justify-center gap-0.5 text-text/60 hover:text-text font-semibold transition-all cursor-pointer active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
           >
             <Menu className="h-4 w-4 shrink-0" />
             <span className="text-[10px] leading-tight">

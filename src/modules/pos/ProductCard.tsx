@@ -22,6 +22,8 @@ export const ProductCard = React.memo<ProductCardProps>(({ product, onAddToCart,
       id={id}
       role="button"
       tabIndex={isOutOfStock ? -1 : 0}
+      aria-disabled={isOutOfStock}
+      aria-label={`${product.name}, ${formatMoney(product.price)}${isOutOfStock ? ` - ${t.pos.outOfStock}` : ''}`}
       onClick={() => {
         if (!isOutOfStock) {
           triggerHaptic('tap');
