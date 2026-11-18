@@ -14,7 +14,7 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 
 const variantStyles: Record<ButtonVariant, string> = {
   primary:
-    'bg-primary hover:bg-primary-dark text-white font-semibold shadow-xs hover:shadow-sm ring-1 ring-primary/20',
+    'bg-primary hover:bg-primary-dark text-brand-primary-text font-semibold shadow-xs hover:shadow-sm ring-1 ring-primary/20',
   secondary:
     'bg-card text-text hover:bg-background font-semibold border border-border border-crisp shadow-2xs hover:border-text/20',
   outline:
@@ -22,9 +22,9 @@ const variantStyles: Record<ButtonVariant, string> = {
   ghost:
     'bg-transparent text-text/70 hover:text-text hover:bg-background/80 font-semibold',
   danger:
-    'bg-danger hover:brightness-110 text-white font-semibold shadow-xs ring-1 ring-danger/20',
+    'bg-danger hover:brightness-110 text-brand-primary-text font-semibold shadow-xs ring-1 ring-danger/20',
   success:
-    'bg-success hover:brightness-110 text-white font-semibold shadow-xs ring-1 ring-success/20',
+    'bg-success hover:brightness-110 text-brand-primary-text font-semibold shadow-xs ring-1 ring-success/20',
 };
 
 const sizeStyles: Record<ButtonSize, string> = {

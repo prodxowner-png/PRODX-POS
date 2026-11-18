@@ -207,7 +207,7 @@ export const AdminConsoleLayout: React.FC<AdminConsoleLayoutProps> = ({
           <ProdxVectorMark size={36} className="shadow-lg shadow-cta/15 rounded-xl shrink-0" />
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <span className="font-black tracking-tight text-sm sm:text-base lg:text-lg truncate text-white">
+              <span className="font-black tracking-tight text-sm sm:text-base lg:text-lg truncate text-brand-primary-text">
                 PRODX <span className="text-cta">ADMIN CONSOLE</span>
               </span>
               <span className="hidden md:inline-flex items-center gap-1 rounded-full bg-emerald-500/20 border border-emerald-500/40 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider text-emerald-300 shrink-0">
@@ -231,7 +231,7 @@ export const AdminConsoleLayout: React.FC<AdminConsoleLayoutProps> = ({
           <div className="hidden xl:flex items-center gap-2.5 rounded-xl bg-white/10 border border-white/20 px-3 py-1.5">
             <UserCheck className="h-4 w-4 text-emerald-300" />
             <div className="text-xs">
-              <div className="font-bold text-white leading-none">{currentUser.name}</div>
+              <div className="font-bold text-brand-primary-text leading-none">{currentUser.name}</div>
               <div className="text-[10px] text-slate-200 font-mono mt-0.5">
                 {currentUser.email} · {currentUser.role.toUpperCase()}
               </div>
@@ -242,7 +242,7 @@ export const AdminConsoleLayout: React.FC<AdminConsoleLayoutProps> = ({
           <button
             type="button"
             onClick={() => setLanguage(isThai ? 'en' : 'th')}
-            className="min-h-[44px] px-3 rounded-xl border border-white/20 bg-white/10 hover:bg-white/20 text-xs font-bold text-white flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2 transition-colors cursor-pointer"
+            className="min-h-[44px] px-3 rounded-xl border border-white/20 bg-white/10 hover:bg-white/20 text-xs font-bold text-brand-primary-text flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2 transition-colors cursor-pointer"
           >
             <Globe2 className="h-4 w-4 text-slate-200" />
             <span>{isThai ? 'EN' : 'ไทย'}</span>
@@ -252,7 +252,7 @@ export const AdminConsoleLayout: React.FC<AdminConsoleLayoutProps> = ({
           <button
             type="button"
             onClick={handleReturnToPos}
-            className="min-h-[44px] px-3.5 rounded-xl border border-white/20 bg-white/10 hover:bg-white/20 text-xs font-black text-white flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2 transition-colors cursor-pointer"
+            className="min-h-[44px] px-3.5 rounded-xl border border-white/20 bg-white/10 hover:bg-white/20 text-xs font-black text-brand-primary-text flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2 transition-colors cursor-pointer"
           >
             <ArrowLeft className="h-4 w-4 text-cta" />
             <span className="hidden min-[420px]:inline">{isThai ? 'สลับไปหน้า POS' : 'POS Terminal'}</span>
@@ -263,7 +263,7 @@ export const AdminConsoleLayout: React.FC<AdminConsoleLayoutProps> = ({
           <button
             type="button"
             onClick={() => void logout()}
-            className="min-h-[44px] px-3.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-xs font-black text-white flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-rose-400 focus-visible:ring-offset-2 transition-colors cursor-pointer"
+            className="min-h-[44px] px-3.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-xs font-black text-brand-primary-text flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-rose-400 focus-visible:ring-offset-2 transition-colors cursor-pointer"
           >
             <LogOut className="h-4 w-4" />
             <span className="hidden sm:inline">{isThai ? 'ออกจากระบบ' : 'Sign Out'}</span>

@@ -188,7 +188,7 @@ export const AdminLoginScreen: React.FC<AdminLoginScreenProps> = ({
     <div className="min-h-[100svh] bg-brand-bg text-brand-text font-sans flex flex-col lg:grid lg:grid-cols-[44%_56%]">
       {/* Left Executive Branding Column (Visible on Desktop / Large Landscape POS) */}
       <section className="relative hidden lg:flex flex-col justify-between overflow-hidden border-r border-brand-border/60 bg-brand-primary text-brand-primary-text p-10 xl:p-14">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_15%_20%,var(--brand-cta-subtle,rgba(232,137,74,0.15)),transparent_45%),radial-gradient(circle_at_85%_80%,rgba(15,42,34,0.4),transparent_45%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_15%_20%,rgba(232,137,74,0.18),transparent_45%),radial-gradient(circle_at_85%_80%,rgba(15,42,34,0.38),transparent_45%)]" />
         <div className="relative z-10 flex items-center gap-3.5">
           <ProdxVectorMark size={48} className="rounded-2xl shadow-xl" />
           <div>

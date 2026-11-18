@@ -7,6 +7,7 @@
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 
   --color-primary: var(--primary-color);
+  --color-primary-foreground: var(--brand-primary-text);
   --color-primary-dark: var(--primary-dark);
   --color-primary-light: var(--primary-light);
   --color-primary-glow: var(--primary-glow);
@@ -28,8 +29,15 @@
   --color-brand-text: var(--brand-text);
   --color-brand-text-secondary: var(--brand-text-secondary);
   --color-brand-text-muted: var(--brand-text-muted);
+  --color-brand-text-accent: var(--brand-text-accent);
   --color-brand-border: var(--brand-border);
   --color-brand-border-strong: var(--brand-border-strong);
+  --color-brand-primary: var(--brand-primary);
+  --color-brand-primary-hover: var(--brand-primary-hover);
+  --color-brand-primary-pressed: var(--brand-primary-pressed);
+  --color-brand-primary-text: var(--brand-primary-text);
+  --color-brand-gold: var(--brand-gold);
+  --color-brand-gold-500: var(--brand-gold-500);
 
   /* Semantic CTA and Status Utilities */
   --color-cta: var(--brand-cta);
@@ -69,7 +77,7 @@
 @layer base {
   :root {
     color-scheme: light dark;
-    accent-color: var(--brand-cta, #e8894a);
+    accent-color: var(--brand-primary, #183d32);
     --primary-color: #3B82F6;
     --primary-dark: #1D4ED8;
     --primary-light: rgba(59, 130, 246, 0.12);
