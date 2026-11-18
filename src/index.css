@@ -69,6 +69,7 @@
 @layer base {
   :root {
     color-scheme: light dark;
+    accent-color: var(--brand-cta, #e8894a);
     --primary-color: #3B82F6;
     --primary-dark: #1D4ED8;
     --primary-light: rgba(59, 130, 246, 0.12);
