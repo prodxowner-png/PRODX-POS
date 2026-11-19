@@ -61,10 +61,19 @@ test('enforces WCAG AA >= 4.5:1 for custom accents and adapts primary foreground
   const darkAccentVars = buildThemeVariables(signature, 'light', '#0369a1');
   assert.equal(darkAccentVars['--primary-color'], '#0369a1');
   assert.equal(darkAccentVars['--brand-primary'], '#0369a1');
+  assert.equal(darkAccentVars['--brand-primary-hover'], '#0369a1');
+  assert.equal(darkAccentVars['--brand-primary-pressed'], '#0369a1');
+  assert.equal(darkAccentVars['--primary-dark'], '#0369a1');
   assert.equal(darkAccentVars['--brand-primary-text'], '#fbf8f3');
   assert.equal(darkAccentVars['--primary-text'], '#fbf8f3');
   assert.ok(
     getContrastRatio(darkAccentVars['--brand-primary'], darkAccentVars['--brand-primary-text']) >= 4.5,
+  );
+  assert.ok(
+    getContrastRatio(darkAccentVars['--brand-primary-hover'], darkAccentVars['--brand-primary-text']) >= 4.5,
+  );
+  assert.ok(
+    getContrastRatio(darkAccentVars['--brand-primary-pressed'], darkAccentVars['--brand-primary-text']) >= 4.5,
   );
 
   // Light custom accent (#f59e0b amber: fails against white, passes >= 4.5:1 against dark ink #20242b)
@@ -76,15 +85,30 @@ test('enforces WCAG AA >= 4.5:1 for custom accents and adapts primary foreground
   const lightAccentVars = buildThemeVariables(signature, 'light', '#f59e0b');
   assert.equal(lightAccentVars['--primary-color'], '#f59e0b');
   assert.equal(lightAccentVars['--brand-primary'], '#f59e0b');
+  assert.equal(lightAccentVars['--brand-primary-hover'], '#f59e0b');
+  assert.equal(lightAccentVars['--brand-primary-pressed'], '#f59e0b');
+  assert.equal(lightAccentVars['--primary-dark'], '#f59e0b');
   assert.equal(lightAccentVars['--brand-primary-text'], '#20242b');
   assert.equal(lightAccentVars['--primary-text'], '#20242b');
   assert.ok(
     getContrastRatio(lightAccentVars['--brand-primary'], lightAccentVars['--brand-primary-text']) >= 4.5,
   );
+  assert.ok(
+    getContrastRatio(lightAccentVars['--brand-primary-hover'], lightAccentVars['--brand-primary-text']) >= 4.5,
+  );
+  assert.ok(
+    getContrastRatio(lightAccentVars['--brand-primary-pressed'], lightAccentVars['--brand-primary-text']) >= 4.5,
+  );
+  assert.ok(
+    getContrastRatio(lightAccentVars['--primary-dark'], lightAccentVars['--primary-text']) >= 4.5,
+  );
 
   // Low-contrast mid-tone accent falls back cleanly to preset primary and primaryText
   const fallbackVars = buildThemeVariables(signature, 'light', '#777777');
   assert.equal(fallbackVars['--primary-color'], signature.primary);
+  assert.equal(fallbackVars['--brand-primary-hover'], signature.semanticTokens.primaryHover);
+  assert.equal(fallbackVars['--brand-primary-pressed'], signature.semanticTokens.primaryPressed);
+  assert.equal(fallbackVars['--primary-dark'], signature.semanticTokens.primaryHover);
   assert.equal(fallbackVars['--brand-primary-text'], signature.semanticTokens.primaryText);
   assert.equal(fallbackVars['--primary-text'], signature.semanticTokens.primaryText);
 });

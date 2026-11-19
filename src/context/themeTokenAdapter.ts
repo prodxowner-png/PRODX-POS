@@ -114,11 +114,20 @@ export function buildThemeVariables(
   const resolvedCustomForeground = validatedAccent
     ? resolveAccessibleAccentForeground(validatedAccent, preset.semanticTokens.primaryText)
     : null;
-  const activePrimary = validatedAccent && resolvedCustomForeground ? validatedAccent : preset.primary;
-  const activePrimaryText =
+  const customAccentPair =
     validatedAccent && resolvedCustomForeground
-      ? resolvedCustomForeground
-      : preset.semanticTokens.primaryText;
+      ? { primary: validatedAccent, text: resolvedCustomForeground }
+      : null;
+  const activePrimary = customAccentPair ? customAccentPair.primary : preset.primary;
+  const activePrimaryText = customAccentPair
+    ? customAccentPair.text
+    : preset.semanticTokens.primaryText;
+  const activePrimaryHover = customAccentPair
+    ? customAccentPair.primary
+    : preset.semanticTokens.primaryHover;
+  const activePrimaryPressed = customAccentPair
+    ? customAccentPair.primary
+    : preset.semanticTokens.primaryPressed;
 
   const isDarkMode = mode === 'dark';
 
@@ -129,7 +138,7 @@ export function buildThemeVariables(
   let textMutedColor = preset.textMuted;
   let borderColor = preset.border;
   let borderHoverColor = preset.borderHover;
-  let primaryDarkColor = preset.semanticTokens.primaryHover;
+  const primaryDarkColor = activePrimaryHover;
   const primaryLightColor = preset.primaryLight;
   const primaryGlow = preset.primaryGlow;
 
@@ -154,7 +163,6 @@ export function buildThemeVariables(
       textMutedColor = preset.textMuted;
       borderColor = preset.border;
       borderHoverColor = preset.borderHover;
-      primaryDarkColor = preset.semanticTokens.primaryHover;
       brandBg = preset.semanticTokens.bg;
       brandSurface = preset.semanticTokens.surface;
       brandSurfaceRaised = preset.semanticTokens.surfaceRaised;
@@ -174,7 +182,6 @@ export function buildThemeVariables(
       textMutedColor = NIGHT_SURFACES.textMuted;
       borderColor = NIGHT_SURFACES.border;
       borderHoverColor = NIGHT_SURFACES.borderStrong;
-      primaryDarkColor = preset.semanticTokens.primaryHover;
       brandBg = NIGHT_SURFACES.bg;
       brandSurface = NIGHT_SURFACES.surface;
       brandSurfaceRaised = NIGHT_SURFACES.surfaceRaised;
@@ -196,7 +203,6 @@ export function buildThemeVariables(
       textMutedColor = preset.textMuted;
       borderColor = preset.border;
       borderHoverColor = preset.borderHover;
-      primaryDarkColor = preset.semanticTokens.primaryHover;
       brandBg = preset.semanticTokens.bg;
       brandSurface = preset.semanticTokens.surface;
       brandSurfaceRaised = preset.semanticTokens.surfaceRaised;
@@ -216,7 +222,6 @@ export function buildThemeVariables(
       textMutedColor = DAY_FALLBACK_SURFACES.textMuted;
       borderColor = DAY_FALLBACK_SURFACES.border;
       borderHoverColor = DAY_FALLBACK_SURFACES.borderStrong;
-      primaryDarkColor = preset.semanticTokens.primaryHover;
       brandBg = DAY_FALLBACK_SURFACES.bg;
       brandSurface = DAY_FALLBACK_SURFACES.surface;
       brandSurfaceRaised = DAY_FALLBACK_SURFACES.surfaceRaised;
@@ -266,8 +271,8 @@ export function buildThemeVariables(
     '--brand-border': brandBorder,
     '--brand-border-strong': brandBorderStrong,
     '--brand-primary': activePrimary,
-    '--brand-primary-hover': preset.semanticTokens.primaryHover,
-    '--brand-primary-pressed': preset.semanticTokens.primaryPressed,
+    '--brand-primary-hover': activePrimaryHover,
+    '--brand-primary-pressed': activePrimaryPressed,
     '--brand-primary-text': activePrimaryText,
 
     // Status and CTA tokens (preserved across all presets; dark mode uses readable night status text/subtle)

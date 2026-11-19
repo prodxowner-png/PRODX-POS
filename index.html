@@ -135,7 +135,7 @@
             },
             classic_light: {
               primary: '#27272a', primaryDark: '#18181b', primaryLight: 'rgba(39, 39, 42, 0.08)', primaryGlow: 'rgba(39, 39, 42, 0.16)',
-              background: '#f4f4f5', card: '#ffffff', cardHover: '#e4e4e7', text: '#18181b', textMuted: '#71717a', border: '#e4e4e7', borderHover: '#d4d4d8',
+              background: '#f4f4f5', card: '#ffffff', cardHover: '#e4e4e7', text: '#18181b', textMuted: '#52525b', border: '#e4e4e7', borderHover: '#d4d4d8',
               buttonRadius: '10px', cardRadius: '14px', isDark: false
             }
           };
@@ -163,8 +163,12 @@
             (persistedConfig && persistedConfig.theme && persistedConfig.theme.presetId) ||
             localStorage.getItem('prodx_pos_theme_preset') ||
             'prodx_signature';
-          var resolvedPresetId = PRESETS[rawPresetId] ? rawPresetId : (LEGACY_ALIAS[rawPresetId] || 'prodx_signature');
-          var preset = PRESETS[resolvedPresetId] || PRESETS.prodx_signature;
+          var resolvedPresetId = Object.prototype.hasOwnProperty.call(PRESETS, rawPresetId)
+            ? rawPresetId
+            : (Object.prototype.hasOwnProperty.call(LEGACY_ALIAS, rawPresetId) ? LEGACY_ALIAS[rawPresetId] : 'prodx_signature');
+          var preset = Object.prototype.hasOwnProperty.call(PRESETS, resolvedPresetId)
+            ? PRESETS[resolvedPresetId]
+            : PRESETS.prodx_signature;
 
           var savedMode =
             (persistedConfig && persistedConfig.theme && persistedConfig.theme.mode) ||

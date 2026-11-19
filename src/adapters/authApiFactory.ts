@@ -29,7 +29,7 @@ const supabaseAuthApi: IAuthApi = createSupabaseAuthApi();
 // Only explicit local development may load the isolated mock adapter.
 export const createUnconfiguredAuthApi = (): IAuthApi => {
   const failClosed = async (): Promise<never> => {
-    throw new Error(UNCONFIGURED_AUTH_PROVIDER_ERROR);
+    throw new Error('Authentication provider must be explicitly configured for non-development builds.');
   };
   return {
     login: failClosed,
@@ -77,14 +77,13 @@ export const resolveAuthApi = (
     return deps.unconfiguredApi ?? createUnconfiguredAuthApi();
   }
 
-  const normalizedProvider = options.provider?.trim().toLowerCase();
-  if (normalizedProvider === 'supabase') {
-    return deps.supabaseApi ?? supabaseAuthApi;
+  const authProvider = options.provider?.trim().toLowerCase();
+  if (authProvider !== 'supabase' && authProvider !== 'production') {
+    return deps.unconfiguredApi ?? createUnconfiguredAuthApi();
   }
-  if (normalizedProvider === 'production') {
-    return deps.productionApi ?? productionAuthApi;
-  }
-  return deps.unconfiguredApi ?? createUnconfiguredAuthApi();
+  return authProvider === 'supabase'
+    ? (deps.supabaseApi ?? supabaseAuthApi)
+    : (deps.productionApi ?? productionAuthApi);
 };
 
 export const authApi: IAuthApi =

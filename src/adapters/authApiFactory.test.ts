@@ -76,7 +76,7 @@ test('missing provider in production resolves to fail-closed unconfigured auth A
     assert.notEqual(resolved, mockStub);
     await assert.rejects(
       resolved.verifySession('stale-token'),
-      new RegExp(UNCONFIGURED_AUTH_PROVIDER_ERROR),
+      { message: UNCONFIGURED_AUTH_PROVIDER_ERROR },
     );
   }
 });
@@ -146,13 +146,13 @@ test('development mock adapter is selected only when isDev is true and never whe
       emailOrPin: '123456',
       passwordOrPin: '123456',
     }),
-    new RegExp(UNCONFIGURED_AUTH_PROVIDER_ERROR),
+    { message: UNCONFIGURED_AUTH_PROVIDER_ERROR },
   );
 });
 
 // 5. Runtime calls with unconfigured provider (all 5 IAuthApi methods reject)
 test('authApi fails closed on every IAuthApi method when unconfigured outside DEV', async () => {
-  const errorPattern = new RegExp(UNCONFIGURED_AUTH_PROVIDER_ERROR);
+  const errorPattern = { message: UNCONFIGURED_AUTH_PROVIDER_ERROR };
 
   for (const api of [authApi, createUnconfiguredAuthApi()]) {
     await assert.rejects(
