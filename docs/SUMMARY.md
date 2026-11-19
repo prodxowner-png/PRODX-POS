@@ -1,6 +1,7 @@
 # PRODX POS Documentation
 
 - [Overview](README.md)
+- [Documentation Reconciliation Review — 2026-10-17](DOCUMENTATION-REVIEW-2026-10-17.md)
 - [Engineering Status Snapshot — 2026-10-15](STATUS-2026-10-15.md)
 - [Production Handbook](PRODUCTION-HANDBOOK.md)
 - [Agent Engineering Skills](engineering-skills/README.md)
