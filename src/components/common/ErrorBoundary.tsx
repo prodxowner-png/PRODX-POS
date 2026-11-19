@@ -30,6 +30,7 @@ export interface ErrorBoundaryProps {
 interface ErrorBoundaryState {
   hasError: boolean;
   error: Error | null;
+  errorName?: string;
   errorInfo: React.ErrorInfo | null;
   showDetails: boolean;
   copied: boolean;
@@ -41,6 +42,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
     this.state = {
       hasError: false,
       error: null,
+      errorName: undefined,
       errorInfo: null,
       showDetails: false,
       copied: false,
@@ -48,9 +50,14 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
   }
 
   public static getDerivedStateFromError(error: Error): Partial<ErrorBoundaryState> {
+    const candidateErrorName = error && typeof error.name === 'string' ? error.name : '';
+    const errorName = /^[A-Za-z][A-Za-z0-9_]{0,79}$/.test(candidateErrorName)
+      ? candidateErrorName
+      : 'RenderError';
     return {
       hasError: true,
       error,
+      errorName,
     };
   }
 
@@ -64,12 +71,13 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
     const componentStack = typeof errorInfo.componentStack === 'string'
       ? errorInfo.componentStack.slice(0, 8000)
       : '';
-    this.setState({ errorInfo: { componentStack } });
+    this.setState({ errorName, errorInfo: { componentStack } });
 
     // Optional consumers receive a sanitized exception, never the raw object.
     if (this.props.onError) {
       const safeError = new Error('An unexpected application rendering error occurred.');
       safeError.name = errorName;
+      safeError.stack = undefined;
       this.props.onError(safeError, { componentStack });
     }
 
@@ -110,6 +118,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
     this.setState({
       hasError: false,
       error: null,
+      errorName: undefined,
       errorInfo: null,
       showDetails: false,
       copied: false,
@@ -151,7 +160,14 @@ User Agent: ${typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown'
     // Custom fallback support
     if (fallback) {
       if (typeof fallback === 'function') {
-        return fallback(error || new Error('Unknown error'), this.resetBoundary);
+        const candidateErrorName = this.state.errorName || (error && typeof error.name === 'string' ? error.name : '');
+        const safeErrorName = /^[A-Za-z][A-Za-z0-9_]{0,79}$/.test(candidateErrorName)
+          ? candidateErrorName
+          : 'RenderError';
+        const safeError = new Error('An unexpected component render error occurred.');
+        safeError.name = safeErrorName;
+        safeError.stack = undefined;
+        return fallback(safeError, this.resetBoundary);
       }
       return fallback;
     }

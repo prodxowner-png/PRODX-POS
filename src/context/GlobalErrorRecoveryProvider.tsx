@@ -322,7 +322,9 @@ export function sanitizeAndRestoreAppState(
             quarantinedKeys.push(qKey);
           }
           hasFailure = true;
-          failureReason = `Offline outbox contains unparseable corrupted JSON. Raw content quarantined to ${qKey} and original preserved intact to prevent transaction data loss.`;
+          failureReason = quarantined
+            ? `Offline outbox contains unparseable corrupted JSON. Raw content quarantined to ${qKey} and original preserved intact to prevent transaction data loss.`
+            : 'Offline outbox contains unparseable corrupted JSON. Quarantine backup failed; original content preserved intact to prevent transaction data loss.';
         }
       }
     }

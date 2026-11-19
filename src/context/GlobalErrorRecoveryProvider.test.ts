@@ -518,3 +518,76 @@ test('App.tsx architecture: GlobalErrorRecoveryProvider is nested inside ErrorBo
     'POS core mode must nest GlobalErrorRecoveryProvider inside ErrorBoundary isGlobal'
   );
 });
+
+test('sanitizeAndRestoreAppState: unparseable outbox when quarantine write fails reports quarantine backup failure and never claims raw content was quarantined', () => {
+  const store = new Map<string, string>();
+  const failingStorage = {
+    getItem(key: string): string | null {
+      return store.get(key) ?? null;
+    },
+    setItem(key: string, value: string): void {
+      if (key.includes('quarantine')) {
+        throw new Error('QuotaExceededError: DOM Exception 22');
+      }
+      store.set(key, value);
+    },
+    removeItem(key: string): void {
+      store.delete(key);
+    },
+  };
+
+  const unparseableOutbox = '{"corrupted_outbox": [unterminated_json';
+  store.set('prodx_pos_outbox', unparseableOutbox);
+
+  const result = sanitizeAndRestoreAppState('outbox', failingStorage);
+
+  assert.equal(result.success, false, 'Must return success: false when outbox is unparseable and quarantine fails');
+  assert.equal(failingStorage.getItem('prodx_pos_outbox'), unparseableOutbox, 'Original outbox must be preserved intact');
+  assert.deepEqual(result.quarantinedKeys, [], 'Failed quarantine key must not be included in quarantinedKeys');
+  assert.match(result.message, /Quarantine backup failed; original content preserved intact/i);
+  assert.doesNotMatch(result.message, /Raw content quarantined to/i);
+});
+
+test('ErrorBoundary: custom fallback function receives sanitized safeError with withheld message and stack', async () => {
+  const { ErrorBoundary } = await import('../components/common/ErrorBoundary');
+  const sensitiveError = new TypeError('SECRET_DB_TOKEN=sk_live_999999');
+  sensitiveError.stack = 'TypeError: SECRET_DB_TOKEN=sk_live_999999\n    at CheckoutService.charge (pos.ts:42:13)';
+
+  let receivedError: Error | null = null;
+  let receivedReset: (() => void) | null = null;
+
+  const derivedState = ErrorBoundary.getDerivedStateFromError(sensitiveError);
+  const boundary = new ErrorBoundary({
+    children: React.createElement('div', null, 'POS Child'),
+    fallback: (err, reset) => {
+      receivedError = err;
+      receivedReset = reset;
+      return React.createElement('div', { id: 'custom-fallback' }, `${err.name}:${err.message}`);
+    },
+  });
+
+  boundary.state = {
+    ...boundary.state,
+    ...derivedState,
+  };
+
+  const rendered = boundary.render() as ReactElement;
+  assert.ok(rendered);
+  assert.ok(receivedError, 'Custom fallback function must be invoked with an Error instance');
+  assert.equal((receivedError as Error).name, 'TypeError', 'Validated errorName must be preserved on safeError');
+  assert.equal((receivedError as Error).message, 'An unexpected component render error occurred.');
+  assert.equal((receivedError as Error).stack, undefined, 'Raw stack trace must be cleared on safeError');
+  assert.ok(!JSON.stringify(rendered).includes('sk_live_999999'), 'Sensitive error message must never reach custom fallback');
+  assert.equal(typeof receivedReset, 'function', 'Reset callback must be provided to custom fallback');
+
+  // Verify attacker-controlled error.name falls back to RenderError
+  const malformedNameError = Object.assign(new Error('leak'), { name: 'Bearer sk_live_999999' });
+  const malformedDerived = ErrorBoundary.getDerivedStateFromError(malformedNameError);
+  boundary.state = {
+    ...boundary.state,
+    ...malformedDerived,
+  };
+  boundary.render();
+  assert.equal((receivedError as Error).name, 'RenderError');
+});
+
