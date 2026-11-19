@@ -24,6 +24,14 @@ Operate as the autonomous production engineering agent for PRODX-POS. Work from 
   - Do not merge pull requests unless explicitly instructed.
   - Always prefer root-cause architectural fixes over test-specific or symptom-masking patches.
 
+## Skill Selection & Superpowers Workflow
+
+- For engineering tasks, read `.agents/skills/prodx-superpowers-integration/SKILL.md` and the narrowest applicable PRODX skill(s).
+- Use the vendored upstream `using-superpowers` bootstrap and select workflow skills for brainstorming, planning, TDD, debugging, review, and verification as appropriate.
+- Existing approved specifications and explicit owner instructions take precedence over generic upstream prompts; do not reopen settled decisions or request redundant approval.
+- Upstream skills never override this contract, production safety boundaries, or the explicit no-merge/no-deploy rule.
+- Use subagents/worktrees only when the active harness actually supports them; otherwise execute inline and report the limitation.
+
 ## Autonomous Execution Loop
 
 For every assigned task or PR, execute the following deterministic loop:

@@ -1,6 +1,6 @@
 # Engineering Skills: Operating Model
 
-The skills in [`.agents/skills/`](../../.agents/skills/README.md) operationalize the repository's production handbook and `AGENTS.md`. Use the narrowest relevant skill together with `prodx-code-review` for security-sensitive or high-risk changes. Use `prodx-production-readiness` for release decisions.
+The skills in [`.agents/skills/`](../../.agents/skills/README.md) operationalize the repository's production handbook and `AGENTS.md`. Apply the narrowest relevant skill(s) together with `prodx-code-review` for security-sensitive or high-risk changes. Use `prodx-production-readiness` for release decisions.
 
 The Gemini issue implementation agent loads `prodx-architecture`, `prodx-security`, and `prodx-testing` as baseline references, then selects additional skills from the issue title/body. Missing, malformed, unsafe, or over-budget required skill context fails closed before candidate generation. The repository skill documents remain policy references and cannot override the agent's safety prompt.
 
@@ -18,6 +18,30 @@ The Gemini issue implementation agent loads `prodx-architecture`, `prodx-securit
 | Workflows, release, deployment | `prodx-ci-cd`, `prodx-backup-recovery`, `prodx-production-readiness` |
 | Runtime platform, ingress, TLS, secrets, health/readiness, capacity | `prodx-production-infrastructure`, `prodx-observability`, `prodx-security` |
 | Backup, restore, DR | `prodx-backup-recovery`, `prodx-postgresql`, `prodx-production-readiness` |
+| POS, checkout, cashier, or Owner Console UX | `prodx-ui-ux-design`, `prodx-design-system`, `prodx-responsive-accessibility` |
+| Shared components, themes, tokens, typography | `prodx-design-system`, `prodx-frontend-review` |
+| React/TypeScript screen or interaction implementation | `prodx-frontend-engineering`, `prodx-ui-ux-design`, `prodx-testing` |
+| Responsive, keyboard, touch, or accessibility change | `prodx-responsive-accessibility`, `prodx-frontend-review` |
+| Frontend PR or visual regression review | `prodx-frontend-review`, `prodx-code-review`, `prodx-testing` |
+
+## Frontend implementation sequence
+
+For a meaningful UI feature, apply this sequence:
+1. `prodx-ui-ux-design`: define actor, workflow, acceptance criteria, and all important states.
+2. `prodx-design-system`: identify existing tokens/components and decide whether shared design-system changes are needed.
+3. `prodx-frontend-engineering`: implement the real React/TypeScript flow and API wiring.
+4. `prodx-responsive-accessibility`: verify supported viewports, keyboard, touch, focus, and accessibility.
+5. `prodx-frontend-review`: independently review UX, visual consistency, production wiring, and reliability.
+
+Do not mechanically invoke every skill for a trivial copy or styling change; select the narrowest relevant subset. A frontend design skill never overrides server authority, security, financial/inventory invariants, or repository quality gates.
+
+## Superpowers development methodology
+
+The repository vendors the 15 MIT-licensed skills from [obra/superpowers](https://github.com/obra/superpowers). For development tasks, use `prodx-superpowers-integration` as the entry point and combine the relevant upstream workflow skill with the narrowest PRODX domain skill(s).
+
+Recommended lifecycle: brainstorming → isolated branch/worktree → implementation plan → RED/GREEN/REFACTOR → root-cause debugging as needed → review → exact-SHA verification → finish-branch readiness.
+
+This methodology does not supersede `AGENTS.md`, approved product specifications, PRODX domain invariants, or explicit authorization boundaries. If subagents/worktrees are unavailable, use the documented inline/fallback process; never claim unsupported capabilities. Merge and deployment authorization remain separate.
 
 ## Evidence and status
 
