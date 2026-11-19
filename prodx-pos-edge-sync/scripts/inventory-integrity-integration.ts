@@ -428,13 +428,31 @@ try{
   }
 
   // Backorders are permitted only after the trusted Store setting is enabled.
+  const firstPolicyChangeId=randomUUID();
   await admin.query("BEGIN");
   await admin.query("SELECT set_config('app.current_tenant_id',$1,true)",[tenantId]);
   await admin.query(
     `UPDATE store_inventory_settings SET allow_negative_stock=true,updated_at=now(),updated_by=$3,
        last_change_hash=$4,last_change_id=$5 WHERE tenant_id=$1 AND store_id=$2`,
-    [tenantId,storeId,terminalA,randomUUID().replace(/-/g,"")+randomUUID().replace(/-/g,"").slice(0,32),randomUUID()]
+    [tenantId,storeId,terminalA,randomUUID().replace(/-/g,"")+randomUUID().replace(/-/g,"").slice(0,32),firstPolicyChangeId]
   );
+  // A repeat UPDATE that omits a fresh last_change_id (or reuses the previous last_change_id)
+  // must fail closed rather than silently reusing stale audit attribution.
+  await admin.query("SAVEPOINT stale_policy_audit_attempt");
+  let stalePolicyAuditRejected=false;
+  try{
+    await admin.query(
+      `UPDATE store_inventory_settings SET allow_negative_stock=false,updated_at=now()
+        WHERE tenant_id=$1 AND store_id=$2`,
+      [tenantId,storeId]
+    );
+  }catch(error){
+    const e=error as {code?:string;message?:string};
+    stalePolicyAuditRejected=e.code==="23514"&&String(e.message).includes("STORE_INVENTORY_POLICY_CHANGE_REQUIRES_AUDIT_CONTEXT");
+  }
+  await admin.query("ROLLBACK TO SAVEPOINT stale_policy_audit_attempt");
+  await admin.query("RELEASE SAVEPOINT stale_policy_audit_attempt");
+  if(!stalePolicyAuditRejected) throw new Error("STALE_STORE_POLICY_AUDIT_ATTRIBUTION_ACCEPTED");
   await admin.query("COMMIT");
   const backorder=await makeSale(storeId,terminalBackorder,proofs,catalogVersion);
   // Simulate a pre-migration Durable Object payload without store_id; origin resolves it from terminal_devices.

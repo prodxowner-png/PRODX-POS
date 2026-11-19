@@ -341,7 +341,10 @@ FOR EACH ROW EXECUTE FUNCTION enforce_sale_terminal_store();
 CREATE OR REPLACE FUNCTION require_store_inventory_policy_audit()
 RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
-  IF NEW.updated_by IS NULL OR NEW.last_change_hash IS NULL OR NEW.last_change_id IS NULL THEN
+  IF NEW.updated_by IS NULL
+     OR NEW.last_change_hash IS NULL
+     OR NEW.last_change_id IS NULL
+     OR (OLD.last_change_id IS NOT NULL AND NEW.last_change_id IS NOT DISTINCT FROM OLD.last_change_id) THEN
     RAISE EXCEPTION 'STORE_INVENTORY_POLICY_CHANGE_REQUIRES_AUDIT_CONTEXT'
       USING ERRCODE='23514';
   END IF;
