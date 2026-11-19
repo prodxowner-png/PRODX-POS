@@ -29,6 +29,7 @@ import { Button } from '../../../components/common/Button';
 import { GraphicIcon } from '../../../components/common/GraphicIcon';
 import { useLanguage } from '../../../context/LanguageContext';
 import { useTheme, THEME_PRESETS, ThemePreset } from '../../../context/ThemeContext';
+import { buildThemeVariables } from '../../../context/themeTokenAdapter';
 import { useToast } from '../../../context/ToastContext';
 import { CustomerDisplayConfigState } from '../types';
 import { CustomerDisplayLauncherModal } from '../../../components/customerDisplay/CustomerDisplayLauncherModal';
@@ -67,19 +68,29 @@ export const AppearanceSettingsTab: React.FC<AppearanceSettingsTabProps> = ({
   const [previewPresetId, setPreviewPresetId] = useState<string | null>(null);
 
   React.useEffect(() => {
-    const presetToApply = THEME_PRESETS.find((p) => p.id === (previewPresetId || activePresetId)) || currentPreset;
+    if (!previewPresetId) {
+      return;
+    }
+
+    const presetToApply = THEME_PRESETS.find((p) => p.id === previewPresetId) || currentPreset;
     const root = document.documentElement;
-    root.style.setProperty('--primary-color', presetToApply.primary);
-    root.style.setProperty('--primary-dark', presetToApply.primaryDark);
-    root.style.setProperty('--primary-light', presetToApply.primaryLight);
-    root.style.setProperty('--primary-glow', presetToApply.primaryGlow);
-    root.style.setProperty('--bg-color', presetToApply.background);
-    root.style.setProperty('--card-color', presetToApply.card);
-    root.style.setProperty('--card-hover', presetToApply.cardHover);
-    root.style.setProperty('--text-color', presetToApply.text);
-    root.style.setProperty('--text-muted', presetToApply.textMuted);
-    root.style.setProperty('--border-color', presetToApply.border);
-  }, [previewPresetId, activePresetId, currentPreset]);
+    const previewVars = buildThemeVariables(
+      presetToApply,
+      theme,
+      previewPresetId ? null : customAccentColor
+    );
+
+    for (const [property, value] of Object.entries(previewVars)) {
+      root.style.setProperty(property, value);
+    }
+
+    return () => {
+      const restoredVars = buildThemeVariables(currentPreset, theme, customAccentColor);
+      for (const [property, value] of Object.entries(restoredVars)) {
+        root.style.setProperty(property, value);
+      }
+    };
+  }, [previewPresetId, currentPreset, theme, customAccentColor]);
 
   const handleLaunchDualMonitor = () => {
     const url = `${window.location.origin}${window.location.pathname}?view=customer-display`;
