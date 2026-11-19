@@ -235,10 +235,187 @@ test('buildIsolatedViteEnv clears production auth and Supabase env vars and clea
   assert.equal(existsSync(tempDir), false);
 });
 
-test('verify-all-routes-ui.ts blurs activeElement before shortcuts and monitors runtime/console/network errors with detached cleanup', () => {
+test('evaluateRouteIdentity rejects stuck-on-Dashboard snapshots even when Sidebar labels appear in bodyText', () => {
+  const stuckOnDashboard = {
+    bodyText:
+      'POS\nDashboard\nOrders\nShift\nInventory\nCustomers\nAudit\nKitchen Display\nTask Manager\nSettings\nOperational Sales Dashboard\nSales Overview',
+    mainText: 'Operational Sales Dashboard\nSales Overview',
+    headingsText: 'Operational Sales Dashboard | Sales Overview',
+    activeNavText: 'Dashboard',
+    matchedSelectors: ['main', 'h1'],
+    hasCrashBoundary: false,
+    hasErrorBoundaryFallback: false,
+  };
+
+  const dashEval = evaluateRouteIdentity(ROUTE_IDENTITY_SPECS.dashboard, stuckOnDashboard);
+  assert.equal(dashEval.matched, true);
+
+  const otherOperationalRoutes = [
+    'pos',
+    'orders',
+    'shift',
+    'inventory',
+    'customers',
+    'audit',
+    'settings',
+    'kds',
+    'tasks',
+  ];
+
+  for (const route of otherOperationalRoutes) {
+    const res = evaluateRouteIdentity(ROUTE_IDENTITY_SPECS[route], stuckOnDashboard);
+    assert.equal(
+      res.matched,
+      false,
+      `Expected route "${route}" to FAIL when stuck on Dashboard with Sidebar labels in bodyText`,
+    );
+  }
+});
+
+test('evaluateRouteIdentity fails on all 3 real RbacGuard denied-card variants and real ErrorBoundary markers', () => {
+  const rbacCases: Array<{ route: string; heading: string; deniedText: string }> = [
+    {
+      route: 'settings',
+      heading: 'Unified Enterprise Settings & Control Hub',
+      deniedText: 'Organization Admin Required\nRBAC Middleware Policy: Org-Level Guard Active',
+    },
+    {
+      route: 'dashboard',
+      heading: 'Operational Sales Dashboard',
+      deniedText: 'POS-Only Access Policy\nRBAC Middleware Policy: POS-Only Enforced',
+    },
+    {
+      route: 'inventory',
+      heading: 'Inventory & Stock Ledger',
+      deniedText: 'RBAC Access Restricted\nProtected Enterprise Module',
+    },
+  ];
+
+  for (const tc of rbacCases) {
+    const res = evaluateRouteIdentity(ROUTE_IDENTITY_SPECS[tc.route], {
+      bodyText: `${tc.heading}\n${tc.deniedText}`,
+      mainText: `${tc.heading}\n${tc.deniedText}`,
+      headingsText: tc.heading,
+      activeNavText: tc.route,
+      matchedSelectors: ['main', 'h1'],
+      hasCrashBoundary: false,
+      hasErrorBoundaryFallback: false,
+    });
+    assert.equal(res.matched, false, `Expected RbacGuard denied card to FAIL for "${tc.route}"`);
+    assert.ok(res.reasons.some((r) => r.includes('Forbidden fallback marker')));
+  }
+
+  // Real global ErrorBoundary.tsx text ("Terminal Runtime Interrupted")
+  const globalBoundaryText = evaluateRouteIdentity(ROUTE_IDENTITY_SPECS.dashboard, {
+    bodyText: 'Terminal Runtime Interrupted\nException Caught: Boom',
+    mainText: 'Operational Sales Dashboard',
+    headingsText: 'Operational Sales Dashboard',
+    activeNavText: 'Dashboard',
+    matchedSelectors: ['main', 'h1'],
+    hasCrashBoundary: false,
+    hasErrorBoundaryFallback: false,
+  });
+  assert.equal(globalBoundaryText.matched, false);
+  assert.ok(globalBoundaryText.reasons.some((r) => r.includes('Forbidden fallback marker')));
+
+  // Real module ErrorBoundary.tsx text (EN + TH)
+  const moduleBoundaryText = evaluateRouteIdentity(ROUTE_IDENTITY_SPECS.orders, {
+    bodyText: 'Orders Encountered an Issue\nส่วนการทำงานนี้เกิดข้อผิดพลาดชั่วคราว',
+    mainText: 'Order Journal & Receipts\nOrders Encountered an Issue',
+    headingsText: 'Order Journal & Receipts',
+    activeNavText: 'Orders',
+    matchedSelectors: ['main', 'h1'],
+    hasCrashBoundary: false,
+    hasErrorBoundaryFallback: false,
+  });
+  assert.equal(moduleBoundaryText.matched, false);
+  assert.ok(moduleBoundaryText.reasons.some((r) => r.includes('Forbidden fallback marker')));
+
+  // Real ErrorBoundary DOM selector flag
+  const moduleBoundaryFlag = evaluateRouteIdentity(ROUTE_IDENTITY_SPECS.orders, {
+    bodyText: 'Order Journal & Receipts',
+    mainText: 'Order Journal & Receipts',
+    headingsText: 'Order Journal & Receipts',
+    activeNavText: 'Orders',
+    matchedSelectors: ['main', 'h1'],
+    hasCrashBoundary: false,
+    hasErrorBoundaryFallback: true,
+  });
+  assert.equal(moduleBoundaryFlag.matched, false);
+  assert.ok(moduleBoundaryFlag.reasons.some((r) => r.includes('Crash/ErrorBoundary')));
+});
+
+test('evaluateRouteIdentity matches real OrdersScreen EN heading, requires POS cart selector, and rejects bare PRODX on customer-display', () => {
+  const realOrders = evaluateRouteIdentity(ROUTE_IDENTITY_SPECS.orders, {
+    bodyText: 'Sidebar\nOrder Journal & Receipts\nFilter receipts',
+    mainText: 'Order Journal & Receipts\nFilter receipts',
+    headingsText: 'Order Journal & Receipts',
+    activeNavText: '',
+    matchedSelectors: ['main', 'h1'],
+    hasCrashBoundary: false,
+    hasErrorBoundaryFallback: false,
+  });
+  assert.equal(realOrders.matched, true);
+  assert.deepEqual(realOrders.reasons, []);
+
+  // POS without required cart panel selector must FAIL
+  const posMissingCart = evaluateRouteIdentity(ROUTE_IDENTITY_SPECS.pos, {
+    bodyText: 'POS Cart Checkout',
+    mainText: 'POS Cart Checkout',
+    headingsText: '',
+    activeNavText: 'POS',
+    matchedSelectors: ['main'],
+    hasCrashBoundary: false,
+    hasErrorBoundaryFallback: false,
+  });
+  assert.equal(posMissingCart.matched, false);
+  assert.ok(
+    posMissingCart.reasons.some((r) => r.includes('[aria-label="Order Cart and Checkout Panel"]')),
+  );
+
+  // POS with required cart panel selector PASSES
+  const posValid = evaluateRouteIdentity(ROUTE_IDENTITY_SPECS.pos, {
+    bodyText: 'POS Cart Checkout',
+    mainText: 'Order Cart Checkout',
+    headingsText: '',
+    activeNavText: 'POS',
+    matchedSelectors: ['main', '[aria-label="Order Cart and Checkout Panel"]'],
+    hasCrashBoundary: false,
+    hasErrorBoundaryFallback: false,
+  });
+  assert.equal(posValid.matched, true);
+
+  // customer-display must NOT pass on bare "PRODX" alone
+  const bareProdx = evaluateRouteIdentity(ROUTE_IDENTITY_SPECS['customer-display'], {
+    bodyText: 'PRODX',
+    headingsText: '',
+    activeNavText: '',
+    matchedSelectors: [],
+    hasCrashBoundary: false,
+    hasErrorBoundaryFallback: false,
+  });
+  assert.equal(bareProdx.matched, false);
+
+  // customer-display PASSES on real CustomerDisplayView content
+  const realCustomerDisplay = evaluateRouteIdentity(ROUTE_IDENTITY_SPECS['customer-display'], {
+    bodyText: 'PRODX Flagship Store\nยินดีต้อนรับสู่ PRODX Flagship Store\nสรุปยอดค่าสินค้า (Order Summary)',
+    headingsText: 'ยินดีต้อนรับสู่ PRODX Flagship Store',
+    activeNavText: '',
+    matchedSelectors: [],
+    hasCrashBoundary: false,
+    hasErrorBoundaryFallback: false,
+  });
+  assert.equal(realCustomerDisplay.matched, true);
+});
+
+test('verify-all-routes-ui.ts blurs activeElement before shortcuts, checks real ErrorBoundary selectors, and monitors runtime/console/network errors with detached cleanup', () => {
   const scriptSource = readFileSync(resolve(process.cwd(), 'scripts/verify-all-routes-ui.ts'), 'utf8');
 
   assert.match(scriptSource, /document\.activeElement\.blur\(\)/);
+  assert.match(scriptSource, /#global-error-boundary-screen/);
+  assert.match(scriptSource, /#global-crash-boundary-fallback/);
+  assert.match(scriptSource, /\[id\^="error-boundary-module-"\]/);
+  assert.match(scriptSource, /mainEl\.querySelectorAll\('h1, h2, h3'\)/);
   assert.match(scriptSource, /cdp\.on\('Runtime\.exceptionThrown'/);
   assert.match(scriptSource, /cdp\.on\('Runtime\.consoleAPICalled'/);
   assert.match(scriptSource, /cdp\.on\('Network\.loadingFailed'/);

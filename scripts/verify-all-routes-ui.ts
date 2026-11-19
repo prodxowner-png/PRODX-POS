@@ -36,6 +36,7 @@ export interface RouteIdentitySpec {
   requiredSelectors?: string[];
   expectedTextPatterns: RegExp[];
   forbidLoginScreen: boolean;
+  scopeToMain?: boolean;
 }
 
 export interface ContrastSample {
@@ -63,6 +64,7 @@ export interface ContrastEvaluation {
 
 export interface DomIdentitySnapshot {
   bodyText: string;
+  mainText?: string;
   headingsText: string;
   activeNavText: string;
   matchedSelectors: string[];
@@ -118,7 +120,9 @@ export const ALL_VIEWPORTS: ViewportSpec[] = [
 
 export const FORBIDDEN_FALLBACK_PATTERNS: RegExp[] = [
   /Something went wrong|Application Error|Unexpected Error|เกิดข้อผิดพลาดร้ายแรง/i,
+  /Terminal Runtime Interrupted|Encountered an Issue|ส่วนการทำงานนี้เกิดข้อผิดพลาดชั่วคราว/i,
   /Administrator Console Access Denied|Access Denied|Insufficient Permissions|ปฏิเสธการเข้าถึง/i,
+  /Organization Admin Required|POS-Only Access Policy|RBAC Access Restricted|RBAC Middleware Policy|Protected Enterprise Module|POS-Only Enforced|Org-Level Guard Active|สงวนสิทธิ์เฉพาะ Admin ระดับองค์กร|จำกัดสิทธิ์เฉพาะหน้า POS เท่านั้น|จำกัดสิทธิ์การเข้าถึง \(RBAC Guard\)|โมดูลที่ต้องได้รับการอนุมัติสิทธิ์|ป้องกันการเข้าถึงระดับองค์กร/i,
 ];
 
 export const UNEXPECTED_LOGIN_PATTERNS: RegExp[] = [
@@ -133,88 +137,103 @@ export const ROUTE_IDENTITY_SPECS: Record<string, RouteIdentitySpec> = {
     requiredSelectors: ['input'],
     expectedTextPatterns: [/High-Performance|Retail POS Station|Sign In|จุดชำระเงินอัจฉริยะ/i],
     forbidLoginScreen: false,
+    scopeToMain: false,
   },
   'admin-login': {
     route: 'admin-login',
     requiredSelectors: ['input'],
     expectedTextPatterns: [/Administrator Console Login|เข้าสู่ระบบผู้ดูแลระบบ/i],
     forbidLoginScreen: false,
+    scopeToMain: false,
   },
   'customer-display': {
     route: 'customer-display',
-    expectedTextPatterns: [/PRODX|Flagship Store|Welcome|ยินดีต้อนรับ|Customer Display|ชำระเงิน/i],
+    expectedTextPatterns: [/Flagship Store|Customer Display|Order Summary|Total Due|ยินดีต้อนรับ|ชำระเงิน/i],
     forbidLoginScreen: true,
+    scopeToMain: false,
   },
   'receipt-validation': {
     route: 'receipt-validation',
     expectedTextPatterns: [/PRODX\s*VALIDATOR|Receipt Validation|Verify Receipt/i],
     forbidLoginScreen: true,
+    scopeToMain: false,
   },
   pos: {
     route: 'pos',
-    requiredSelectors: ['main'],
+    requiredSelectors: ['main', '[aria-label="Order Cart and Checkout Panel"]'],
     expectedTextPatterns: [/POS|Point of Sale|Cart|Checkout|ขายสินค้า|ตะกร้า/i],
     forbidLoginScreen: true,
+    scopeToMain: true,
   },
   dashboard: {
     route: 'dashboard',
     requiredSelectors: ['main', 'h1'],
     expectedTextPatterns: [/Dashboard|Overview|แดชบอร์ด/i],
     forbidLoginScreen: true,
+    scopeToMain: true,
   },
   orders: {
     route: 'orders',
     requiredSelectors: ['main', 'h1'],
-    expectedTextPatterns: [/Orders|Sales History|Order History|รายการขาย|คำสั่งซื้อ/i],
+    expectedTextPatterns: [/Order Journal|Orders|Sales History|Order History|ประวัติคำสั่งซื้อ|รายการขาย|คำสั่งซื้อ/i],
     forbidLoginScreen: true,
+    scopeToMain: true,
   },
   shift: {
     route: 'shift',
     requiredSelectors: ['main', 'h1'],
     expectedTextPatterns: [/Shift & Cash Drawer|Cash Drawer|กะการทำงาน/i],
     forbidLoginScreen: true,
+    scopeToMain: true,
   },
   inventory: {
     route: 'inventory',
     requiredSelectors: ['main', 'h1'],
     expectedTextPatterns: [/Inventory|Stock|คลังสินค้า/i],
     forbidLoginScreen: true,
+    scopeToMain: true,
   },
   customers: {
     route: 'customers',
     requiredSelectors: ['main', 'h1'],
     expectedTextPatterns: [/Customers|CRM|ลูกค้า/i],
     forbidLoginScreen: true,
+    scopeToMain: true,
   },
   audit: {
     route: 'audit',
     requiredSelectors: ['main', 'h1'],
     expectedTextPatterns: [/Audit|Security|Activity Log|ประวัติการใช้งาน|ตรวจสอบ/i],
     forbidLoginScreen: true,
+    scopeToMain: true,
   },
   settings: {
     route: 'settings',
     requiredSelectors: ['main', 'h1'],
     expectedTextPatterns: [/Unified Enterprise Settings|Settings|ตั้งค่า/i],
     forbidLoginScreen: true,
+    scopeToMain: true,
   },
   kds: {
     route: 'kds',
     requiredSelectors: ['main', 'h1'],
     expectedTextPatterns: [/Kitchen & Preparation Orders|Kitchen|จอแสดงออเดอร์ห้องครัว/i],
     forbidLoginScreen: true,
+    scopeToMain: true,
   },
   tasks: {
     route: 'tasks',
     requiredSelectors: ['main', 'h1'],
     expectedTextPatterns: [/Task Manager|My Personal Tasks|ระบบจัดการงาน|งานของฉัน/i],
     forbidLoginScreen: true,
+    scopeToMain: true,
   },
   'admin-console': {
     route: 'admin-console',
     requiredSelectors: ['nav[aria-label="Administrator Console Navigation"]'],
     expectedTextPatterns: [/PRODX\s*ADMIN CONSOLE|Admin Console Modules|Organizations/i],
     forbidLoginScreen: true,
+    scopeToMain: false,
   },
 };
 
@@ -290,21 +309,26 @@ export function evaluateRouteIdentity(
   snapshot: DomIdentitySnapshot,
 ): RouteIdentityEvaluation {
   const reasons: string[] = [];
-  const combinedText = `${snapshot.headingsText}\n${snapshot.activeNavText}\n${snapshot.bodyText}`;
+  const mainText = snapshot.mainText ?? '';
+  const fullPageText = `${snapshot.headingsText}\n${snapshot.activeNavText}\n${mainText}\n${snapshot.bodyText}`;
+  const shouldScopeToMain = spec.scopeToMain ?? Boolean(spec.requiredSelectors?.includes('main'));
+  const identityText = shouldScopeToMain
+    ? `${snapshot.headingsText}\n${snapshot.activeNavText}\n${mainText}`
+    : `${snapshot.headingsText}\n${snapshot.activeNavText}\n${snapshot.bodyText}`;
 
   if (snapshot.hasCrashBoundary || snapshot.hasErrorBoundaryFallback) {
     reasons.push('Crash/ErrorBoundary fallback rendered');
   }
 
   for (const forbidden of FORBIDDEN_FALLBACK_PATTERNS) {
-    if (forbidden.test(combinedText)) {
+    if (forbidden.test(fullPageText)) {
       reasons.push(`Forbidden fallback marker matched: ${forbidden.source}`);
     }
   }
 
   if (spec.forbidLoginScreen) {
     for (const loginPattern of UNEXPECTED_LOGIN_PATTERNS) {
-      if (loginPattern.test(combinedText)) {
+      if (loginPattern.test(fullPageText)) {
         reasons.push(`Unexpected LoginScreen fallback matched: ${loginPattern.source}`);
       }
     }
@@ -318,7 +342,7 @@ export function evaluateRouteIdentity(
     }
   }
 
-  const matchedExpected = spec.expectedTextPatterns.some((pattern) => pattern.test(combinedText));
+  const matchedExpected = spec.expectedTextPatterns.some((pattern) => pattern.test(identityText));
   if (!matchedExpected) {
     reasons.push(`Route identity heading/text not matched for "${spec.route}"`);
   }
@@ -544,7 +568,11 @@ class CdpClient {
     return this.evaluate<DomIdentitySnapshot>(`(() => {
       const selectors = ${selectorsJson};
       const matchedSelectors = selectors.filter((sel) => Boolean(document.querySelector(sel)));
-      const headingsText = Array.from(document.querySelectorAll('h1, h2, h3'))
+      const mainEl = document.querySelector('main');
+      const headingNodes = mainEl
+        ? mainEl.querySelectorAll('h1, h2, h3')
+        : document.querySelectorAll('h1, h2, h3');
+      const headingsText = Array.from(headingNodes)
         .map((el) => (el.textContent || '').trim())
         .filter(Boolean)
         .join(' | ');
@@ -554,11 +582,16 @@ class CdpClient {
         .join(' | ');
       return {
         bodyText: (document.body?.innerText || '').slice(0, 4000),
+        mainText: (mainEl?.innerText || '').slice(0, 4000),
         headingsText,
         activeNavText,
         matchedSelectors,
-        hasCrashBoundary: Boolean(document.querySelector('#global-crash-boundary-fallback')),
-        hasErrorBoundaryFallback: Boolean(document.querySelector('[data-testid="error-boundary-fallback"]')),
+        hasCrashBoundary: Boolean(
+          document.querySelector('#global-error-boundary-screen, #global-crash-boundary-fallback'),
+        ),
+        hasErrorBoundaryFallback: Boolean(
+          document.querySelector('[id^="error-boundary-module-"], [data-testid="error-boundary-fallback"]'),
+        ),
       };
     })()`);
   }
