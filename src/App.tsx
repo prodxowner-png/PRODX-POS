@@ -216,7 +216,7 @@ const MainApplication: React.FC = () => {
     if (isAdminLoginRoute && (!session || session.currentUser.role !== 'admin')) {
       return (
         <ErrorBoundary moduleName="Administrator Login">
-          <React.Suspense fallback={<div className="min-h-screen bg-slate-950 flex items-center justify-center"><Loader2 className="animate-spin text-primary h-8 w-8" /></div>}>
+          <React.Suspense fallback={<div className="min-h-screen bg-brand-bg flex items-center justify-center"><Loader2 className="animate-spin text-primary h-8 w-8" /></div>}>
             <AdminLoginScreen
               onBackToPos={exitAdminMode}
               onLoginSuccess={() => {
@@ -288,7 +288,7 @@ const MainApplication: React.FC = () => {
       >
         {currentRoute === 'pos' && (
           <ErrorBoundary moduleName="POS Cash Register & Checkout">
-            <React.Suspense fallback={<div className="flex-1 flex items-center justify-center bg-slate-950/50"><Loader2 className="animate-spin text-primary h-10 w-10" /></div>}>
+            <React.Suspense fallback={<div className="flex-1 flex items-center justify-center bg-brand-bg/50"><Loader2 className="animate-spin text-primary h-10 w-10" /></div>}>
               <PosScreen />
             </React.Suspense>
           </ErrorBoundary>
@@ -481,7 +481,7 @@ export default function App() {
           <AuthProvider>
             <ThemeProvider>
               <LanguageProvider>
-                <React.Suspense fallback={<div className="min-h-screen bg-slate-950 flex items-center justify-center"><Loader2 className="animate-spin text-primary h-12 w-12" /></div>}>
+                <React.Suspense fallback={<div className="min-h-screen bg-brand-bg flex items-center justify-center"><Loader2 className="animate-spin text-primary h-12 w-12" /></div>}>
                   <KitchenDisplayScreen />
                 </React.Suspense>
               </LanguageProvider>

@@ -31,11 +31,11 @@ export const EmailPasswordForm: React.FC<EmailPasswordFormProps> = ({
   return (
     <form onSubmit={handleSubmit} className="space-y-3 max-w-[340px] mx-auto">
       <div className="space-y-1">
-        <label className="text-[11px] font-black uppercase text-slate-700">
+        <label className="text-[11px] font-black uppercase text-brand-text-secondary">
           {isThai ? 'อีเมลบัญชีผู้ใช้' : 'Account Email'}
         </label>
         <div className="relative">
-          <UserRound className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-600" />
+          <UserRound className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-text-secondary" />
           <input
             type="email"
             value={email}
@@ -43,17 +43,17 @@ export const EmailPasswordForm: React.FC<EmailPasswordFormProps> = ({
             onChange={(e) => setEmail(e.target.value)}
             placeholder="cashier@prodx.co"
             required
-            className="w-full h-11 bg-white border-2 border-slate-300 rounded-xl pl-9 pr-3 text-xs font-bold text-slate-900 outline-none focus:border-[#ff6b1a] focus:ring-2 focus:ring-[#ff6b1a]/30 transition-all disabled:opacity-50"
+            className="w-full h-11 bg-brand-surface border-2 border-brand-border rounded-xl pl-9 pr-3 text-xs font-bold text-brand-text outline-none focus:border-cta focus:ring-2 focus:ring-cta/30 transition-all disabled:opacity-50"
           />
         </div>
       </div>
 
       <div className="space-y-1">
-        <label className="text-[11px] font-black uppercase text-slate-700">
+        <label className="text-[11px] font-black uppercase text-brand-text-secondary">
           {isThai ? 'รหัสผ่าน' : 'Password'}
         </label>
         <div className="relative">
-          <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-600" />
+          <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-text-secondary" />
           <input
             type={showPassword ? 'text' : 'password'}
             value={password}
@@ -61,12 +61,12 @@ export const EmailPasswordForm: React.FC<EmailPasswordFormProps> = ({
             onChange={(e) => setPassword(e.target.value)}
             placeholder="••••••••"
             required
-            className="w-full h-11 bg-white border-2 border-slate-300 rounded-xl pl-9 pr-9 text-xs font-bold text-slate-900 outline-none focus:border-[#ff6b1a] focus:ring-2 focus:ring-[#ff6b1a]/30 transition-all disabled:opacity-50"
+            className="w-full h-11 bg-brand-surface border-2 border-brand-border rounded-xl pl-9 pr-9 text-xs font-bold text-brand-text outline-none focus:border-cta focus:ring-2 focus:ring-cta/30 transition-all disabled:opacity-50"
           />
           <button
             type="button"
             onClick={() => setShowPassword((prev) => !prev)}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-600 hover:text-slate-950 p-1 rounded-md focus-visible:ring-2 focus-visible:ring-[#ff6b1a] cursor-pointer"
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-brand-text-secondary hover:text-brand-text p-1 rounded-md focus-visible:ring-2 focus-visible:ring-cta cursor-pointer"
             aria-label={showPassword ? 'Hide password' : 'Show password'}
           >
             {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -77,7 +77,7 @@ export const EmailPasswordForm: React.FC<EmailPasswordFormProps> = ({
       <button
         type="submit"
         disabled={!terminalReady || !email.trim() || !password || isLoading}
-        className="w-full h-12 px-4 bg-slate-900 text-white rounded-xl font-black text-xs flex items-center justify-center gap-2 hover:bg-slate-800 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-[#ff6b1a] focus-visible:ring-offset-2 transition-all disabled:opacity-30 disabled:cursor-not-allowed shadow-md shadow-slate-900/20 cursor-pointer whitespace-nowrap"
+        className="w-full h-12 px-4 bg-cta text-cta-text rounded-xl font-black text-xs flex items-center justify-center gap-2 hover:bg-cta-hover active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2 transition-all disabled:opacity-30 disabled:cursor-not-allowed shadow-md shadow-cta/20 cursor-pointer whitespace-nowrap"
       >
         {isLoading ? (
           <Loader2 className="w-4 h-4 animate-spin shrink-0" />
@@ -86,19 +86,19 @@ export const EmailPasswordForm: React.FC<EmailPasswordFormProps> = ({
         )}
       </button>
 
-      <div className="flex items-center justify-between pt-1 text-xs font-bold text-slate-700">
+      <div className="flex items-center justify-between pt-1 text-xs font-bold text-brand-text-secondary">
         <button
           type="button"
           onClick={() => onSwitchMode('pin')}
-          className="hover:text-blue-700 focus-visible:ring-2 focus-visible:ring-[#ff6b1a] rounded-lg p-1 transition-colors cursor-pointer inline-flex items-center gap-1"
+          className="hover:text-brand-primary focus-visible:ring-2 focus-visible:ring-cta rounded-lg p-1 transition-colors cursor-pointer inline-flex items-center gap-1"
         >
-          <KeyRound className="w-4 h-4 text-blue-700" />
+          <KeyRound className="w-4 h-4 text-brand-primary" />
           <span>{isThai ? 'ใช้แป้น PIN' : 'Use PIN Pad'}</span>
         </button>
         <button
           type="button"
           onClick={onForgotPin}
-          className="text-slate-700 hover:text-blue-700 underline focus-visible:ring-2 focus-visible:ring-[#ff6b1a] rounded-lg p-1 transition-colors cursor-pointer"
+          className="text-brand-text-secondary hover:text-brand-primary underline focus-visible:ring-2 focus-visible:ring-cta rounded-lg p-1 transition-colors cursor-pointer"
         >
           {isThai ? 'ลืมรหัสผ่าน?' : 'Forgot password?'}
         </button>

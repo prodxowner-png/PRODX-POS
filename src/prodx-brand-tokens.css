@@ -83,6 +83,7 @@
   --brand-primary-hover: var(--brand-green-700);
   --brand-primary-pressed: var(--brand-green-600);
   --brand-primary-text: var(--brand-cream-100);
+  --brand-on-solid: #fbf8f3;
 
   /* CTA / payment only. Never use white text on orange. */
   --brand-cta: var(--brand-orange-500);
