@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { THEME_PRESETS } from '../context/themePresets';
-import { getContrastRatio } from '../context/themeTokenAdapter';
+import { buildThemeVariables, getContrastRatio } from '../context/themeTokenAdapter';
 
 test('WCAG 2.2 contrast: Forest Luxury core semantic pairs meet contrast targets', () => {
   // Spec Section 3.1 & 3.4
@@ -28,7 +28,10 @@ test('WCAG 2.2 contrast: Forest Luxury core semantic pairs meet contrast targets
 
   // Confirm white on Orange 500 fails or is worse than ink
   const whiteOnOrange = getContrastRatio('#ffffff', orange500);
-  assert.ok(inkOnOrange > whiteOnOrange, `Ink on orange (${inkOnOrange.toFixed(2)}) must be higher contrast than white on orange (${whiteOnOrange.toFixed(2)})`);
+  assert.ok(
+    inkOnOrange > whiteOnOrange,
+    `Ink on orange (${inkOnOrange.toFixed(2)}) must be higher contrast than white on orange (${whiteOnOrange.toFixed(2)})`,
+  );
 
   // Secondary text Ink 500 on Cream 100 target >= 4.5:1
   const ink500OnCream = getContrastRatio(ink500, cream100);
@@ -43,24 +46,33 @@ test('WCAG 2.2 contrast: Forest Luxury core semantic pairs meet contrast targets
   assert.ok(dangerOnSubtle >= 4.5, `Danger text on subtle must be >= 4.5:1, got ${dangerOnSubtle.toFixed(2)}`);
 });
 
-test('WCAG 2.2 contrast: all 10 presets provide compliant text-to-surface contrast', () => {
+test('WCAG 2.2 contrast: all 10 presets meet >= 4.5:1 across text, muted, primary, CTA, and status pairs in light and dark modes', () => {
   for (const preset of THEME_PRESETS) {
-    const textOnSurface = getContrastRatio(preset.semanticTokens.text, preset.semanticTokens.surface);
-    assert.ok(
-      textOnSurface >= 4.5,
-      `Preset "${preset.name.en}" text-to-surface contrast must be >= 4.5:1 (AA), got ${textOnSurface.toFixed(2)}`
-    );
+    for (const mode of ['light', 'dark'] as const) {
+      const vars = buildThemeVariables(preset, mode, null);
+      const pairs: Array<[string, string, string]> = [
+        ['text/surface', vars['--brand-text'], vars['--brand-surface']],
+        ['text/bg', vars['--brand-text'], vars['--brand-bg']],
+        ['textMuted/surface', vars['--brand-text-muted'], vars['--brand-surface']],
+        ['textMuted/bg', vars['--brand-text-muted'], vars['--brand-bg']],
+        ['textMuted/surfaceMuted', vars['--brand-text-muted'], vars['--brand-surface-muted']],
+        ['primaryText/primary', vars['--brand-primary-text'], vars['--brand-primary']],
+        ['primaryText/primaryHover', vars['--brand-primary-text'], vars['--brand-primary-hover']],
+        ['primaryText/primaryPressed', vars['--brand-primary-text'], vars['--brand-primary-pressed']],
+        ['ctaText/cta', vars['--brand-cta-text'], vars['--brand-cta']],
+        ['successText/successSubtle', vars['--brand-success-text'], vars['--brand-success-subtle']],
+        ['warningText/warningSubtle', vars['--brand-warning-text'], vars['--brand-warning-subtle']],
+        ['dangerText/dangerSubtle', vars['--brand-danger-text'], vars['--brand-danger-subtle']],
+        ['infoText/infoSubtle', vars['--brand-info-text'], vars['--brand-info-subtle']],
+      ];
 
-    const ctaTextOnCta = getContrastRatio(preset.semanticTokens.ctaText, preset.semanticTokens.cta);
-    assert.ok(
-      ctaTextOnCta >= 4.5,
-      `Preset "${preset.name.en}" CTA text-to-CTA contrast must be >= 4.5:1 (AA), got ${ctaTextOnCta.toFixed(2)}`
-    );
-
-    const textOnBg = getContrastRatio(preset.semanticTokens.text, preset.semanticTokens.bg);
-    assert.ok(
-      textOnBg >= 4.5,
-      `Preset "${preset.name.en}" text-to-bg contrast must be >= 4.5:1 (AA), got ${textOnBg.toFixed(2)}`
-    );
+      for (const [label, fg, bg] of pairs) {
+        const ratio = getContrastRatio(fg, bg);
+        assert.ok(
+          ratio >= 4.5,
+          `Preset "${preset.id}" (${mode}) ${label} (${fg} on ${bg}) must be >= 4.5:1 (AA), got ${ratio.toFixed(2)}`,
+        );
+      }
+    }
   }
 });

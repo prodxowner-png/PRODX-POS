@@ -20,13 +20,54 @@ export function getContrastRatio(hex1: string, hex2: string): number {
   return (lighter + 0.05) / (darker + 0.05);
 }
 
-export function validateCustomAccent(accent: string | null, targetLabelHex = '#ffffff'): string | null {
+const ACCESSIBLE_LIGHT_ON_ACCENT = '#fbf8f3';
+const ACCESSIBLE_DARK_ON_ACCENT = '#20242b';
+const WCAG_AA_NORMAL_TEXT_RATIO = 4.5;
+
+export function resolveAccessibleAccentForeground(
+  accentHex: string,
+  preferredForeground?: string,
+): string | null {
+  const trimmed = accentHex.trim();
+  if (!isValidHexColor(trimmed)) return null;
+
+  if (preferredForeground) {
+    const normalizedPreferred = preferredForeground.trim();
+    if (
+      isValidHexColor(normalizedPreferred) &&
+      getContrastRatio(trimmed, normalizedPreferred) >= WCAG_AA_NORMAL_TEXT_RATIO
+    ) {
+      return normalizedPreferred;
+    }
+  }
+
+  const lightRatio = getContrastRatio(trimmed, ACCESSIBLE_LIGHT_ON_ACCENT);
+  const darkRatio = getContrastRatio(trimmed, ACCESSIBLE_DARK_ON_ACCENT);
+
+  if (lightRatio >= darkRatio && lightRatio >= WCAG_AA_NORMAL_TEXT_RATIO) {
+    return ACCESSIBLE_LIGHT_ON_ACCENT;
+  }
+  if (darkRatio >= WCAG_AA_NORMAL_TEXT_RATIO) {
+    return ACCESSIBLE_DARK_ON_ACCENT;
+  }
+  return null;
+}
+
+export function validateCustomAccent(accent: string | null, targetLabelHex?: string): string | null {
   if (!accent) return null;
   const trimmed = accent.trim();
   if (!isValidHexColor(trimmed)) return null;
-  // Require at least 3.0:1 contrast against label
-  if (getContrastRatio(trimmed, targetLabelHex) < 3.0) return null;
-  return trimmed;
+
+  if (targetLabelHex !== undefined) {
+    const normalizedTarget = targetLabelHex.trim();
+    if (!isValidHexColor(normalizedTarget)) return null;
+    if (getContrastRatio(trimmed, normalizedTarget) < WCAG_AA_NORMAL_TEXT_RATIO) return null;
+    return trimmed;
+  }
+
+  // When no fixed target foreground is specified, require WCAG AA >= 4.5:1
+  // against the optimal rendered foreground (light or dark).
+  return resolveAccessibleAccentForeground(trimmed) ? trimmed : null;
 }
 
 const NIGHT_SURFACES = {
@@ -42,6 +83,11 @@ const NIGHT_SURFACES = {
   border: '#3c4a54',
   borderStrong: '#6f7e8a',
   cardHover: '#243038',
+};
+
+const NIGHT_STATUS_TOKENS = {
+  text: '#f2ede4',
+  subtle: '#1b2227',
 };
 
 const DAY_FALLBACK_SURFACES = {
@@ -64,8 +110,24 @@ export function buildThemeVariables(
   mode: 'light' | 'dark',
   customAccent: string | null,
 ): Record<string, string> {
-  const validatedAccent = validateCustomAccent(customAccent, preset.semanticTokens.primaryText);
-  const activePrimary = validatedAccent ?? preset.primary;
+  const validatedAccent = validateCustomAccent(customAccent);
+  const resolvedCustomForeground = validatedAccent
+    ? resolveAccessibleAccentForeground(validatedAccent, preset.semanticTokens.primaryText)
+    : null;
+  const customAccentPair =
+    validatedAccent && resolvedCustomForeground
+      ? { primary: validatedAccent, text: resolvedCustomForeground }
+      : null;
+  const activePrimary = customAccentPair ? customAccentPair.primary : preset.primary;
+  const activePrimaryText = customAccentPair
+    ? customAccentPair.text
+    : preset.semanticTokens.primaryText;
+  const activePrimaryHover = customAccentPair
+    ? customAccentPair.primary
+    : preset.semanticTokens.primaryHover;
+  const activePrimaryPressed = customAccentPair
+    ? customAccentPair.primary
+    : preset.semanticTokens.primaryPressed;
 
   const isDarkMode = mode === 'dark';
 
@@ -76,7 +138,7 @@ export function buildThemeVariables(
   let textMutedColor = preset.textMuted;
   let borderColor = preset.border;
   let borderHoverColor = preset.borderHover;
-  let primaryDarkColor = preset.semanticTokens.primaryHover;
+  const primaryDarkColor = activePrimaryHover;
   const primaryLightColor = preset.primaryLight;
   const primaryGlow = preset.primaryGlow;
 
@@ -101,7 +163,6 @@ export function buildThemeVariables(
       textMutedColor = preset.textMuted;
       borderColor = preset.border;
       borderHoverColor = preset.borderHover;
-      primaryDarkColor = preset.semanticTokens.primaryHover;
       brandBg = preset.semanticTokens.bg;
       brandSurface = preset.semanticTokens.surface;
       brandSurfaceRaised = preset.semanticTokens.surfaceRaised;
@@ -121,7 +182,6 @@ export function buildThemeVariables(
       textMutedColor = NIGHT_SURFACES.textMuted;
       borderColor = NIGHT_SURFACES.border;
       borderHoverColor = NIGHT_SURFACES.borderStrong;
-      primaryDarkColor = preset.semanticTokens.primaryHover;
       brandBg = NIGHT_SURFACES.bg;
       brandSurface = NIGHT_SURFACES.surface;
       brandSurfaceRaised = NIGHT_SURFACES.surfaceRaised;
@@ -143,7 +203,6 @@ export function buildThemeVariables(
       textMutedColor = preset.textMuted;
       borderColor = preset.border;
       borderHoverColor = preset.borderHover;
-      primaryDarkColor = preset.semanticTokens.primaryHover;
       brandBg = preset.semanticTokens.bg;
       brandSurface = preset.semanticTokens.surface;
       brandSurfaceRaised = preset.semanticTokens.surfaceRaised;
@@ -163,7 +222,6 @@ export function buildThemeVariables(
       textMutedColor = DAY_FALLBACK_SURFACES.textMuted;
       borderColor = DAY_FALLBACK_SURFACES.border;
       borderHoverColor = DAY_FALLBACK_SURFACES.borderStrong;
-      primaryDarkColor = preset.semanticTokens.primaryHover;
       brandBg = DAY_FALLBACK_SURFACES.bg;
       brandSurface = DAY_FALLBACK_SURFACES.surface;
       brandSurfaceRaised = DAY_FALLBACK_SURFACES.surfaceRaised;
@@ -187,6 +245,7 @@ export function buildThemeVariables(
     '--primary-dark': primaryDarkColor,
     '--primary-light': primaryLightColor,
     '--primary-glow': primaryGlow,
+    '--primary-text': activePrimaryText,
     '--bg-color': bgColor,
     '--card-color': cardColor,
     '--card-hover': cardHoverColor,
@@ -212,27 +271,27 @@ export function buildThemeVariables(
     '--brand-border': brandBorder,
     '--brand-border-strong': brandBorderStrong,
     '--brand-primary': activePrimary,
-    '--brand-primary-hover': preset.semanticTokens.primaryHover,
-    '--brand-primary-pressed': preset.semanticTokens.primaryPressed,
-    '--brand-primary-text': preset.semanticTokens.primaryText,
+    '--brand-primary-hover': activePrimaryHover,
+    '--brand-primary-pressed': activePrimaryPressed,
+    '--brand-primary-text': activePrimaryText,
 
-    // Status and CTA tokens (preserved across all presets)
+    // Status and CTA tokens (preserved across all presets; dark mode uses readable night status text/subtle)
     '--brand-cta': preset.semanticTokens.cta,
     '--brand-cta-hover': preset.semanticTokens.ctaHover,
     '--brand-cta-pressed': preset.semanticTokens.ctaPressed,
     '--brand-cta-text': preset.semanticTokens.ctaText,
     '--brand-cta-subtle': preset.semanticTokens.ctaSubtle,
     '--brand-success': preset.semanticTokens.success,
-    '--brand-success-text': preset.semanticTokens.successText,
-    '--brand-success-subtle': preset.semanticTokens.successSubtle,
+    '--brand-success-text': isDarkMode ? NIGHT_STATUS_TOKENS.text : preset.semanticTokens.successText,
+    '--brand-success-subtle': isDarkMode ? NIGHT_STATUS_TOKENS.subtle : preset.semanticTokens.successSubtle,
     '--brand-warning': preset.semanticTokens.warning,
-    '--brand-warning-text': preset.semanticTokens.warningText,
-    '--brand-warning-subtle': preset.semanticTokens.warningSubtle,
+    '--brand-warning-text': isDarkMode ? NIGHT_STATUS_TOKENS.text : preset.semanticTokens.warningText,
+    '--brand-warning-subtle': isDarkMode ? NIGHT_STATUS_TOKENS.subtle : preset.semanticTokens.warningSubtle,
     '--brand-danger': preset.semanticTokens.danger,
-    '--brand-danger-text': preset.semanticTokens.dangerText,
-    '--brand-danger-subtle': preset.semanticTokens.dangerSubtle,
+    '--brand-danger-text': isDarkMode ? NIGHT_STATUS_TOKENS.text : preset.semanticTokens.dangerText,
+    '--brand-danger-subtle': isDarkMode ? NIGHT_STATUS_TOKENS.subtle : preset.semanticTokens.dangerSubtle,
     '--brand-info': preset.semanticTokens.info,
-    '--brand-info-text': preset.semanticTokens.infoText,
-    '--brand-info-subtle': preset.semanticTokens.infoSubtle,
+    '--brand-info-text': isDarkMode ? NIGHT_STATUS_TOKENS.text : preset.semanticTokens.infoText,
+    '--brand-info-subtle': isDarkMode ? NIGHT_STATUS_TOKENS.subtle : preset.semanticTokens.infoSubtle,
   };
 }
