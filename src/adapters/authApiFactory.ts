@@ -7,27 +7,29 @@ import type { IAuthApi } from './types';
 import { createProductionAuthApi } from './productionAuthApi';
 import { createSupabaseAuthApi } from './supabaseAuthApi';
 
+export interface AuthApiResolutionOptions {
+  isDev: boolean;
+  provider?: string;
+}
+
+export interface AuthApiResolutionDependencies {
+  developmentMockApi?: IAuthApi;
+  supabaseApi?: IAuthApi;
+  productionApi?: IAuthApi;
+  unconfiguredApi?: IAuthApi;
+}
+
+export const UNCONFIGURED_AUTH_PROVIDER_ERROR =
+  'Authentication provider must be explicitly configured for non-development builds.';
+
 const productionAuthApi: IAuthApi = createProductionAuthApi();
 const supabaseAuthApi: IAuthApi = createSupabaseAuthApi();
-const authProvider =
-  typeof import.meta.env !== 'undefined'
-    ? import.meta.env.VITE_AUTH_PROVIDER?.trim().toLowerCase()
-    : undefined;
 
 // Supabase Auth is opt-in until first-tenant bootstrap and identity binding are fully verified.
 // Only explicit local development may load the isolated mock adapter.
-const ensureConfiguredAuthProvider = (): void => {
-  const isDev = Boolean(typeof import.meta.env !== 'undefined' && import.meta.env.DEV);
-  const isUnconfigured = !isDev && (authProvider !== 'supabase' && authProvider !== 'production');
-  if (isUnconfigured) {
-    throw new Error('Authentication provider must be explicitly configured for non-development builds.');
-  }
-};
-
-const createUnconfiguredAuthApi = (): IAuthApi => {
+export const createUnconfiguredAuthApi = (): IAuthApi => {
   const failClosed = async (): Promise<never> => {
-    ensureConfiguredAuthProvider();
-    throw new Error('Authentication provider must be explicitly configured for non-development builds.');
+    throw new Error(UNCONFIGURED_AUTH_PROVIDER_ERROR);
   };
   return {
     login: failClosed,
@@ -61,11 +63,37 @@ const createDevelopmentMockAuthApi = (): IAuthApi => ({
   },
 });
 
+export const resolveAuthApi = (
+  options: AuthApiResolutionOptions,
+  deps: AuthApiResolutionDependencies = {},
+): IAuthApi => {
+  if (options.isDev) {
+    if (deps.developmentMockApi) {
+      return deps.developmentMockApi;
+    }
+    if (typeof import.meta.env !== 'undefined' && import.meta.env.DEV) {
+      return createDevelopmentMockAuthApi();
+    }
+    return deps.unconfiguredApi ?? createUnconfiguredAuthApi();
+  }
+
+  const normalizedProvider = options.provider?.trim().toLowerCase();
+  if (normalizedProvider === 'supabase') {
+    return deps.supabaseApi ?? supabaseAuthApi;
+  }
+  if (normalizedProvider === 'production') {
+    return deps.productionApi ?? productionAuthApi;
+  }
+  return deps.unconfiguredApi ?? createUnconfiguredAuthApi();
+};
+
 export const authApi: IAuthApi =
   typeof import.meta.env !== 'undefined' && import.meta.env.DEV
     ? createDevelopmentMockAuthApi()
-    : authProvider === 'supabase'
-      ? supabaseAuthApi
-      : authProvider === 'production'
-        ? productionAuthApi
-        : createUnconfiguredAuthApi();
+    : resolveAuthApi({
+        isDev: false,
+        provider:
+          typeof import.meta.env !== 'undefined'
+            ? import.meta.env.VITE_AUTH_PROVIDER
+            : undefined,
+      });

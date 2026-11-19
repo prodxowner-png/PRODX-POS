@@ -39,7 +39,7 @@ export const StatusBar: React.FC = () => {
         <span className="hidden sm:inline-flex items-center gap-1.5">
           <Shield className="h-3 w-3 text-success" />
           <span className="text-text/60">ROLE:</span>
-          <span className="text-success font-bold">{session.currentUser.role}</span>
+          <span className="text-success-text font-bold">{session.currentUser.role}</span>
         </span>
 
         <span className="hidden md:inline-flex items-center gap-1">
@@ -58,7 +58,7 @@ export const StatusBar: React.FC = () => {
           </span>
         </span>
 
-        <span className="hidden lg:inline-flex items-center gap-1 text-success">
+        <span className="hidden lg:inline-flex items-center gap-1 text-success-text">
           <Cpu className="h-3 w-3" />
           <span>DECIMAL-SAFE FINANCIAL CORE</span>
         </span>
@@ -67,7 +67,7 @@ export const StatusBar: React.FC = () => {
         <span className="hidden md:inline-flex items-center gap-1.5" title="Keyboard Focus Strategy">
           <Keyboard className="h-3 w-3 text-text/40" />
           <span className="text-text/60">KBD:</span>
-          <span className={config.hardware?.keyboardFocusCapture !== false ? 'text-success font-bold' : 'text-warning font-bold'}>
+          <span className={config.hardware?.keyboardFocusCapture !== false ? 'text-success-text font-bold' : 'text-warning-text font-bold'}>
             {config.hardware?.keyboardFocusCapture !== false ? 'CAPTURE' : 'PASSTHROUGH'}
           </span>
         </span>
@@ -84,12 +84,12 @@ export const StatusBar: React.FC = () => {
         >
           <Database className="h-3 w-3 text-primary" />
           <span className="hidden sm:inline text-text/60">OUTBOX:</span>
-          <span className={`font-bold ${pendingCount > 0 ? 'text-warning animate-pulse' : 'text-text/80'}`}>
+          <span className={`font-bold ${pendingCount > 0 ? 'text-warning-text animate-pulse' : 'text-text/80'}`}>
             {pendingCount}
           </span>
           <span className="text-text/30">|</span>
           <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-success' : 'bg-warning'}`} />
-          <span className={isOnline ? 'text-success font-bold' : 'text-warning font-bold'}>
+          <span className={isOnline ? 'text-success-text font-bold' : 'text-warning-text font-bold'}>
             {isOnline ? 'LIVE' : 'OFFLINE'}
           </span>
         </button>
