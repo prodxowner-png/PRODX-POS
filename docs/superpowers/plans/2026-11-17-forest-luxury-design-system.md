@@ -43,11 +43,11 @@
 - Produces: typed token-name contract for brand, surface, text, border, CTA, focus, and status roles.
 - Consumes: existing approved palette values and semantic mappings from the spec.
 
-- [ ] **Step 1: Write failing contract tests** for required token names, approved palette values, and presence of light/dark semantic roles.
-- [ ] **Step 2: Run** `node --import tsx --test src/design-system/semantic-token-contract.test.ts`; expect failure because the contract module is not yet present.
-- [ ] **Step 3: Implement** a typed semantic token contract without changing existing runtime variable names.
-- [ ] **Step 4: Run the focused test** and existing theme validator.
-- [ ] **Step 5: Review the CSS diff** to confirm only approved palette values are introduced.
+- [x] **Step 1: Write failing contract tests** for required token names, approved palette values, and presence of light/dark semantic roles.
+- [x] **Step 2: Run** `node --import tsx --test src/design-system/semantic-token-contract.test.ts`; expect failure because the contract module is not yet present.
+- [x] **Step 3: Implement** a typed semantic token contract without changing existing runtime variable names.
+- [x] **Step 4: Run the focused test** and existing theme validator.
+- [x] **Step 5: Review the CSS diff** to confirm only approved palette values are introduced.
 
 ### Task 2: Define ten deterministic theme presets
 
@@ -61,11 +61,11 @@
 - `THEME_PRESETS`: exactly ten supported presets.
 - `resolveLegacyPresetId(id: string): string`: resolves all six current IDs and documented legacy IDs to supported presets.
 
-- [ ] **Step 1: Write failing tests** for exactly ten unique IDs, complete semantic maps, valid hex/color values, and backward compatibility for every existing preset ID.
-- [ ] **Step 2: Run** `node --import tsx --test src/context/themePresets.test.ts`; expect failure before implementation.
-- [ ] **Step 3: Extract** preset data from ThemeContext into `themePresets.ts`; keep current six IDs readable and map them explicitly.
-- [ ] **Step 4: Add** the four new presets from the spec; every preset must define all semantic roles and light/dark behavior.
-- [ ] **Step 5: Run** focused tests and `npm run theme:validate`; do not use the auto-fix command as a substitute for review.
+- [x] **Step 1: Write failing tests** for exactly ten unique IDs, complete semantic maps, valid hex/color values, and backward compatibility for every existing preset ID.
+- [x] **Step 2: Run** `node --import tsx --test src/context/themePresets.test.ts`; expect failure before implementation.
+- [x] **Step 3: Extract** preset data from ThemeContext into `themePresets.ts`; keep current six IDs readable and map them explicitly.
+- [x] **Step 4: Add** the four new presets from the spec; every preset must define all semantic roles and light/dark behavior.
+- [x] **Step 5: Run** focused tests and `npm run theme:validate`; do not use the auto-fix command as a substitute for review.
 
 ### Task 3: Adapt ThemeContext to semantic tokens
 
@@ -78,11 +78,11 @@
 - `buildThemeVariables(preset: ThemePreset, mode: ThemeMode, customAccent: string | null): Record<string, string>`
 - Output includes all legacy variables plus the semantic `--brand-*` roles.
 
-- [ ] **Step 1: Write failing tests** for light/dark mapping, preset switching, system mode, unknown preset fallback, custom accent validation, and absence of stale variables.
-- [ ] **Step 2: Run** focused tests and confirm the new adapter tests fail.
-- [ ] **Step 3: Implement** pure token mapping; remove runtime color derivation by appending alpha bytes to arbitrary custom strings.
-- [ ] **Step 4: Wire** ThemeContext to apply the adapter output while preserving ConfigPersistenceManager persistence and storage-event synchronization.
-- [ ] **Step 5: Run** adapter tests, ThemeContext tests, and `npm run theme:validate`.
+- [x] **Step 1: Write failing tests** for light/dark mapping, preset switching, system mode, unknown preset fallback, custom accent validation, and absence of stale variables.
+- [x] **Step 2: Run** focused tests and confirm the new adapter tests fail.
+- [x] **Step 3: Implement** pure token mapping; remove runtime color derivation by appending alpha bytes to arbitrary custom strings.
+- [x] **Step 4: Wire** ThemeContext to apply the adapter output while preserving ConfigPersistenceManager persistence and storage-event synchronization.
+- [x] **Step 5: Run** adapter tests, ThemeContext tests, and `npm run theme:validate`.
 
 ### Task 4: Migrate shared shell primitives
 
@@ -97,10 +97,10 @@
 **Interfaces:**
 - Shared shell components consume semantic CSS roles only; route, offline, and authorization behavior remains unchanged.
 
-- [ ] **Step 1: Add regression tests** for active navigation, focus visibility, offline status text/icon, and responsive navigation visibility.
-- [ ] **Step 2: Migrate** sidebar, top bar, status bar, and offline banner styles to semantic roles.
-- [ ] **Step 3: Verify** the 44px minimum touch target and 48px preferred POS controls.
-- [ ] **Step 4: Run** focused component tests and TypeScript lint.
+- [x] **Step 1: Add regression tests** for active navigation, focus visibility, offline status text/icon, and responsive navigation visibility.
+- [x] **Step 2: Migrate** sidebar, top bar, status bar, and offline banner styles to semantic roles.
+- [x] **Step 3: Verify** the 44px minimum touch target and 48px preferred POS controls.
+- [x] **Step 4: Run** focused component tests and TypeScript lint.
 
 ### Task 5: Migrate POS visual patterns only
 
@@ -111,10 +111,10 @@
 **Interfaces:**
 - POS components render existing values and invoke existing callbacks; they do not calculate authoritative money, taxes, discounts, inventory availability, or payment outcomes.
 
-- [ ] **Step 1: Add visual/behavior regression tests** for product selection, quantity controls, cart states, payment summary rendering, and destructive-action separation.
-- [ ] **Step 2: Apply** product card, cart line item, payment summary, and CTA tokens from the spec.
-- [ ] **Step 3: Add** responsive cart-sheet presentation without changing checkout command semantics.
-- [ ] **Step 4: Run** POS tests and inspect the complete diff for accidental business logic changes.
+- [x] **Step 1: Add visual/behavior regression tests** for product selection, quantity controls, cart states, payment summary rendering, and destructive-action separation.
+- [x] **Step 2: Apply** product card, cart line item, payment summary, and CTA tokens from the spec.
+- [x] **Step 3: Add** responsive cart-sheet presentation without changing checkout command semantics.
+- [x] **Step 4: Run** POS tests and inspect the complete diff for accidental business logic changes.
 
 ### Task 6: Accessibility and responsive validation
 
@@ -122,11 +122,11 @@
 - Create: `docs/design-system/forest-luxury-visual-qa.md`
 - Add/update tests for contrast and responsive behavior where deterministic.
 
-- [ ] **Step 1: Add** token-pair contrast tests for all actual theme foreground/background pairs and focus boundaries.
-- [ ] **Step 2: Verify** keyboard navigation, accessible names, form labels, dialog focus handling, and reduced-motion behavior.
-- [ ] **Step 3: Verify** Desktop (>=1280px), Tablet (768–1279px), and Mobile (<=767px) POS layouts.
-- [ ] **Step 4: Run** `npm run lint`, `npm run build`, `npm run theme:validate`, relevant unit tests, and full suite where practical.
-- [ ] **Step 5: Review** exact PR diff and CI results; do not merge or deploy without required checks and owner approval.
+- [x] **Step 1: Add** token-pair contrast tests for all actual theme foreground/background pairs and focus boundaries.
+- [x] **Step 2: Verify** keyboard navigation, accessible names, form labels, dialog focus handling, and reduced-motion behavior.
+- [x] **Step 3: Verify** Desktop (>=1280px), Tablet (768–1279px), and Mobile (<=767px) POS layouts.
+- [x] **Step 4: Run** `npm run lint`, `npm run build`, `npm run theme:validate`, relevant unit tests, and full suite where practical.
+- [x] **Step 5: Review** exact PR diff and CI results; do not merge or deploy without required checks and owner approval.
 
 ## Handoff gates
 

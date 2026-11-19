@@ -210,8 +210,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <button
                   key={item.id}
                   type="button"
+                  aria-current={isActive ? 'page' : undefined}
                   onClick={() => handleNav(item.id)}
-                  className={`w-full flex items-center justify-between px-3 py-2.5 min-h-[48px] rounded-xl text-sm transition-all duration-150 cursor-pointer active:scale-95 ${
+                  className={`w-full flex items-center justify-between px-3 py-2.5 min-h-[48px] rounded-xl text-sm transition-all duration-150 cursor-pointer active:scale-95 focus-visible:ring-2 focus-visible:outline-none ${
                     isActive
                       ? 'bg-primary/10 border border-primary/40 text-primary font-black shadow-xs'
                       : 'border border-transparent text-text/70 hover:text-text hover:bg-background/80 font-semibold'
