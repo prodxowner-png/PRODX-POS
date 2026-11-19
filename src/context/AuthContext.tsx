@@ -46,7 +46,7 @@ import {
 import {
   AUTH_SESSION_STORAGE_KEY,
   clearPersistedSession,
-  readPersistedSession,
+  restoreVerifiedSession,
   writePersistedSession,
 } from './authSessionStorage';
 import { shouldReadMock } from '../adapters/env';
@@ -432,15 +432,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     async function restoreSession() {
       try {
-        localStorage.removeItem(STORAGE_KEY);
-        const persisted = readPersistedSession(sessionStorage);
-        if (!persisted) {
-          clearPersistedSession(sessionStorage);
-          return;
-        }
-        const verified = await authApi.verifySession(persisted.token);
+        const verified = await restoreVerifiedSession(
+          (token) => authApi.verifySession(token),
+          sessionStorage,
+          localStorage,
+          (err) => console.error('[AuthContext] Session restore error:', err),
+        );
         if (!verified) {
-          clearPersistedSession(sessionStorage);
           return;
         }
         const storedScope = verified.operationalScope ?? getStoredOperationalScope();
