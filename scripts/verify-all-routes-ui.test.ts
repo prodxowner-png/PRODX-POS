@@ -79,6 +79,7 @@ test('evaluateRouteIdentity passes on valid route DOM and fails on crash boundar
 
   const valid = evaluateRouteIdentity(dashSpec, {
     bodyText: 'Dashboard Overview Sales Today',
+    primaryHeadingText: 'Dashboard',
     headingsText: 'Dashboard',
     activeNavText: 'Dashboard',
     matchedSelectors: ['main', 'h1'],
@@ -235,12 +236,27 @@ test('buildIsolatedViteEnv clears production auth and Supabase env vars and clea
   assert.equal(existsSync(tempDir), false);
 });
 
-test('evaluateRouteIdentity rejects stuck-on-Dashboard snapshots even when Sidebar labels appear in bodyText', () => {
+test('evaluateRouteIdentity rejects stuck-on-Dashboard snapshots even when Sidebar labels and real DashboardScreen widgets appear in main', () => {
+  const realDashboardMainText = [
+    'Operational Sales Dashboard',
+    'Operational Quick Actions',
+    'Open POS Terminal (F1)',
+    'Cash Drawer & Shifts',
+    'Inventory & Stock Ledger',
+    'Stock ledger & adjust counts',
+    'Customer Loyalty CRM',
+    'Recent Orders',
+    'View All Orders',
+    'Orders Completed',
+    'System Alert: Critical Low Stock Detected',
+  ].join('\n');
+
   const stuckOnDashboard = {
-    bodyText:
-      'POS\nDashboard\nOrders\nShift\nInventory\nCustomers\nAudit\nKitchen Display\nTask Manager\nSettings\nOperational Sales Dashboard\nSales Overview',
-    mainText: 'Operational Sales Dashboard\nSales Overview',
-    headingsText: 'Operational Sales Dashboard | Sales Overview',
+    bodyText: `POS\nDashboard\nOrders\nShift\nInventory\nCustomers\nAudit\nKitchen Display\nTask Manager\nSettings\n${realDashboardMainText}`,
+    mainText: realDashboardMainText,
+    primaryHeadingText: 'Operational Sales Dashboard',
+    headingsText:
+      'Operational Sales Dashboard | Operational Quick Actions | Recent Orders | System Alert: Critical Low Stock Detected',
     activeNavText: 'Dashboard',
     matchedSelectors: ['main', 'h1'],
     hasCrashBoundary: false,
@@ -257,9 +273,9 @@ test('evaluateRouteIdentity rejects stuck-on-Dashboard snapshots even when Sideb
     'inventory',
     'customers',
     'audit',
-    'settings',
     'kds',
     'tasks',
+    'settings',
   ];
 
   for (const route of otherOperationalRoutes) {
@@ -267,7 +283,7 @@ test('evaluateRouteIdentity rejects stuck-on-Dashboard snapshots even when Sideb
     assert.equal(
       res.matched,
       false,
-      `Expected route "${route}" to FAIL when stuck on Dashboard with Sidebar labels in bodyText`,
+      `Expected route "${route}" to FAIL when stuck on real DashboardScreen with widget copy in <main>`,
     );
   }
 });
@@ -349,6 +365,7 @@ test('evaluateRouteIdentity matches real OrdersScreen EN heading, requires POS c
   const realOrders = evaluateRouteIdentity(ROUTE_IDENTITY_SPECS.orders, {
     bodyText: 'Sidebar\nOrder Journal & Receipts\nFilter receipts',
     mainText: 'Order Journal & Receipts\nFilter receipts',
+    primaryHeadingText: 'Order Journal & Receipts',
     headingsText: 'Order Journal & Receipts',
     activeNavText: '',
     matchedSelectors: ['main', 'h1'],
@@ -362,8 +379,9 @@ test('evaluateRouteIdentity matches real OrdersScreen EN heading, requires POS c
   const posMissingCart = evaluateRouteIdentity(ROUTE_IDENTITY_SPECS.pos, {
     bodyText: 'POS Cart Checkout',
     mainText: 'POS Cart Checkout',
+    primaryHeadingText: '',
     headingsText: '',
-    activeNavText: 'POS',
+    activeNavText: 'POS Terminal',
     matchedSelectors: ['main'],
     hasCrashBoundary: false,
     hasErrorBoundaryFallback: false,
@@ -373,12 +391,13 @@ test('evaluateRouteIdentity matches real OrdersScreen EN heading, requires POS c
     posMissingCart.reasons.some((r) => r.includes('[aria-label="Order Cart and Checkout Panel"]')),
   );
 
-  // POS with required cart panel selector PASSES
+  // POS with required cart panel selector PASSES via activeNavText (PosScreen has no <h1>)
   const posValid = evaluateRouteIdentity(ROUTE_IDENTITY_SPECS.pos, {
     bodyText: 'POS Cart Checkout',
     mainText: 'Order Cart Checkout',
+    primaryHeadingText: '',
     headingsText: '',
-    activeNavText: 'POS',
+    activeNavText: 'POS Terminal',
     matchedSelectors: ['main', '[aria-label="Order Cart and Checkout Panel"]'],
     hasCrashBoundary: false,
     hasErrorBoundaryFallback: false,
@@ -388,6 +407,7 @@ test('evaluateRouteIdentity matches real OrdersScreen EN heading, requires POS c
   // customer-display must NOT pass on bare "PRODX" alone
   const bareProdx = evaluateRouteIdentity(ROUTE_IDENTITY_SPECS['customer-display'], {
     bodyText: 'PRODX',
+    primaryHeadingText: '',
     headingsText: '',
     activeNavText: '',
     matchedSelectors: [],
@@ -399,6 +419,7 @@ test('evaluateRouteIdentity matches real OrdersScreen EN heading, requires POS c
   // customer-display PASSES on real CustomerDisplayView content
   const realCustomerDisplay = evaluateRouteIdentity(ROUTE_IDENTITY_SPECS['customer-display'], {
     bodyText: 'PRODX Flagship Store\nยินดีต้อนรับสู่ PRODX Flagship Store\nสรุปยอดค่าสินค้า (Order Summary)',
+    primaryHeadingText: '',
     headingsText: 'ยินดีต้อนรับสู่ PRODX Flagship Store',
     activeNavText: '',
     matchedSelectors: [],
@@ -415,6 +436,7 @@ test('verify-all-routes-ui.ts blurs activeElement before shortcuts, checks real 
   assert.match(scriptSource, /#global-error-boundary-screen/);
   assert.match(scriptSource, /#global-crash-boundary-fallback/);
   assert.match(scriptSource, /\[id\^="error-boundary-module-"\]/);
+  assert.match(scriptSource, /document\.querySelectorAll\('main h1'\)/);
   assert.match(scriptSource, /mainEl\.querySelectorAll\('h1, h2, h3'\)/);
   assert.match(scriptSource, /cdp\.on\('Runtime\.exceptionThrown'/);
   assert.match(scriptSource, /cdp\.on\('Runtime\.consoleAPICalled'/);

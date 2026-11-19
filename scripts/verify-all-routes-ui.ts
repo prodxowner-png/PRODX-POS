@@ -65,6 +65,7 @@ export interface ContrastEvaluation {
 export interface DomIdentitySnapshot {
   bodyText: string;
   mainText?: string;
+  primaryHeadingText?: string;
   headingsText: string;
   activeNavText: string;
   matchedSelectors: string[];
@@ -310,11 +311,12 @@ export function evaluateRouteIdentity(
 ): RouteIdentityEvaluation {
   const reasons: string[] = [];
   const mainText = snapshot.mainText ?? '';
-  const fullPageText = `${snapshot.headingsText}\n${snapshot.activeNavText}\n${mainText}\n${snapshot.bodyText}`;
+  const primaryHeadingText = snapshot.primaryHeadingText ?? '';
+  const fullPageText = `${primaryHeadingText}\n${snapshot.headingsText}\n${snapshot.activeNavText}\n${mainText}\n${snapshot.bodyText}`;
   const shouldScopeToMain = spec.scopeToMain ?? Boolean(spec.requiredSelectors?.includes('main'));
   const identityText = shouldScopeToMain
-    ? `${snapshot.headingsText}\n${snapshot.activeNavText}\n${mainText}`
-    : `${snapshot.headingsText}\n${snapshot.activeNavText}\n${snapshot.bodyText}`;
+    ? `${primaryHeadingText}\n${snapshot.activeNavText}`
+    : `${primaryHeadingText}\n${snapshot.headingsText}\n${snapshot.activeNavText}\n${snapshot.bodyText}`;
 
   if (snapshot.hasCrashBoundary || snapshot.hasErrorBoundaryFallback) {
     reasons.push('Crash/ErrorBoundary fallback rendered');
@@ -569,6 +571,13 @@ class CdpClient {
       const selectors = ${selectorsJson};
       const matchedSelectors = selectors.filter((sel) => Boolean(document.querySelector(sel)));
       const mainEl = document.querySelector('main');
+      const primaryHeadingNodes = mainEl
+        ? document.querySelectorAll('main h1')
+        : document.querySelectorAll('h1');
+      const primaryHeadingText = Array.from(primaryHeadingNodes)
+        .map((el) => (el.innerText || el.textContent || '').trim())
+        .filter(Boolean)
+        .join(' | ');
       const headingNodes = mainEl
         ? mainEl.querySelectorAll('h1, h2, h3')
         : document.querySelectorAll('h1, h2, h3');
@@ -583,6 +592,7 @@ class CdpClient {
       return {
         bodyText: (document.body?.innerText || '').slice(0, 4000),
         mainText: (mainEl?.innerText || '').slice(0, 4000),
+        primaryHeadingText,
         headingsText,
         activeNavText,
         matchedSelectors,
