@@ -4,11 +4,15 @@ on:
   pull_request:
     paths:
       - "owner-console/**"
+      - "supabase/functions/owner-authorize/**"
+      - "supabase/config.toml"
       - ".github/workflows/owner-console.yml"
   push:
     branches: [main]
     paths:
       - "owner-console/**"
+      - "supabase/functions/owner-authorize/**"
+      - "supabase/config.toml"
       - ".github/workflows/owner-console.yml"
 
 permissions:
@@ -36,4 +40,7 @@ jobs:
           test "$(npm config get strict-allow-scripts)" = "true"
       - run: npm ci --no-audit --no-fund
       - run: npm run typecheck
+      - name: Typecheck owner-authorize Edge Function handler
+        run: npx --no-install tsc --noEmit --strict --target ES2022 --module ESNext --moduleResolution bundler --lib ES2022,DOM ../supabase/functions/owner-authorize/handler.ts
+      - run: npm test
       - run: npm run build

@@ -1,0 +1,2 @@
+[functions.owner-authorize]
+verify_jwt = true
