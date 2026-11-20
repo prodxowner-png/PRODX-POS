@@ -106,7 +106,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
 
   // Custom report date range filter state (Defaults to Today)
   const [dateRange, setDateRange] = useState<DateRange>(() => {
-    const today = getStoreDateCarrier(new Date(), 'UTC');
+    const today = getStoreDateCarrier(new Date(), storeTimeZone);
     const end = new Date(today);
     end.setHours(23, 59, 59, 999);
     return { startDate: today, endDate: end };
