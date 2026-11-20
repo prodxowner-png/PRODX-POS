@@ -1,4 +1,5 @@
 import type { Order } from '../../../domain/order';
+import { getStoreDateParts } from './storeTime';
 
 export interface ManagerActionableInsight {
   readonly id: string;
@@ -74,18 +75,20 @@ export function calculateMonthOverMonthMetrics(
   language: 'th' | 'en' | 'zh' | 'ja' = 'th',
   mode: ScenarioMode = 'actual',
   now: Date = new Date(),
+  timeZone: string = 'UTC',
 ): {
   metrics: MonthOverMonthMetrics;
   trendData: readonly MonthlyTrendDataPoint[];
 } {
-  const currentYear = now.getFullYear();
-  const currentMonthIndex = now.getMonth();
-  const currentDay = now.getDate();
-  const priorDate = new Date(currentYear, currentMonthIndex - 1, 1);
-  const priorYear = priorDate.getFullYear();
-  const priorMonthIndex = priorDate.getMonth();
-  const daysInCurrentMonth = new Date(currentYear, currentMonthIndex + 1, 0).getDate();
-  const daysInPriorMonth = new Date(priorYear, priorMonthIndex + 1, 0).getDate();
+  const nowParts = getStoreDateParts(now, timeZone);
+  const currentYear = nowParts.year;
+  const currentMonthIndex = nowParts.month - 1;
+  const currentDay = nowParts.day;
+  const priorDate = new Date(Date.UTC(currentYear, currentMonthIndex - 1, 1));
+  const priorYear = priorDate.getUTCFullYear();
+  const priorMonthIndex = priorDate.getUTCMonth();
+  const daysInCurrentMonth = new Date(Date.UTC(currentYear, currentMonthIndex + 1, 0)).getUTCDate();
+  const daysInPriorMonth = new Date(Date.UTC(priorYear, priorMonthIndex + 1, 0)).getUTCDate();
   const isThai = language === 'th';
 
   const currentMonthName = isThai
@@ -107,9 +110,10 @@ export function calculateMonthOverMonthMetrics(
     const orderDate = new Date(order.createdAt);
     if (!Number.isFinite(orderDate.getTime())) continue;
 
-    const year = orderDate.getFullYear();
-    const month = orderDate.getMonth();
-    const day = orderDate.getDate();
+    const orderParts = getStoreDateParts(orderDate, timeZone);
+    const year = orderParts.year;
+    const month = orderParts.month - 1;
+    const day = orderParts.day;
     const cents = Math.max(0, order.totals.grandTotal.amountInCents - (order.refundedAmount?.amountInCents ?? 0));
 
     if (year === currentYear && month === currentMonthIndex && day <= currentDay) {

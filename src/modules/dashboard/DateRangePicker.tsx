@@ -12,6 +12,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
+import { getStoreDateCarrier } from './utils/storeTime';
 
 export interface DateRange {
   startDate: Date;
@@ -31,6 +32,7 @@ export interface DateRangePickerProps {
   onChange: (range: DateRange) => void;
   className?: string;
   id?: string;
+  timeZone?: string;
 }
 
 // Helpers for date calculations
@@ -81,6 +83,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
   onChange,
   className = '',
   id = 'report-date-range-picker',
+  timeZone = 'UTC',
 }) => {
   const { language } = useLanguage();
   const [isOpen, setIsOpen] = useState(false);
@@ -101,7 +104,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
   useEffect(() => {
     setTempStart(value.startDate);
     setTempEnd(value.endDate);
-  }, [value]);
+  }, [value, timeZone]);
 
   // Click outside listener
   useEffect(() => {
@@ -120,7 +123,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
 
   // Determine which preset matches the current value
   const activePreset = useMemo<DateRangePreset>(() => {
-    const now = new Date();
+    const now = getStoreDateCarrier(new Date(), timeZone);
     const todayStart = startOfDay(now);
     const todayEnd = endOfDay(now);
 
@@ -170,7 +173,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
       labelTh: 'วันนี้',
       labelEn: 'Today',
       getRange: () => {
-        const now = new Date();
+        const now = getStoreDateCarrier(new Date(), timeZone);
         return { startDate: startOfDay(now), endDate: endOfDay(now) };
       },
     },
@@ -179,7 +182,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
       labelTh: 'เมื่อวาน',
       labelEn: 'Yesterday',
       getRange: () => {
-        const d = new Date();
+        const d = getStoreDateCarrier(new Date(), timeZone);
         d.setDate(d.getDate() - 1);
         return { startDate: startOfDay(d), endDate: endOfDay(d) };
       },
@@ -189,7 +192,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
       labelTh: '7 วันล่าสุด',
       labelEn: 'Last 7 Days',
       getRange: () => {
-        const now = new Date();
+        const now = getStoreDateCarrier(new Date(), timeZone);
         const start = new Date(now);
         start.setDate(now.getDate() - 6);
         return { startDate: startOfDay(start), endDate: endOfDay(now) };
@@ -200,7 +203,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
       labelTh: '30 วันล่าสุด',
       labelEn: 'Last 30 Days',
       getRange: () => {
-        const now = new Date();
+        const now = getStoreDateCarrier(new Date(), timeZone);
         const start = new Date(now);
         start.setDate(now.getDate() - 29);
         return { startDate: startOfDay(start), endDate: endOfDay(now) };
@@ -211,7 +214,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
       labelTh: 'เดือนนี้',
       labelEn: 'This Month',
       getRange: () => {
-        const now = new Date();
+        const now = getStoreDateCarrier(new Date(), timeZone);
         const start = new Date(now.getFullYear(), now.getMonth(), 1);
         return { startDate: startOfDay(start), endDate: endOfDay(now) };
       },
@@ -529,7 +532,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
                   const isStart = isSameDay(date, tempStart);
                   const isEnd = isSameDay(date, tempEnd);
                   const inRange = isDateInRange(date, tempStart, tempEnd);
-                  const isToday = isSameDay(date, new Date());
+                  const isToday = isSameDay(date, getStoreDateCarrier(new Date(), timeZone));
 
                   // Hover styling when selecting end date
                   const inHoverRange =

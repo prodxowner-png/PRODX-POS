@@ -37,6 +37,7 @@ import { HourlyVelocityChart } from './components/HourlyVelocityChart';
 import { DashboardQuickActions } from './components/DashboardQuickActions';
 import { RecentTransactionsSection } from './components/RecentTransactionsSection';
 import { AiDashboardInsightsWidget } from './components/AiDashboardInsightsWidget';
+import { getStoreDateCarrier, getStoreDateParts, getStoreDayBounds, storeWallTimeToUtc } from './utils/storeTime';
 
 export interface DashboardScreenProps {
   onNavigate: (route: NavRoute) => void;
@@ -76,6 +77,7 @@ const WIDGET_TITLES: Record<string, { th: string; en: string }> = {
 export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) => {
   const { session } = useAuth();
   const currentStoreId = session?.currentStore?.id;
+  const storeTimeZone = session?.currentStore?.timezone?.trim() || 'UTC';
   const { currentShift } = useShift();
   const { pendingCount } = useOffline();
   const { t, language } = useLanguage();
@@ -104,23 +106,29 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
 
   // Custom report date range filter state (Defaults to Today)
   const [dateRange, setDateRange] = useState<DateRange>(() => {
-    const now = new Date();
-    const start = new Date(now);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(now);
+    const today = getStoreDateCarrier(new Date(), 'UTC');
+    const end = new Date(today);
     end.setHours(23, 59, 59, 999);
-    return { startDate: start, endDate: end };
+    return { startDate: today, endDate: end };
   });
 
-  // Filter orders matching the selected date range window [startDate 00:00:00 - endDate 23:59:59]
+  useEffect(() => {
+    if (!session?.currentStore?.timezone) return;
+    const today = getStoreDateCarrier(new Date(), storeTimeZone);
+    const end = new Date(today);
+    end.setHours(23, 59, 59, 999);
+    setDateRange({ startDate: today, endDate: end });
+  }, [currentStoreId, storeTimeZone, session?.currentStore?.timezone]);
+
+  // Filter orders by the selected calendar dates in the store's configured timezone.
   const filteredOrders = useMemo(() => {
-    const startMs = new Date(dateRange.startDate).setHours(0, 0, 0, 0);
-    const endMs = new Date(dateRange.endDate).setHours(23, 59, 59, 999);
+    const startMs = getStoreDayBounds(dateRange.startDate, storeTimeZone).start.getTime();
+    const endMs = getStoreDayBounds(dateRange.endDate, storeTimeZone).end.getTime();
     return orders.filter((order) => {
       const orderTime = new Date(order.createdAt).getTime();
       return orderTime >= startMs && orderTime <= endMs;
     });
-  }, [orders, dateRange]);
+  }, [orders, dateRange, storeTimeZone]);
 
   const confirmedStoreOrders = useMemo(
     () => orders.filter((order) => order.status === 'server_confirmed'),
@@ -161,14 +169,14 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
 
     try {
       const now = new Date();
-      const priorMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const storeToday = getStoreDateCarrier(now, storeTimeZone);
+      const priorMonthStart = new Date(storeToday.getFullYear(), storeToday.getMonth() - 1, 1);
+      const selectedStart = getStoreDayBounds(dateRange.startDate, storeTimeZone).start;
+      const selectedEnd = getStoreDayBounds(dateRange.endDate, storeTimeZone).end;
+      const priorMonthStartUtc = getStoreDayBounds(priorMonthStart, storeTimeZone).start;
       const shiftStart = currentShift?.openedAt ? new Date(currentShift.openedAt) : now;
-      const from = new Date(Math.min(
-        dateRange.startDate.getTime(),
-        priorMonthStart.getTime(),
-        shiftStart.getTime(),
-      )).toISOString();
-      const to = new Date(Math.max(dateRange.endDate.getTime(), now.getTime())).toISOString();
+      const from = new Date(Math.min(selectedStart.getTime(), priorMonthStartUtc.getTime(), shiftStart.getTime())).toISOString();
+      const to = new Date(Math.max(selectedEnd.getTime(), now.getTime())).toISOString();
       const loadedOrders: Order[] = [];
       const pageSize = 200;
       const maxPages = 51;
@@ -197,7 +205,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
     } finally {
       if (requestId === loadRequestIdRef.current) setIsLoading(false);
     }
-  }, [session, catalogApi, orderReadApi, dateRange.startDate, dateRange.endDate, currentShift?.openedAt]);
+  }, [session, catalogApi, orderReadApi, dateRange.startDate, dateRange.endDate, currentShift?.openedAt, storeTimeZone]);
 
   useEffect(() => {
     void loadDashboardData();
@@ -378,8 +386,8 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
       }
     } else {
       // Fallback: default to today 8:00 AM or 4 hours ago
-      shiftStart = new Date(now);
-      shiftStart.setHours(8, 0, 0, 0);
+      const storeToday = getStoreDateParts(now, storeTimeZone);
+      shiftStart = storeWallTimeToUtc({ ...storeToday, hour: 8, minute: 0, second: 0 }, storeTimeZone);
       if (now.getTime() < shiftStart.getTime()) {
         shiftStart = new Date(now.getTime() - 4 * 3600 * 1000);
       }
@@ -394,8 +402,8 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
       return afterStart && beforeEnd && matchesRegister;
     });
 
-    const startHour = shiftStart.getHours();
-    const currentHour = now.getHours();
+    const startHour = getStoreDateParts(shiftStart, storeTimeZone).hour;
+    const currentHour = getStoreDateParts(now, storeTimeZone).hour;
     const elapsedHours = Math.max(0, currentHour - startHour + 1);
     const hoursSpan = Math.max(6, Math.min(12, Math.max(elapsedHours, 6)));
 
@@ -413,8 +421,8 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
 
       // Aggregate all orders belonging to this hour
       const matchingOrders = shiftOrders.filter((o) => {
-        const d = new Date(o.createdAt);
-        return d.getHours() === h;
+        const d = getStoreDateParts(new Date(o.createdAt), storeTimeZone);
+        return d.hour === h;
       });
 
       let amount = 0;
@@ -441,13 +449,11 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
     }
 
     return buckets;
-  }, [currentShift, confirmedStoreOrders]);
+  }, [currentShift, confirmedStoreOrders, storeTimeZone]);
 
   const handleResetToday = () => {
-    const now = new Date();
-    const start = new Date(now);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(now);
+    const start = getStoreDateCarrier(new Date(), storeTimeZone);
+    const end = new Date(start);
     end.setHours(23, 59, 59, 999);
     setDateRange({ startDate: start, endDate: end });
   };
@@ -629,6 +635,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
               value={dateRange}
               onChange={setDateRange}
               id="dashboard-report-date-range-picker"
+              timeZone={storeTimeZone}
             />
           </div>
         </div>
@@ -794,6 +801,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
                 isLoading={isLoading}
                 orders={confirmedStoreOrders}
                 storeId={session?.currentStore?.id}
+                timeZone={storeTimeZone}
               />
             ) : (
               <StaffOperationalKPIs

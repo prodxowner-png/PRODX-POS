@@ -29,6 +29,7 @@ interface ManagerFinancialKPIsProps {
   isLoading: boolean;
   orders?: readonly Order[];
   storeId?: string;
+  timeZone?: string;
 }
 
 export const ManagerFinancialKPIs: React.FC<ManagerFinancialKPIsProps> = ({
@@ -38,12 +39,13 @@ export const ManagerFinancialKPIs: React.FC<ManagerFinancialKPIsProps> = ({
   isLoading,
   orders = [],
   storeId = 'default',
+  timeZone = 'UTC',
 }) => {
   const { t, language } = useLanguage();
 
   const { metrics: momMetrics } = useMemo(() => {
-    return calculateMonthOverMonthMetrics(orders, storeId, language as any);
-  }, [orders, storeId, language]);
+    return calculateMonthOverMonthMetrics(orders, storeId, language as any, 'actual', new Date(), timeZone);
+  }, [orders, storeId, language, timeZone]);
 
   return (
     <div id="dashboard-manager-kpi-container" className="space-y-4 sm:space-y-5">
