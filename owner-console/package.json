@@ -1,0 +1,29 @@
+{
+  "name": "prodx-owner-console",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.117.2",
+    "lucide-react": "0.546.0",
+    "react": "19.0.1",
+    "react-dom": "19.0.1"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.7",
+    "@vitejs/plugin-react": "5.0.4",
+    "typescript": "5.8.2",
+    "vite": "6.2.3"
+  },
+  "engines": {
+    "node": ">=24.12.0 <25",
+    "npm": ">=11.21.2 <12"
+  }
+}
