@@ -241,3 +241,25 @@ Then synthesize the design system + detailed searches and implement.
 ## Before Delivering App UI
 
 Read `references/pro-rules.md` and run through its canonical Pre-Delivery Checklist. It covers icon/visual-element discipline, interaction feedback, light/dark contrast, safe-area layout, and accessibility — scoped to native/mobile app UI (iOS/Android/React Native/Flutter).
+
+
+## Evidence contract
+
+Treat catalog matches and implementation advice as recommendations, not proof that the application meets a quality gate.
+
+- **PASS** — the relevant UI behavior was directly inspected or tested at the stated viewport/platform, and the evidence supports the criterion.
+- **FAIL** — direct inspection or a reproducible test demonstrates a usability, accessibility, responsive, or interaction defect.
+- **BLOCKED** — required runtime, device, browser, test data, or permission is unavailable; do not substitute assumptions.
+- **UNVERIFIED** — evidence is missing, stale, indirect, or insufficient to support a conclusion.
+
+For UI reviews, identify the exact screen/component, viewport and platform, the observed issue, severity, and concrete remediation. Distinguish automated checks from manual visual and assistive-technology checks. Never claim WCAG conformance from a color calculation or static scan alone.
+
+## Output Contract
+
+For a UI/UX implementation or review, report:
+
+1. **Scope** — screens/components, detected stack and versions, and target viewports.
+2. **Findings** — issue → cause → recommended fix, with High/Medium/Low severity and blocking status.
+3. **Design guidance used** — the search domain/stack and matched catalog result, or explicitly state when general fallback guidance was used.
+4. **Verification** — exact commands/tests and their PASS/FAIL/BLOCKED/UNVERIFIED results; include viewport and accessibility checks where relevant.
+5. **Safety boundary** — confirm that UI guidance did not weaken server authority, authentication, tenant/store isolation, RLS, grants, append-only audit, financial/inventory invariants, idempotency, or offline-sync guarantees.
