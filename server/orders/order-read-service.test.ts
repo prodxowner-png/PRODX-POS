@@ -37,6 +37,10 @@ test('order read service exposes immutable partial refund totals and restocked i
   assert.equal(orders[0].refundedAmount?.amountInCents, 2500);
   assert.equal(orders[0].items[0].restockedQuantity, 1);
   assert.equal(orders[0].items[0].quantity - (orders[0].items[0].restockedQuantity ?? 0), 1);
+  const itemQuery = queries.find((item) => item.sql.includes('FROM prodx_order_items'));
+  assert.ok(itemQuery?.sql.includes('p.organization_id = oi.organization_id'));
+  const refundItemQuery = queries.find((item) => item.sql.includes('FROM prodx_refund_items'));
+  assert.ok(refundItemQuery?.sql.includes('r.organization_id = ri.organization_id'));
   const paymentQuery = queries.find((item) => item.sql.includes('FROM prodx_payments'));
   assert.ok(paymentQuery?.sql.includes("status IN ('captured', 'settled')"));
   for (const entry of queries.filter((item) => item.sql.includes('FROM prodx_refunds'))) {
