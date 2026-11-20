@@ -1,8 +1,8 @@
-import { Order } from '../../../domain/order';
+import type { Order } from '../../../domain/order';
 
 export interface ManagerActionableInsight {
   readonly id: string;
-  readonly category: 'inventory' | 'staffing' | 'basket' | 'promotions';
+  readonly category: 'inventory' | 'staffing' | 'basket' | 'promotions' | 'data_quality';
   readonly categoryLabel: { readonly th: string; readonly en: string };
   readonly title: { readonly th: string; readonly en: string };
   readonly description: { readonly th: string; readonly en: string };
@@ -27,7 +27,10 @@ export interface MonthOverMonthMetrics {
   readonly priorMonthName: string;
   readonly currentDay: number;
   readonly daysInCurrentMonth: number;
-  readonly paceStatus: 'exceeding' | 'on_track' | 'lagging';
+  readonly hasCurrentPeriodData: boolean;
+  readonly hasComparablePriorPeriod: boolean;
+  readonly isSimulation: boolean;
+  readonly paceStatus: 'exceeding' | 'on_track' | 'lagging' | 'insufficient_data';
   readonly insights: readonly ManagerActionableInsight[];
 }
 
@@ -55,298 +58,192 @@ const MONTH_NAMES_TH = [
 const MONTH_SHORT_EN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const MONTH_SHORT_TH = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
 
-/**
- * Baseline daily sales profiles for calibrated stores.
- * Ensures that store managers always receive realistic Month-over-Month comparisons
- * even if local cache or mock order state has limited historical days.
- */
-const STORE_DAILY_BASELINES: Record<string, { weekday: number; weekend: number }> = {
-  'store-flagship-downtown': { weekday: 5800, weekend: 8200 },
-  'store-uptown-express': { weekday: 3900, weekend: 5400 },
-  default: { weekday: 4800, weekend: 6800 },
-};
+type ScenarioMode = 'actual' | 'growth' | 'decline';
+
+const roundToOneDecimal = (value: number): number => Math.round(value * 10) / 10;
+const roundToTwoDecimals = (value: number): number => Math.round(value * 100) / 100;
 
 /**
- * Calculates Month-over-Month (MoM) sales volume metrics, growth/decline percentage variance,
- * and actionable manager insights for the Dashboard.
+ * Calculates month-over-month metrics exclusively from server-confirmed orders.
+ * Scenario modes are explicit projections based on the prior month's verified data;
+ * they never add synthetic store baselines or silently alter Actual Data.
  */
 export function calculateMonthOverMonthMetrics(
   orders: readonly Order[],
   storeId: string = 'default',
   language: 'th' | 'en' | 'zh' | 'ja' = 'th',
-  forceSimulation?: 'actual' | 'growth' | 'decline'
+  mode: ScenarioMode = 'actual',
+  now: Date = new Date(),
 ): {
   metrics: MonthOverMonthMetrics;
   trendData: readonly MonthlyTrendDataPoint[];
 } {
-  const now = new Date();
   const currentYear = now.getFullYear();
   const currentMonthIndex = now.getMonth();
-  const currentDay = Math.max(1, now.getDate());
-
+  const currentDay = now.getDate();
   const priorDate = new Date(currentYear, currentMonthIndex - 1, 1);
   const priorYear = priorDate.getFullYear();
   const priorMonthIndex = priorDate.getMonth();
-
   const daysInCurrentMonth = new Date(currentYear, currentMonthIndex + 1, 0).getDate();
   const daysInPriorMonth = new Date(priorYear, priorMonthIndex + 1, 0).getDate();
+  const isThai = language === 'th';
 
-  const currentMonthName = language === 'th'
+  const currentMonthName = isThai
     ? `${MONTH_NAMES_TH[currentMonthIndex]} ${currentYear + 543}`
     : `${MONTH_NAMES_EN[currentMonthIndex]} ${currentYear}`;
-
-  const priorMonthName = language === 'th'
+  const priorMonthName = isThai
     ? `${MONTH_NAMES_TH[priorMonthIndex]} ${priorYear + 543}`
     : `${MONTH_NAMES_EN[priorMonthIndex]} ${priorYear}`;
 
-  // Filter actual non-voided store orders
-  const storeOrders = orders.filter((o) => {
-    if (o.status === 'voided') return false;
-    if (storeId && storeId !== 'default' && o.storeId !== storeId) return false;
-    return true;
-  });
+  const currentDailyCents = new Map<number, number>();
+  const priorDailyCents = new Map<number, number>();
+  const currentDailyOrders = new Map<number, number>();
+  const priorDailyOrders = new Map<number, number>();
 
-  // Calculate actual orders belonging to current month vs prior month
-  let actualCurrentMonthSales = 0;
-  let actualCurrentMonthOrders = 0;
-  let actualPriorMonthSales = 0;
-  let actualPriorMonthOrders = 0;
+  for (const order of orders) {
+    if (order.status !== 'server_confirmed') continue;
+    if (storeId !== 'default' && order.storeId !== storeId) continue;
 
-  for (const o of storeOrders) {
-    const oDate = new Date(o.createdAt);
-    const oYear = oDate.getFullYear();
-    const oMonth = oDate.getMonth();
-    const oDay = oDate.getDate();
-    const oTotal = o.totals.grandTotal.amountInCents / 100;
+    const orderDate = new Date(order.createdAt);
+    if (!Number.isFinite(orderDate.getTime())) continue;
 
-    if (oYear === currentYear && oMonth === currentMonthIndex && oDay <= currentDay) {
-      actualCurrentMonthSales += oTotal;
-      actualCurrentMonthOrders += 1;
-    } else if (oYear === priorYear && oMonth === priorMonthIndex && oDay <= currentDay) {
-      actualPriorMonthSales += oTotal;
-      actualPriorMonthOrders += 1;
+    const year = orderDate.getFullYear();
+    const month = orderDate.getMonth();
+    const day = orderDate.getDate();
+    const cents = Math.max(0, order.totals.grandTotal.amountInCents - (order.refundedAmount?.amountInCents ?? 0));
+
+    if (year === currentYear && month === currentMonthIndex && day <= currentDay) {
+      currentDailyCents.set(day, (currentDailyCents.get(day) ?? 0) + cents);
+      currentDailyOrders.set(day, (currentDailyOrders.get(day) ?? 0) + 1);
+    } else if (year === priorYear && month === priorMonthIndex && day <= currentDay && day <= daysInPriorMonth) {
+      priorDailyCents.set(day, (priorDailyCents.get(day) ?? 0) + cents);
+      priorDailyOrders.set(day, (priorDailyOrders.get(day) ?? 0) + 1);
     }
   }
 
-  // Base retail profile calibration
-  const baseline = STORE_DAILY_BASELINES[storeId] || STORE_DAILY_BASELINES.default;
+  const actualCurrentSales = Array.from(currentDailyCents.values()).reduce((sum, cents) => sum + cents, 0) / 100;
+  const priorMonthSales = Array.from(priorDailyCents.values()).reduce((sum, cents) => sum + cents, 0) / 100;
+  const actualCurrentOrders = Array.from(currentDailyOrders.values()).reduce((sum, count) => sum + count, 0);
+  const priorMonthOrders = Array.from(priorDailyOrders.values()).reduce((sum, count) => sum + count, 0);
+  const hasCurrentPeriodData = actualCurrentOrders > 0;
+  const hasComparablePriorPeriod = priorMonthSales > 0 && priorMonthOrders > 0;
+  const isSimulation = mode !== 'actual' && hasComparablePriorPeriod;
+  const scenarioMultiplier = mode === 'growth' ? 1.146 : mode === 'decline' ? 0.938 : 1;
 
-  // Generate day-by-day sales data points for the 30/31 day trend comparison
-  const maxTrendDays = Math.max(daysInCurrentMonth, daysInPriorMonth);
   const trendData: MonthlyTrendDataPoint[] = [];
+  let currentMonthSales = 0;
+  let priorCumulative = 0;
+  let currentCumulative = 0;
 
-  let runningCurrentCum = 0;
-  let runningPriorCum = 0;
+  for (let day = 1; day <= currentDay; day += 1) {
+    const currentActual = (currentDailyCents.get(day) ?? 0) / 100;
+    const priorActual = (priorDailyCents.get(day) ?? 0) / 100;
+    const currentValue = isSimulation
+      ? roundToTwoDecimals(priorActual * scenarioMultiplier)
+      : currentActual;
 
-  // Calibrated multiplier for simulation or baseline growth
-  const growthMultiplier = forceSimulation === 'decline' ? 0.92 : forceSimulation === 'growth' ? 1.15 : 1.135;
-
-  for (let d = 1; d <= maxTrendDays; d++) {
-    // Determine weekday vs weekend pattern
-    const currentDayDate = new Date(currentYear, currentMonthIndex, d);
-    const isWeekend = currentDayDate.getDay() === 0 || currentDayDate.getDay() === 6;
-    const baseDaySales = isWeekend ? baseline.weekend : baseline.weekday;
-
-    // Daily variance factor based on day of month (e.g. paydays on 1st, 15th, 25th)
-    const paydayBonus = (d === 1 || d === 15 || d === 25 || d === 28) ? 1.35 : 1.0;
-    const pseudoNoise = 1 + (Math.sin(d * 1.8) * 0.08);
-
-    const priorDayEst = Math.round(baseDaySales * paydayBonus * pseudoNoise);
-    const currentDayEst = Math.round(priorDayEst * growthMultiplier * (1 + Math.cos(d * 2.2) * 0.04));
-
-    // Incorporate actual orders for matching days
-    const dayCurrentActual = storeOrders
-      .filter((o) => {
-        const dt = new Date(o.createdAt);
-        return dt.getFullYear() === currentYear && dt.getMonth() === currentMonthIndex && dt.getDate() === d;
-      })
-      .reduce((sum, o) => sum + o.totals.grandTotal.amountInCents / 100, 0);
-
-    const dayPriorActual = storeOrders
-      .filter((o) => {
-        const dt = new Date(o.createdAt);
-        return dt.getFullYear() === priorYear && dt.getMonth() === priorMonthIndex && dt.getDate() === d;
-      })
-      .reduce((sum, o) => sum + o.totals.grandTotal.amountInCents / 100, 0);
-
-    const finalPrior = d <= daysInPriorMonth ? (priorDayEst + dayPriorActual) : 0;
-    const isPastOrToday = d <= currentDay;
-    const finalCurrent = d <= daysInCurrentMonth
-      ? isPastOrToday
-        ? (currentDayEst + dayCurrentActual)
-        : Math.round(currentDayEst * 0.98) // Projected
-      : 0;
-
-    if (d <= currentDay) {
-      runningCurrentCum += finalCurrent;
-    }
-    if (d <= currentDay && d <= daysInPriorMonth) {
-      runningPriorCum += finalPrior;
-    }
-
-    const curShort = language === 'th' ? MONTH_SHORT_TH[currentMonthIndex] : MONTH_SHORT_EN[currentMonthIndex];
-    const dailyDiff = finalPrior > 0 ? ((finalCurrent - finalPrior) / finalPrior) * 100 : 0;
+    currentMonthSales += currentValue;
+    priorCumulative += priorActual;
+    currentCumulative += currentValue;
 
     trendData.push({
-      day: d,
-      dayLabel: `${curShort} ${d}`,
-      currentMonthSales: isPastOrToday ? finalCurrent : 0,
-      priorMonthSales: finalPrior,
-      currentCumulative: runningCurrentCum,
-      priorCumulative: runningPriorCum,
-      dailyVariancePercent: Math.round(dailyDiff * 10) / 10,
-      isProjected: !isPastOrToday,
+      day,
+      dayLabel: `${isThai ? MONTH_SHORT_TH[currentMonthIndex] : MONTH_SHORT_EN[currentMonthIndex]} ${day}`,
+      currentMonthSales: currentValue,
+      priorMonthSales: priorActual,
+      currentCumulative: roundToTwoDecimals(currentCumulative),
+      priorCumulative: roundToTwoDecimals(priorCumulative),
+      dailyVariancePercent: priorActual > 0
+        ? roundToOneDecimal(((currentValue - priorActual) / priorActual) * 100)
+        : 0,
+      isProjected: isSimulation,
     });
   }
 
-  // Calculate Month-to-Date (MTD) totals
-  let currentMonthSales = runningCurrentCum + actualCurrentMonthSales;
-  let priorMonthSales = runningPriorCum + actualPriorMonthSales;
+  currentMonthSales = roundToTwoDecimals(currentMonthSales);
+  const currentMonthOrders = isSimulation
+    ? Math.round(priorMonthOrders * scenarioMultiplier)
+    : actualCurrentOrders;
+  const currentMonthAov = currentMonthOrders > 0 ? Math.round(currentMonthSales / currentMonthOrders) : 0;
+  const priorMonthAov = priorMonthOrders > 0 ? Math.round(priorMonthSales / priorMonthOrders) : 0;
+  const varianceAmount = hasComparablePriorPeriod ? roundToTwoDecimals(currentMonthSales - priorMonthSales) : 0;
+  const variancePercentage = hasComparablePriorPeriod
+    ? roundToOneDecimal(((currentMonthSales - priorMonthSales) / priorMonthSales) * 100)
+    : 0;
+  const orderVariancePercentage = priorMonthOrders > 0
+    ? roundToOneDecimal(((currentMonthOrders - priorMonthOrders) / priorMonthOrders) * 100)
+    : 0;
+  const aovVariancePercentage = priorMonthAov > 0
+    ? roundToOneDecimal(((currentMonthAov - priorMonthAov) / priorMonthAov) * 100)
+    : 0;
+  const isGrowth = hasComparablePriorPeriod && variancePercentage >= 0;
+  const paceStatus: MonthOverMonthMetrics['paceStatus'] = !hasComparablePriorPeriod
+    ? 'insufficient_data'
+    : variancePercentage >= 10
+      ? 'exceeding'
+      : variancePercentage >= 0
+        ? 'on_track'
+        : 'lagging';
 
-  if (forceSimulation === 'decline') {
-    currentMonthSales = Math.round(priorMonthSales * 0.938);
-  } else if (forceSimulation === 'growth') {
-    currentMonthSales = Math.round(priorMonthSales * 1.146);
-  }
-
-  const varianceAmount = currentMonthSales - priorMonthSales;
-  const rawVariance = priorMonthSales > 0 ? ((currentMonthSales - priorMonthSales) / priorMonthSales) * 100 : 0;
-  const variancePercentage = Math.round(rawVariance * 10) / 10;
-  const isGrowth = variancePercentage >= 0;
-
-  const currentMonthOrders = Math.max(1, Math.round(currentMonthSales / 335) + actualCurrentMonthOrders);
-  const priorMonthOrders = Math.max(1, Math.round(priorMonthSales / 322) + actualPriorMonthOrders);
-  const rawOrderVariance = ((currentMonthOrders - priorMonthOrders) / priorMonthOrders) * 100;
-  const orderVariancePercentage = Math.round(rawOrderVariance * 10) / 10;
-
-  const currentMonthAov = Math.round(currentMonthSales / currentMonthOrders);
-  const priorMonthAov = Math.round(priorMonthSales / priorMonthOrders);
-  const rawAovVariance = ((currentMonthAov - priorMonthAov) / priorMonthAov) * 100;
-  const aovVariancePercentage = Math.round(rawAovVariance * 10) / 10;
-
-  const paceStatus: 'exceeding' | 'on_track' | 'lagging' =
-    variancePercentage >= 10 ? 'exceeding' : variancePercentage >= 0 ? 'on_track' : 'lagging';
-
-  // Build Actionable Insights specifically for Store Managers
-  const insights: ManagerActionableInsight[] = isGrowth
-    ? [
-        {
-          id: 'insight-inventory-growth',
-          category: 'inventory',
-          categoryLabel: { th: 'คลังสินค้า & สต็อกสำรอง', en: 'Inventory & Stock Safety' },
-          title: {
-            th: 'ยอดขายเพิ่มขึ้น +14% — ปรับเพิ่มระดับสต็อกปลอดภัย (Buffer)',
-            en: 'Volume up +14% — Increase safety stock buffer threshold',
-          },
-          description: {
-            th: `อัตราการหมุนเวียนสินค้ากลุ่มขายดี (Artisan Coffee และ Cold Drinks) เติบโตเร็วกว่าเดือนก่อน ${Math.abs(variancePercentage)}% เพื่อป้องกันสินค้าขาดสต็อกระหว่างรอบขายกะบ่าย`,
-            en: `High-velocity items in Artisan Coffee & Cold Drinks are moving ${Math.abs(variancePercentage)}% faster than last month. Prevent mid-shift stockouts during peak afternoon rush.`,
-          },
-          recommendation: {
-            th: 'แนะนำปรับเกณฑ์แจ้งเตือนสินค้าคงคลังต่ำจาก 15 เป็น 25 ชิ้น ในแท็บสต็อก',
-            en: 'Recommend raising the Low Stock alert threshold from 15 to 25 units in Inventory.',
-          },
-          impactLevel: 'high',
-          type: 'positive',
+  const insights: ManagerActionableInsight[] = !hasComparablePriorPeriod
+    ? [{
+        id: 'insufficient-verified-history',
+        category: 'data_quality',
+        categoryLabel: { th: 'ความพร้อมของข้อมูล', en: 'Data Readiness' },
+        title: { th: 'ข้อมูลยังไม่เพียงพอสำหรับเปรียบเทียบ', en: 'Not enough verified history to compare' },
+        description: {
+          th: `พบออเดอร์ที่ยืนยันแล้วเดือนนี้ ${actualCurrentOrders} รายการ และเดือนก่อน ${priorMonthOrders} รายการในช่วงวันที่เดียวกัน`,
+          en: `Found ${actualCurrentOrders} server-confirmed orders this month and ${priorMonthOrders} in the comparable period last month.`,
         },
-        {
-          id: 'insight-staffing-growth',
-          category: 'staffing',
-          categoryLabel: { th: 'การจัดกะ & กำลังคน', en: 'Shift & Staffing Velocity' },
-          title: {
-            th: 'ความเร็วการชำระเงินสูงสุดช่วง 11:30 - 14:00 น.',
-            en: 'Peak order velocity clustered around 11:30 AM - 2:00 PM',
-          },
-          description: {
-            th: `มีจำนวนบิลเฉลี่ย ${currentMonthOrders} รายการต่อเดือน เพิ่มขึ้น ${orderVariancePercentage}% ช่วงเวลาพีคต้องการแคชเชียร์ 2 คนเพื่อลดเวลารอคิวให้ต่ำกว่า 60 วินาที`,
-            en: `Store is processing ${currentMonthOrders} orders (+${orderVariancePercentage}% MoM). Peak periods require 2 active cashiers to maintain under 60-second checkout latency.`,
-          },
-          recommendation: {
-            th: 'เปิดเครื่องบันทึก REG-02 เป็นแคชเชียร์คู่ขนานช่วงพักเที่ยง',
-            en: 'Open auxiliary register REG-02 during lunch hours to handle surge volume.',
-          },
-          impactLevel: 'high',
-          type: 'positive',
+        recommendation: {
+          th: 'รอข้อมูลออเดอร์ที่ยืนยันแล้วของเดือนก่อนให้เพียงพอ ก่อนใช้เปอร์เซ็นต์ MoM ประกอบการตัดสินใจ',
+          en: 'Wait for sufficient server-confirmed prior-period orders before using an MoM percentage to make decisions.',
         },
-        {
-          id: 'insight-basket-growth',
-          category: 'basket',
-          categoryLabel: { th: 'ขนาดตะกร้า & ยอดเฉลี่ย', en: 'Basket Size & AOV Expansion' },
+        impactLevel: 'medium',
+        type: 'neutral',
+      }]
+    : isSimulation
+      ? [{
+          id: 'scenario-simulation-only',
+          category: 'data_quality',
+          categoryLabel: { th: 'การจำลองสถานการณ์', en: 'Scenario Simulation' },
           title: {
-            th: `ยอดซื้อเฉลี่ยต่อบิล (AOV) แตะ ฿${currentMonthAov} (+${aovVariancePercentage}%)`,
-            en: `Average Order Value reached ฿${currentMonthAov} (+${aovVariancePercentage}% MoM)`,
+            th: mode === 'growth' ? 'ตัวอย่างสถานการณ์ยอดขายเติบโต' : 'ตัวอย่างสถานการณ์ยอดขายชะลอตัว',
+            en: mode === 'growth' ? 'Sales growth scenario' : 'Sales decline scenario',
           },
           description: {
-            th: 'ลูกค้ามีการสั่งซื้อเบเกอรี่และของทานเล่นควบคู่กับเครื่องดื่มเพิ่มขึ้นอย่างต่อเนื่อง',
-            en: 'Customers are consistently pairing fresh bakery items with signature espresso beverages.',
+            th: `ตัวเลขปัจจุบันเป็นการจำลองจากยอดขายที่ยืนยันแล้วของเดือนก่อน โดยใช้ตัวคูณ ${scenarioMultiplier}`,
+            en: `Current-period figures are simulated from prior-month server-confirmed sales using a ${scenarioMultiplier} multiplier.`,
           },
           recommendation: {
-            th: 'ส่งเสริมการจับคู่เซ็ต Combo เครื่องดื่ม + ขนมเพื่อผลักดัน AOV สู่ ฿380',
-            en: 'Promote drink + pastry combo pairings at checkout to drive AOV above ฿380.',
+            th: 'ใช้เพื่อทดลองวางแผนเท่านั้น ไม่ใช่ผลประกอบการจริง และไม่ควรใช้แทนรายงานยอดขายจริง',
+            en: 'Use this only for scenario planning. It is not actual performance and must not replace verified sales reports.',
           },
           impactLevel: 'medium',
           type: 'neutral',
-        },
-      ]
-    : [
-        {
-          id: 'insight-recovery-decline',
-          category: 'promotions',
-          categoryLabel: { th: 'แคมเปญกระตุ้นยอดขาย', en: 'Revenue Recovery Campaigns' },
+        }]
+      : [{
+          id: 'verified-mom-summary',
+          category: isGrowth ? 'basket' : 'promotions',
+          categoryLabel: {
+            th: isGrowth ? 'สรุปผลยอดขาย' : 'จุดที่ควรตรวจสอบ',
+            en: isGrowth ? 'Sales Summary' : 'Review Required',
+          },
           title: {
-            th: `ยอดขายตามหลังเดือนก่อน ${Math.abs(variancePercentage)}% — แนะนำจัดแคมเปญกระตุ้น`,
-            en: `Sales volume is running ${Math.abs(variancePercentage)}% below prior month — trigger recovery promo`,
+            th: `ยอดขายที่ยืนยันแล้ว${isGrowth ? 'สูงกว่า' : 'ต่ำกว่า'}ช่วงเดียวกันเดือนก่อน ${Math.abs(variancePercentage)}%`,
+            en: `Verified sales are ${isGrowth ? 'above' : 'below'} the comparable prior period by ${Math.abs(variancePercentage)}%`,
           },
           description: {
-            th: `ปริมาณยอดขายรายวันเฉลี่ยอยู่ที่ ฿${Math.round(currentMonthSales / currentDay).toLocaleString()} ต่ำกว่ารอบเดือนก่อนหน้า ฿${Math.abs(Math.round(varianceAmount / currentDay)).toLocaleString()} ต่อวัน`,
-            en: `Daily sales volume is averaging ฿${Math.round(currentMonthSales / currentDay).toLocaleString()}, lagging last month by ฿${Math.abs(Math.round(varianceAmount / currentDay)).toLocaleString()} per day.`,
+            th: `คำนวณจากออเดอร์ที่ server ยืนยันแล้วเท่านั้น: ${actualCurrentOrders} บิลในเดือนนี้ เทียบกับ ${priorMonthOrders} บิลในเดือนก่อน`,
+            en: `Calculated only from server-confirmed orders: ${actualCurrentOrders} this month versus ${priorMonthOrders} in the comparable prior period.`,
           },
           recommendation: {
-            th: 'จัดโปรโมชั่นบ่าย Happy Hour 14:00 - 17:00 ลด 15% เพื่อดึงลูกค้าช่วงบ่าย',
-            en: 'Launch a 14:00 - 17:00 Afternoon Happy Hour with 15% discount to capture traffic.',
-          },
-          impactLevel: 'high',
-          type: 'warning',
-        },
-        {
-          id: 'insight-basket-decline',
-          category: 'basket',
-          categoryLabel: { th: 'ขนาดตะกร้า & สินค้าแอดออน', en: 'Basket Building & Add-ons' },
-          title: {
-            th: `จำนวนบิลลดลง ${Math.abs(orderVariancePercentage)}% — เน้นการเสนอขายหน้าร้าน`,
-            en: `Order tickets down ${Math.abs(orderVariancePercentage)}% — coach cashiers on suggestive selling`,
-          },
-          description: {
-            th: 'จำนวนธุรกรรมที่แคชเชียร์สแกนขายลดลงเมื่อเทียบกับช่วงเดียวกันของเดือนก่อน',
-            en: 'Total transaction tickets dropped compared to the same calendar window last month.',
-          },
-          recommendation: {
-            th: 'แนะนำแคชเชียร์เสนอขายสินค้าขนาดใหญ่ (Upsize) หรือท็อปปิ้งเสริมที่หน้าจอ POS',
-            en: 'Coach staff to offer size upgrades and extra espresso shots directly at POS.',
-          },
-          impactLevel: 'high',
-          type: 'warning',
-        },
-        {
-          id: 'insight-inventory-decline',
-          category: 'inventory',
-          categoryLabel: { th: 'การจัดการสต็อกค้าง', en: 'Inventory Rationalization' },
-          title: {
-            th: 'สินค้าบางหมวดหมู่อาจมีสต็อกค้างเกินความต้องการขาย',
-            en: 'Risk of inventory overstock in slower turnover categories',
-          },
-          description: {
-            th: 'เมื่อยอดขายชะลอตัว การสั่งซื้อวัตถุดิบที่มีวันหมดอายุเร็วควรได้รับการปรับลด',
-            en: 'With lower velocity, perishable dairy and bakery orders should be tightened.',
-          },
-          recommendation: {
-            th: 'ตรวจสอบรายงานสินค้าขายช้าในคลัง และลดปริมาณการสั่งซื้อนมสดลง 10%',
-            en: 'Audit slow-moving SKUs in Inventory and scale back weekly dairy replenishment by 10%.',
+            th: 'ตรวจสอบรายงานสินค้าและช่วงเวลาขายจริงเพิ่มเติม ก่อนปรับแผนสต็อก โปรโมชั่น หรือกำลังคน',
+            en: 'Review verified product and time-of-day reports before changing inventory, promotions, or staffing plans.',
           },
           impactLevel: 'medium',
-          type: 'neutral',
-        },
-      ];
+          type: isGrowth ? 'positive' : 'warning',
+        }];
 
   return {
     metrics: {
@@ -365,6 +262,9 @@ export function calculateMonthOverMonthMetrics(
       priorMonthName,
       currentDay,
       daysInCurrentMonth,
+      hasCurrentPeriodData,
+      hasComparablePriorPeriod,
+      isSimulation,
       paceStatus,
       insights,
     },

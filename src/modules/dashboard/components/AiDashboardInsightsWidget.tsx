@@ -19,7 +19,7 @@ import { aiService } from '../../../services/aiService';
 interface AiDashboardInsightsWidgetProps {
   totalRevenue: string;
   totalOrders: number;
-  topProducts: Array<{ name: string; qty: number; revenue: string }>;
+  topProducts: Array<{ name: string; qty: number }>;
   paymentBreakdown: Record<string, string>;
   dateRangeText: string;
   timeframeText: string;
@@ -98,8 +98,8 @@ export const AiDashboardInsightsWidget: React.FC<AiDashboardInsightsWidgetProps>
             </div>
             <p className="text-xs text-text/60">
               {isThai
-                ? 'วิเคราะห์อัตโนมัติจากข้อมูลยอดขาย สถิติออเดอร์ และสินค้าขายดีประจำช่วงเวลา'
-                : 'Intelligent synthesis based on real-time sales telemetry & velocity.'}
+                ? 'วิเคราะห์จากยอดขายและออเดอร์ที่ยืนยันแล้วในช่วงวันที่เลือก'
+                : 'Analysis based only on server-confirmed sales and orders in the selected period.'}
             </p>
           </div>
         </div>
