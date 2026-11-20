@@ -164,7 +164,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
     }
 
     return 'custom';
-  }, [value]);
+  }, [value, timeZone]);
 
   // Presets configuration
   const presets: { id: DateRangePreset; labelTh: string; labelEn: string; getRange: () => DateRange }[] = [
