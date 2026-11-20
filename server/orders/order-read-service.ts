@@ -128,7 +128,7 @@ export const createOrderReadService = (db: SqlQueryExecutor) => ({
         `SELECT oi.*, p.sku, p.barcode, p.name, p.category_id, p.price_amount::text AS product_price_amount,
                 p.cost_price_amount::text, p.tax_rate_bps, p.current_stock, p.reorder_point, p.unit_of_measure
          FROM prodx_order_items oi
-         JOIN prodx_products p ON p.id = oi.product_id AND p.store_id = oi.store_id
+         JOIN prodx_products p ON p.id = oi.product_id AND p.organization_id = oi.organization_id AND p.store_id = oi.store_id
          WHERE oi.organization_id = $1 AND oi.store_id = $2 AND oi.order_id = ANY($3::uuid[])
          ORDER BY oi.order_id, oi.id`,
         [organizationId, storeId, ids],
@@ -161,7 +161,7 @@ export const createOrderReadService = (db: SqlQueryExecutor) => ({
       await db.query<OrderRow>(
         `SELECT ri.order_item_id, SUM(ri.quantity)::integer AS restocked_quantity
          FROM prodx_refund_items ri
-         JOIN prodx_refunds r ON r.id = ri.refund_id AND r.store_id = ri.store_id
+         JOIN prodx_refunds r ON r.id = ri.refund_id AND r.organization_id = ri.organization_id AND r.store_id = ri.store_id
          WHERE ri.organization_id = $1 AND ri.store_id = $2 AND r.order_id = ANY($3::uuid[])
          GROUP BY ri.order_item_id`,
         [organizationId, storeId, ids],
