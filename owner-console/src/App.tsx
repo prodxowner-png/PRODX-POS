@@ -50,17 +50,25 @@ export default function App() {
       else { setFactorId(''); setQrCode(''); setAuthState('mfa-enroll'); }
       return;
     }
-    // The browser-side checks are UX only. Require the dedicated server-side
-    // authorization function before rendering the Owner workspace.
-    const { data: authorization, error: authorizationError } = await supabase.functions.invoke('owner-authorize', {
+
+    const { data: authorization, error: authorizationError } = await supabase.functions.invoke<{
+      authorized: boolean;
+      assuranceLevel: string;
+    }>('owner-authorize', {
       headers: { Authorization: `Bearer ${next.access_token}` },
     });
     if (current !== sequence.current) return;
-    if (authorizationError || authorization?.authorized !== true || authorization?.assuranceLevel !== 'aal2') {
-      setError('Server-side Owner authorization ไม่สำเร็จ กรุณาตรวจสอบการตั้งค่าและสิทธิ์');
+    if (
+      authorizationError ||
+      authorization?.authorized !== true ||
+      authorization.assuranceLevel !== 'aal2'
+    ) {
+      setError('Server ไม่สามารถยืนยัน Owner authorization ได้ จึงปฏิเสธการเข้าใช้งาน');
       setAuthState('denied');
       return;
     }
+
+    setError('');
     setAuthState('signed-in');
   }, []);
 
@@ -126,17 +134,8 @@ export default function App() {
   async function logout() {
     if (!supabase || busy) return;
     setBusy(true);
-    try {
-      const { error: signOutError } = await supabase.auth.signOut();
-      if (signOutError) throw signOutError;
-      setSession(null);
-      setAuthState('signed-out');
-      setError('');
-    } catch {
-      setError('ออกจากระบบไม่สำเร็จ กรุณาลองอีกครั้ง');
-    } finally {
-      setBusy(false);
-    }
+    try { await supabase.auth.signOut(); setSession(null); setAuthState('signed-out'); }
+    finally { setBusy(false); }
   }
 
   if (authState === 'loading') return <main className="center-screen"><div className="loader" /><p>กำลังตรวจสอบ Owner Session…</p></main>;
