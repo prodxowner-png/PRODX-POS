@@ -15,7 +15,7 @@ function getFormatter(timeZone: string): Intl.DateTimeFormat {
 }
 export function getStoreDateParts(date: Date, timeZone: string): StoreDateParts {
   if (!Number.isFinite(date.getTime())) throw new RangeError('Invalid date supplied.');
-  const values = new Map(getFormatter(timeZone).formatToParts(date).map((part) => [part.type, part.value]));
+  const values = new Map(getFormatter(timeZone).formatToParts(date).map((part) => [part.type, part.value] as const));
   return { year: Number(values.get('year')), month: Number(values.get('month')), day: Number(values.get('day')), hour: Number(values.get('hour')), minute: Number(values.get('minute')), second: Number(values.get('second')) };
 }
 /** A local-calendar Date carrier; its Y/M/D fields represent the store's calendar date. */
