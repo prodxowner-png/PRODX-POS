@@ -16,7 +16,10 @@ export const supabase = supabaseConfigReady
       auth: {
         autoRefreshToken: true,
         persistSession: true,
-        detectSessionInUrl: true,
+        // No OAuth, magic-link or password-recovery flow exists in this console, so the
+        // client must never adopt a session from the URL (session fixation). Re-enable
+        // only together with a reviewed redirect flow.
+        detectSessionInUrl: false,
         storageKey: 'prodx-owner-console-auth',
       },
     })
