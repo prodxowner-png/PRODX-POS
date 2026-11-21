@@ -67,7 +67,7 @@ create index owner_security_audit_events_actor_idx
 alter table public.owner_security_audit_events enable row level security;
 alter table public.owner_security_audit_events force row level security;
 
-revoke all on table public.owner_security_audit_events from public, anon, authenticated;
+revoke all on table public.owner_security_audit_events from public, anon, authenticated, service_role;
 grant insert on table public.owner_security_audit_events to service_role;
 
 create function public.reject_owner_security_audit_mutation()
