@@ -100,6 +100,21 @@ describe("isValidOwnerSupabaseConfig", () => {
     );
   });
 
+  it("rejects other HTTPS projects and non-origin URL components", () => {
+    assert.equal(
+      isValidOwnerSupabaseConfig("https://another-project.supabase.co", "sb_publishable_123"),
+      false,
+    );
+    assert.equal(
+      isValidOwnerSupabaseConfig("https://tohgadyunmsfcopaldvz.supabase.co/path", "sb_publishable_123"),
+      false,
+    );
+    assert.equal(
+      isValidOwnerSupabaseConfig("https://tohgadyunmsfcopaldvz.supabase.co/?redirect=evil", "sb_publishable_123"),
+      false,
+    );
+  });
+
   it("rejects empty values, non-localhost http, sb_secret_ keys, and service_role JWTs", () => {
     assert.equal(isValidOwnerSupabaseConfig("", "sb_publishable_123"), false);
     assert.equal(isValidOwnerSupabaseConfig("https://example.com", "   "), false);

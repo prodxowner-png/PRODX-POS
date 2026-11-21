@@ -7,6 +7,7 @@ const read = (relativePath) =>
 
 const vercel = JSON.parse(read("../vercel.json"));
 const envExample = read("../.env.example");
+const authFlow = read("../src/lib/authFlow.ts");
 
 function globalHeaders() {
   const rule = vercel.headers?.find((entry) => entry.source === "/(.*)");
@@ -28,6 +29,19 @@ function cspDirectives() {
       }),
   );
 }
+
+describe("dedicated Owner Auth origin", () => {
+  it("keeps runtime URL validation pinned to the same project as env and CSP", () => {
+    const configuredUrl = envExample.match(/^VITE_SUPABASE_URL=(.+)$/m)?.[1]?.trim();
+    assert.ok(configuredUrl, "Owner Auth URL must be declared in .env.example");
+    assert.ok(
+      authFlow.includes(`const OWNER_AUTH_PROJECT_ORIGIN = '${configuredUrl}';`),
+      "authFlow must only accept the dedicated Owner Auth project origin",
+    );
+    const csp = globalHeaders().get("content-security-policy");
+    assert.ok(csp?.includes(`connect-src 'self' ${configuredUrl}`));
+  });
+});
 
 describe("vercel.json security headers", () => {
   it("blocks framing, plugins, base-URI hijacking and cross-origin form posts", () => {
