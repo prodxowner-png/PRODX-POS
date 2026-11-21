@@ -96,7 +96,7 @@ describe("Owner Edge Function CI coverage", () => {
     assert.match(entrypoint, /npm:@supabase\/supabase-js@2\.117\.2/);
     assert.doesNotMatch(entrypoint, /https:\/\/esm\.sh\//);
     assert.match(workflow, /denoland\/setup-deno@[0-9a-f]{40}/);
-    assert.match(workflow, /deno check --no-lock \.\.\/supabase\/functions\/owner-authorize\/index\.ts/);
+    assert.match(workflow, /deno check --no-lock --node-modules-dir=none \.\.\/supabase\/functions\/owner-authorize\/index\.ts/);
   });
 });
 
