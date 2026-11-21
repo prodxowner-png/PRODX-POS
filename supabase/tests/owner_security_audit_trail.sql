@@ -114,6 +114,26 @@ end;
 $$;
 reset role;
 
+-- A denied authorization event must carry a non-null reason code.
+do $
+begin
+  begin
+    insert into public.owner_security_audit_events (
+      event_type, outcome, actor_user_id, reason_code, source
+    ) values (
+      'owner.authorization.denied',
+      'denied',
+      '11111111-1111-4111-8111-111111111111',
+      null,
+      'server_verified'
+    );
+    raise exception 'NULL denial reason unexpectedly succeeded';
+  exception when check_violation then
+    null;
+  end;
+end;
+$;
+
 -- Row-level UPDATE/DELETE and statement-level TRUNCATE are rejected even for postgres.
 do $$
 begin
