@@ -117,14 +117,15 @@ describe("isValidOwnerSupabaseConfig", () => {
 
   it("rejects empty values, non-localhost http, sb_secret_ keys, and service_role JWTs", () => {
     assert.equal(isValidOwnerSupabaseConfig("", "sb_publishable_123"), false);
-    assert.equal(isValidOwnerSupabaseConfig("https://example.com", "   "), false);
+    const ownerAuthUrl = "https://tohgadyunmsfcopaldvz.supabase.co";
+    assert.equal(isValidOwnerSupabaseConfig(ownerAuthUrl, "   "), false);
     assert.equal(isValidOwnerSupabaseConfig("http://example.com", "sb_publishable_123"), false);
     assert.equal(
-      isValidOwnerSupabaseConfig("https://example.com", "sb_secret_should_never_pass"),
+      isValidOwnerSupabaseConfig(ownerAuthUrl, "sb_secret_should_never_pass"),
       false,
     );
     assert.equal(
-      isValidOwnerSupabaseConfig("https://example.com", makeServiceRoleJwt()),
+      isValidOwnerSupabaseConfig(ownerAuthUrl, makeServiceRoleJwt()),
       false,
     );
   });
