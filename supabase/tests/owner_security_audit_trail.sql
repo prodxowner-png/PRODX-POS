@@ -135,7 +135,7 @@ end;
 $$;
 
 -- Denied authorization events must also use an allowlisted reason code.
-do $
+do $$
 begin
   begin
     insert into public.owner_security_audit_events (
@@ -152,7 +152,7 @@ begin
     null;
   end;
 end;
-$;
+$$;
 
 -- Row-level UPDATE/DELETE and statement-level TRUNCATE are rejected even for postgres.
 do $$
