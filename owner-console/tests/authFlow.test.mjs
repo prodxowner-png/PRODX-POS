@@ -100,16 +100,32 @@ describe("isValidOwnerSupabaseConfig", () => {
     );
   });
 
-  it("rejects empty values, non-localhost http, sb_secret_ keys, and service_role JWTs", () => {
-    assert.equal(isValidOwnerSupabaseConfig("", "sb_publishable_123"), false);
-    assert.equal(isValidOwnerSupabaseConfig("https://example.com", "   "), false);
-    assert.equal(isValidOwnerSupabaseConfig("http://example.com", "sb_publishable_123"), false);
+  it("rejects other HTTPS projects and non-origin URL components", () => {
     assert.equal(
-      isValidOwnerSupabaseConfig("https://example.com", "sb_secret_should_never_pass"),
+      isValidOwnerSupabaseConfig("https://another-project.supabase.co", "sb_publishable_123"),
       false,
     );
     assert.equal(
-      isValidOwnerSupabaseConfig("https://example.com", makeServiceRoleJwt()),
+      isValidOwnerSupabaseConfig("https://tohgadyunmsfcopaldvz.supabase.co/path", "sb_publishable_123"),
+      false,
+    );
+    assert.equal(
+      isValidOwnerSupabaseConfig("https://tohgadyunmsfcopaldvz.supabase.co/?redirect=evil", "sb_publishable_123"),
+      false,
+    );
+  });
+
+  it("rejects empty values, non-localhost http, sb_secret_ keys, and service_role JWTs", () => {
+    assert.equal(isValidOwnerSupabaseConfig("", "sb_publishable_123"), false);
+    const ownerAuthUrl = "https://tohgadyunmsfcopaldvz.supabase.co";
+    assert.equal(isValidOwnerSupabaseConfig(ownerAuthUrl, "   "), false);
+    assert.equal(isValidOwnerSupabaseConfig("http://example.com", "sb_publishable_123"), false);
+    assert.equal(
+      isValidOwnerSupabaseConfig(ownerAuthUrl, "sb_secret_should_never_pass"),
+      false,
+    );
+    assert.equal(
+      isValidOwnerSupabaseConfig(ownerAuthUrl, makeServiceRoleJwt()),
       false,
     );
   });

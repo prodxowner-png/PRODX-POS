@@ -1,3 +1,5 @@
+const OWNER_AUTH_PROJECT_ORIGIN = 'https://tohgadyunmsfcopaldvz.supabase.co';
+
 export type OwnerAuthState =
   | 'loading'
   | 'signed-out'
@@ -104,11 +106,25 @@ export function isValidOwnerSupabaseConfig(
 
   try {
     const parsed = new URL(trimmedUrl);
-    const isHttps = parsed.protocol === 'https:';
-    const isLocalHttp =
+    // The Owner Console must never send credentials to the POS Auth project or an
+    // arbitrary HTTPS endpoint. Only the dedicated Owner Auth origin is valid in
+    // deployed environments; loopback remains available for local Supabase testing.
+    const isCanonicalOrigin =
+      parsed.origin === trimmedUrl &&
+      !parsed.username &&
+      !parsed.password &&
+      !parsed.search &&
+      !parsed.hash &&
+      parsed.pathname === '/';
+    if (!isCanonicalOrigin) return false;
+
+    const isDedicatedOwnerAuth =
+      parsed.protocol === 'https:' &&
+      parsed.origin === OWNER_AUTH_PROJECT_ORIGIN;
+    const isLocalDevelopment =
       parsed.protocol === 'http:' &&
-      (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1');
-    return isHttps || isLocalHttp;
+      ['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname);
+    return isDedicatedOwnerAuth || isLocalDevelopment;
   } catch {
     return false;
   }
