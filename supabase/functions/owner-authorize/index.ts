@@ -1,4 +1,4 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.117.2";
+import { createClient } from "npm:@supabase/supabase-js@2.117.2";
 import { createOwnerAuthorizeHandler } from "./handler.ts";
 
 const handler = createOwnerAuthorizeHandler({
