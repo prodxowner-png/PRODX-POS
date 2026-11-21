@@ -133,6 +133,7 @@ as $$
         'challenge_created',
         'verification_attempted',
         'factor_deleted',
+        'factor_updated',
         'mfa_code_login',
         'generate_recovery_codes',
         'recovery_codes_deleted'

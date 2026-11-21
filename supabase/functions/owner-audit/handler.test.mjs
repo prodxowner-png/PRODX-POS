@@ -232,7 +232,8 @@ describe("owner-audit Edge Function handler", () => {
           return {
             data: [
               { event_id: EVENT_ID, occurred_at: "2026-11-21T08:00:00Z", event_type: "auth.login", source: "supabase_auth" },
-              { event_id: EVENT_ID, occurred_at: "2026-11-21T08:00:00Z", event_type: "auth.unknown", source: "supabase_auth" },
+              { event_id: "33333333-3333-4333-8333-333333333333", occurred_at: "2026-11-21T08:00:00Z", event_type: "auth.factor_updated", source: "supabase_auth" },
+              { event_id: "44444444-4444-4444-8444-444444444444", occurred_at: "2026-11-21T08:00:00Z", event_type: "auth.unknown", source: "supabase_auth" },
               { event_id: "bad", occurred_at: "yesterday", event_type: "owner.role.provisioned", source: "trusted_admin" },
             ],
             error: null,
@@ -242,7 +243,7 @@ describe("owner-audit Edge Function handler", () => {
     });
     const res = await createOwnerAuditHandler(deps)(request());
     const body = await res.json();
-    assert.equal(body.events.length, 1);
-    assert.equal(body.events[0].event_type, "auth.login");
+    assert.equal(body.events.length, 2);
+    assert.deepEqual(body.events.map((event) => event.event_type), ["auth.login", "auth.factor_updated"]);
   });
 });

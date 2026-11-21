@@ -58,6 +58,7 @@ const AUTH_EVENT_TYPES = new Set([
   "auth.challenge_created",
   "auth.verification_attempted",
   "auth.factor_deleted",
+  "auth.factor_updated",
   "auth.mfa_code_login",
   "auth.generate_recovery_codes",
   "auth.recovery_codes_deleted",

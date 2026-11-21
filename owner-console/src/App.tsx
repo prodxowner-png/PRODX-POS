@@ -20,6 +20,7 @@ function auditEventLabel(eventType: string): string {
     'auth.challenge_created': 'สร้าง MFA challenge',
     'auth.verification_attempted': 'ตรวจสอบ MFA',
     'auth.factor_deleted': 'ลบ MFA factor',
+    'auth.factor_updated': 'ปรับปรุง MFA factor',
     'auth.mfa_code_login': 'เข้าสู่ระบบด้วย MFA',
     'auth.generate_recovery_codes': 'สร้าง Recovery codes',
     'auth.recovery_codes_deleted': 'ลบ Recovery codes',
