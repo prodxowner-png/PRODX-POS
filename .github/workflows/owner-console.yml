@@ -83,7 +83,9 @@ jobs:
       - name: Verify Owner audit migration and database invariants
         working-directory: .
         run: |
-          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261121081237_owner_security_audit_trail.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261121091901_owner_security_audit_trail.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261121091957_restrict_owner_audit_service_role_table_privileges.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261121143000_enforce_owner_audit_denial_reason.sql
           psql -v ON_ERROR_STOP=1 -f supabase/tests/owner_security_audit_trail.sql
       - run: npm run typecheck
       - name: Set up Deno
