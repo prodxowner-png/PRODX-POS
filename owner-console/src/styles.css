@@ -11,3 +11,9 @@ button,input{font:inherit}.auth-shell{min-height:100vh;display:grid;grid-templat
 .loader{width:30px;height:30px;border:3px solid #ffffff22;border-top-color:#e9a36d;border-radius:50%;animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
 @media(max-width:850px){.auth-shell{grid-template-columns:1fr;max-width:560px;gap:28px;padding:28px 20px}.auth-brand h1{font-size:42px;margin:14px 0}.security-note{margin-top:18px}.auth-brand>.muted{font-size:13px}.metric-grid{grid-template-columns:repeat(2,1fr)}.console-shell{padding:0 18px 24px}.welcome{padding:42px 0 25px}}
 @media(max-width:420px){.metric-grid{grid-template-columns:1fr 1fr;gap:9px}.metric-card{padding:15px}.metric-card strong{font-size:20px}.account>span{max-width:145px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+
+/* MFA layout styles remain external so the strict CSP can block inline styles. */
+.owner-mfa-notice{width:min(100%,480px);text-align:left}
+.owner-totp-qr{display:block;width:220px;height:220px;padding:12px;margin:20px auto;background:#fff;border-radius:14px}
+.owner-totp-secret{font-size:12px;word-break:break-all}
+.owner-totp-form{display:grid;gap:10px;margin-top:20px}
