@@ -7,6 +7,7 @@ import {
   signOutOwner,
   type OwnerAuthState,
 } from './lib/authFlow.ts';
+import { shouldReevaluateOnAuthEvent } from './lib/authEvents.ts';
 import { supabase, supabaseConfigReady } from './lib/supabase.ts';
 
 export default function App() {
@@ -24,6 +25,12 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const sequence = useRef(0);
+  const authStateRef = useRef<OwnerAuthState>(authState);
+  const pendingMfaUserId = useRef<string | null>(null);
+
+  useEffect(() => {
+    authStateRef.current = authState;
+  }, [authState]);
 
   const resetMfaInputs = useCallback(() => {
     setFactorId('');
@@ -38,6 +45,7 @@ export default function App() {
       const current = ++sequence.current;
       setCode('');
       setChallengeId('');
+      pendingMfaUserId.current = null;
       if (!next) {
         setSession(null);
         resetMfaInputs();
@@ -65,6 +73,7 @@ export default function App() {
           setAuthState('signed-out');
           return;
         case 'mfa-challenge':
+          pendingMfaUserId.current = next.user.id;
           setSession(null);
           setFactorId(result.factorId);
           setQrCode('');
@@ -73,6 +82,7 @@ export default function App() {
           setAuthState('mfa-challenge');
           return;
         case 'mfa-enroll':
+          pendingMfaUserId.current = next.user.id;
           setSession(null);
           resetMfaInputs();
           setError('');
@@ -117,7 +127,18 @@ export default function App() {
         setAuthState('signed-out');
       });
 
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, next) => {
+    const { data: listener } = supabase.auth.onAuthStateChange((event, next) => {
+      // Passive re-emits (tab refocus, token refresh) must not wipe an in-progress MFA step.
+      if (
+        !shouldReevaluateOnAuthEvent({
+          event,
+          state: authStateRef.current,
+          pendingMfaUserId: pendingMfaUserId.current,
+          nextUserId: next?.user.id ?? null,
+        })
+      ) {
+        return;
+      }
       window.setTimeout(() => {
         if (mounted) void evaluateSession(next);
       }, 0);
