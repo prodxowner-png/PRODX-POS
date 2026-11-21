@@ -74,7 +74,7 @@ describe("vercel.json security headers", () => {
 describe("CSP-compatible application markup", () => {
   it("does not use inline style attributes that strict style-src would block", () => {
     const app = read("../src/App.tsx");
-    assert.doesNotMatch(app, /\\bstyle\\s*=\\s*\\{/);
+    assert.doesNotMatch(app, /\bstyle\s*=\s*\{/);
     assert.match(app, /owner-mfa-notice/);
     assert.match(app, /owner-totp-qr/);
     assert.match(app, /owner-totp-form/);
@@ -93,10 +93,10 @@ describe("Owner Edge Function CI coverage", () => {
   it("typechecks the deployed Deno entrypoint and uses a pinned npm specifier", () => {
     const entrypoint = read("../../supabase/functions/owner-authorize/index.ts");
     const workflow = read("../../.github/workflows/owner-console.yml");
-    assert.match(entrypoint, /npm:@supabase\\/supabase-js@2\\.117\\.2/);
-    assert.doesNotMatch(entrypoint, /https:\\/\\/esm\\.sh\\//);
-    assert.match(workflow, /denoland\\/setup-deno@[0-9a-f]{40}/);
-    assert.match(workflow, /deno check --no-lock \.\.\/supabase\/functions\/owner-authorize\/index\\.ts/);
+    assert.match(entrypoint, /npm:@supabase\/supabase-js@2\.117\.2/);
+    assert.doesNotMatch(entrypoint, /https:\/\/esm\.sh\//);
+    assert.match(workflow, /denoland\/setup-deno@[0-9a-f]{40}/);
+    assert.match(workflow, /deno check --no-lock \.\.\/supabase\/functions\/owner-authorize\/index\.ts/);
   });
 });
 
