@@ -89,6 +89,17 @@ describe("Vercel build parity with CI", () => {
   });
 });
 
+describe("Owner Edge Function CI coverage", () => {
+  it("typechecks the deployed Deno entrypoint and uses a pinned npm specifier", () => {
+    const entrypoint = read("../../supabase/functions/owner-authorize/index.ts");
+    const workflow = read("../../.github/workflows/owner-console.yml");
+    assert.match(entrypoint, /npm:@supabase\\/supabase-js@2\\.117\\.2/);
+    assert.doesNotMatch(entrypoint, /https:\\/\\/esm\\.sh\\//);
+    assert.match(workflow, /denoland\\/setup-deno@[0-9a-f]{40}/);
+    assert.match(workflow, /deno check --no-lock \.\.\/supabase\/functions\/owner-authorize\/index\\.ts/);
+  });
+});
+
 describe("Owner Auth project configuration", () => {
   it("enforces gateway JWT verification for owner-authorize", () => {
     const toml = read("../../supabase/config.toml");
