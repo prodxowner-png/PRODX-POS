@@ -71,6 +71,16 @@ describe("vercel.json security headers", () => {
   });
 });
 
+describe("CSP-compatible application markup", () => {
+  it("does not use inline style attributes that strict style-src would block", () => {
+    const app = read("../src/App.tsx");
+    assert.doesNotMatch(app, /\\bstyle\\s*=\\s*\\{/);
+    assert.match(app, /owner-mfa-notice/);
+    assert.match(app, /owner-totp-qr/);
+    assert.match(app, /owner-totp-form/);
+  });
+});
+
 describe("Vercel build parity with CI", () => {
   it("pins npm and verifies the lifecycle-script policy before npm ci", () => {
     assert.match(vercel.installCommand, /npm@11\.21\.2/);
