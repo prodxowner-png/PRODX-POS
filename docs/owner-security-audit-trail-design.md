@@ -20,7 +20,7 @@ Scope: dedicated `PRODX-OWNER-AUTH` project only. This document does not apply d
 2. Never store passwords, OTP values, TOTP secrets, access/refresh tokens, API keys, raw request bodies, or unnecessary PII.
 3. Keep audit writes server-side and isolated from POS data.
 4. Make the event store append-only at both privilege and trigger layers.
-5. Keep browser roles unable to read or write audit/rate-limit tables.
+5. Keep browser roles unable to read or write the custom audit table or access the `auth` schema.
 6. Do not create browser-reported copies of authentication events that Supabase Auth already records; preserve the Auth service as the source of truth for credential and MFA outcomes.
 7. Keep Owner-specific authorization and role-administration decisions in the application audit ledger.
 
@@ -38,9 +38,9 @@ Suggested columns:
 - `actor_user_id uuid null` populated only from a server-verified JWT or trusted Admin API operation
 - `request_id text null` validated and length-limited
 - `reason_code text null` selected from a finite allowlist
-- `source text not null` constrained to `server_verified`, `trusted_admin`, or `client_reported`
+- `source text not null` constrained to `server_verified` or `trusted_admin`
 
-No arbitrary JSON metadata column is planned. This reduces accidental credential/PII capture.
+No arbitrary JSON metadata column is planned. This reduces accidental credential/PII capture. The `source` column is server-assigned only.
 
 Enable RLS and create no browser policies. Revoke all table privileges from `PUBLIC`, `anon`, and `authenticated`. Grant only the minimum required `SELECT, INSERT` to `service_role`. Add a trigger rejecting UPDATE and DELETE, plus a statement-level trigger rejecting TRUNCATE. This is defense in depth; privileged database administrators remain outside the application threat model.
 
@@ -61,7 +61,7 @@ Add `owner-audit` as a separate Edge Function. It validates the exact configured
 - Trusted provisioning/revocation: do not expose this through the browser endpoint. Instrument only after a dedicated server-side Admin API provisioning/revocation path exists; derive actor and target from that trusted path.
 - The write endpoint must use a strict event allowlist, exact configured origin, request-size limits, and server-only service credentials. Fail closed on missing secrets or invalid authorization.
 
-The Edge Function uses a server-only secret key to write through the database API. No service-role or secret key may enter Vite variables, client bundles, browser requests, or logs. The existing `owner-authorize` function remains an authorization decision endpoint and is not overloaded with audit writes.
+The Edge Function uses a server-only service credential to write through the database API. No service-role or secret key may enter Vite variables, client bundles, browser requests, or logs. The existing `owner-authorize` function remains an authorization decision endpoint and is not overloaded with audit writes.
 
 ## Event catalogue
 
@@ -71,9 +71,8 @@ The Edge Function uses a server-only secret key to write through the database AP
 ## Verification plan
 
 - Unit tests for strict event allowlist, origin allowlist, request size limits, actor derivation, and redaction.
-- Tests proving browser roles cannot SELECT/INSERT/UPDATE/DELETE either table.
+- Tests proving browser roles cannot SELECT/INSERT/UPDATE/DELETE the custom audit table or read the `auth` schema.
 - Tests proving UPDATE, DELETE, and TRUNCATE fail even for a role with insert privileges.
-- Concurrency tests for rate-limit upsert and expiry behavior.
 - Tests proving client payloads cannot set actor ID, role, email, or source.
 - Tests proving the Owner audit read path requires trusted `app_metadata.owner_role` and AAL2, and returns only sanitized fields from Auth Audit Logs.
 - Tests proving missing Postgres Auth Audit persistence or unavailable Auth logs fails closed without fabricating missing events.
