@@ -134,6 +134,26 @@ begin
 end;
 $$;
 
+-- Denied authorization events must also use an allowlisted reason code.
+do $
+begin
+  begin
+    insert into public.owner_security_audit_events (
+      event_type, outcome, actor_user_id, reason_code, source
+    ) values (
+      'owner.authorization.denied',
+      'denied',
+      '11111111-1111-4111-8111-111111111111',
+      'unrecognized_reason',
+      'server_verified'
+    );
+    raise exception 'unrecognized denial reason unexpectedly succeeded';
+  exception when check_violation then
+    null;
+  end;
+end;
+$;
+
 -- Row-level UPDATE/DELETE and statement-level TRUNCATE are rejected even for postgres.
 do $$
 begin
