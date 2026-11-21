@@ -329,7 +329,7 @@ export default function App() {
   if (authState === 'mfa-enroll' || authState === 'mfa-challenge') {
     return (
       <main className="center-screen">
-        <section className="notice" style={{ width: 'min(100%, 480px)', textAlign: 'left' }}>
+        <section className="notice owner-mfa-notice">
           <Fingerprint />
           <p className="eyebrow">MANDATORY OWNER MFA</p>
           <h1>{authState === 'mfa-enroll' ? 'ตั้งค่า Authenticator' : 'ยืนยันตัวตนอีกขั้น'}</h1>
@@ -352,23 +352,15 @@ export default function App() {
                 <img
                   src={qrCode}
                   alt="TOTP enrollment QR code"
-                  style={{
-                    display: 'block',
-                    width: 220,
-                    height: 220,
-                    padding: 12,
-                    margin: '20px auto',
-                    background: '#fff',
-                    borderRadius: 14,
-                  }}
+                  className="owner-totp-qr"
                 />
               )}
               {totpSecret && (
-                <p className="muted" style={{ fontSize: 12, wordBreak: 'break-all' }}>
+                <p className="muted owner-totp-secret">
                   Manual setup key: <code>{totpSecret}</code>
                 </p>
               )}
-              <form onSubmit={verifyMfa} style={{ display: 'grid', gap: 10, marginTop: 20 }}>
+              <form onSubmit={verifyMfa} className="owner-totp-form">
                 <label htmlFor="owner-totp">รหัส 6 หลักจาก Authenticator</label>
                 <input
                   id="owner-totp"
