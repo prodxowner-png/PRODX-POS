@@ -64,7 +64,7 @@ describe("PRODX Edge sync Durable Object", () => {
       }
       expect(mismatch).toBeInstanceOf(Error);
       expect((mismatch as Error).message).toContain("IDEMPOTENCY_PAYLOAD_MISMATCH");
-      const count=state.storage.sql.exec<{count:number}>("SELECT COUNT(*) AS count FROM idempotency").toArray()[0]!.count;
+      const count=state.storage.sql.exec("SELECT COUNT(*) AS count FROM idempotency").toArray()[0]!.count;
       expect(count).toBe(1);
       expect(state.storage.sql.exec("SELECT idempotency_key FROM idempotency WHERE idempotency_key LIKE 'new-%'").toArray()).toHaveLength(0);
       expect(state.storage.sql.exec("SELECT seq_no FROM terminal_sequence_seen").toArray()).toHaveLength(0);
@@ -80,7 +80,7 @@ describe("PRODX Edge sync Durable Object", () => {
       Object.defineProperty(queue,"sendBatch",{ configurable:true, value:async()=>{ throw new Error("injected queue outage"); } });
       const item=prepared("alarm-idempotency-key-0001","c".repeat(64),1);
       await expect((instance as any).submitBatch(submission([item]))).rejects.toThrow("injected queue outage");
-      const pending=state.storage.sql.exec<{count:number}>("SELECT COUNT(*) AS count FROM idempotency WHERE state='ENQUEUE_PENDING'").toArray()[0]!.count;
+      const pending=state.storage.sql.exec("SELECT COUNT(*) AS count FROM idempotency WHERE state='ENQUEUE_PENDING'").toArray()[0]!.count;
       expect(pending).toBe(1);
       Object.defineProperty(queue,"sendBatch",{ configurable:true, value:async(messages:unknown[])=>{
         recoveredQueueCalls++; expect(messages).toHaveLength(1);
@@ -89,7 +89,7 @@ describe("PRODX Edge sync Durable Object", () => {
     expect(await runDurableObjectAlarm(stub)).toBe(true);
     expect(recoveredQueueCalls).toBe(1);
     await runInDO(stub, async (instance, state) => {
-      const queued=state.storage.sql.exec<{count:number}>("SELECT COUNT(*) AS count FROM idempotency WHERE state='QUEUED'").toArray()[0]!.count;
+      const queued=state.storage.sql.exec("SELECT COUNT(*) AS count FROM idempotency WHERE state='QUEUED'").toArray()[0]!.count;
       expect(queued).toBe(1);
     });
   });
@@ -130,6 +130,14 @@ describe("PRODX Edge sync Durable Object", () => {
     const status=await stub.getStatus(TENANT,TERMINAL,item.sale.idempotency_key);
     expect(status.status).toBe("failed");
     expect(status.failure_code).toBe("PRODUCT_NOT_FOUND_IN_TENANT");
+    await runInDO(stub, async (instance: IdempotencyGate, state) => {
+      (instance as any).pruneStorage(Date.now() + 31 * 86400_000);
+      const retained=state.storage.sql.exec(
+        `SELECT COUNT(*) AS count FROM idempotency WHERE idempotency_key=? AND failure_code IS NOT NULL`,
+        item.sale.idempotency_key
+      ).toArray()[0]!.count;
+      expect(retained).toBe(1);
+    });
     await runInDO(stub, async (instance: IdempotencyGate) => {
       let failure: unknown;
       try {
@@ -151,7 +159,8 @@ describe("PRODX Edge sync Durable Object", () => {
     });
     const next=prepared("checkpoint-recovery-key","7".repeat(64),11);
     const result=await stub.submitBatch(submission([next]),{
-      last_committed_seq_no:10,last_hlc_physical_ms:1000,last_hlc_logical:2
+      last_committed_seq_no:10,last_hlc_physical_ms:1000,last_hlc_logical:2,
+      last_resolved_seq_no:10,last_resolved_hlc_physical_ms:1000,last_resolved_hlc_logical:2,terminal_failures:[]
     });
     expect(result.last_contiguous_seq_no).toBe(11);
     expect(result.sequence_gaps).toHaveLength(0);
@@ -188,5 +197,214 @@ describe("PRODX Edge sync Durable Object", () => {
     expect(await verifySalePrices(sale,SECRET)).toBe(true);
     const forged={...sale,lines:[{...sale.lines[0]!,unit_price_minor:1}]};
     expect(await verifySalePrices(forged,SECRET)).toBe(false);
+  });
+
+  it("blocks later sequences behind an unresolved permanent failure", async () => {
+    const stub=getStub("failed-sequence-blocks-following");
+    const failed=prepared("failed-sequence-owner-key","e".repeat(64),1);
+    await stub.submitBatch(submission([failed]));
+    await stub.markFailed(TENANT,TERMINAL,failed.sale.idempotency_key,"INSUFFICIENT_STOCK");
+    const later=prepared("sale-after-failed-sequence-key","f".repeat(64),2);
+    await runInDO(stub,async (instance:IdempotencyGate) => {
+      let failure:unknown;
+      try {
+        await instance.submitBatch(submission([later]),{
+          last_committed_seq_no:0,last_hlc_physical_ms:0,last_hlc_logical:0,
+          last_resolved_seq_no:0,last_resolved_hlc_physical_ms:0,last_resolved_hlc_logical:0,terminal_failures:[]
+        });
+      } catch (error) { failure=error; }
+      expect(failure).toBeInstanceOf(Error);
+      expect((failure as Error).message).toBe("TERMINAL_SEQUENCE_BLOCKED_BY_FAILED_RECEIPT");
+    });
+  });
+
+  it("re-enqueues the exact original receipt after an origin-authorized RETRY", async () => {
+    const stub=getStub("origin-retry-recovery");
+    const item=prepared("origin-retry-idempotency-key","a".repeat(64),1);
+    await stub.submitBatch(submission([item]));
+    await stub.markFailed(TENANT,TERMINAL,item.sale.idempotency_key,"INSUFFICIENT_STOCK");
+    let resent=0;
+    const retryCheckpoint={
+      last_committed_seq_no:0,last_hlc_physical_ms:0,last_hlc_logical:0,
+      last_resolved_seq_no:0,last_resolved_hlc_physical_ms:0,last_resolved_hlc_logical:0,
+      terminal_failures:[{
+        terminal_seq_no:1,sale_id:item.sale.sale_id,idempotency_key:item.sale.idempotency_key,
+        receipt_id:item.receiptId,payload_hash:item.payloadHash,failure_code:"INSUFFICIENT_STOCK",
+        edge_received_at:item.edgeReceivedAt,resolution_id:"00000000-0000-4000-8000-000000000010",
+        outcome:"RETRY" as const
+      }]
+    };
+    await runInDO(stub as any,async(instance:any)=>{
+      const queue=instance.env.POS_INGEST_QUEUE;
+      const original=queue.sendBatch.bind(queue);
+      Object.defineProperty(queue,"sendBatch",{configurable:true,value:async(messages:any[])=>{
+        resent+=messages.length;
+        expect(messages[0]?.body.receipt_id).toBe(item.receiptId);
+        expect(messages[0]?.body.edge_received_at).toBe(item.edgeReceivedAt);
+        expect(messages[0]?.body.payload_hash).toBe(item.payloadHash);
+        expect(messages[0]?.body.recovery_resolution_id).toBe("00000000-0000-4000-8000-000000000010");
+      }});
+      try { await instance.applyOriginCheckpoint(retryCheckpoint); }
+      finally { Object.defineProperty(queue,"sendBatch",{configurable:true,value:original}); }
+    });
+    expect(resent).toBe(1);
+    expect((await stub.getStatus(TENANT,TERMINAL,item.sale.idempotency_key)).status).toBe("queued");
+  });
+
+  it("ignores a late old-delivery failure after retry authorization and records failure of the current retry generation", async () => {
+    const stub=getStub("retry-generation-fencing");
+    const item=prepared("retry-generation-fencing-key","d".repeat(64),1);
+    await stub.submitBatch(submission([item]));
+    await stub.markFailed(TENANT,TERMINAL,item.sale.idempotency_key,"INSUFFICIENT_STOCK");
+    const resolutionId="00000000-0000-4000-8000-000000000012";
+    const retryCheckpoint={
+      last_committed_seq_no:0,last_hlc_physical_ms:0,last_hlc_logical:0,
+      last_resolved_seq_no:0,last_resolved_hlc_physical_ms:0,last_resolved_hlc_logical:0,
+      terminal_failures:[{
+        terminal_seq_no:1,sale_id:item.sale.sale_id,idempotency_key:item.sale.idempotency_key,
+        receipt_id:item.receiptId,payload_hash:item.payloadHash,failure_code:"INSUFFICIENT_STOCK",
+        edge_received_at:item.edgeReceivedAt,resolution_id:resolutionId,outcome:"RETRY" as const
+      }]
+    };
+    await stub.applyOriginCheckpoint(retryCheckpoint);
+    // A delayed original Queue/DLQ delivery has no retry-generation token and
+    // must not overwrite the newly re-enqueued receipt.
+    await stub.markFailed(TENANT,TERMINAL,item.sale.idempotency_key,"LATE_OLD_FAILURE");
+    expect((await stub.getStatus(TENANT,TERMINAL,item.sale.idempotency_key)).status).toBe("queued");
+
+    // A failure from the current authorized retry generation is accepted.
+    await stub.markFailed(TENANT,TERMINAL,item.sale.idempotency_key,"RETRY_ATTEMPT_FAILED",resolutionId);
+    expect((await stub.getStatus(TENANT,TERMINAL,item.sale.idempotency_key)).status).toBe("failed");
+    const failedCheckpoint={
+      ...retryCheckpoint,
+      terminal_failures:[{...retryCheckpoint.terminal_failures[0]!,failure_code:"RETRY_ATTEMPT_FAILED",outcome:"FAILED" as const}]
+    };
+    await stub.applyOriginCheckpoint(failedCheckpoint);
+    expect((await stub.getStatus(TENANT,TERMINAL,item.sale.idempotency_key)).status).toBe("failed");
+  });
+
+  it("reconciles an origin-authorized VOID without reporting a committed sale", async () => {
+    const stub=getStub("origin-void-recovery");
+    const item=prepared("origin-void-idempotency-key","b".repeat(64),1);
+    await stub.submitBatch(submission([item]));
+    await stub.markFailed(TENANT,TERMINAL,item.sale.idempotency_key,"INSUFFICIENT_STOCK");
+    let resent=0;
+    const checkpoint={
+      last_committed_seq_no:0,last_hlc_physical_ms:0,last_hlc_logical:0,
+      last_resolved_seq_no:1,last_resolved_hlc_physical_ms:item.sale.hlc.physical_ms,
+      last_resolved_hlc_logical:item.sale.hlc.logical,
+      terminal_failures:[{
+        terminal_seq_no:1,sale_id:item.sale.sale_id,idempotency_key:item.sale.idempotency_key,
+        receipt_id:item.receiptId,payload_hash:item.payloadHash,failure_code:"INSUFFICIENT_STOCK",
+        edge_received_at:item.edgeReceivedAt,resolution_id:"00000000-0000-4000-8000-000000000011",
+        outcome:"VOIDED" as const
+      }]
+    };
+    await runInDO(stub as any,async(instance:any)=>{
+      const queue=instance.env.POS_INGEST_QUEUE;
+      const original=queue.sendBatch.bind(queue);
+      Object.defineProperty(queue,"sendBatch",{
+        configurable:true,value:async(messages:any[])=>{resent+=messages.length;}
+      });
+      try { await instance.applyOriginCheckpoint(checkpoint); }
+      finally { Object.defineProperty(queue,"sendBatch",{configurable:true,value:original}); }
+    });
+    expect(resent).toBe(0);
+    expect((await stub.getStatus(TENANT,TERMINAL,item.sale.idempotency_key)).status).toBe("voided");
+    const replay=await stub.submitBatch(submission([item]),checkpoint);
+    expect(replay.results[0]?.status).toBe("voided");
+    expect(replay.last_contiguous_seq_no).toBe(1);
+  });
+
+  it("rejects a different idempotency key that reuses a locally accepted sequence", async () => {
+    const stub=getStub("sequence-reuse-after-local-accept");
+    const first=prepared("sequence-owner-idempotency-key","a".repeat(64),1);
+    await stub.submitBatch(submission([first]));
+    const reused=prepared("sequence-reuse-new-idempotency-key","b".repeat(64),1);
+    await runInDO(stub,async (instance:IdempotencyGate) => {
+      let failure:unknown;
+      try {
+        await instance.submitBatch(submission([reused]));
+      } catch (error) { failure=error; }
+      expect(failure).toBeInstanceOf(Error);
+      expect((failure as Error).message).toBe("TERMINAL_SEQUENCE_ALREADY_ACCEPTED");
+    });
+  });
+
+  it("forwards expired exact replays only after the origin checkpoint confirms commit", async () => {
+    const stub=getStub("expired-exact-replay-origin-checkpoint");
+    const original=prepared("expired-origin-replay-key","c".repeat(64),1);
+    await stub.submitBatch(submission([original]));
+
+    await runInDO(stub,async (instance:any,state:any) => {
+      // Simulate an origin-committed receipt whose Edge cache is older than retention.
+      state.storage.sql.exec(
+        "UPDATE idempotency SET state='COMMITTED',updated_at=? WHERE idempotency_key=?",
+        new Date(Date.now()-31*86400_000).toISOString(),original.sale.idempotency_key
+      );
+      instance.pruneStorage(Date.now());
+      const retained=state.storage.sql.exec(
+        "SELECT COUNT(*) AS count FROM idempotency WHERE idempotency_key=?",
+        original.sale.idempotency_key
+      ).toArray()[0]!.count;
+      expect(retained).toBe(0);
+    });
+
+    // Local sequence memory alone is insufficient proof that PostgreSQL committed.
+    const replay:PreparedSale={...original,receiptId:crypto.randomUUID()};
+    await runInDO(stub,async (instance:IdempotencyGate) => {
+      let failure:unknown;
+      try {
+        await instance.submitBatch(submission([replay]),{
+          last_committed_seq_no:0,last_hlc_physical_ms:0,last_hlc_logical:0,
+          last_resolved_seq_no:0,last_resolved_hlc_physical_ms:0,last_resolved_hlc_logical:0,terminal_failures:[]
+        });
+      } catch (error) { failure=error; }
+      expect(failure).toBeInstanceOf(Error);
+      expect((failure as Error).message).toBe("TERMINAL_SEQUENCE_ALREADY_ACCEPTED");
+    });
+
+    const accepted=await stub.submitBatch(submission([replay]),{
+      last_committed_seq_no:1,
+      last_hlc_physical_ms:original.sale.hlc.physical_ms,
+      last_hlc_logical:original.sale.hlc.logical,
+      last_resolved_seq_no:1,
+      last_resolved_hlc_physical_ms:original.sale.hlc.physical_ms,
+      last_resolved_hlc_logical:original.sale.hlc.logical,
+      terminal_failures:[]
+    });
+    expect(accepted.results[0]?.status).toBe("accepted");
+    await runInDO(stub,async (instance:IdempotencyGate) => {
+      expect(instance.getStatus(TENANT,TERMINAL,original.sale.idempotency_key).status).toBe("queued");
+    });
+  });
+
+  it("retains sequence ownership until PostgreSQL confirms the origin checkpoint", async () => {
+    const stub=getStub("sequence-claim-origin-retention");
+    const first=prepared("sequence-retention-owner-key","c".repeat(64),1);
+    await stub.submitBatch(submission([first]));
+    await runInDO(stub,async (instance:any,state:any) => {
+      instance.pruneStorage(Date.now() + 31 * 86400_000);
+      const retained=state.storage.sql.exec(
+        "SELECT COUNT(*) AS count FROM terminal_sequence_seen WHERE seq_no=1"
+      ).toArray()[0]!.count;
+      expect(retained).toBe(1);
+    });
+    const next=prepared("sequence-retention-next-key","d".repeat(64),2);
+    await stub.submitBatch(submission([next]),{
+      last_committed_seq_no:1,
+      last_hlc_physical_ms:first.sale.hlc.physical_ms,
+      last_hlc_logical:first.sale.hlc.logical,
+      last_resolved_seq_no:1,
+      last_resolved_hlc_physical_ms:first.sale.hlc.physical_ms,
+      last_resolved_hlc_logical:first.sale.hlc.logical,
+      terminal_failures:[]
+    });
+    await runInDO(stub,async (_instance:any,state:any) => {
+      const retained=state.storage.sql.exec(
+        "SELECT COUNT(*) AS count FROM terminal_sequence_seen WHERE seq_no=1"
+      ).toArray()[0]!.count;
+      expect(retained).toBe(0);
+    });
   });
 });

@@ -1,0 +1,68 @@
+-- Run the preflight and trigger replacement as one atomic migration.
+-- ACCESS EXCLUSIVE locks wait for in-flight writers, then prevent new ledger,
+-- balance, or product writes until the non-negative trigger is installed.
+BEGIN;
+LOCK TABLE public.inventory_ledger, public.inventory_balances, public.products
+  IN ACCESS EXCLUSIVE MODE;
+
+-- Refuse to establish the invariant on top of already-corrupt balances.
+-- Reconcile existing negative stock through an owner-approved, audited ledger
+-- adjustment before applying this migration; never silently rewrite balances.
+DO $migration_preflight$
+DECLARE
+  negative_balance_count bigint;
+BEGIN
+  SELECT count(*)
+    INTO negative_balance_count
+    FROM public.inventory_balances
+   WHERE quantity < 0;
+
+  IF negative_balance_count > 0 THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '23514',
+      MESSAGE = format(
+        'INVENTORY_MIGRATION_BLOCKED: %s pre-existing negative balance(s) found',
+        negative_balance_count
+      ),
+      HINT = 'Stop migration, reconcile each affected tenant/product through the audited inventory ledger, then rerun this forward migration.';
+  END IF;
+END
+$migration_preflight$;
+
+-- PRODX POS inventory non-negative invariant.
+-- Apply after 001_pos_ledger.sql. Product-row locking serializes ledger deltas
+-- even when no inventory_balances row exists yet (opening stock / first sale).
+CREATE OR REPLACE FUNCTION apply_inventory_ledger_delta()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
+SET search_path=pg_catalog,public,pg_temp AS $$
+DECLARE
+  current_balance bigint;
+BEGIN
+  PERFORM 1
+    FROM public.products
+   WHERE tenant_id=NEW.tenant_id AND id=NEW.product_id
+   FOR NO KEY UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION USING ERRCODE='PZ002', MESSAGE='INVENTORY_PRODUCT_NOT_FOUND';
+  END IF;
+
+  SELECT quantity INTO current_balance
+    FROM public.inventory_balances
+   WHERE tenant_id=NEW.tenant_id AND product_id=NEW.product_id
+   FOR UPDATE;
+
+  IF COALESCE(current_balance,0)::numeric + NEW.quantity_delta::numeric < 0 THEN
+    RAISE EXCEPTION USING ERRCODE='PZ001', MESSAGE='INSUFFICIENT_STOCK';
+  END IF;
+
+  INSERT INTO public.inventory_balances(tenant_id,product_id,quantity,updated_at)
+  VALUES(NEW.tenant_id,NEW.product_id,NEW.quantity_delta,now())
+  ON CONFLICT (tenant_id,product_id)
+  DO UPDATE SET quantity=public.inventory_balances.quantity+EXCLUDED.quantity,
+                updated_at=now();
+  RETURN NEW;
+END;
+$$;
+REVOKE ALL ON FUNCTION apply_inventory_ledger_delta() FROM PUBLIC;
+
+COMMIT;

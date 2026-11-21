@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:edge": "vitest run test/edge-sync.test.ts",
+    "test:edge": "vitest run test",
     "chaos": "tsx scripts/chaos-load-test.ts",
     "integration:postgres": "tsx scripts/postgres-price-integration.ts",
     "export:do-health": "tsx scripts/export-do-health.ts",

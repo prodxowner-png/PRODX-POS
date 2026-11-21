@@ -192,10 +192,11 @@ async function sha256(value: string): Promise<string> {
   const digest = await webcrypto.subtle.digest("SHA-256", encoder.encode(value));
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2,"0")).join("");
 }
-async function getCatalog(token: string) {
+async function getCatalog(token: string, agent: Agent) {
   const response = await fetch(new URL("/api/v1/catalog?limit=50", endpoint), {
-    headers: { "cf-access-jwt-assertion": token }
-  });
+    headers: { "cf-access-jwt-assertion": token },
+    dispatcher: agent
+  } as RequestInit & { dispatcher: Agent });
   if (!response.ok) throw new Error(`catalog failed: ${response.status}`);
   return await response.json() as { items: Array<{id:string;unit_price_minor:string;tax_bps:number}>; catalog_version:number; signed_price_proofs: any[] };
 }
@@ -218,7 +219,7 @@ for (let terminal=0; terminal<300; terminal++) {
   const token=tokens[terminal]!;
   const agent=agents[terminal]!;
   initialRequests.push((async()=>{
-    const catalog=await getCatalog(token);
+    const catalog=await getCatalog(token,agent);
     if (!catalog.items.length) throw new Error(`terminal ${terminal}: catalog empty`);
     const item=catalog.items[0]!;
     const sales=[];
