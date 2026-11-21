@@ -78,6 +78,8 @@ describe("CSP-compatible application markup", () => {
     assert.match(app, /owner-mfa-notice/);
     assert.match(app, /owner-totp-qr/);
     assert.match(app, /owner-totp-form/);
+    assert.match(app, /audit-panel/);
+    assert.doesNotMatch(app, /style\s*=\s*\{/);
   });
 });
 
@@ -91,12 +93,17 @@ describe("Vercel build parity with CI", () => {
 
 describe("Owner Edge Function CI coverage", () => {
   it("typechecks the deployed Deno entrypoint and uses a pinned npm specifier", () => {
-    const entrypoint = read("../../supabase/functions/owner-authorize/index.ts");
+    const authorizeEntrypoint = read("../../supabase/functions/owner-authorize/index.ts");
+    const auditEntrypoint = read("../../supabase/functions/owner-audit/index.ts");
     const workflow = read("../../.github/workflows/owner-console.yml");
-    assert.match(entrypoint, /npm:@supabase\/supabase-js@2\.117\.2/);
-    assert.doesNotMatch(entrypoint, /https:\/\/esm\.sh\//);
+    for (const entrypoint of [authorizeEntrypoint, auditEntrypoint]) {
+      assert.match(entrypoint, /npm:@supabase\/supabase-js@2\.117\.2/);
+      assert.doesNotMatch(entrypoint, /https:\/\/esm\.sh\//);
+    }
     assert.match(workflow, /denoland\/setup-deno@[0-9a-f]{40}/);
     assert.match(workflow, /deno check --no-lock --node-modules-dir=none \.\.\/supabase\/functions\/owner-authorize\/index\.ts/);
+    assert.match(workflow, /deno check --no-lock --node-modules-dir=none \.\.\/supabase\/functions\/owner-audit\/index\.ts/);
+    assert.match(workflow, /postgres:17-alpine/);
   });
 });
 
@@ -108,6 +115,11 @@ describe("Owner Auth project configuration", () => {
       .find((part) => part.startsWith("functions.owner-authorize]"));
     assert.ok(section, "[functions.owner-authorize] must be declared");
     assert.match(section, /^verify_jwt\s*=\s*true\s*$/m);
+    const auditSection = toml
+      .split(/^\[/m)
+      .find((part) => part.startsWith("functions.owner-audit]"));
+    assert.ok(auditSection, "[functions.owner-audit] must be declared");
+    assert.match(auditSection, /^verify_jwt\s*=\s*true\s*$/m);
     assert.match(toml, /^project_id\s*=\s*"[^"]+"/m);
   });
 

@@ -5,6 +5,9 @@ on:
     paths:
       - "owner-console/**"
       - "supabase/functions/owner-authorize/**"
+      - "supabase/functions/owner-audit/**"
+      - "supabase/migrations/**"
+      - "supabase/tests/**"
       - "supabase/config.toml"
       - ".github/workflows/owner-console.yml"
   push:
@@ -12,6 +15,9 @@ on:
     paths:
       - "owner-console/**"
       - "supabase/functions/owner-authorize/**"
+      - "supabase/functions/owner-audit/**"
+      - "supabase/migrations/**"
+      - "supabase/tests/**"
       - "supabase/config.toml"
       - ".github/workflows/owner-console.yml"
 
@@ -21,6 +27,25 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: postgres
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
     defaults:
       run:
         working-directory: owner-console
@@ -39,6 +64,27 @@ jobs:
           test "$(npm --version)" = "11.21.2"
           test "$(npm config get strict-allow-scripts)" = "true"
       - run: npm ci --no-audit --no-fund
+      - name: Prepare disposable PostgreSQL 17 Owner Auth fixture
+        working-directory: .
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE anon NOLOGIN;
+          CREATE ROLE authenticated NOLOGIN;
+          CREATE ROLE service_role NOLOGIN BYPASSRLS;
+          CREATE SCHEMA auth;
+          CREATE TABLE auth.audit_log_entries (
+            instance_id uuid,
+            id uuid PRIMARY KEY,
+            payload json,
+            created_at timestamptz,
+            ip_address varchar NOT NULL
+          );
+          SQL
+      - name: Verify Owner audit migration and database invariants
+        working-directory: .
+        run: |
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261121081237_owner_security_audit_trail.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/tests/owner_security_audit_trail.sql
       - run: npm run typecheck
       - name: Set up Deno
         uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
@@ -46,7 +92,11 @@ jobs:
           deno-version: 2.9.8
       - name: Typecheck owner-authorize Edge Function entrypoint
         run: deno check --no-lock --node-modules-dir=none ../supabase/functions/owner-authorize/index.ts
-      - name: Typecheck owner-authorize Edge Function handler
-        run: npx --no-install tsc --noEmit --strict --target ES2022 --module ESNext --moduleResolution bundler --lib ES2022,DOM ../supabase/functions/owner-authorize/handler.ts
+      - name: Typecheck owner-audit Edge Function entrypoint
+        run: deno check --no-lock --node-modules-dir=none ../supabase/functions/owner-audit/index.ts
+      - name: Typecheck Owner Edge Function handlers
+        run: |
+          npx --no-install tsc --noEmit --strict --target ES2022 --module ESNext --moduleResolution bundler --lib ES2022,DOM ../supabase/functions/owner-authorize/handler.ts
+          npx --no-install tsc --noEmit --strict --target ES2022 --module ESNext --moduleResolution bundler --lib ES2022,DOM ../supabase/functions/owner-audit/handler.ts
       - run: npm test
       - run: npm run build

@@ -17,3 +17,18 @@ button,input{font:inherit}.auth-shell{min-height:100vh;display:grid;grid-templat
 .owner-totp-qr{display:block;width:220px;height:220px;padding:12px;margin:20px auto;background:#fff;border-radius:14px}
 .owner-totp-secret{font-size:12px;word-break:break-all}
 .owner-totp-form{display:grid;gap:10px;margin-top:20px}
+
+.audit-panel{margin-top:24px;padding:24px;border:1px solid #ffffff18;background:#ffffff08;border-radius:18px}
+.audit-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:20px}
+.audit-heading h2{font-size:18px;margin:5px 0}
+.audit-heading .muted{font-size:12px;margin:0}
+.audit-count,.audit-source{font:10px 'JetBrains Mono',monospace;letter-spacing:.08em;color:#e9a36d;border:1px solid #e9a36d40;border-radius:999px;padding:7px 10px;white-space:nowrap}
+.audit-message{font-size:12px;color:#9eaaa3;padding:18px 0 4px}
+.audit-list{list-style:none;margin:18px 0 0;padding:0;display:grid;gap:0}
+.audit-item{display:flex;align-items:center;gap:14px;padding:14px 0;border-top:1px solid #ffffff12}
+.audit-event-icon{width:34px;height:34px;flex:none;display:grid;place-items:center;border-radius:11px;background:#e9a36d14;color:#e9a36d}
+.audit-event-content{display:grid;gap:3px;min-width:0;flex:1}
+.audit-event-content strong{font-size:13px;font-weight:600}
+.audit-event-content span,.audit-event-content small{font-size:11px;color:#8e9b92}
+.audit-event-content small{font-family:'JetBrains Mono',monospace}
+@media(max-width:520px){.audit-panel{padding:18px}.audit-heading{gap:8px}.audit-count{font-size:9px;padding:6px 8px}.audit-item{gap:10px}}
