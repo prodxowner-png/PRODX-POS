@@ -25,9 +25,19 @@ export interface OwnerAuthClient {
   };
 }
 
+export interface OwnerAuthorizationDenial {
+  actorUserId: string | null;
+  reasonCode:
+    | "owner_role_required"
+    | "aal2_required"
+    | "invalid_session"
+    | "authorization_unavailable";
+}
+
 export interface OwnerAuthorizeDependencies {
   getEnv: (name: string) => string | undefined;
   createAuthClient: (url: string, publishableKey: string) => OwnerAuthClient;
+  recordDenied?: (event: OwnerAuthorizationDenial) => Promise<void>;
 }
 
 const CORS_HEADERS: Record<string, string> = {
@@ -87,6 +97,20 @@ function hasVerifiedTotpFactor(user: OwnerAuthUser): boolean {
 
 export function createOwnerAuthorizeHandler(deps: OwnerAuthorizeDependencies) {
   return async function handleOwnerAuthorize(req: Request): Promise<Response> {
+    const recordDenial = async (
+      status: number,
+      reasonCode: OwnerAuthorizationDenial["reasonCode"],
+      actorUserId: string | null,
+      origin?: string,
+    ) => {
+      try {
+        await deps.recordDenied?.({ actorUserId, reasonCode });
+      } catch {
+        // Audit write failure must never turn a denial into an authorization grant.
+      }
+      return jsonResponse(status, { error: reasonCode }, origin);
+    };
+
     const allowedOrigins = parseAllowedOrigins(
       deps.getEnv("OWNER_CONSOLE_ORIGINS"),
     );
@@ -130,27 +154,29 @@ export function createOwnerAuthorizeHandler(deps: OwnerAuthorizeDependencies) {
       return jsonResponse(401, { error: "unauthorized" }, origin);
     }
 
+    let actorUserId: string | null = null;
     try {
       const client = deps.createAuthClient(url, publishableKey);
       const { data: userData, error: userError } = await client.auth.getUser(
         token,
       );
       if (userError || !userData?.user) {
-        return jsonResponse(401, { error: "invalid_session" }, origin);
+        return await recordDenial(401, "invalid_session", null, origin);
       }
+      actorUserId = userData.user.id;
 
       if (userData.user.app_metadata?.owner_role !== "owner") {
-        return jsonResponse(403, { error: "owner_role_required" }, origin);
+        return await recordDenial(403, "owner_role_required", actorUserId, origin);
       }
 
       if (!hasVerifiedTotpFactor(userData.user)) {
-        return jsonResponse(403, { error: "aal2_required" }, origin);
+        return await recordDenial(403, "aal2_required", actorUserId, origin);
       }
 
       const { data: aalData, error: aalError } =
         await client.auth.mfa.getAuthenticatorAssuranceLevel(token);
       if (aalError || aalData?.currentLevel !== "aal2") {
-        return jsonResponse(403, { error: "aal2_required" }, origin);
+        return await recordDenial(403, "aal2_required", actorUserId, origin);
       }
 
       return jsonResponse(
@@ -166,7 +192,7 @@ export function createOwnerAuthorizeHandler(deps: OwnerAuthorizeDependencies) {
         origin,
       );
     } catch {
-      return jsonResponse(503, { error: "authorization_unavailable" }, origin);
+      return await recordDenial(503, "authorization_unavailable", actorUserId, origin);
     }
   };
 }

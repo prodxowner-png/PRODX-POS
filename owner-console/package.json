@@ -7,7 +7,7 @@
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "test": "node --test tests/*.test.mjs ../supabase/functions/owner-authorize/*.test.mjs",
+    "test": "node --test tests/*.test.mjs ../supabase/functions/owner-authorize/*.test.mjs ../supabase/functions/owner-audit/*.test.mjs",
     "typecheck": "tsc -b"
   },
   "dependencies": {

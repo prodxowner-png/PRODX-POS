@@ -38,9 +38,12 @@ function makeDeps(overrides = {}) {
     },
   };
 
+  const denials = [];
   return {
+    denials,
     getEnv: (name) => env[name],
     createAuthClient: overrides.createAuthClient ?? (() => defaultClient),
+    recordDenied: overrides.recordDenied ?? (async (event) => { denials.push(event); }),
   };
 }
 
@@ -163,22 +166,21 @@ describe("owner-authorize Edge Function handler", () => {
   });
 
   it("returns 401 when Supabase rejects an invalid or expired token", async () => {
-    const handler = createOwnerAuthorizeHandler(
-      makeDeps({
-        createAuthClient: () => ({
-          auth: {
-            async getUser() {
-              return { data: { user: null }, error: { message: "invalid" } };
-            },
-            mfa: {
-              async getAuthenticatorAssuranceLevel() {
-                return { data: null, error: null };
-              },
+    const deps = makeDeps({
+      createAuthClient: () => ({
+        auth: {
+          async getUser() {
+            return { data: { user: null }, error: { message: "invalid" } };
+          },
+          mfa: {
+            async getAuthenticatorAssuranceLevel() {
+              return { data: null, error: null };
             },
           },
-        }),
+        },
       }),
-    );
+    });
+    const handler = createOwnerAuthorizeHandler(deps);
     const res = await handler(
       new Request("https://edge.local/owner-authorize", {
         method: "POST",
@@ -190,11 +192,11 @@ describe("owner-authorize Edge Function handler", () => {
     );
     assert.equal(res.status, 401);
     assert.deepEqual(await res.json(), { error: "invalid_session" });
+    assert.deepEqual(deps.denials, [{ actorUserId: null, reasonCode: "invalid_session" }]);
   });
 
   it("returns 403 when authenticated user lacks trusted app_metadata.owner_role", async () => {
-    const handler = createOwnerAuthorizeHandler(
-      makeDeps({
+    const deps = makeDeps({
         createAuthClient: () => ({
           auth: {
             async getUser() {
@@ -217,8 +219,8 @@ describe("owner-authorize Edge Function handler", () => {
             },
           },
         }),
-      }),
-    );
+    });
+    const handler = createOwnerAuthorizeHandler(deps);
     const res = await handler(
       new Request("https://edge.local/owner-authorize", {
         method: "POST",
@@ -230,11 +232,14 @@ describe("owner-authorize Edge Function handler", () => {
     );
     assert.equal(res.status, 403);
     assert.deepEqual(await res.json(), { error: "owner_role_required" });
+    assert.deepEqual(deps.denials, [{
+      actorUserId: "staff-1",
+      reasonCode: "owner_role_required",
+    }]);
   });
 
   it("returns 403 when owner assurance level is AAL1", async () => {
-    const handler = createOwnerAuthorizeHandler(
-      makeDeps({
+    const deps = makeDeps({
         createAuthClient: () => ({
           auth: {
             async getUser() {
@@ -257,8 +262,8 @@ describe("owner-authorize Edge Function handler", () => {
             },
           },
         }),
-      }),
-    );
+    });
+    const handler = createOwnerAuthorizeHandler(deps);
     const res = await handler(
       new Request("https://edge.local/owner-authorize", {
         method: "POST",
@@ -270,6 +275,48 @@ describe("owner-authorize Edge Function handler", () => {
     );
     assert.equal(res.status, 403);
     assert.deepEqual(await res.json(), { error: "aal2_required" });
+    assert.deepEqual(deps.denials, [{
+      actorUserId: "owner-1",
+      reasonCode: "aal2_required",
+    }]);
+  });
+
+  it("keeps authorization denied when the audit writer fails", async () => {
+    const deps = makeDeps({
+      createAuthClient: () => ({
+        auth: {
+          async getUser() {
+            return {
+              data: {
+                user: {
+                  id: "staff-1",
+                  app_metadata: { owner_role: "staff" },
+                  factors: [{ factor_type: "totp", status: "verified" }],
+                },
+              },
+              error: null,
+            };
+          },
+          mfa: {
+            async getAuthenticatorAssuranceLevel() {
+              return { data: { currentLevel: "aal2" }, error: null };
+            },
+          },
+        },
+      }),
+      recordDenied: async () => { throw new Error("database unavailable"); },
+    });
+    const res = await createOwnerAuthorizeHandler(deps)(
+      new Request("https://edge.local/owner-authorize", {
+        method: "POST",
+        headers: {
+          Origin: ALLOWED_ORIGIN,
+          Authorization: "Bearer staff-token",
+        },
+      }),
+    );
+    assert.equal(res.status, 403);
+    assert.deepEqual(await res.json(), { error: "owner_role_required" });
   });
 
   it("returns 403 when owner has no active verified TOTP factor", async () => {

@@ -8,7 +8,28 @@ import {
   type OwnerAuthState,
 } from './lib/authFlow.ts';
 import { shouldReevaluateOnAuthEvent } from './lib/authEvents.ts';
+import { fetchOwnerAuditEvents, type OwnerAuditEvent } from './lib/audit.ts';
 import { supabase, supabaseConfigReady } from './lib/supabase.ts';
+
+function auditEventLabel(eventType: string): string {
+  const labels: Record<string, string> = {
+    'auth.login': 'เข้าสู่ระบบ',
+    'auth.logout': 'ออกจากระบบ',
+    'auth.factor_in_progress': 'เริ่มลงทะเบียน TOTP',
+    'auth.factor_unenrolled': 'ยกเลิก TOTP',
+    'auth.challenge_created': 'สร้าง MFA challenge',
+    'auth.verification_attempted': 'ตรวจสอบ MFA',
+    'auth.factor_deleted': 'ลบ MFA factor',
+    'auth.factor_updated': 'ปรับปรุง MFA factor',
+    'auth.mfa_code_login': 'เข้าสู่ระบบด้วย MFA',
+    'auth.generate_recovery_codes': 'สร้าง Recovery codes',
+    'auth.recovery_codes_deleted': 'ลบ Recovery codes',
+    'owner.authorization.denied': 'ถูกปฏิเสธสิทธิ์ Owner',
+    'owner.role.provisioned': 'เพิ่ม Owner role',
+    'owner.role.revoked': 'เพิกถอน Owner role',
+  };
+  return labels[eventType] ?? 'Security event';
+}
 
 export default function App() {
   const [authState, setAuthState] = useState<OwnerAuthState>(
@@ -24,6 +45,9 @@ export default function App() {
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [auditEvents, setAuditEvents] = useState<OwnerAuditEvent[]>([]);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditError, setAuditError] = useState('');
   const sequence = useRef(0);
   const authStateRef = useRef<OwnerAuthState>(authState);
   const pendingMfaUserId = useRef<string | null>(null);
@@ -150,6 +174,37 @@ export default function App() {
       listener.subscription.unsubscribe();
     };
   }, [evaluateSession]);
+
+  useEffect(() => {
+    const accessToken = session?.access_token;
+    if (authState !== 'signed-in' || !accessToken || !supabase) {
+      setAuditEvents([]);
+      setAuditError('');
+      setAuditLoading(false);
+      return;
+    }
+
+    let active = true;
+    setAuditLoading(true);
+    setAuditError('');
+    void fetchOwnerAuditEvents(supabase, accessToken)
+      .then((events) => {
+        if (active) setAuditEvents(events);
+      })
+      .catch(() => {
+        if (active) {
+          setAuditEvents([]);
+          setAuditError('ไม่สามารถโหลดประวัติความปลอดภัยได้');
+        }
+      })
+      .finally(() => {
+        if (active) setAuditLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [authState, session?.access_token]);
 
   async function login(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -487,6 +542,37 @@ export default function App() {
             จะผ่านการตรวจสอบ
           </p>
         </div>
+      </section>
+      <section className="audit-panel" aria-labelledby="owner-audit-title">
+        <div className="audit-heading">
+          <div>
+            <p className="eyebrow">SECURITY · AUTHENTICATION</p>
+            <h2 id="owner-audit-title">ประวัติความปลอดภัย</h2>
+            <p className="muted">บันทึกจาก Supabase Auth และ Owner authorization แบบอ่านอย่างเดียว</p>
+          </div>
+          <span className="audit-count">{auditEvents.length} events</span>
+        </div>
+        {auditLoading ? (
+          <p className="audit-message">กำลังโหลดประวัติ…</p>
+        ) : auditError ? (
+          <p className="audit-message error" role="status">{auditError}</p>
+        ) : auditEvents.length === 0 ? (
+          <p className="audit-message">ยังไม่มีเหตุการณ์ในช่วงที่จัดเก็บไว้ หรือ Auth Audit Postgres persistence ยังไม่ได้เปิดใช้งาน</p>
+        ) : (
+          <ol className="audit-list">
+            {auditEvents.map((event) => (
+              <li key={event.event_id} className="audit-item">
+                <div className="audit-event-icon"><ShieldCheck size={16} /></div>
+                <div className="audit-event-content">
+                  <strong>{auditEventLabel(event.event_type)}</strong>
+                  <span>{new Date(event.occurred_at).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' })}</span>
+                  {event.reason_code && <small>Reason: {event.reason_code}</small>}
+                </div>
+                <span className="audit-source">{event.source === 'supabase_auth' ? 'AUTH' : 'OWNER'}</span>
+              </li>
+            ))}
+          </ol>
+        )}
       </section>
       <footer>
         PRODX OWNER CONSOLE · AUTHENTICATION ISOLATED · {session?.user.id.slice(0, 8)}
