@@ -1,6 +1,6 @@
 # Owner Security Audit Trail — Design
 
-Status: proposed implementation design for Issue #399  
+Status: implementation prepared on `feat/owner-audit-implementation` (stacked on PR #398); remote rollout remains blocked pending explicit approval.  
 Scope: dedicated `PRODX-OWNER-AUTH` project only. This document does not apply database changes or deploy Edge Functions.
 
 ## Verified starting state (2026-11-21)
@@ -34,34 +34,32 @@ Suggested columns:
 - `id uuid primary key default gen_random_uuid()`
 - `occurred_at timestamptz not null default now()`
 - `event_type text not null` constrained to the approved event catalogue
-- `outcome text not null` constrained to `success`, `failure`, `denied`, or `started`
+- `outcome text not null` constrained to `success` or `denied`
 - `actor_user_id uuid null` populated only from a server-verified JWT or trusted Admin API operation
-- `request_id text null` validated and length-limited
+- `target_user_id uuid null` for trusted role administration
+- `request_id uuid not null default gen_random_uuid()`
 - `reason_code text null` selected from a finite allowlist
 - `source text not null` constrained to `server_verified` or `trusted_admin`
 
 No arbitrary JSON metadata column is planned. This reduces accidental credential/PII capture. The `source` column is server-assigned only.
 
-Enable RLS and create no browser policies. Revoke all table privileges from `PUBLIC`, `anon`, and `authenticated`. Grant only the minimum required `SELECT, INSERT` to `service_role`. Add a trigger rejecting UPDATE and DELETE, plus a statement-level trigger rejecting TRUNCATE. This is defense in depth; privileged database administrators remain outside the application threat model.
+Enable and FORCE RLS with no browser policies. Revoke all table privileges from `PUBLIC`, `anon`, and `authenticated`. Grant only `INSERT` to `service_role`; the Owner feed reads through a separate `SECURITY DEFINER` function whose execute privilege is granted only to `service_role`. Add a trigger rejecting UPDATE and DELETE, plus a statement-level trigger rejecting TRUNCATE. This is defense in depth; privileged database administrators remain outside the application threat model.
 
 ### Supabase Auth Audit Logs (source of truth for authentication)
 
 Do not ask the browser to report successful/failed password sign-ins, TOTP enrollment, TOTP verification, challenge creation, or logout as custom audit events. Supabase Auth already records these lifecycle events in its Auth Audit Logs, including `login`, `logout`, `factor_in_progress`, `challenge_created`, and `verification_attempted`. This avoids treating a client assertion as authoritative and avoids a public unauthenticated logging endpoint.
 
-Supabase stores Auth Audit Logs in external log storage by default; optional Postgres persistence writes to `auth.audit_log_entries`. The current Owner Auth database has that managed table, but the inspected table had zero rows and `service_role` currently has no SELECT privilege on it. A read-only Logs query for `auth_audit_logs` also returned no events in the inspected 24-hour window. This does not prove audit logging is disabled; no real Owner login/TOTP E2E has occurred yet.
+Supabase stores Auth Audit Logs in external log storage and can optionally persist them in `auth.audit_log_entries`. A read-only Management API inspection confirmed `audit_log_disable_postgres = true` in the Owner Auth project, so Postgres persistence is currently disabled. The managed table exists but had zero rows; `service_role` has no direct SELECT privilege on it. A read-only Logs query for `auth_audit_logs` returned no events in the inspected 24-hour window; no real Owner login/TOTP E2E has occurred yet.
 
-For Owner Console visibility, a separate server-side read path must be designed and tested. It may expose only a sanitized projection of the Auth audit events after independently verifying Owner role and AAL2. Do not grant browser access to the `auth` schema or return raw payloads, IP addresses, emails, or metadata. If Postgres persistence must be enabled, treat that as a separate remote Auth configuration change requiring explicit approval.
+To enable the Owner Console Auth event feed, the setting must change from `audit_log_disable_postgres = true` to `false`. This will persist future Supabase Auth audit payloads in the Owner Auth database, including fields such as IP address and user-agent. The Owner API returns only a sanitized projection and never returns those fields. This remote Auth configuration change requires explicit approval; rollback is setting it back to `true`, which stops future Postgres persistence but does not delete existing rows.
 
 ## Proposed Edge Function boundary
 
-Add `owner-audit` as a separate Edge Function. It validates the exact configured Owner Console origin and accepts a strict event schema.
+Implementation adds `owner-audit` as a GET-only Edge Function. It validates the exact configured Owner Console origin, the bearer JWT with Supabase Auth, trusted `app_metadata.owner_role === 'owner'`, a verified TOTP factor, and AAL2 before calling the server-only `owner_security_audit_feed` RPC. The RPC is `SECURITY DEFINER`, uses a fixed `pg_catalog` search path, disables row security only inside the privileged function, and returns a strict sanitized projection. No browser role can execute it.
 
-- Auth lifecycle events are not accepted from the browser as authoritative; consume Supabase Auth Audit Logs through the privileged server-side read path described above.
-- Owner-specific authorization denied: validate the bearer token where present, derive actor ID from Supabase Auth, and record only a normalized reason code. For invalid/no-session denials, record actor as null and do not accept an actor ID or email from the client.
-- Trusted provisioning/revocation: do not expose this through the browser endpoint. Instrument only after a dedicated server-side Admin API provisioning/revocation path exists; derive actor and target from that trusted path.
-- The write endpoint must use a strict event allowlist, exact configured origin, request-size limits, and server-only service credentials. Fail closed on missing secrets or invalid authorization.
+The existing `owner-authorize` handler records `owner.authorization.denied` events from server-verified authorization decisions, deriving actor ID from `getUser()` and storing only an allowlisted reason code. Audit write failure never turns a denial into an authorization grant. Auth lifecycle events are never accepted from the browser as authoritative; they come from Supabase Auth Audit Logs.
 
-The Edge Function uses a server-only service credential to write through the database API. No service-role or secret key may enter Vite variables, client bundles, browser requests, or logs. The existing `owner-authorize` function remains an authorization decision endpoint and is not overloaded with audit writes.
+Trusted provisioning/revocation events remain reserved. They must not be written through the browser endpoint; instrument them only after a dedicated server-side Admin API provisioning/revocation path exists. The Owner Console reads the feed through `owner-audit` and displays only the sanitized event fields. No service-role or secret key enters Vite variables, client bundles, browser requests, or logs.
 
 ## Event catalogue
 
@@ -83,12 +81,13 @@ The Edge Function uses a server-only service credential to write through the dat
 
 No remote schema, Supabase config, Edge Function, or Vercel deployment has been changed by this design.
 
-Before applying the additive migration, provide the complete SQL diff and verify it against a disposable/local PostgreSQL 17 instance. Rollback is a separate reviewed migration that revokes Edge Function writes first, exports/preserves audit evidence, then removes only the newly introduced audit objects if explicitly approved. Never rewrite or delete historical audit events as part of ordinary rollback.
+The additive migration and regression test have been generated and verified against a disposable PostgreSQL 17 container. The SQL tests cover forced RLS, browser-denied grants, server-only INSERT/RPC, append-only UPDATE/DELETE/TRUNCATE protection, and sanitization of Auth payloads. No remote migration has been applied. Rollback is a separate reviewed migration that revokes Edge Function writes first, exports/preserves audit evidence, then removes only the newly introduced audit objects if explicitly approved. Never rewrite or delete historical audit events as part of ordinary rollback.
 
 ## Open implementation gates
 
-1. Confirm whether Auth Audit Logs Postgres persistence is enabled; the current read-only inspection did not establish this setting.
-2. Design and test a server-only, Owner+AAL2-protected read path for sanitized Auth Audit Log projections. Do not grant browser access to the `auth` schema.
-3. Decide whether Owner Console must display Auth Audit Logs directly or link operators to the Supabase dashboard; this affects whether read-only grants/views are required.
-4. Generate the additive migration using `supabase migration new owner_security_audit_trail` from the repository environment, then review the generated timestamped file.
-5. Do not apply the migration or change Auth audit-log storage configuration on the remote Owner Auth project without explicit approval.
+1. Obtain explicit approval to change `audit_log_disable_postgres` from `true` to `false` in the dedicated Owner Auth project. This persists future Auth audit payloads, including IP address and user-agent; rollback is setting it back to `true` (existing rows remain).
+2. Obtain explicit approval to apply `20261121081237_owner_security_audit_trail.sql` to `PRODX-OWNER-AUTH`. It creates one append-only custom table, two functions, two triggers, and two indexes. No POS Staff Auth or POS production DB changes are in scope.
+3. Merge PR #398 first; the implementation branch `feat/owner-audit-implementation` is stacked on it and must then be retargeted to `main` for the main-branch autonomous gate.
+4. Deploy both Edge Functions only after the migration and Auth persistence setting are approved and applied; then run real Owner Login + TOTP E2E and Preview browser checks.
+5. Implement the trusted Admin API provisioning/revocation path before claiming `owner.role.provisioned` and `owner.role.revoked` events are complete.
+6. Do not apply the migration or change remote Auth audit-log storage without explicit approval.
