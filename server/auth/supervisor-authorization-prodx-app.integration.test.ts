@@ -166,6 +166,22 @@ test('supervisor authorization works end-to-end under the real prodx_app runtime
       assert.deepEqual(row.proconfig, ['search_path=pg_catalog'], `${row.proname} must pin search_path`);
     }
 
+    // An unknown supervisor has no mapped actor. The rejected attempt must
+    // still be audited with a NULL actor and preserve the typed auth failure.
+    await assert.rejects(
+      asRuntimeRole(client, context, 'unknown_supervisor', () => service.authorize({
+        ...request, supervisorUsername: `missing-supervisor-${suffix}`, supervisorSecret: SECRET,
+      })),
+      isAuthError('INVALID_CREDENTIALS'),
+    );
+    const unmappedRejection = await client.query<{ user_id: string | null; event_type: string }>(
+      `SELECT user_id, event_type FROM public.prodx_security_audit_events
+        WHERE organization_id = $1 AND event_type = 'SUPERVISOR_AUTH_REJECTED'
+          AND metadata->>'reason' = 'invalid_or_locked'
+          AND metadata->>'requesterUserId' = $2
+        ORDER BY created_at DESC LIMIT 1`, [ids.org, ids.requester]);
+    assert.deepEqual(unmappedRejection.rows[0], { user_id: null, event_type: 'SUPERVISOR_AUTH_REJECTED' });
+
     // Wrong secret: counted atomically, audited, and persisted (not rolled back).
     for (let attempt = 1; attempt <= 4; attempt += 1) {
       await assert.rejects(
