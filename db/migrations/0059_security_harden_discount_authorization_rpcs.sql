@@ -526,7 +526,6 @@ BEGIN
         RAISE EXCEPTION 'supervisor replay action is invalid' USING ERRCODE = '22023';
       END IF;
       IF v_action = 'discount' THEN
-        v_permission_key := 'pos.discount';
         v_idempotency_key := p_metadata->>'idempotencyKey';
         v_checkout_hash := p_metadata->>'checkoutPayloadHash';
         IF p_metadata->'orderId' IS DISTINCT FROM 'null'::jsonb
@@ -574,7 +573,6 @@ BEGIN
       v_allowed_keys := ARRAY['action', 'idempotencyKey', 'reason'];
       v_actor_must_be_requester := TRUE;
       v_idempotency_key := p_metadata->>'idempotencyKey';
-      v_permission_key := 'pos.discount';
       IF p_metadata->>'action' IS DISTINCT FROM 'discount'
          OR v_idempotency_key IS NULL
          OR length(v_idempotency_key) = 0
