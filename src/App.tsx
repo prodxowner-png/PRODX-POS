@@ -476,8 +476,8 @@ export default function App() {
 
   if (isKdsMode) {
     return (
-      <GlobalErrorRecoveryProvider>
-        <ErrorBoundary isGlobal moduleName="PRODX Kitchen Display System (KDS)">
+      <ErrorBoundary isGlobal moduleName="PRODX Kitchen Display System (KDS)">
+        <GlobalErrorRecoveryProvider>
           <AuthProvider>
             <ThemeProvider>
               <LanguageProvider>
@@ -487,42 +487,42 @@ export default function App() {
               </LanguageProvider>
             </ThemeProvider>
           </AuthProvider>
-        </ErrorBoundary>
-      </GlobalErrorRecoveryProvider>
+        </GlobalErrorRecoveryProvider>
+      </ErrorBoundary>
     );
   }
 
   if (isReceiptValidationMode) {
     return (
-      <GlobalErrorRecoveryProvider>
-        <ErrorBoundary isGlobal moduleName="PRODX Receipt Validation Portal">
+      <ErrorBoundary isGlobal moduleName="PRODX Receipt Validation Portal">
+        <GlobalErrorRecoveryProvider>
           <ThemeProvider>
             <LanguageProvider>
               <ReceiptValidationPortal />
             </LanguageProvider>
           </ThemeProvider>
-        </ErrorBoundary>
-      </GlobalErrorRecoveryProvider>
+        </GlobalErrorRecoveryProvider>
+      </ErrorBoundary>
     );
   }
 
   if (isCustomerDisplayMode) {
     return (
-      <GlobalErrorRecoveryProvider>
-        <ErrorBoundary isGlobal moduleName="PRODX Customer-Facing Display">
+      <ErrorBoundary isGlobal moduleName="PRODX Customer-Facing Display">
+        <GlobalErrorRecoveryProvider>
           <ThemeProvider>
             <LanguageProvider>
               <CustomerDisplayView />
             </LanguageProvider>
           </ThemeProvider>
-        </ErrorBoundary>
-      </GlobalErrorRecoveryProvider>
+        </GlobalErrorRecoveryProvider>
+      </ErrorBoundary>
     );
   }
 
   return (
-    <GlobalErrorRecoveryProvider>
-      <ErrorBoundary isGlobal moduleName="PRODX POS Core Engine">
+    <ErrorBoundary isGlobal moduleName="PRODX POS Core Engine">
+      <GlobalErrorRecoveryProvider>
         <SettingsProvider>
           <ThemeProvider>
             <LanguageProvider>
@@ -552,8 +552,8 @@ export default function App() {
             </LanguageProvider>
           </ThemeProvider>
         </SettingsProvider>
-      </ErrorBoundary>
-    </GlobalErrorRecoveryProvider>
+      </GlobalErrorRecoveryProvider>
+    </ErrorBoundary>
   );
 }
 
