@@ -122,7 +122,7 @@ export const AiDashboardInsightsWidget: React.FC<AiDashboardInsightsWidgetProps>
             size="sm"
             onClick={handleGenerateInsights}
             disabled={isLoading}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-sm"
+            className="text-xs font-semibold shadow-sm"
           >
             {isLoading ? (
               <>

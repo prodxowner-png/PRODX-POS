@@ -123,7 +123,7 @@ export const OrganizationAuditLogTab: React.FC<OrganizationAuditLogTabProps> = (
   const getEntityIcon = (type: 'organization' | 'branch' | 'terminal') => {
     switch (type) {
       case 'organization':
-        return <Building2 className="h-4 w-4 text-[#ff6b1a]" />;
+        return <Building2 className="h-4 w-4 text-brand-text-accent" />;
       case 'branch':
         return <Store className="h-4 w-4 text-emerald-600" />;
       case 'terminal':
@@ -279,7 +279,7 @@ export const OrganizationAuditLogTab: React.FC<OrganizationAuditLogTabProps> = (
               onClick={() => setEntityFilter('organization')}
               className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
                 entityFilter === 'organization'
-                  ? 'bg-[#ff6b1a] text-white shadow-2xs'
+                  ? 'bg-brand-primary text-brand-primary-text shadow-2xs'
                   : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
               }`}
             >

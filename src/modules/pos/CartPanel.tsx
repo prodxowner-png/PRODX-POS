@@ -564,7 +564,7 @@ export const CartPanel: React.FC<CartPanelProps> = ({ onOpenQuickPay }) => {
               }}
               className={`flex-1 min-h-[44px] h-11 sm:h-11.5 flex items-center justify-between px-4 rounded-xl font-bold text-sm tracking-wide shadow-sm transition-all theme-btn-radius active-scale ${
                 hasItems
-                  ? 'bg-primary hover:bg-primary/95 text-white cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40'
+                  ? 'bg-cta hover:bg-cta-hover active:bg-cta-pressed text-cta-text cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40'
                   : 'bg-border/60 text-text/40 cursor-not-allowed'
               }`}
             >
