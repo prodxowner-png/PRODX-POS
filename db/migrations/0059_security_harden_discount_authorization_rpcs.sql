@@ -657,6 +657,7 @@ BEGIN
        AND membership.active = TRUE
      WHERE actor.id = p_user_id
        AND actor.organization_id = v_context_org
+       AND actor.status = 'active'
   ) THEN
     RAISE EXCEPTION 'security audit actor is not an active member of the authenticated store'
       USING ERRCODE = '42501';

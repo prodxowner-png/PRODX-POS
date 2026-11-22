@@ -294,6 +294,18 @@ test('supervisor authorization works end-to-end under the real prodx_app runtime
       )),
       (error: unknown) => (error as { code?: string }).code === '42501',
     );
+    // An inactive user may retain an active membership row during account
+    // suspension; they must not remain a valid audit actor for events that do
+    // not otherwise require a permission lookup.
+    await client.query("UPDATE public.prodx_users SET status = 'disabled' WHERE id = $1", [ids.supervisor]);
+    await assert.rejects(
+      asRuntimeRole(client, context, 'disabled_audit_actor', () => client.query(
+        `SELECT public.prodx_record_security_audit_event($1, $2, $3, 'SUPERVISOR_AUTH_FAILED', $4::jsonb)`,
+        [randomUUID(), ids.org, ids.supervisor, JSON.stringify({ action: 'refund', requesterUserId: ids.requester })],
+      )),
+      (error: unknown) => (error as { code?: string }).code === '42501',
+    );
+    await client.query("UPDATE public.prodx_users SET status = 'active' WHERE id = $1", [ids.supervisor]);
     await assert.rejects(
       asRuntimeRole(client, context, 'extra_audit_metadata', () => client.query(
         `SELECT public.prodx_record_security_audit_event($1, $2, $3, 'DISCOUNT_POLICY_UPDATED', $4::jsonb)`,
