@@ -435,20 +435,20 @@ BEGIN
       v_permission_key := 'pos.discount.approve';
       IF NOT EXISTS (
         SELECT 1
-          FROM public.prodx_supervisor_authorizations authorization
-         WHERE authorization.organization_id = v_context_org
-           AND authorization.store_id = v_context_store
-           AND authorization.requester_user_id = v_context_user
-           AND authorization.requester_session_id = (p_metadata->>'requesterSessionId')::uuid
-           AND authorization.supervisor_user_id = p_user_id
-           AND authorization.action_key = 'discount'
-           AND authorization.order_id IS NULL
-           AND authorization.checkout_idempotency_key = v_idempotency_key
-           AND authorization.checkout_payload_hash = v_checkout_hash
-           AND authorization.policy_threshold_bps = v_threshold
-           AND authorization.policy_requires_approval IS TRUE
-           AND authorization.expires_at = (p_metadata->>'expiresAt')::timestamptz
-           AND authorization.consumed_at IS NULL
+          FROM public.prodx_supervisor_authorizations authz
+         WHERE authz.organization_id = v_context_org
+           AND authz.store_id = v_context_store
+           AND authz.requester_user_id = v_context_user
+           AND authz.requester_session_id = (p_metadata->>'requesterSessionId')::uuid
+           AND authz.supervisor_user_id = p_user_id
+           AND authz.action_key = 'discount'
+           AND authz.order_id IS NULL
+           AND authz.checkout_idempotency_key = v_idempotency_key
+           AND authz.checkout_payload_hash = v_checkout_hash
+           AND authz.policy_threshold_bps = v_threshold
+           AND authz.policy_requires_approval IS TRUE
+           AND authz.expires_at = (p_metadata->>'expiresAt')::timestamptz
+           AND authz.consumed_at IS NULL
       ) THEN
         RAISE EXCEPTION 'discount authorization grant has no matching persisted authorization'
           USING ERRCODE = '42501';
@@ -496,19 +496,19 @@ BEGIN
       END;
       IF NOT EXISTS (
         SELECT 1
-          FROM public.prodx_supervisor_authorizations authorization
-         WHERE authorization.organization_id = v_context_org
-           AND authorization.store_id = v_context_store
-           AND authorization.requester_user_id = v_context_user
-           AND authorization.supervisor_user_id = p_user_id
-           AND authorization.action_key = v_action
-           AND authorization.order_id IS NOT DISTINCT FROM v_order_id
-           AND authorization.checkout_idempotency_key IS NOT DISTINCT FROM v_idempotency_key
-           AND authorization.checkout_payload_hash IS NOT DISTINCT FROM v_checkout_hash
-           AND authorization.policy_threshold_bps IS NOT DISTINCT FROM v_threshold
-           AND authorization.policy_requires_approval IS NOT DISTINCT FROM
+          FROM public.prodx_supervisor_authorizations authz
+         WHERE authz.organization_id = v_context_org
+           AND authz.store_id = v_context_store
+           AND authz.requester_user_id = v_context_user
+           AND authz.supervisor_user_id = p_user_id
+           AND authz.action_key = v_action
+           AND authz.order_id IS NOT DISTINCT FROM v_order_id
+           AND authz.checkout_idempotency_key IS NOT DISTINCT FROM v_idempotency_key
+           AND authz.checkout_payload_hash IS NOT DISTINCT FROM v_checkout_hash
+           AND authz.policy_threshold_bps IS NOT DISTINCT FROM v_threshold
+           AND authz.policy_requires_approval IS NOT DISTINCT FROM
                CASE WHEN v_action = 'discount' THEN TRUE ELSE NULL::boolean END
-           AND authorization.consumed_at IS NOT NULL
+           AND authz.consumed_at IS NOT NULL
       ) THEN
         RAISE EXCEPTION 'consumed supervisor authorization has no matching persisted grant'
           USING ERRCODE = '42501';
@@ -553,18 +553,18 @@ BEGIN
       END IF;
       IF NOT EXISTS (
         SELECT 1
-          FROM public.prodx_supervisor_authorizations authorization
-         WHERE authorization.organization_id = v_context_org
-           AND authorization.store_id = v_context_store
-           AND authorization.requester_user_id = v_context_user
-           AND authorization.action_key = v_action
-           AND authorization.order_id IS NOT DISTINCT FROM v_order_id
-           AND authorization.checkout_idempotency_key IS NOT DISTINCT FROM v_idempotency_key
-           AND authorization.checkout_payload_hash IS NOT DISTINCT FROM v_checkout_hash
-           AND authorization.policy_threshold_bps IS NOT DISTINCT FROM v_threshold
-           AND authorization.policy_requires_approval IS NOT DISTINCT FROM
+          FROM public.prodx_supervisor_authorizations authz
+         WHERE authz.organization_id = v_context_org
+           AND authz.store_id = v_context_store
+           AND authz.requester_user_id = v_context_user
+           AND authz.action_key = v_action
+           AND authz.order_id IS NOT DISTINCT FROM v_order_id
+           AND authz.checkout_idempotency_key IS NOT DISTINCT FROM v_idempotency_key
+           AND authz.checkout_payload_hash IS NOT DISTINCT FROM v_checkout_hash
+           AND authz.policy_threshold_bps IS NOT DISTINCT FROM v_threshold
+           AND authz.policy_requires_approval IS NOT DISTINCT FROM
                CASE WHEN v_action = 'discount' THEN TRUE ELSE NULL::boolean END
-           AND authorization.consumed_at IS NOT NULL
+           AND authz.consumed_at IS NOT NULL
       ) THEN
         RAISE EXCEPTION 'replayed supervisor authorization has no consumed grant'
           USING ERRCODE = '42501';

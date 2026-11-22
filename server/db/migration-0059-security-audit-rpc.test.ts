@@ -21,6 +21,7 @@ test('security audit writes are limited to known event contracts and trusted sto
   assert.match(migration, /jsonb_object_keys\(p_metadata\)/);
   assert.match(migration, /security audit requester does not match authenticated user/);
   assert.match(migration, /security audit actor is not an active member of the authenticated store/);
+  assert.equal(migration.includes('prodx_supervisor_authorizations authorization'), false);
   assert.match(migration, /discount authorization grant has no matching persisted authorization/);
   assert.match(migration, /consumed supervisor authorization has no matching persisted grant/);
   assert.match(migration, /discount policy audit event does not match persisted policy state/);
