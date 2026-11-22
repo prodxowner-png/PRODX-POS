@@ -192,7 +192,19 @@ export const createSupervisorAuthorizationService = (db: SqlExecutor, now: () =>
       storeId: input.storeId,
       userId: supervisorUserId,
       eventType: 'SUPERVISOR_AUTHORIZATION_GRANTED',
-      metadata: { action: input.action, orderId: input.orderId, requesterUserId: input.requesterUserId, requesterSessionId: input.requesterSessionId, expiresAt: expiresAt.toISOString() },
+      metadata: {
+        action: input.action,
+        orderId: input.orderId,
+        requesterUserId: input.requesterUserId,
+        requesterSessionId: input.requesterSessionId,
+        expiresAt: expiresAt.toISOString(),
+        ...(input.action === 'discount' ? {
+          checkoutIdempotencyKey: input.checkoutIdempotencyKey,
+          checkoutPayloadHash: input.checkoutPayloadHash,
+          policyThresholdBps: input.policyThresholdBps,
+          policyRequiresApproval: input.policyRequiresApproval,
+        } : {}),
+      },
     });
 
     return { authorizationToken: token, supervisorUserId: supervisorUserId!, expiresAt: expiresAt.toISOString() };
@@ -233,7 +245,17 @@ export const createSupervisorAuthorizationService = (db: SqlExecutor, now: () =>
         storeId: input.storeId,
         userId: rows[0].supervisorUserId,
         eventType: 'SUPERVISOR_AUTHORIZATION_CONSUMED',
-        metadata: { action: input.action, orderId: input.orderId ?? null, idempotencyKey: input.checkoutIdempotencyKey ?? null, requesterUserId: input.requesterUserId }
+        metadata: {
+          action: input.action,
+          orderId: input.orderId ?? null,
+          idempotencyKey: input.checkoutIdempotencyKey ?? null,
+          requesterUserId: input.requesterUserId,
+          ...(input.action === 'discount' ? {
+            checkoutPayloadHash: input.checkoutPayloadHash,
+            policyThresholdBps: input.policyThresholdBps,
+            policyRequiresApproval: input.policyRequiresApproval,
+          } : {}),
+        }
       });
       return { supervisorUserId: rows[0].supervisorUserId };
     }
@@ -263,7 +285,17 @@ export const createSupervisorAuthorizationService = (db: SqlExecutor, now: () =>
         storeId: input.storeId,
         userId: input.requesterUserId,
         eventType: 'SUPERVISOR_AUTHORIZATION_REPLAYED',
-        metadata: { action: input.action, orderId: input.orderId ?? null, idempotencyKey: input.checkoutIdempotencyKey ?? null }
+        metadata: {
+          action: input.action,
+          orderId: input.orderId ?? null,
+          idempotencyKey: input.checkoutIdempotencyKey ?? null,
+          requesterUserId: input.requesterUserId,
+          ...(input.action === 'discount' ? {
+            checkoutPayloadHash: input.checkoutPayloadHash,
+            policyThresholdBps: input.policyThresholdBps,
+            policyRequiresApproval: input.policyRequiresApproval,
+          } : {}),
+        }
       });
       throw new SupervisorAuthorizationError('AUTHORIZATION_REPLAYED');
     }

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 import type { PoolClient } from 'pg';
@@ -99,13 +100,13 @@ test('supervisor authorization works end-to-end under the real prodx_app runtime
       [ids.supervisor, ids.cashier, ids.otherSupervisor, secretHash, ids.nonMemberSupervisor]);
     await client.query(`INSERT INTO public.prodx_roles (id, organization_id, role_key, name, active) VALUES ($1, $3, 'supervisor', 'Supervisor', TRUE), ($2, $3, 'cashier', 'Cashier', TRUE), ($4, $5, 'supervisor', 'Supervisor', TRUE)`,
       [ids.supervisorRole, ids.cashierRole, ids.org, ids.otherRole, ids.otherOrg]);
-    for (const permissionKey of ['pos.refund', 'pos.void', 'pos.sell']) {
+    for (const permissionKey of ['pos.refund', 'pos.void', 'pos.sell', 'pos.discount', 'pos.discount.approve', 'settings.manage']) {
       await client.query(`INSERT INTO public.prodx_permissions (id, permission_key, description) VALUES ($1, $2, $2) ON CONFLICT (permission_key) DO NOTHING`, [randomUUID(), permissionKey]);
     }
     await client.query(`INSERT INTO public.prodx_role_permissions (organization_id, role_id, permission_id)
-        SELECT $1::uuid, $2::uuid, id FROM public.prodx_permissions WHERE permission_key IN ('pos.refund', 'pos.void')
+        SELECT $1::uuid, $2::uuid, id FROM public.prodx_permissions WHERE permission_key IN ('pos.refund', 'pos.void', 'pos.discount.approve')
         UNION ALL
-        SELECT $1::uuid, $3::uuid, id FROM public.prodx_permissions WHERE permission_key = 'pos.sell'
+        SELECT $1::uuid, $3::uuid, id FROM public.prodx_permissions WHERE permission_key IN ('pos.sell', 'pos.discount', 'settings.manage')
         UNION ALL
         SELECT $4::uuid, $5::uuid, id FROM public.prodx_permissions WHERE permission_key IN ('pos.refund', 'pos.void')`,
       [ids.org, ids.supervisorRole, ids.cashierRole, ids.otherOrg, ids.otherRole]);
@@ -195,6 +196,117 @@ test('supervisor authorization works end-to-end under the real prodx_app runtime
         requesterSessionId: ids.session, action: 'refund', orderId: ids.order,
       })),
       isAuthError('AUTHORIZATION_REPLAYED'),
+    );
+
+    // Discount approvals use a distinct permission and the same one-time
+    // authorization lifecycle. This exercises the production password path,
+    // including the database lockout-reset RPC for action_key='discount'.
+    await client.query(`UPDATE public.prodx_discount_policies
+                           SET require_supervisor_approval = TRUE,
+                               max_discount_without_approval_bps = 1500,
+                               updated_by_user_id = $3
+                         WHERE organization_id = $1 AND store_id = $2`,
+      [ids.org, ids.store, ids.requester]);
+    const discountRequest = {
+      organizationId: ids.org,
+      storeId: ids.store,
+      requesterUserId: ids.requester,
+      requesterSessionId: ids.session,
+      action: 'discount' as const,
+      checkoutIdempotencyKey: `sup-rpc-discount-${suffix}`,
+      checkoutPayloadHash: 'a'.repeat(64),
+      policyThresholdBps: 1500,
+      policyRequiresApproval: true,
+      supervisorUsername: `SUP-SUPERVISOR-${suffix}`,
+      supervisorSecret: SECRET,
+    };
+    const discountGrant = await asRuntimeRole(client, context, 'discount_grant', () => service.authorize(discountRequest));
+    assert.equal(discountGrant.supervisorUserId, ids.supervisor);
+    const discountConsumeInput = {
+      token: discountGrant.authorizationToken,
+      organizationId: ids.org,
+      storeId: ids.store,
+      requesterUserId: ids.requester,
+      requesterSessionId: ids.session,
+      action: 'discount' as const,
+      checkoutIdempotencyKey: discountRequest.checkoutIdempotencyKey,
+      checkoutPayloadHash: discountRequest.checkoutPayloadHash,
+      policyThresholdBps: discountRequest.policyThresholdBps,
+      policyRequiresApproval: discountRequest.policyRequiresApproval,
+    };
+    const discountConsumed = await asRuntimeRole(client, context, 'discount_consume', () => service.consume(discountConsumeInput));
+    assert.equal(discountConsumed.supervisorUserId, ids.supervisor);
+    await assert.rejects(
+      asRuntimeRole(client, context, 'discount_replay', () => service.consume(discountConsumeInput)),
+      isAuthError('AUTHORIZATION_REPLAYED'),
+    );
+
+    // A valid discount-policy update event must describe the row persisted in
+    // this transaction and be attributed to the authenticated requester.
+    await asRuntimeRole(client, context, 'discount_policy_audit', () => client.query(
+      `SELECT public.prodx_record_security_audit_event($1, $2, $3, 'DISCOUNT_POLICY_UPDATED', $4::jsonb)`,
+      [randomUUID(), ids.org, ids.requester, JSON.stringify({
+        storeId: ids.store,
+        requireSupervisorApproval: true,
+        maxDiscountWithoutApprovalBps: 1500,
+      })],
+    ));
+    await asRuntimeRole(client, context, 'discount_request_audit', () => client.query(
+      `SELECT public.prodx_record_security_audit_event($1, $2, $3, 'SUPERVISOR_AUTHORIZATION_REQUESTED', $4::jsonb)`,
+      [randomUUID(), ids.org, ids.requester, JSON.stringify({
+        action: 'discount',
+        idempotencyKey: `sup-rpc-request-${suffix}`,
+        payloadHash: 'b'.repeat(64),
+        thresholdBps: 1500,
+      })],
+    ));
+    await assert.rejects(
+      asRuntimeRole(client, context, 'forged_audit_event', () => client.query(
+        `SELECT public.prodx_record_security_audit_event($1, $2, $3, 'OWNER_ROLE_GRANTED', '{}'::jsonb)`,
+        [randomUUID(), ids.org, ids.requester],
+      )),
+      (error: unknown) => (error as { code?: string }).code === '22023',
+    );
+    await assert.rejects(
+      asRuntimeRole(client, context, 'spoofed_audit_actor', () => client.query(
+        `SELECT public.prodx_record_security_audit_event($1, $2, $3, 'DISCOUNT_POLICY_UPDATED', $4::jsonb)`,
+        [randomUUID(), ids.org, ids.supervisor, JSON.stringify({
+          storeId: ids.store,
+          requireSupervisorApproval: true,
+          maxDiscountWithoutApprovalBps: 1500,
+        })],
+      )),
+      (error: unknown) => (error as { code?: string }).code === '42501',
+    );
+    await assert.rejects(
+      asRuntimeRole(client, context, 'extra_audit_metadata', () => client.query(
+        `SELECT public.prodx_record_security_audit_event($1, $2, $3, 'DISCOUNT_POLICY_UPDATED', $4::jsonb)`,
+        [randomUUID(), ids.org, ids.requester, JSON.stringify({
+          storeId: ids.store,
+          requireSupervisorApproval: true,
+          maxDiscountWithoutApprovalBps: 1500,
+          untrustedClaim: 'not-allowed',
+        })],
+      )),
+      (error: unknown) => (error as { code?: string }).code === '22023',
+    );
+
+    // Supervisor identity lookup requires a live requester membership, not
+    // only caller-supplied organization/store GUCs. The unused credential-hash
+    // lookup remains revoked from every runtime/API role.
+    const supervisorSubject = randomUUID();
+    await client.query('UPDATE public.prodx_users SET supabase_auth_user_id = $1 WHERE id = $2', [supervisorSubject, ids.supervisor]);
+    const subjectLookup = await asRuntimeRole(client, context, 'valid_subject_lookup', () => client.query(
+      'SELECT * FROM public.prodx_auth_find_supervisor_by_supabase_subject($1, $2, $3)',
+      [ids.org, ids.store, supervisorSubject],
+    ));
+    assert.equal(subjectLookup.rows[0]?.user_id, ids.supervisor);
+    await assert.rejects(
+      asRuntimeRole(client, { ...context, userId: ids.otherSupervisor }, 'foreign_requester_lookup', () => client.query(
+        'SELECT * FROM public.prodx_auth_find_supervisor_by_supabase_subject($1, $2, $3)',
+        [ids.org, ids.store, supervisorSubject],
+      )),
+      (error: unknown) => (error as { code?: string }).code === '42501',
     );
 
     // Valid credential without store-scoped refund permission is denied, and
@@ -294,14 +406,69 @@ test('supervisor authorization works end-to-end under the real prodx_app runtime
       isAuthError('INVALID_CREDENTIALS'),
     );
 
+    // Simulate Supabase's default public-schema function grants, then reapply
+    // the forward migration. The migration must revoke API-role/PUBLIC access
+    // and leave only the intended prodx_app RPC grants.
+    await client.query(`
+      DO $roles$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'anon') THEN CREATE ROLE anon NOLOGIN; END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'authenticated') THEN CREATE ROLE authenticated NOLOGIN; END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'service_role') THEN CREATE ROLE service_role NOLOGIN; END IF;
+      END
+      $roles$;
+      GRANT EXECUTE ON FUNCTION public.prodx_seed_discount_policy_for_store() TO PUBLIC, anon, authenticated, service_role, prodx_app;
+      GRANT EXECUTE ON FUNCTION public.prodx_auth_find_supervisor_by_supabase_subject(uuid, uuid, uuid) TO PUBLIC, anon, authenticated, service_role, prodx_app;
+      GRANT EXECUTE ON FUNCTION public.prodx_auth_find_supervisor_credential(uuid, uuid, text) TO PUBLIC, anon, authenticated, service_role, prodx_app;
+      GRANT EXECUTE ON FUNCTION public.prodx_record_security_audit_event(uuid, uuid, uuid, text, jsonb) TO PUBLIC, anon, authenticated, service_role, prodx_app;
+      GRANT EXECUTE ON FUNCTION public.prodx_supervisor_reset_failed_attempts(uuid, uuid, uuid, text) TO PUBLIC, anon, authenticated, service_role, prodx_app;
+    `);
+    const hardeningMigration = readFileSync(
+      new URL('../../db/migrations/0059_security_harden_discount_authorization_rpcs.sql', import.meta.url),
+      'utf8',
+    );
+    await client.query(hardeningMigration);
+    const hardenedAcl = await client.query<{
+      proname: string; app: boolean; anon: boolean; authenticated: boolean; service_role: boolean; public: boolean;
+    }>(`
+      SELECT p.proname,
+             has_function_privilege('prodx_app', p.oid, 'EXECUTE') AS app,
+             has_function_privilege('anon', p.oid, 'EXECUTE') AS anon,
+             has_function_privilege('authenticated', p.oid, 'EXECUTE') AS authenticated,
+             has_function_privilege('service_role', p.oid, 'EXECUTE') AS service_role,
+             EXISTS (
+               SELECT 1
+                 FROM pg_catalog.aclexplode(COALESCE(p.proacl, pg_catalog.acldefault('f', p.proowner))) acl
+                WHERE acl.grantee = 0 AND acl.privilege_type = 'EXECUTE'
+             ) AS public
+        FROM pg_catalog.pg_proc p
+       WHERE p.oid IN (
+         'public.prodx_seed_discount_policy_for_store()'::regprocedure,
+         'public.prodx_auth_find_supervisor_by_supabase_subject(uuid,uuid,uuid)'::regprocedure,
+         'public.prodx_auth_find_supervisor_credential(uuid,uuid,text)'::regprocedure,
+         'public.prodx_record_security_audit_event(uuid,uuid,uuid,text,jsonb)'::regprocedure,
+         'public.prodx_supervisor_reset_failed_attempts(uuid,uuid,uuid,text)'::regprocedure
+       )
+       ORDER BY p.proname COLLATE "C"
+    `);
+    assert.deepEqual(hardenedAcl.rows, [
+      { proname: 'prodx_auth_find_supervisor_by_supabase_subject', app: true, anon: false, authenticated: false, service_role: false, public: false },
+      { proname: 'prodx_auth_find_supervisor_credential', app: false, anon: false, authenticated: false, service_role: false, public: false },
+      { proname: 'prodx_record_security_audit_event', app: true, anon: false, authenticated: false, service_role: false, public: false },
+      { proname: 'prodx_seed_discount_policy_for_store', app: false, anon: false, authenticated: false, service_role: false, public: false },
+      { proname: 'prodx_supervisor_reset_failed_attempts', app: true, anon: false, authenticated: false, service_role: false, public: false },
+    ]);
+
     // Every outcome is recorded in the append-only security audit ledger.
     const audit = await client.query<{ event_type: string; count: number }>(`
       SELECT event_type, count(*)::int AS count FROM public.prodx_security_audit_events
        WHERE organization_id = $1 GROUP BY event_type ORDER BY event_type COLLATE "C"`, [ids.org]);
     assert.deepEqual(audit.rows, [
-      { event_type: 'SUPERVISOR_AUTHORIZATION_CONSUMED', count: 1 },
-      { event_type: 'SUPERVISOR_AUTHORIZATION_GRANTED', count: 1 },
-      { event_type: 'SUPERVISOR_AUTHORIZATION_REPLAYED', count: 1 },
+      { event_type: 'DISCOUNT_POLICY_UPDATED', count: 1 },
+      { event_type: 'SUPERVISOR_AUTHORIZATION_CONSUMED', count: 2 },
+      { event_type: 'SUPERVISOR_AUTHORIZATION_GRANTED', count: 2 },
+      { event_type: 'SUPERVISOR_AUTHORIZATION_REPLAYED', count: 2 },
+      { event_type: 'SUPERVISOR_AUTHORIZATION_REQUESTED', count: 1 },
       { event_type: 'SUPERVISOR_AUTH_DENIED', count: 1 },
       { event_type: 'SUPERVISOR_AUTH_FAILED', count: 9 },
       { event_type: 'SUPERVISOR_AUTH_REJECTED', count: 2 },
