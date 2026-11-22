@@ -481,6 +481,7 @@ test('supervisor authorization works end-to-end under the real prodx_app runtime
       GRANT EXECUTE ON FUNCTION public.prodx_seed_discount_policy_for_store() TO PUBLIC, anon, authenticated, service_role, prodx_app;
       GRANT EXECUTE ON FUNCTION public.prodx_auth_find_supervisor_by_supabase_subject(uuid, uuid, uuid) TO PUBLIC, anon, authenticated, service_role, prodx_app;
       GRANT EXECUTE ON FUNCTION public.prodx_auth_find_supervisor_credential(uuid, uuid, text) TO PUBLIC, anon, authenticated, service_role, prodx_app;
+      GRANT EXECUTE ON FUNCTION public.prodx_supervisor_find_credential(uuid, uuid, text) TO PUBLIC, anon, authenticated, service_role, prodx_app;
       GRANT EXECUTE ON FUNCTION public.prodx_record_security_audit_event(uuid, uuid, uuid, text, jsonb) TO PUBLIC, anon, authenticated, service_role, prodx_app;
       GRANT EXECUTE ON FUNCTION public.prodx_supervisor_reset_failed_attempts(uuid, uuid, uuid, text) TO PUBLIC, anon, authenticated, service_role, prodx_app;
     `);
@@ -507,6 +508,7 @@ test('supervisor authorization works end-to-end under the real prodx_app runtime
          'public.prodx_seed_discount_policy_for_store()'::regprocedure,
          'public.prodx_auth_find_supervisor_by_supabase_subject(uuid,uuid,uuid)'::regprocedure,
          'public.prodx_auth_find_supervisor_credential(uuid,uuid,text)'::regprocedure,
+         'public.prodx_supervisor_find_credential(uuid,uuid,text)'::regprocedure,
          'public.prodx_record_security_audit_event(uuid,uuid,uuid,text,jsonb)'::regprocedure,
          'public.prodx_supervisor_reset_failed_attempts(uuid,uuid,uuid,text)'::regprocedure
        )
@@ -517,6 +519,7 @@ test('supervisor authorization works end-to-end under the real prodx_app runtime
       { proname: 'prodx_auth_find_supervisor_credential', app: false, anon: false, authenticated: false, service_role: false, public: false },
       { proname: 'prodx_record_security_audit_event', app: true, anon: false, authenticated: false, service_role: false, public: false },
       { proname: 'prodx_seed_discount_policy_for_store', app: false, anon: false, authenticated: false, service_role: false, public: false },
+      { proname: 'prodx_supervisor_find_credential', app: true, anon: false, authenticated: false, service_role: false, public: false },
       { proname: 'prodx_supervisor_reset_failed_attempts', app: true, anon: false, authenticated: false, service_role: false, public: false },
     ]);
 
@@ -532,7 +535,7 @@ test('supervisor authorization works end-to-end under the real prodx_app runtime
       { event_type: 'SUPERVISOR_AUTHORIZATION_REQUESTED', count: 1 },
       { event_type: 'SUPERVISOR_AUTH_DENIED', count: 1 },
       { event_type: 'SUPERVISOR_AUTH_FAILED', count: 9 },
-      { event_type: 'SUPERVISOR_AUTH_REJECTED', count: 3 },
+      { event_type: 'SUPERVISOR_AUTH_REJECTED', count: 4 },
     ]);
   } finally {
     await client.query('ROLLBACK');
