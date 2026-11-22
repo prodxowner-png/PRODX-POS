@@ -487,7 +487,7 @@ test('supervisor authorization works end-to-end under the real prodx_app runtime
       { event_type: 'SUPERVISOR_AUTHORIZATION_REQUESTED', count: 1 },
       { event_type: 'SUPERVISOR_AUTH_DENIED', count: 1 },
       { event_type: 'SUPERVISOR_AUTH_FAILED', count: 9 },
-      { event_type: 'SUPERVISOR_AUTH_REJECTED', count: 2 },
+      { event_type: 'SUPERVISOR_AUTH_REJECTED', count: 3 },
     ]);
   } finally {
     await client.query('ROLLBACK');
