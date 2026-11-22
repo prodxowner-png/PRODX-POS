@@ -179,7 +179,7 @@ test('supervisor authorization works end-to-end under the real prodx_app runtime
         WHERE organization_id = $1 AND event_type = 'SUPERVISOR_AUTH_REJECTED'
           AND metadata->>'reason' = 'invalid_or_locked'
           AND metadata->>'requesterUserId' = $2
-        ORDER BY created_at DESC LIMIT 1`, [ids.org, ids.requester]);
+        ORDER BY occurred_at DESC LIMIT 1`, [ids.org, ids.requester]);
     assert.deepEqual(unmappedRejection.rows[0], { user_id: null, event_type: 'SUPERVISOR_AUTH_REJECTED' });
 
     // Wrong secret: counted atomically, audited, and persisted (not rolled back).
