@@ -375,6 +375,12 @@ BEGIN
 
     WHEN 'SUPERVISOR_AUTH_REJECTED' THEN
       v_allowed_keys := ARRAY['action', 'orderId', 'requesterUserId', 'requestedSupervisorUserId', 'reason'];
+      IF NOT (p_metadata ? 'requesterUserId')
+         OR pg_catalog.jsonb_typeof(p_metadata->'requesterUserId') IS DISTINCT FROM 'string'
+         OR pg_catalog.length(pg_catalog.btrim(p_metadata->>'requesterUserId')) = 0 THEN
+        RAISE EXCEPTION 'security audit requester is required for supervisor rejection'
+          USING ERRCODE = '22023';
+      END IF;
       v_requester := (p_metadata->>'requesterUserId')::uuid;
       IF v_action IS DISTINCT FROM 'discount'
          OR v_reason IS DISTINCT FROM 'invalid_or_locked' THEN

@@ -167,6 +167,28 @@ test('supervisor authorization works end-to-end under the real prodx_app runtime
       assert.deepEqual(row.proconfig, ['search_path=pg_catalog'], `${row.proname} must pin search_path`);
     }
 
+    // A NULL-actor rejection is valid only when it still identifies the
+    // authenticated requester; never accept an anonymous rejection audit.
+    const missingRequesterMarker = `missing-requester-${suffix}`;
+    await assert.rejects(
+      asRuntimeRole(client, context, 'rejection_without_requester', () => client.query(
+        `SELECT public.prodx_record_security_audit_event($1, $2, NULL, 'SUPERVISOR_AUTH_REJECTED', $3::jsonb)`,
+        [randomUUID(), ids.org, JSON.stringify({
+          action: 'discount',
+          requestedSupervisorUserId: missingRequesterMarker,
+          reason: 'invalid_or_locked',
+        })],
+      )),
+      (error: unknown) => (error as { code?: string }).code === '22023',
+    );
+    const anonymousRejection = await client.query<{ count: number }>(
+      `SELECT count(*)::int AS count FROM public.prodx_security_audit_events
+        WHERE organization_id = $1 AND event_type = 'SUPERVISOR_AUTH_REJECTED'
+          AND metadata->>'requestedSupervisorUserId' = $2`,
+      [ids.org, missingRequesterMarker],
+    );
+    assert.equal(anonymousRejection.rows[0]?.count, 0);
+
     // An unknown supervisor has no mapped actor. The rejected attempt must
     // still be audited with a NULL actor and preserve the typed auth failure.
     await assert.rejects(
