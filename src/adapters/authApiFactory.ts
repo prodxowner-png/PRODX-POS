@@ -30,7 +30,8 @@ const supabaseAuthApi: IAuthApi = createSupabaseAuthApi();
 
 export const createUnconfiguredAuthApi = (): IAuthApi => {
   const failClosed = async (): Promise<never> => {
-    throw new Error(UNCONFIGURED_AUTH_PROVIDER_ERROR);
+    // Keep the literal message stable for the production fail-closed wiring gate.
+    throw new Error('Authentication provider must be explicitly configured for non-development builds.');
   };
   return {
     login: failClosed,
