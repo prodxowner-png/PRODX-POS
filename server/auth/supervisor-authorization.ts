@@ -104,9 +104,15 @@ export const createSupervisorAuthorizationService = (db: SqlExecutor, now: () =>
         await recordSecurityEvent(db, {
           organizationId: input.organizationId,
           storeId: input.storeId,
-          userId: credential?.userId ?? null,
+          userId: input.action === 'discount' && credential?.status === 'disabled' ? null : credential?.userId ?? null,
           eventType: 'SUPERVISOR_AUTH_REJECTED',
-          metadata: { action: input.action, orderId: input.orderId, requesterUserId: input.requesterUserId, reason: 'invalid_or_locked' },
+          metadata: {
+            action: input.action,
+            orderId: input.orderId,
+            requesterUserId: input.requesterUserId,
+            ...(input.action === 'discount' && credential?.status === 'disabled' ? { requestedSupervisorUserId: credential.userId } : {}),
+            reason: 'invalid_or_locked',
+          },
         });
         throw new SupervisorAuthorizationError('INVALID_CREDENTIALS');
       }

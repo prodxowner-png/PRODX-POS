@@ -73,7 +73,7 @@ test('supervisor authorization works end-to-end under the real prodx_app runtime
     org: randomUUID(), otherOrg: randomUUID(), store: randomUUID(), otherStore: randomUUID(),
     register: randomUUID(), device: randomUUID(), shift: randomUUID(), order: randomUUID(),
     requester: randomUUID(), session: randomUUID(), supervisor: randomUUID(), cashier: randomUUID(),
-    otherSupervisor: randomUUID(), nonMemberSupervisor: randomUUID(), supervisorRole: randomUUID(), cashierRole: randomUUID(),
+    otherSupervisor: randomUUID(), nonMemberSupervisor: randomUUID(), disabledSupervisor: randomUUID(), supervisorRole: randomUUID(), cashierRole: randomUUID(),
     otherRole: randomUUID(),
   };
   const suffix = ids.org.replaceAll('-', '').slice(0, 12);
@@ -92,12 +92,13 @@ test('supervisor authorization works end-to-end under the real prodx_app runtime
         ($2, $5, $7, 'Supervisor', 'active'),
         ($3, $5, $8, 'Cashier Without Permission', 'active'),
         ($4, $9, $10, 'Other Tenant Supervisor', 'active'),
-        ($11, $5, $12, 'Supervisor Without Store Membership', 'active')`,
+        ($11, $5, $12, 'Supervisor Without Store Membership', 'active'),
+        ($13, $5, $14, 'Disabled Supervisor', 'disabled')`,
       [ids.requester, ids.supervisor, ids.cashier, ids.otherSupervisor, ids.org,
         `sup-requester-${suffix}`, `sup-supervisor-${suffix}`, `sup-cashier-${suffix}`, ids.otherOrg, `sup-supervisor-${suffix}`,
-        ids.nonMemberSupervisor, `sup-nonmember-${suffix}`]);
-    await client.query(`INSERT INTO public.prodx_user_credentials (user_id, credential_type, secret_hash) VALUES ($1, 'password', $4), ($2, 'password', $4), ($3, 'password', $4), ($5, 'password', $4)`,
-      [ids.supervisor, ids.cashier, ids.otherSupervisor, secretHash, ids.nonMemberSupervisor]);
+        ids.nonMemberSupervisor, `sup-nonmember-${suffix}`, ids.disabledSupervisor, `sup-disabled-${suffix}`]);
+    await client.query(`INSERT INTO public.prodx_user_credentials (user_id, credential_type, secret_hash) VALUES ($1, 'password', $4), ($2, 'password', $4), ($3, 'password', $4), ($5, 'password', $4), ($6, 'password', $4)`,
+      [ids.supervisor, ids.cashier, ids.otherSupervisor, secretHash, ids.nonMemberSupervisor, ids.disabledSupervisor]);
     await client.query(`INSERT INTO public.prodx_roles (id, organization_id, role_key, name, active) VALUES ($1, $3, 'supervisor', 'Supervisor', TRUE), ($2, $3, 'cashier', 'Cashier', TRUE), ($4, $5, 'supervisor', 'Supervisor', TRUE)`,
       [ids.supervisorRole, ids.cashierRole, ids.org, ids.otherRole, ids.otherOrg]);
     for (const permissionKey of ['pos.refund', 'pos.void', 'pos.sell', 'pos.discount', 'pos.discount.approve', 'settings.manage']) {
@@ -110,8 +111,8 @@ test('supervisor authorization works end-to-end under the real prodx_app runtime
         UNION ALL
         SELECT $4::uuid, $5::uuid, id FROM public.prodx_permissions WHERE permission_key IN ('pos.refund', 'pos.void')`,
       [ids.org, ids.supervisorRole, ids.cashierRole, ids.otherOrg, ids.otherRole]);
-    await client.query(`INSERT INTO public.prodx_store_memberships (organization_id, store_id, user_id, active) VALUES ($1, $2, $3, TRUE), ($1, $2, $4, TRUE), ($1, $2, $5, TRUE), ($6, $7, $8, TRUE)`,
-      [ids.org, ids.store, ids.requester, ids.supervisor, ids.cashier, ids.otherOrg, ids.otherStore, ids.otherSupervisor]);
+    await client.query(`INSERT INTO public.prodx_store_memberships (organization_id, store_id, user_id, active) VALUES ($1, $2, $3, TRUE), ($1, $2, $4, TRUE), ($1, $2, $5, TRUE), ($6, $7, $8, TRUE), ($1, $2, $9, TRUE)`,
+      [ids.org, ids.store, ids.requester, ids.supervisor, ids.cashier, ids.otherOrg, ids.otherStore, ids.otherSupervisor, ids.disabledSupervisor]);
     await client.query(`INSERT INTO public.prodx_store_memberships (organization_id, store_id, user_id, active) VALUES ($1, $2, $3, FALSE)`,
       [ids.org, ids.store, ids.nonMemberSupervisor]);
     await client.query(`INSERT INTO public.prodx_user_roles (organization_id, store_id, user_id, role_id, active) VALUES ($1, $2, $3, $4, TRUE), ($1, $2, $5, $6, TRUE), ($1, $2, $7, $6, TRUE), ($8, $9, $10, $11, TRUE)`,
@@ -181,6 +182,38 @@ test('supervisor authorization works end-to-end under the real prodx_app runtime
           AND metadata->>'requesterUserId' = $2
         ORDER BY occurred_at DESC LIMIT 1`, [ids.org, ids.requester]);
     assert.deepEqual(unmappedRejection.rows[0], { user_id: null, event_type: 'SUPERVISOR_AUTH_REJECTED' });
+
+    // A disabled supervisor with a still-active store membership is returned by
+    // the backend-only credential RPC for attribution, but must never authorize.
+    const disabledDiscountRequest = {
+      organizationId: ids.org,
+      storeId: ids.store,
+      requesterUserId: ids.requester,
+      requesterSessionId: ids.session,
+      action: 'discount' as const,
+      checkoutIdempotencyKey: `disabled-supervisor-${suffix}`,
+      checkoutPayloadHash: 'a'.repeat(64),
+      policyThresholdBps: 1500,
+      policyRequiresApproval: true,
+      supervisorUsername: `sup-disabled-${suffix}`,
+      supervisorSecret: SECRET,
+    };
+    await assert.rejects(
+      asRuntimeRole(client, context, 'disabled_supervisor_rejection', () => service.authorize(disabledDiscountRequest)),
+      isAuthError('INVALID_CREDENTIALS'),
+    );
+    const disabledRejection = await client.query<{ user_id: string | null; event_type: string; requested_supervisor: string | null }>(
+      `SELECT user_id, event_type, metadata->>'requestedSupervisorUserId' AS requested_supervisor
+         FROM public.prodx_security_audit_events
+        WHERE organization_id = $1 AND event_type = 'SUPERVISOR_AUTH_REJECTED'
+          AND metadata->>'requestedSupervisorUserId' = $2
+          AND metadata->>'requesterUserId' = $3
+        ORDER BY occurred_at DESC LIMIT 1`, [ids.org, ids.disabledSupervisor, ids.requester]);
+    assert.deepEqual(disabledRejection.rows[0], {
+      user_id: null,
+      event_type: 'SUPERVISOR_AUTH_REJECTED',
+      requested_supervisor: ids.disabledSupervisor,
+    });
 
     // Wrong secret: counted atomically, audited, and persisted (not rolled back).
     for (let attempt = 1; attempt <= 4; attempt += 1) {

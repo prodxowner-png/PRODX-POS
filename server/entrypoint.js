@@ -1036,6 +1036,9 @@ var assertCheckoutRequest = (value) => {
       throw new CheckoutValidationError(`${field} is required.`);
     }
   }
+  if ([...value.idempotencyKey].length > 256) {
+    throw new CheckoutValidationError("idempotencyKey must be at most 256 characters.");
+  }
   if (!Array.isArray(value.items) || value.items.length === 0) {
     throw new CheckoutValidationError("At least one checkout item is required.");
   }
@@ -1191,9 +1194,15 @@ var createSupervisorAuthorizationService = (db, now = () => /* @__PURE__ */ new 
         await recordSecurityEvent(db, {
           organizationId: input.organizationId,
           storeId: input.storeId,
-          userId: credential?.userId ?? null,
+          userId: input.action === "discount" && credential?.status === "disabled" ? null : credential?.userId ?? null,
           eventType: "SUPERVISOR_AUTH_REJECTED",
-          metadata: { action: input.action, orderId: input.orderId, requesterUserId: input.requesterUserId, reason: "invalid_or_locked" }
+          metadata: {
+            action: input.action,
+            orderId: input.orderId,
+            requesterUserId: input.requesterUserId,
+            ...input.action === "discount" && credential?.status === "disabled" ? { requestedSupervisorUserId: credential.userId } : {},
+            reason: "invalid_or_locked"
+          }
         });
         throw new SupervisorAuthorizationError("INVALID_CREDENTIALS");
       }

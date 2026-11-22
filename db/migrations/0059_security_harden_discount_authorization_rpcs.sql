@@ -374,7 +374,7 @@ BEGIN
       END IF;
 
     WHEN 'SUPERVISOR_AUTH_REJECTED' THEN
-      v_allowed_keys := ARRAY['action', 'orderId', 'requesterUserId', 'reason'];
+      v_allowed_keys := ARRAY['action', 'orderId', 'requesterUserId', 'requestedSupervisorUserId', 'reason'];
       v_requester := (p_metadata->>'requesterUserId')::uuid;
       IF v_action IS DISTINCT FROM 'discount'
          OR v_reason IS DISTINCT FROM 'invalid_or_locked' THEN
@@ -699,6 +699,117 @@ BEGIN
   VALUES (p_id, p_organization_id, p_user_id, p_event_type, p_metadata);
 END;
 $function$;
+
+-- Return the status of a credential-bearing member to the backend so disabled
+-- targets can be rejected with an attributable target ID but a NULL audit actor.
+-- The RPC remains backend-only; no Supabase API role receives EXECUTE.
+CREATE OR REPLACE FUNCTION public.prodx_supervisor_find_credential(
+  p_organization_id uuid,
+  p_store_id uuid,
+  p_identifier text
+)
+RETURNS TABLE (
+  supervisor_user_id uuid,
+  user_status text,
+  secret_hash text,
+  failed_attempts integer,
+  locked_until timestamptz
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $function$
+#variable_conflict use_column
+DECLARE
+  v_identifier text := pg_catalog.btrim(COALESCE(p_identifier, ''));
+  v_requester_id uuid := NULLIF(pg_catalog.current_setting('app.user_id', true), '')::uuid;
+BEGIN
+  IF p_organization_id IS NULL
+     OR p_store_id IS NULL
+     OR p_organization_id IS DISTINCT FROM NULLIF(pg_catalog.current_setting('app.organization_id', true), '')::uuid
+     OR p_store_id IS DISTINCT FROM NULLIF(pg_catalog.current_setting('app.store_id', true), '')::uuid
+     OR v_requester_id IS NULL
+     OR NOT EXISTS (
+       SELECT 1
+         FROM public.prodx_users requester
+         JOIN public.prodx_store_memberships requester_membership
+           ON requester_membership.organization_id = requester.organization_id
+          AND requester_membership.user_id = requester.id
+          AND requester_membership.store_id = p_store_id
+          AND requester_membership.active = TRUE
+        WHERE requester.id = v_requester_id
+          AND requester.organization_id = p_organization_id
+          AND requester.status = 'active'
+     ) THEN
+    RAISE EXCEPTION 'supervisor credential lookup is outside the authenticated tenant context'
+      USING ERRCODE = '42501';
+  END IF;
+
+  PERFORM 1
+    FROM public.prodx_users requester
+    JOIN public.prodx_store_memberships requester_membership
+      ON requester_membership.organization_id = requester.organization_id
+     AND requester_membership.user_id = requester.id
+     AND requester_membership.store_id = p_store_id
+     AND requester_membership.active = TRUE
+   WHERE requester.id = v_requester_id
+     AND requester.organization_id = p_organization_id
+     AND requester.status = 'active'
+   FOR SHARE OF requester, requester_membership;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'supervisor credential lookup is outside the authenticated tenant context'
+      USING ERRCODE = '42501';
+  END IF;
+
+  IF v_identifier = '' OR pg_catalog.length(v_identifier) > 320 THEN
+    RETURN;
+  END IF;
+
+  RETURN QUERY
+  SELECT u.id, u.status, c.secret_hash, c.failed_attempts, c.locked_until
+    FROM public.prodx_users u
+    JOIN public.prodx_user_credentials c ON c.user_id = u.id
+    JOIN public.prodx_store_memberships target_membership
+      ON target_membership.organization_id = u.organization_id
+     AND target_membership.user_id = u.id
+     AND target_membership.store_id = p_store_id
+     AND target_membership.active = TRUE
+   WHERE u.organization_id = p_organization_id
+     AND EXISTS (
+       SELECT 1
+         FROM public.prodx_users requester
+         JOIN public.prodx_store_memberships requester_membership
+           ON requester_membership.organization_id = requester.organization_id
+          AND requester_membership.user_id = requester.id
+          AND requester_membership.store_id = p_store_id
+          AND requester_membership.active = TRUE
+        WHERE requester.id = v_requester_id
+          AND requester.organization_id = p_organization_id
+          AND requester.status = 'active'
+     )
+     AND (u.id::text = v_identifier OR pg_catalog.lower(u.username) = pg_catalog.lower(v_identifier))
+   ORDER BY (u.id::text = v_identifier) DESC
+   LIMIT 1
+   FOR SHARE OF u, target_membership;
+END;
+$function$;
+
+DO $credential_lookup_privileges$
+DECLARE
+  role_name text;
+BEGIN
+  REVOKE ALL ON FUNCTION public.prodx_supervisor_find_credential(uuid, uuid, text) FROM PUBLIC;
+  FOREACH role_name IN ARRAY ARRAY['anon', 'authenticated', 'service_role'] LOOP
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = role_name) THEN
+      EXECUTE format('REVOKE ALL ON FUNCTION public.prodx_supervisor_find_credential(uuid, uuid, text) FROM %I', role_name);
+    END IF;
+  END LOOP;
+  GRANT EXECUTE ON FUNCTION public.prodx_supervisor_find_credential(uuid, uuid, text) TO prodx_app;
+END
+$credential_lookup_privileges$;
+
+COMMENT ON FUNCTION public.prodx_supervisor_find_credential(uuid, uuid, text) IS
+  'Tenant/store-bound backend-only credential lookup; returns disabled member status for rejection auditing and never authorizes disabled users.';
 
 -- Supabase grants execute on new public-schema functions to its API roles by
 -- default. Remove those grants explicitly; only the backend runtime gets RPC access.

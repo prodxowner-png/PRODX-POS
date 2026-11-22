@@ -27,6 +27,22 @@ test('security audit writes are limited to known event contracts and trusted sto
   assert.match(migration, /discount policy audit event does not match persisted policy state/);
 });
 
+test('disabled supervisor rejection preserves target identity without accepting it as an audit actor', () => {
+  const lookupStart = migration.indexOf('CREATE OR REPLACE FUNCTION public.prodx_supervisor_find_credential(');
+  const lookupEnd = migration.indexOf('$function$;', lookupStart);
+  const lookup = lookupStart >= 0 && lookupEnd >= 0
+    ? migration.slice(lookupStart, lookupEnd + '$function$;'.length)
+    : '';
+  assert.ok(lookup, 'migration must replace the backend credential lookup RPC');
+  assert.ok(lookup.includes('target_membership.active = TRUE'));
+  assert.equal(lookup.includes("u.status = 'active'"), false);
+  assert.ok(migration.includes("'requestedSupervisorUserId'"));
+  assert.ok(migration.includes("p_user_id IS NULL AND p_event_type <> 'SUPERVISOR_AUTH_REJECTED'"));
+  assert.ok(migration.includes("actor.status = 'active'"));
+  assert.ok(migration.includes('REVOKE ALL ON FUNCTION public.prodx_supervisor_find_credential(uuid, uuid, text) FROM PUBLIC'));
+  assert.ok(migration.includes('GRANT EXECUTE ON FUNCTION public.prodx_supervisor_find_credential(uuid, uuid, text) TO prodx_app'));
+});
+
 test('new privileged functions explicitly revoke PUBLIC and Supabase API-role execution', () => {
   assert.match(migration, /ARRAY\['anon', 'authenticated', 'service_role', 'prodx_app'\]/);
   assert.match(migration, /REVOKE ALL ON FUNCTION %s FROM PUBLIC/);
