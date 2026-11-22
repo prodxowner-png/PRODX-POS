@@ -1,6 +1,5 @@
 import 'dotenv/config';
 import express from 'express';
-import { createServer as createViteServer } from 'vite';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'path';
 import { createProductionApp } from './server/entrypoint.ts';
@@ -19,6 +18,8 @@ async function startServer() {
   const app = express();
 
   if (!isProd) {
+    // Load Vite dynamically so --omit=dev production installs do not require vite at runtime.
+    const { createServer: createViteServer } = await import('vite');
     // Create Vite server in middleware mode
     const vite = await createViteServer({
       server: { middlewareMode: true, hmr: false },

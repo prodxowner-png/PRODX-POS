@@ -1,0 +1,450 @@
+{
+  "timestamp": "2026-11-18T22:34:35.244Z",
+  "totalRoutes": 15,
+  "passedRoutes": 15,
+  "failedRoutes": 0,
+  "uncaughtExceptions": 0,
+  "results": [
+    {
+      "route": "login",
+      "status": "PASS",
+      "viewports": {
+        "desktop-1440": {
+          "overflowPx": 0
+        },
+        "desktop-1280": {
+          "overflowPx": 0
+        },
+        "tablet-1024": {
+          "overflowPx": 0
+        },
+        "tablet-768": {
+          "overflowPx": 0
+        },
+        "mobile-390": {
+          "overflowPx": 0
+        },
+        "mobile-320": {
+          "overflowPx": 0
+        }
+      },
+      "contrastLight": 13.87,
+      "screenshots": [
+        "tests/browser-evidence/routes/login-desktop-1440.png",
+        "tests/browser-evidence/routes/login-tablet-768.png",
+        "tests/browser-evidence/routes/login-mobile-390.png",
+        "tests/browser-evidence/routes/login-mobile-320.png"
+      ]
+    },
+    {
+      "route": "admin-login",
+      "status": "PASS",
+      "viewports": {
+        "desktop-1440": {
+          "overflowPx": 0
+        },
+        "desktop-1280": {
+          "overflowPx": 0
+        },
+        "tablet-1024": {
+          "overflowPx": 0
+        },
+        "tablet-768": {
+          "overflowPx": 0
+        },
+        "mobile-390": {
+          "overflowPx": 0
+        },
+        "mobile-320": {
+          "overflowPx": 0
+        }
+      },
+      "contrastLight": 13.87,
+      "screenshots": [
+        "tests/browser-evidence/routes/admin-login-desktop-1440.png",
+        "tests/browser-evidence/routes/admin-login-tablet-768.png",
+        "tests/browser-evidence/routes/admin-login-mobile-390.png",
+        "tests/browser-evidence/routes/admin-login-mobile-320.png"
+      ]
+    },
+    {
+      "route": "customer-display",
+      "status": "PASS",
+      "viewports": {
+        "desktop-1440": {
+          "overflowPx": 0
+        },
+        "desktop-1280": {
+          "overflowPx": 0
+        },
+        "tablet-1024": {
+          "overflowPx": 0
+        },
+        "tablet-768": {
+          "overflowPx": 0
+        },
+        "mobile-390": {
+          "overflowPx": 0
+        },
+        "mobile-320": {
+          "overflowPx": 0
+        }
+      },
+      "contrastLight": 13.87,
+      "screenshots": [
+        "tests/browser-evidence/routes/customer-display-desktop-1440.png"
+      ]
+    },
+    {
+      "route": "receipt-validation",
+      "status": "PASS",
+      "viewports": {
+        "desktop-1440": {
+          "overflowPx": 0
+        },
+        "desktop-1280": {
+          "overflowPx": 0
+        },
+        "tablet-1024": {
+          "overflowPx": 0
+        },
+        "tablet-768": {
+          "overflowPx": 0
+        },
+        "mobile-390": {
+          "overflowPx": 0
+        },
+        "mobile-320": {
+          "overflowPx": 0
+        }
+      },
+      "contrastLight": 17.06,
+      "screenshots": [
+        "tests/browser-evidence/routes/receipt-validation-desktop-1440.png"
+      ]
+    },
+    {
+      "route": "pos",
+      "status": "PASS",
+      "viewports": {
+        "desktop-1440": {
+          "overflowPx": 0
+        },
+        "desktop-1280": {
+          "overflowPx": 0
+        },
+        "tablet-1024": {
+          "overflowPx": 0
+        },
+        "tablet-768": {
+          "overflowPx": 0
+        },
+        "mobile-390": {
+          "overflowPx": 0
+        },
+        "mobile-320": {
+          "overflowPx": 0
+        }
+      },
+      "contrastLight": 13.87,
+      "screenshots": [
+        "tests/browser-evidence/routes/pos-desktop-1440.png",
+        "tests/browser-evidence/routes/pos-tablet-768.png",
+        "tests/browser-evidence/routes/pos-mobile-390.png",
+        "tests/browser-evidence/routes/pos-mobile-320.png"
+      ]
+    },
+    {
+      "route": "dashboard",
+      "status": "PASS",
+      "viewports": {
+        "desktop-1440": {
+          "overflowPx": 0
+        },
+        "desktop-1280": {
+          "overflowPx": 0
+        },
+        "tablet-1024": {
+          "overflowPx": 0
+        },
+        "tablet-768": {
+          "overflowPx": 0
+        },
+        "mobile-390": {
+          "overflowPx": 0
+        },
+        "mobile-320": {
+          "overflowPx": 0
+        }
+      },
+      "contrastLight": 13.87,
+      "screenshots": [
+        "tests/browser-evidence/routes/dashboard-desktop-1440.png",
+        "tests/browser-evidence/routes/dashboard-tablet-768.png",
+        "tests/browser-evidence/routes/dashboard-mobile-390.png",
+        "tests/browser-evidence/routes/dashboard-mobile-320.png"
+      ]
+    },
+    {
+      "route": "orders",
+      "status": "PASS",
+      "viewports": {
+        "desktop-1440": {
+          "overflowPx": 0
+        },
+        "desktop-1280": {
+          "overflowPx": 0
+        },
+        "tablet-1024": {
+          "overflowPx": 0
+        },
+        "tablet-768": {
+          "overflowPx": 0
+        },
+        "mobile-390": {
+          "overflowPx": 0
+        },
+        "mobile-320": {
+          "overflowPx": 0
+        }
+      },
+      "contrastLight": 13.87,
+      "screenshots": [
+        "tests/browser-evidence/routes/orders-desktop-1440.png"
+      ]
+    },
+    {
+      "route": "shift",
+      "status": "PASS",
+      "viewports": {
+        "desktop-1440": {
+          "overflowPx": 0
+        },
+        "desktop-1280": {
+          "overflowPx": 0
+        },
+        "tablet-1024": {
+          "overflowPx": 0
+        },
+        "tablet-768": {
+          "overflowPx": 0
+        },
+        "mobile-390": {
+          "overflowPx": 0
+        },
+        "mobile-320": {
+          "overflowPx": 0
+        }
+      },
+      "contrastLight": 13.87,
+      "screenshots": [
+        "tests/browser-evidence/routes/shift-desktop-1440.png"
+      ]
+    },
+    {
+      "route": "inventory",
+      "status": "PASS",
+      "viewports": {
+        "desktop-1440": {
+          "overflowPx": 0
+        },
+        "desktop-1280": {
+          "overflowPx": 0
+        },
+        "tablet-1024": {
+          "overflowPx": 0
+        },
+        "tablet-768": {
+          "overflowPx": 0
+        },
+        "mobile-390": {
+          "overflowPx": 0
+        },
+        "mobile-320": {
+          "overflowPx": 0
+        }
+      },
+      "contrastLight": 13.87,
+      "screenshots": [
+        "tests/browser-evidence/routes/inventory-desktop-1440.png",
+        "tests/browser-evidence/routes/inventory-tablet-768.png",
+        "tests/browser-evidence/routes/inventory-mobile-390.png",
+        "tests/browser-evidence/routes/inventory-mobile-320.png"
+      ]
+    },
+    {
+      "route": "customers",
+      "status": "PASS",
+      "viewports": {
+        "desktop-1440": {
+          "overflowPx": 0
+        },
+        "desktop-1280": {
+          "overflowPx": 0
+        },
+        "tablet-1024": {
+          "overflowPx": 0
+        },
+        "tablet-768": {
+          "overflowPx": 0
+        },
+        "mobile-390": {
+          "overflowPx": 0
+        },
+        "mobile-320": {
+          "overflowPx": 0
+        }
+      },
+      "contrastLight": 13.87,
+      "screenshots": [
+        "tests/browser-evidence/routes/customers-desktop-1440.png"
+      ]
+    },
+    {
+      "route": "audit",
+      "status": "PASS",
+      "viewports": {
+        "desktop-1440": {
+          "overflowPx": 0
+        },
+        "desktop-1280": {
+          "overflowPx": 0
+        },
+        "tablet-1024": {
+          "overflowPx": 0
+        },
+        "tablet-768": {
+          "overflowPx": 0
+        },
+        "mobile-390": {
+          "overflowPx": 0
+        },
+        "mobile-320": {
+          "overflowPx": 0
+        }
+      },
+      "contrastLight": 13.87,
+      "screenshots": [
+        "tests/browser-evidence/routes/audit-desktop-1440.png"
+      ]
+    },
+    {
+      "route": "settings",
+      "status": "PASS",
+      "viewports": {
+        "desktop-1440": {
+          "overflowPx": 0
+        },
+        "desktop-1280": {
+          "overflowPx": 0
+        },
+        "tablet-1024": {
+          "overflowPx": 0
+        },
+        "tablet-768": {
+          "overflowPx": 0
+        },
+        "mobile-390": {
+          "overflowPx": 0
+        },
+        "mobile-320": {
+          "overflowPx": 0
+        }
+      },
+      "contrastLight": 13.87,
+      "screenshots": [
+        "tests/browser-evidence/routes/settings-desktop-1440.png",
+        "tests/browser-evidence/routes/settings-tablet-768.png",
+        "tests/browser-evidence/routes/settings-mobile-390.png",
+        "tests/browser-evidence/routes/settings-mobile-320.png"
+      ]
+    },
+    {
+      "route": "kds",
+      "status": "PASS",
+      "viewports": {
+        "desktop-1440": {
+          "overflowPx": 0
+        },
+        "desktop-1280": {
+          "overflowPx": 0
+        },
+        "tablet-1024": {
+          "overflowPx": 0
+        },
+        "tablet-768": {
+          "overflowPx": 0
+        },
+        "mobile-390": {
+          "overflowPx": 0
+        },
+        "mobile-320": {
+          "overflowPx": 0
+        }
+      },
+      "contrastLight": 13.87,
+      "screenshots": [
+        "tests/browser-evidence/routes/kds-desktop-1440.png"
+      ]
+    },
+    {
+      "route": "tasks",
+      "status": "PASS",
+      "viewports": {
+        "desktop-1440": {
+          "overflowPx": 0
+        },
+        "desktop-1280": {
+          "overflowPx": 0
+        },
+        "tablet-1024": {
+          "overflowPx": 0
+        },
+        "tablet-768": {
+          "overflowPx": 0
+        },
+        "mobile-390": {
+          "overflowPx": 0
+        },
+        "mobile-320": {
+          "overflowPx": 0
+        }
+      },
+      "contrastLight": 13.87,
+      "screenshots": [
+        "tests/browser-evidence/routes/tasks-desktop-1440.png"
+      ]
+    },
+    {
+      "route": "admin-console",
+      "status": "PASS",
+      "viewports": {
+        "desktop-1440": {
+          "overflowPx": 0
+        },
+        "desktop-1280": {
+          "overflowPx": 0
+        },
+        "tablet-1024": {
+          "overflowPx": 0
+        },
+        "tablet-768": {
+          "overflowPx": 0
+        },
+        "mobile-390": {
+          "overflowPx": 0
+        },
+        "mobile-320": {
+          "overflowPx": 0
+        }
+      },
+      "contrastLight": 13.87,
+      "screenshots": [
+        "tests/browser-evidence/routes/admin-console-desktop-1440.png",
+        "tests/browser-evidence/routes/admin-console-tablet-768.png",
+        "tests/browser-evidence/routes/admin-console-mobile-390.png",
+        "tests/browser-evidence/routes/admin-console-mobile-320.png"
+      ]
+    }
+  ]
+}

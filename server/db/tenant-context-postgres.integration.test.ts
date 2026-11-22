@@ -4,12 +4,16 @@ import test from 'node:test';
 import { Pool } from 'pg';
 import { createTransactionalPostgresExecutor } from './transaction.ts';
 import { runWithRequestContext } from '../http/request-context-storage.ts';
+import { assertDisposableTestDatabaseUrl } from './test-database-guard';
 
-const databaseUrl = process.env.DATABASE_URL;
+const configuredDatabaseUrl = process.env.DATABASE_URL?.trim();
+const databaseUrl = configuredDatabaseUrl
+  ? assertDisposableTestDatabaseUrl(configuredDatabaseUrl, 'server/db/tenant-context-postgres.integration.test.ts')
+  : null;
 const shouldRun = Boolean(databaseUrl) && process.env.NODE_ENV !== 'production';
 
 test('transaction-local tenant context is isolated and cleared on pooled connection reuse', { skip: !shouldRun }, async () => {
-  const pool = new Pool({ connectionString: databaseUrl, max: 1 });
+  const pool = new Pool({ connectionString: databaseUrl ?? undefined, max: 1 });
   const executor = createTransactionalPostgresExecutor(pool);
   const first = {
     requestId: 'tenant-context-integration-a',
@@ -78,7 +82,7 @@ test('transaction-local tenant context is isolated and cleared on pooled connect
 
 
 test('runtime role enforces fail-closed tenant/store RLS for SELECT, INSERT, UPDATE, and DELETE', { skip: !shouldRun }, async () => {
-  const pool = new Pool({ connectionString: databaseUrl, max: 2 });
+  const pool = new Pool({ connectionString: databaseUrl ?? undefined, max: 2 });
   const ids = {
     organizationA: randomUUID(),
     organizationB: randomUUID(),

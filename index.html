@@ -3,6 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -88,18 +89,28 @@
       (function() {
         try {
           var PRESETS = {
+            prodx_signature: {
+              primary: '#183d32', primaryDark: '#0f2a22', primaryLight: 'rgba(24, 61, 50, 0.08)', primaryGlow: 'rgba(24, 61, 50, 0.18)',
+              background: '#f7f1e8', card: '#fbf8f3', cardHover: '#ede4d5', text: '#20242b', textMuted: '#5a616d', border: '#d2d6dc', borderHover: '#a3a9b3',
+              buttonRadius: '12px', cardRadius: '16px', isDark: false
+            },
+            forest_luxury: {
+              primary: '#0f2a22', primaryDark: '#081713', primaryLight: 'rgba(15, 42, 34, 0.08)', primaryGlow: 'rgba(15, 42, 34, 0.18)',
+              background: '#f7f1e8', card: '#fbf8f3', cardHover: '#ede4d5', text: '#20242b', textMuted: '#5a616d', border: '#d2d6dc', borderHover: '#7e8590',
+              buttonRadius: '14px', cardRadius: '18px', isDark: false
+            },
             enterprise_obsidian: {
-              primary: '#3B82F6', primaryDark: '#1D4ED8', primaryLight: 'rgba(59, 130, 246, 0.12)', primaryGlow: 'rgba(59, 130, 246, 0.25)',
+              primary: '#2563EB', primaryDark: '#1D4ED8', primaryLight: 'rgba(37, 99, 235, 0.12)', primaryGlow: 'rgba(37, 99, 235, 0.25)',
               background: '#090D16', card: '#0F172A', cardHover: '#1E293B', text: '#F8FAFC', textMuted: '#94A3B8', border: '#1E293B', borderHover: '#334155',
               buttonRadius: '12px', cardRadius: '16px', isDark: true
             },
             nordic_slate: {
               primary: '#2563EB', primaryDark: '#1D4ED8', primaryLight: 'rgba(37, 99, 235, 0.08)', primaryGlow: 'rgba(37, 99, 235, 0.18)',
-              background: '#F8FAFC', card: '#FFFFFF', cardHover: '#F1F5F9', text: '#0F172A', textMuted: '#64748B', border: '#E2E8F0', borderHover: '#CBD5E1',
+              background: '#F8FAFC', card: '#FFFFFF', cardHover: '#F1F5F9', text: '#0F172A', textMuted: '#475569', border: '#E2E8F0', borderHover: '#CBD5E1',
               buttonRadius: '12px', cardRadius: '16px', isDark: false
             },
             royal_emerald: {
-              primary: '#059669', primaryDark: '#047857', primaryLight: 'rgba(5, 150, 105, 0.09)', primaryGlow: 'rgba(5, 150, 105, 0.22)',
+              primary: '#047857', primaryDark: '#065F46', primaryLight: 'rgba(4, 120, 87, 0.09)', primaryGlow: 'rgba(4, 120, 87, 0.22)',
               background: '#F4FBF7', card: '#FFFFFF', cardHover: '#ECFDF5', text: '#064E3B', textMuted: '#047857', border: '#D1FAE5', borderHover: '#A7F3D0',
               buttonRadius: '14px', cardRadius: '18px', isDark: false
             },
@@ -109,22 +120,62 @@
               buttonRadius: '10px', cardRadius: '14px', isDark: true
             },
             sunset_terracotta: {
-              primary: '#EA580C', primaryDark: '#C2410C', primaryLight: 'rgba(234, 88, 12, 0.09)', primaryGlow: 'rgba(234, 88, 12, 0.2)',
+              primary: '#C2410C', primaryDark: '#9A3412', primaryLight: 'rgba(194, 65, 12, 0.09)', primaryGlow: 'rgba(194, 65, 12, 0.2)',
               background: '#FFFBF7', card: '#FFFFFF', cardHover: '#FFF7ED', text: '#431407', textMuted: '#9A3412', border: '#FFEDD5', borderHover: '#FED7AA',
               buttonRadius: '16px', cardRadius: '20px', isDark: false
             },
             midnight_indigo: {
-              primary: '#6366F1', primaryDark: '#4F46E5', primaryLight: 'rgba(99, 102, 241, 0.13)', primaryGlow: 'rgba(99, 102, 241, 0.28)',
+              primary: '#4F46E5', primaryDark: '#4338CA', primaryLight: 'rgba(79, 70, 229, 0.13)', primaryGlow: 'rgba(79, 70, 229, 0.28)',
               background: '#0A0A14', card: '#13132B', cardHover: '#1E1E3F', text: '#F8FAFC', textMuted: '#A5B4FC', border: '#23234A', borderHover: '#3B3B6D',
               buttonRadius: '12px', cardRadius: '16px', isDark: true
+            },
+            rose_luxury: {
+              primary: '#be185d', primaryDark: '#9d174d', primaryLight: 'rgba(190, 24, 93, 0.08)', primaryGlow: 'rgba(190, 24, 93, 0.18)',
+              background: '#fff1f2', card: '#ffffff', cardHover: '#ffe4e6', text: '#4c0519', textMuted: '#9f1239', border: '#fecdd3', borderHover: '#fda4af',
+              buttonRadius: '14px', cardRadius: '18px', isDark: false
+            },
+            classic_light: {
+              primary: '#27272a', primaryDark: '#18181b', primaryLight: 'rgba(39, 39, 42, 0.08)', primaryGlow: 'rgba(39, 39, 42, 0.16)',
+              background: '#f4f4f5', card: '#ffffff', cardHover: '#e4e4e7', text: '#18181b', textMuted: '#52525b', border: '#e4e4e7', borderHover: '#d4d4d8',
+              buttonRadius: '10px', cardRadius: '14px', isDark: false
             }
           };
 
-          var savedPresetId = localStorage.getItem('prodx_pos_theme_preset') || 'enterprise_obsidian';
-          var preset = PRESETS[savedPresetId] || PRESETS.enterprise_obsidian;
-          var savedMode = localStorage.getItem('prodx_pos_theme_mode');
+          var LEGACY_ALIAS = {
+            enterprise_blue: 'nordic_slate',
+            modern: 'nordic_slate',
+            minimal: 'nordic_slate',
+            ocean: 'nordic_slate',
+            deep_obsidian: 'enterprise_obsidian',
+            dark_elegant: 'enterprise_obsidian',
+            emerald: 'royal_emerald',
+            cyberpunk: 'cyberpunk_neon',
+            sunset: 'sunset_terracotta',
+            lavender: 'midnight_indigo'
+          };
+
+          var persistedConfig = null;
+          try {
+            var rawConfig = localStorage.getItem('prodx_enterprise_config_v1');
+            if (rawConfig) persistedConfig = JSON.parse(rawConfig);
+          } catch (e) {}
+
+          var rawPresetId =
+            (persistedConfig && persistedConfig.theme && persistedConfig.theme.presetId) ||
+            localStorage.getItem('prodx_pos_theme_preset') ||
+            'prodx_signature';
+          var resolvedPresetId = Object.prototype.hasOwnProperty.call(PRESETS, rawPresetId)
+            ? rawPresetId
+            : (Object.prototype.hasOwnProperty.call(LEGACY_ALIAS, rawPresetId) ? LEGACY_ALIAS[rawPresetId] : 'prodx_signature');
+          var preset = Object.prototype.hasOwnProperty.call(PRESETS, resolvedPresetId)
+            ? PRESETS[resolvedPresetId]
+            : PRESETS.prodx_signature;
+
+          var savedMode =
+            (persistedConfig && persistedConfig.theme && persistedConfig.theme.mode) ||
+            localStorage.getItem('prodx_pos_theme_mode');
           var systemDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-          
+
           var isDark = false;
           if (savedMode === 'dark') {
             isDark = true;
@@ -136,7 +187,9 @@
             isDark = preset.isDark;
           }
 
-          var customAccent = localStorage.getItem('prodx_custom_accent_color');
+          var customAccent =
+            (persistedConfig && persistedConfig.branding && persistedConfig.branding.customAccentColor) ||
+            localStorage.getItem('prodx_custom_accent_color');
           var root = document.documentElement;
 
           var bgColor = preset.background;
@@ -162,17 +215,14 @@
               borderHoverColor = preset.borderHover;
               primaryColor = customAccent || preset.primary;
             } else {
-              bgColor = '#090D16';
-              cardColor = '#0F172A';
-              cardHoverColor = '#1E293B';
-              textColor = '#F8FAFC';
-              textMutedColor = '#94A3B8';
-              borderColor = '#1E293B';
-              borderHoverColor = '#334155';
+              bgColor = '#12171a';
+              cardColor = '#1b2227';
+              cardHoverColor = '#243038';
+              textColor = '#f2ede4';
+              textMutedColor = '#b5bbc4';
+              borderColor = '#3c4a54';
+              borderHoverColor = '#6f7e8a';
               primaryColor = customAccent || preset.primary;
-              primaryDarkColor = '#1D4ED8';
-              primaryLightColor = 'rgba(59, 130, 246, 0.12)';
-              primaryGlow = 'rgba(59, 130, 246, 0.25)';
             }
           } else {
             if (!preset.isDark) {
@@ -189,13 +239,10 @@
               cardColor = '#FFFFFF';
               cardHoverColor = '#F1F5F9';
               textColor = '#0F172A';
-              textMutedColor = '#64748B';
+              textMutedColor = '#475569';
               borderColor = '#E2E8F0';
-              borderHoverColor = '#CBD5E1';
+              borderHoverColor = '#94A3B8';
               primaryColor = customAccent || preset.primary;
-              primaryDarkColor = '#1D4ED8';
-              primaryLightColor = 'rgba(37, 99, 235, 0.08)';
-              primaryGlow = 'rgba(37, 99, 235, 0.18)';
             }
           }
 

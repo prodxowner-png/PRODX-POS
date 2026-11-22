@@ -1,5 +1,8 @@
-export const isMockDisabled = (): boolean => 
+export const isMockDisabled = (): boolean =>
   typeof localStorage !== 'undefined' && localStorage.getItem('prodx_disable_mocks') === 'true';
+
+const isViteDevelopmentBuild = (): boolean =>
+  typeof import.meta.env !== 'undefined' && import.meta.env.DEV === true;
 
 export const hasProductionApiRoute = (flags: {
   isDev: boolean;
@@ -8,7 +11,7 @@ export const hasProductionApiRoute = (flags: {
 }): boolean => flags.mocksDisabled || (!flags.isDev && !flags.isPreview);
 
 export const hasProductionUrl = (): boolean => hasProductionApiRoute({
-  isDev: import.meta.env.DEV,
+  isDev: isViteDevelopmentBuild(),
   isPreview: isAiStudioPreview(),
   mocksDisabled: isMockDisabled(),
 });
@@ -28,7 +31,7 @@ export const shouldUseDevelopmentMocks = (flags: {
 }): boolean => !flags.mocksDisabled && (flags.isDev || flags.isPreview);
 
 export const isDevelopmentMode = (): boolean => shouldUseDevelopmentMocks({
-  isDev: import.meta.env.DEV,
+  isDev: isViteDevelopmentBuild(),
   isPreview: isAiStudioPreview(),
   mocksDisabled: isMockDisabled(),
 });

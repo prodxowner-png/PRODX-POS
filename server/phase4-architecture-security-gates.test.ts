@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
-import { createPostgresPool, resolveConfiguredDatabaseUrl } from './db/postgres';
+import { createPostgresPool } from './db/postgres';
+import { assertDisposableTestDatabaseUrl } from './db/test-database-guard';
 
 const workspaceRoot = process.cwd();
 
@@ -77,7 +78,10 @@ test('Security Gate 3: Refund and Returns UI modules contain zero hardcoded supe
 });
 
 test('Database & Security Gate 4: PostgreSQL append-only audit trigger, RLS, and least-privilege prodx_app role are enforced', async (t) => {
-  const databaseUrl = resolveConfiguredDatabaseUrl(process.env.DATABASE_URL);
+  const configuredDatabaseUrl = process.env.DATABASE_URL?.trim();
+  const databaseUrl = configuredDatabaseUrl
+    ? assertDisposableTestDatabaseUrl(configuredDatabaseUrl, 'server/phase4-architecture-security-gates.test.ts')
+    : null;
   if (!databaseUrl) {
     t.skip('DATABASE_URL not configured');
     return;

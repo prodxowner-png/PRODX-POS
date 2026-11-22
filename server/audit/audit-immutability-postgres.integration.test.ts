@@ -1,9 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { randomUUID } from 'node:crypto';
-import { createPostgresPool, resolveConfiguredDatabaseUrl } from '../db/postgres';
+import { createPostgresPool } from '../db/postgres';
+import { assertDisposableTestDatabaseUrl } from '../db/test-database-guard';
 
-const url = resolveConfiguredDatabaseUrl(process.env.DATABASE_URL);
+const configuredUrl = process.env.DATABASE_URL?.trim();
+const url = configuredUrl
+  ? assertDisposableTestDatabaseUrl(configuredUrl, 'server/audit/audit-immutability-postgres.integration.test.ts')
+  : null;
 const pool = url ? createPostgresPool({ connectionString: url, max: 4 }) : null;
 
 // Retain the audit row permanently; unique fixture IDs make cleanup unnecessary.
