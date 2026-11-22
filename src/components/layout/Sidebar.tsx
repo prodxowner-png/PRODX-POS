@@ -185,7 +185,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   onOpenAdminConsole();
                   if (onCloseMobile) onCloseMobile();
                 }}
-                className="w-full px-3 py-2 rounded-xl border border-primary/35 bg-primary/10 hover:bg-primary/15 text-primary flex items-center justify-between gap-2 text-xs font-bold transition-all cursor-pointer active:scale-95"
+                className="w-full px-3 py-2 rounded-xl border border-primary/35 dark:border-brand-border-strong bg-primary/10 dark:bg-brand-surface-selected hover:bg-primary/15 dark:hover:bg-brand-surface-raised text-primary dark:text-brand-text flex items-center justify-between gap-2 text-xs font-bold transition-all cursor-pointer active:scale-95"
               >
                 <span className="flex items-center gap-2 truncate">
                   <Building2 className="w-4 h-4 shrink-0" />
@@ -210,10 +210,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <button
                   key={item.id}
                   type="button"
+                  aria-current={isActive ? 'page' : undefined}
                   onClick={() => handleNav(item.id)}
-                  className={`w-full flex items-center justify-between px-3 py-2.5 min-h-[48px] rounded-xl text-sm transition-all duration-150 cursor-pointer active:scale-95 ${
+                  className={`w-full flex items-center justify-between px-3 py-2.5 min-h-[48px] rounded-xl text-sm transition-all duration-150 cursor-pointer active:scale-95 focus-visible:ring-2 focus-visible:outline-none ${
                     isActive
-                      ? 'bg-primary/10 border border-primary/40 text-primary font-black shadow-xs'
+                      ? 'bg-primary/10 dark:bg-brand-surface-selected border border-primary/40 dark:border-brand-border-strong text-primary dark:text-brand-text font-black shadow-xs'
                       : 'border border-transparent text-text/70 hover:text-text hover:bg-background/80 font-semibold'
                   }`}
                 >
@@ -228,7 +229,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <span className="font-bold text-xs truncate whitespace-nowrap text-left flex items-center gap-1.5">
                       {item.label}
                       {isRestricted && (
-                        <Lock className={`w-3 h-3 ${isActive ? 'text-primary' : 'text-amber-500/80'} shrink-0`} />
+                        <Lock className={`w-3 h-3 ${isActive ? 'text-primary dark:text-brand-text' : 'text-amber-500/80'} shrink-0`} />
                       )}
                     </span>
                   </div>
@@ -236,7 +237,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <kbd
                       className={`text-[10px] font-mono px-1.5 py-0.5 rounded shrink-0 ml-2 ${
                         isActive
-                          ? 'bg-primary/20 text-primary font-bold border border-primary/30'
+                          ? 'bg-primary/20 dark:bg-brand-surface text-primary dark:text-brand-text font-bold border border-primary/30 dark:border-brand-border-strong'
                           : 'bg-background border border-border text-text/40'
                       }`}
                     >

@@ -216,7 +216,7 @@ const MainApplication: React.FC = () => {
     if (isAdminLoginRoute && (!session || session.currentUser.role !== 'admin')) {
       return (
         <ErrorBoundary moduleName="Administrator Login">
-          <React.Suspense fallback={<div className="min-h-screen bg-slate-950 flex items-center justify-center"><Loader2 className="animate-spin text-primary h-8 w-8" /></div>}>
+          <React.Suspense fallback={<div className="min-h-screen bg-brand-bg flex items-center justify-center"><Loader2 className="animate-spin text-primary h-8 w-8" /></div>}>
             <AdminLoginScreen
               onBackToPos={exitAdminMode}
               onLoginSuccess={() => {
@@ -288,7 +288,7 @@ const MainApplication: React.FC = () => {
       >
         {currentRoute === 'pos' && (
           <ErrorBoundary moduleName="POS Cash Register & Checkout">
-            <React.Suspense fallback={<div className="flex-1 flex items-center justify-center bg-slate-950/50"><Loader2 className="animate-spin text-primary h-10 w-10" /></div>}>
+            <React.Suspense fallback={<div className="flex-1 flex items-center justify-center bg-brand-bg/50"><Loader2 className="animate-spin text-primary h-10 w-10" /></div>}>
               <PosScreen />
             </React.Suspense>
           </ErrorBoundary>
@@ -476,53 +476,53 @@ export default function App() {
 
   if (isKdsMode) {
     return (
-      <GlobalErrorRecoveryProvider>
-        <ErrorBoundary isGlobal moduleName="PRODX Kitchen Display System (KDS)">
+      <ErrorBoundary isGlobal moduleName="PRODX Kitchen Display System (KDS)">
+        <GlobalErrorRecoveryProvider>
           <AuthProvider>
             <ThemeProvider>
               <LanguageProvider>
-                <React.Suspense fallback={<div className="min-h-screen bg-slate-950 flex items-center justify-center"><Loader2 className="animate-spin text-primary h-12 w-12" /></div>}>
+                <React.Suspense fallback={<div className="min-h-screen bg-brand-bg flex items-center justify-center"><Loader2 className="animate-spin text-primary h-12 w-12" /></div>}>
                   <KitchenDisplayScreen />
                 </React.Suspense>
               </LanguageProvider>
             </ThemeProvider>
           </AuthProvider>
-        </ErrorBoundary>
-      </GlobalErrorRecoveryProvider>
+        </GlobalErrorRecoveryProvider>
+      </ErrorBoundary>
     );
   }
 
   if (isReceiptValidationMode) {
     return (
-      <GlobalErrorRecoveryProvider>
-        <ErrorBoundary isGlobal moduleName="PRODX Receipt Validation Portal">
+      <ErrorBoundary isGlobal moduleName="PRODX Receipt Validation Portal">
+        <GlobalErrorRecoveryProvider>
           <ThemeProvider>
             <LanguageProvider>
               <ReceiptValidationPortal />
             </LanguageProvider>
           </ThemeProvider>
-        </ErrorBoundary>
-      </GlobalErrorRecoveryProvider>
+        </GlobalErrorRecoveryProvider>
+      </ErrorBoundary>
     );
   }
 
   if (isCustomerDisplayMode) {
     return (
-      <GlobalErrorRecoveryProvider>
-        <ErrorBoundary isGlobal moduleName="PRODX Customer-Facing Display">
+      <ErrorBoundary isGlobal moduleName="PRODX Customer-Facing Display">
+        <GlobalErrorRecoveryProvider>
           <ThemeProvider>
             <LanguageProvider>
               <CustomerDisplayView />
             </LanguageProvider>
           </ThemeProvider>
-        </ErrorBoundary>
-      </GlobalErrorRecoveryProvider>
+        </GlobalErrorRecoveryProvider>
+      </ErrorBoundary>
     );
   }
 
   return (
-    <GlobalErrorRecoveryProvider>
-      <ErrorBoundary isGlobal moduleName="PRODX POS Core Engine">
+    <ErrorBoundary isGlobal moduleName="PRODX POS Core Engine">
+      <GlobalErrorRecoveryProvider>
         <SettingsProvider>
           <ThemeProvider>
             <LanguageProvider>
@@ -552,8 +552,8 @@ export default function App() {
             </LanguageProvider>
           </ThemeProvider>
         </SettingsProvider>
-      </ErrorBoundary>
-    </GlobalErrorRecoveryProvider>
+      </GlobalErrorRecoveryProvider>
+    </ErrorBoundary>
   );
 }
 

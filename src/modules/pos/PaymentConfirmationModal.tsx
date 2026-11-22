@@ -665,10 +665,10 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
             handleConfirmPayment();
           }}
           disabled={isConfirmDisabled}
-          className={`min-h-[48px] h-12 w-full px-4 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-between gap-3 transition-all theme-btn-radius active-scale shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40 ${
+          className={`min-h-[48px] h-12 w-full px-4 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-between gap-3 transition-all theme-btn-radius active-scale shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta/40 ${
             isConfirmDisabled
               ? 'bg-border/60 text-text/40 border border-border/50 cursor-not-allowed opacity-60'
-              : 'bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white cursor-pointer ring-2 ring-emerald-600/30 hover:shadow-emerald-600/25 shadow-md'
+              : 'bg-cta hover:bg-cta-hover active:bg-cta-pressed text-cta-text cursor-pointer ring-2 ring-cta/30 hover:shadow-cta/25 shadow-md'
           }`}
         >
           <div className="flex items-center gap-2 truncate">
