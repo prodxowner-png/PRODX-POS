@@ -1859,7 +1859,12 @@ var createApp = (options) => {
     }
   }
   app.use(attachRequestId);
-  app.use(express.json({ limit: "1mb" }));
+  app.use(express.json({
+    limit: "1mb",
+    verify: (request, _response, buffer) => {
+      request.rawBody = Buffer.from(buffer);
+    }
+  }));
   app.locals.prodxAuthorize = options.authorizeRequest;
   options.configurePublicRoutes?.(app);
   app.get("/api/v1/healthz", (_request, response) => {
@@ -4242,6 +4247,459 @@ var registerPaymentLifecycleRoute = (app, _db, permission = "payment.capture") =
   });
 };
 
+// server/payments/provider.ts
+var PAYMENT_STATUSES = [
+  "pending",
+  "authorized",
+  "captured",
+  "settled",
+  "failed",
+  "cancelled",
+  "unknown",
+  "voided"
+];
+var PAYMENT_STATUS_SET = new Set(PAYMENT_STATUSES);
+var VALID_PAYMENT_STATUS_TRANSITIONS = {
+  pending: /* @__PURE__ */ new Set(["pending", "authorized", "captured", "failed", "cancelled", "unknown"]),
+  authorized: /* @__PURE__ */ new Set(["authorized", "captured", "failed", "cancelled", "unknown", "voided"]),
+  captured: /* @__PURE__ */ new Set(["captured", "settled", "voided"]),
+  settled: /* @__PURE__ */ new Set(["settled"]),
+  failed: /* @__PURE__ */ new Set(["failed"]),
+  cancelled: /* @__PURE__ */ new Set(["cancelled"]),
+  unknown: /* @__PURE__ */ new Set(["unknown", "authorized", "captured", "failed", "cancelled"]),
+  voided: /* @__PURE__ */ new Set(["voided"])
+};
+var isValidPaymentStatus = (value) => typeof value === "string" && PAYMENT_STATUS_SET.has(value);
+var isValidPaymentTransition = (from, to) => VALID_PAYMENT_STATUS_TRANSITIONS[from].has(to);
+
+// server/payments/stripe-webhook.ts
+import crypto17 from "node:crypto";
+var DEFAULT_STRIPE_WEBHOOK_TOLERANCE_SECONDS = 300;
+var StripeWebhookVerificationError = class extends Error {
+  constructor(code, message) {
+    super(message);
+    this.name = "StripeWebhookVerificationError";
+    this.code = code;
+    this.httpStatus = code === "WEBHOOK_SIGNATURE_EXPIRED" || code === "WEBHOOK_SIGNATURE_INVALID" ? 401 : 400;
+  }
+};
+var parseStripeSignatureHeader = (header) => {
+  if (!header || header.trim().length === 0) {
+    throw new StripeWebhookVerificationError("WEBHOOK_SIGNATURE_MISSING", "Missing Stripe-Signature header.");
+  }
+  let timestampRaw = null;
+  const v1Signatures = [];
+  for (const rawPart of header.split(",")) {
+    const part = rawPart.trim();
+    if (!part) continue;
+    const eqIndex = part.indexOf("=");
+    if (eqIndex <= 0) {
+      throw new StripeWebhookVerificationError("WEBHOOK_SIGNATURE_MALFORMED", "Malformed Stripe-Signature header.");
+    }
+    const key = part.slice(0, eqIndex).trim();
+    const value = part.slice(eqIndex + 1).trim();
+    if (key === "t") {
+      if (timestampRaw !== null || !/^\d+$/.test(value)) {
+        throw new StripeWebhookVerificationError("WEBHOOK_SIGNATURE_MALFORMED", "Invalid timestamp in Stripe-Signature header.");
+      }
+      timestampRaw = value;
+    } else if (key === "v1") {
+      if (!/^[0-9a-f]{64}$/i.test(value)) {
+        throw new StripeWebhookVerificationError("WEBHOOK_SIGNATURE_MALFORMED", "Invalid v1 signature format in Stripe-Signature header.");
+      }
+      v1Signatures.push(value.toLowerCase());
+    }
+  }
+  if (timestampRaw === null || v1Signatures.length === 0) {
+    throw new StripeWebhookVerificationError("WEBHOOK_SIGNATURE_MALFORMED", "Stripe-Signature header must include t and v1 values.");
+  }
+  const timestamp = Number.parseInt(timestampRaw, 10);
+  if (!Number.isSafeInteger(timestamp) || timestamp <= 0) {
+    throw new StripeWebhookVerificationError("WEBHOOK_SIGNATURE_MALFORMED", "Invalid timestamp in Stripe-Signature header.");
+  }
+  return { timestamp, v1Signatures };
+};
+var computeStripeHmac = (timestamp, rawBody, secret) => {
+  const hmac = crypto17.createHmac("sha256", secret);
+  hmac.update(`${timestamp}.`, "utf8");
+  hmac.update(rawBody);
+  return hmac.digest();
+};
+var nonEmptyString = (value) => typeof value === "string" && value.trim().length > 0 ? value.trim() : void 0;
+var UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+var optionalUuid = (value) => {
+  const str = nonEmptyString(value);
+  return str && UUID_REGEX.test(str) ? str : void 0;
+};
+var EVENT_TRANSITION_MAP = {
+  "payment_intent.succeeded": "captured",
+  "payment_intent.payment_failed": "failed",
+  "payment_intent.canceled": "cancelled"
+};
+var verifyStripeWebhook = (input) => {
+  const { rawBody, signatureHeader, secret } = input;
+  if (!Buffer.isBuffer(rawBody) || rawBody.length === 0) {
+    throw new StripeWebhookVerificationError("WEBHOOK_PAYLOAD_INVALID", "Raw webhook payload buffer is required.");
+  }
+  if (!secret || secret.trim().length === 0) {
+    throw new StripeWebhookVerificationError("WEBHOOK_SIGNATURE_INVALID", "Webhook secret is not configured.");
+  }
+  const parsed = parseStripeSignatureHeader(signatureHeader);
+  const toleranceSeconds = input.toleranceSeconds ?? DEFAULT_STRIPE_WEBHOOK_TOLERANCE_SECONDS;
+  const nowSeconds = input.nowSeconds ?? Math.floor(Date.now() / 1e3);
+  if (Math.abs(nowSeconds - parsed.timestamp) > toleranceSeconds) {
+    throw new StripeWebhookVerificationError(
+      "WEBHOOK_SIGNATURE_EXPIRED",
+      "Stripe-Signature timestamp is outside the allowed replay tolerance window."
+    );
+  }
+  const expectedDigest = computeStripeHmac(parsed.timestamp, rawBody, secret);
+  const signatureMatched = parsed.v1Signatures.some((candidateHex) => {
+    const candidateDigest = Buffer.from(candidateHex, "hex");
+    return candidateDigest.length === expectedDigest.length && crypto17.timingSafeEqual(expectedDigest, candidateDigest);
+  });
+  if (!signatureMatched) {
+    throw new StripeWebhookVerificationError("WEBHOOK_SIGNATURE_INVALID", "Stripe-Signature verification failed.");
+  }
+  const payloadSha256 = crypto17.createHash("sha256").update(rawBody).digest("hex");
+  let payload;
+  try {
+    payload = JSON.parse(rawBody.toString("utf8"));
+  } catch {
+    throw new StripeWebhookVerificationError("WEBHOOK_PAYLOAD_INVALID", "Webhook body must be valid JSON.");
+  }
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new StripeWebhookVerificationError("WEBHOOK_PAYLOAD_INVALID", "Webhook payload must be a JSON object.");
+  }
+  const eventObj = payload;
+  const eventId = nonEmptyString(eventObj.id);
+  const eventType = nonEmptyString(eventObj.type);
+  const data = eventObj.data && typeof eventObj.data === "object" && !Array.isArray(eventObj.data) ? eventObj.data : null;
+  const dataObject = data?.object && typeof data.object === "object" && !Array.isArray(data.object) ? data.object : null;
+  if (!eventId || !eventType || !dataObject) {
+    throw new StripeWebhookVerificationError("WEBHOOK_PAYLOAD_INVALID", "Stripe event payload is missing id, type, or data.object.");
+  }
+  const transitionTarget = EVENT_TRANSITION_MAP[eventType];
+  let paymentStatusTransition = null;
+  if (transitionTarget) {
+    const providerReference = nonEmptyString(dataObject.id);
+    if (!providerReference) {
+      throw new StripeWebhookVerificationError("WEBHOOK_PAYLOAD_INVALID", "Stripe payment_intent object is missing id.");
+    }
+    const metadata = dataObject.metadata && typeof dataObject.metadata === "object" && !Array.isArray(dataObject.metadata) ? dataObject.metadata : {};
+    const lastPaymentError = dataObject.last_payment_error && typeof dataObject.last_payment_error === "object" && !Array.isArray(dataObject.last_payment_error) ? dataObject.last_payment_error : null;
+    const failureCode = transitionTarget === "failed" ? nonEmptyString(lastPaymentError?.code) ?? nonEmptyString(lastPaymentError?.decline_code) : void 0;
+    const failureReason = transitionTarget === "failed" ? nonEmptyString(lastPaymentError?.message) : transitionTarget === "cancelled" ? nonEmptyString(dataObject.cancellation_reason) : void 0;
+    paymentStatusTransition = {
+      to: transitionTarget,
+      providerReference,
+      paymentId: optionalUuid(metadata.paymentId ?? metadata.payment_id),
+      orderId: optionalUuid(metadata.orderId ?? metadata.order_id),
+      storeId: optionalUuid(metadata.storeId ?? metadata.store_id),
+      organizationId: optionalUuid(metadata.organizationId ?? metadata.organization_id),
+      failureCode,
+      failureReason
+    };
+  }
+  return {
+    provider: "stripe",
+    eventId,
+    eventType,
+    createdAtUnix: parsed.timestamp,
+    payloadSha256,
+    paymentStatusTransition
+  };
+};
+var stripePaymentProvider = {
+  name: "stripe",
+  verifyWebhook: verifyStripeWebhook
+};
+
+// server/http/payment-webhook-route.ts
+var registerPaymentWebhookRoute = (app, db, options = {}) => {
+  app.post("/api/v1/webhooks/stripe", async (request, response, next) => {
+    try {
+      const secret = (options.webhookSecret ?? process.env.STRIPE_WEBHOOK_SECRET ?? "").trim();
+      if (!secret) {
+        response.status(503).json({
+          error: {
+            code: "PAYMENT_WEBHOOK_NOT_CONFIGURED",
+            message: "Stripe payment webhook verification is not configured.",
+            requestId: request.id
+          }
+        });
+        return;
+      }
+      const rawBody = request.rawBody;
+      if (!Buffer.isBuffer(rawBody) || rawBody.length === 0) {
+        response.status(400).json({
+          error: {
+            code: "WEBHOOK_PAYLOAD_INVALID",
+            message: "Raw request body is required for Stripe webhook verification.",
+            requestId: request.id
+          }
+        });
+        return;
+      }
+      let verifiedEvent;
+      try {
+        verifiedEvent = stripePaymentProvider.verifyWebhook({
+          rawBody,
+          signatureHeader: request.header("stripe-signature"),
+          secret,
+          nowSeconds: options.nowSeconds ? options.nowSeconds() : void 0,
+          toleranceSeconds: options.toleranceSeconds ?? DEFAULT_STRIPE_WEBHOOK_TOLERANCE_SECONDS
+        });
+      } catch (error4) {
+        if (error4 instanceof StripeWebhookVerificationError) {
+          response.status(error4.httpStatus).json({
+            error: {
+              code: error4.code,
+              message: error4.message,
+              requestId: request.id
+            }
+          });
+          return;
+        }
+        throw error4;
+      }
+      const outcome = await db.transaction(async (tx) => {
+        const recorded = (await tx.query(
+          `SELECT event_row_id, inserted
+           FROM public.prodx_payment_webhook_record_event($1, $2, $3, $4, $5)`,
+          [
+            verifiedEvent.provider,
+            verifiedEvent.eventId,
+            verifiedEvent.eventType,
+            verifiedEvent.payloadSha256,
+            verifiedEvent.paymentStatusTransition?.providerReference ?? null
+          ]
+        )).rows[0];
+        if (!recorded) {
+          throw new Error("Failed to record verified Stripe webhook event.");
+        }
+        if (!recorded.inserted) {
+          return {
+            status: 200,
+            body: {
+              received: true,
+              duplicate: true,
+              eventId: verifiedEvent.eventId
+            }
+          };
+        }
+        const transition = verifiedEvent.paymentStatusTransition;
+        if (!transition) {
+          await tx.query(
+            `SELECT public.prodx_payment_webhook_update_status($1, 'ignored', NULL, NULL, NULL, $2)`,
+            [recorded.event_row_id, "unsupported_event_type"]
+          );
+          return {
+            status: 200,
+            body: {
+              received: true,
+              duplicate: false,
+              ignored: true,
+              eventId: verifiedEvent.eventId
+            }
+          };
+        }
+        const target = (await tx.query(
+          `SELECT organization_id, store_id, order_id, payment_id, status, provider, provider_reference
+           FROM public.prodx_payment_webhook_resolve_target($1, $2, $3)`,
+          [verifiedEvent.provider, transition.providerReference, transition.paymentId ?? null]
+        )).rows[0];
+        if (!target) {
+          await tx.query(
+            `SELECT public.prodx_payment_webhook_update_status($1, 'ignored', NULL, NULL, NULL, $2)`,
+            [recorded.event_row_id, "payment_not_found"]
+          );
+          return {
+            status: 200,
+            body: {
+              received: true,
+              duplicate: false,
+              ignored: true,
+              reason: "payment_not_found",
+              eventId: verifiedEvent.eventId
+            }
+          };
+        }
+        if (transition.organizationId && transition.organizationId !== target.organization_id || transition.storeId && transition.storeId !== target.store_id || transition.orderId && transition.orderId !== target.order_id || transition.paymentId && transition.paymentId !== target.payment_id) {
+          await tx.query(
+            `SELECT public.prodx_payment_webhook_update_status($1, 'rejected', $2, $3, $4, $5)`,
+            [
+              recorded.event_row_id,
+              target.organization_id,
+              target.store_id,
+              target.payment_id,
+              "tenant_scope_mismatch"
+            ]
+          );
+          return {
+            status: 409,
+            body: {
+              error: {
+                code: "PAYMENT_WEBHOOK_TENANT_MISMATCH",
+                message: "Webhook metadata does not match the payment tenant scope.",
+                requestId: request.id
+              }
+            }
+          };
+        }
+        await tx.query(
+          `SELECT set_config('app.organization_id', $1, true),
+                set_config('app.store_id', $2, true)`,
+          [target.organization_id, target.store_id]
+        );
+        const lockedPayment = (await tx.query(
+          `SELECT id, order_id, status, provider, provider_reference
+           FROM public.prodx_payments
+          WHERE id = $1 AND store_id = $2 AND organization_id = $3
+          FOR UPDATE`,
+          [target.payment_id, target.store_id, target.organization_id]
+        )).rows[0];
+        if (!lockedPayment || !isValidPaymentStatus(lockedPayment.status)) {
+          await tx.query(
+            `SELECT public.prodx_payment_webhook_update_status($1, 'rejected', $2, $3, $4, $5)`,
+            [
+              recorded.event_row_id,
+              target.organization_id,
+              target.store_id,
+              target.payment_id,
+              "payment_unavailable_under_tenant_rls"
+            ]
+          );
+          return {
+            status: 409,
+            body: {
+              error: {
+                code: "PAYMENT_LIFECYCLE_CONFLICT",
+                message: "Payment could not be locked within tenant scope.",
+                requestId: request.id
+              }
+            }
+          };
+        }
+        const currentStatus = lockedPayment.status;
+        if (!isValidPaymentTransition(currentStatus, transition.to)) {
+          const reason = `Invalid payment transition ${currentStatus} -> ${transition.to}.`;
+          await tx.query(
+            `SELECT public.prodx_payment_webhook_update_status($1, 'rejected', $2, $3, $4, $5)`,
+            [
+              recorded.event_row_id,
+              target.organization_id,
+              target.store_id,
+              target.payment_id,
+              reason
+            ]
+          );
+          return {
+            status: 409,
+            body: {
+              error: {
+                code: "PAYMENT_LIFECYCLE_CONFLICT",
+                message: reason,
+                requestId: request.id
+              }
+            }
+          };
+        }
+        const attemptIdempotencyKey = `webhook:${verifiedEvent.provider}:${verifiedEvent.eventId}`;
+        await tx.query(
+          `UPDATE public.prodx_payments
+            SET status = $1,
+                provider = $2,
+                provider_reference = COALESCE($3, provider_reference),
+                captured_at = CASE WHEN $1 = 'captured' THEN COALESCE(captured_at, CURRENT_TIMESTAMP) ELSE captured_at END,
+                failure_code = $4,
+                failure_reason = $5
+          WHERE id = $6 AND store_id = $7 AND organization_id = $8`,
+          [
+            transition.to,
+            verifiedEvent.provider,
+            transition.providerReference,
+            transition.failureCode ?? null,
+            transition.failureReason ?? null,
+            target.payment_id,
+            target.store_id,
+            target.organization_id
+          ]
+        );
+        await tx.query(
+          `INSERT INTO public.prodx_payment_attempts (
+           id, organization_id, store_id, order_id, payment_id,
+           idempotency_key, provider, method, status, amount, currency,
+           provider_reference, failure_code, failure_reason
+         )
+         SELECT gen_random_uuid(), p.organization_id, p.store_id, p.order_id, p.id,
+                $1, $2, p.method, $3, p.amount, p.currency,
+                $4, $5, $6
+           FROM public.prodx_payments p
+          WHERE p.id = $7 AND p.store_id = $8 AND p.organization_id = $9
+         ON CONFLICT (store_id, idempotency_key) DO NOTHING`,
+          [
+            attemptIdempotencyKey,
+            verifiedEvent.provider,
+            transition.to,
+            transition.providerReference,
+            transition.failureCode ?? null,
+            transition.failureReason ?? null,
+            target.payment_id,
+            target.store_id,
+            target.organization_id
+          ]
+        );
+        await tx.query(
+          `INSERT INTO public.prodx_audit_log (
+           id, organization_id, store_id, register_id, user_id,
+           action, severity, details, source_event_key
+         )
+         SELECT gen_random_uuid(), o.organization_id, o.store_id, o.register_id, o.cashier_id,
+                'payment_webhook_transition', 'info', $1::jsonb, $2
+           FROM public.prodx_orders o
+          WHERE o.id = $3 AND o.store_id = $4 AND o.organization_id = $5
+         ON CONFLICT (organization_id, store_id, source_event_key) WHERE source_event_key IS NOT NULL DO NOTHING`,
+          [
+            JSON.stringify({
+              provider: verifiedEvent.provider,
+              providerEventId: verifiedEvent.eventId,
+              eventType: verifiedEvent.eventType,
+              orderId: target.order_id,
+              paymentId: target.payment_id,
+              fromStatus: currentStatus,
+              toStatus: transition.to,
+              providerReference: transition.providerReference,
+              payloadSha256: verifiedEvent.payloadSha256
+            }),
+            attemptIdempotencyKey,
+            target.order_id,
+            target.store_id,
+            target.organization_id
+          ]
+        );
+        await tx.query(
+          `SELECT public.prodx_payment_webhook_update_status($1, 'processed', $2, $3, $4, NULL)`,
+          [recorded.event_row_id, target.organization_id, target.store_id, target.payment_id]
+        );
+        return {
+          status: 200,
+          body: {
+            received: true,
+            duplicate: false,
+            eventId: verifiedEvent.eventId,
+            paymentId: target.payment_id,
+            status: transition.to
+          }
+        };
+      });
+      response.status(outcome.status).json(outcome.body);
+    } catch (error4) {
+      next(error4);
+    }
+  });
+};
+
 // server/http/sync-route.ts
 var parseBody2 = (value) => {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -4358,7 +4816,7 @@ var registerSyncRoute = (app, db, permission = "pos.sell") => {
 };
 
 // server/http/supervisor-authorization-route.ts
-import crypto17 from "node:crypto";
+import crypto18 from "node:crypto";
 var valid = (value) => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const body = value;
@@ -4448,7 +4906,7 @@ var registerSupervisorAuthorizationRoute = (app, db, verifySupervisorToken) => {
         if (body.supervisorAccessToken) {
           if (!verifiedSupervisorIdentity) {
             await tx.query(`SELECT public.prodx_record_security_audit_event($1, $2, $3, 'SUPERVISOR_AUTH_FAILED', $4::jsonb)`, [
-              crypto17.randomUUID(),
+              crypto18.randomUUID(),
               context.principal.organizationId,
               context.principal.userId,
               JSON.stringify({ action: body.action, requestedSupervisorUserId: body.supervisorUserId, reason: "supabase_reauthentication_failed" })
@@ -4462,7 +4920,7 @@ var registerSupervisorAuthorizationRoute = (app, db, verifySupervisorToken) => {
           )).rows[0];
           if (!mappedSupervisor || mappedSupervisor.status !== "active" || mappedSupervisor.userId !== body.supervisorUserId) {
             await tx.query(`SELECT public.prodx_record_security_audit_event($1, $2, $3, 'SUPERVISOR_AUTH_DENIED', $4::jsonb)`, [
-              crypto17.randomUUID(),
+              crypto18.randomUUID(),
               context.principal.organizationId,
               context.principal.userId,
               JSON.stringify({ action: body.action, requestedSupervisorUserId: body.supervisorUserId, reason: "supabase_subject_not_authorized" })
@@ -4485,16 +4943,49 @@ var registerSupervisorAuthorizationRoute = (app, db, verifySupervisorToken) => {
             [context.principal.organizationId, context.principal.storeId]
           )).rows[0];
           if (!policy) throw new Error("Authoritative discount policy is missing for this store.");
-          const grossCents = checkout.totals.grossSubtotal.amountInCents;
-          const effectiveDiscountBps = grossCents > 0 ? Math.round((grossCents - checkout.totals.grandTotal.amountInCents) / grossCents * 1e4) : 0;
-          const maxDiscountBps = Math.max(effectiveDiscountBps, checkout.orderDiscountBps ?? 0, ...checkout.items.map((item) => item.discountBps));
+          const productIds = checkout.items.map((item) => item.product.id);
+          if (new Set(productIds).size !== productIds.length) {
+            throw new SupervisorAuthorizationError("SUPERVISOR_NOT_ALLOWED");
+          }
+          const sortedProductIds = [...productIds].sort();
+          const products = (await tx.query(
+            `SELECT id, price_amount::text AS price_amount, currency
+               FROM prodx_products
+              WHERE organization_id = $1 AND store_id = $2 AND active = true AND id = ANY($3::uuid[])
+              ORDER BY id
+              FOR SHARE`,
+            [context.principal.organizationId, context.principal.storeId, sortedProductIds]
+          )).rows;
+          if (products.length !== productIds.length) {
+            throw new SupervisorAuthorizationError("SUPERVISOR_NOT_ALLOWED");
+          }
+          const productsById = new Map(products.map((product) => [product.id, product]));
+          let gross = 0n;
+          let itemDiscounts = 0n;
+          for (const item of checkout.items) {
+            const product = productsById.get(item.product.id);
+            if (!product) throw new SupervisorAuthorizationError("SUPERVISOR_NOT_ALLOWED");
+            const match = /^(\d+)\.(\d{2})$/.exec(String(product.price_amount));
+            if (!match) throw new Error("Database monetary value is invalid.");
+            const unitCents = BigInt(match[1]) * 100n + BigInt(match[2]);
+            const rawLine = unitCents * BigInt(item.quantity);
+            const lineDiscount = (rawLine * BigInt(item.discountBps) + 5000n) / 10000n;
+            gross += rawLine;
+            itemDiscounts += lineDiscount;
+          }
+          const orderDiscountBps = checkout.orderDiscountBps ?? 0;
+          const preOrderDiscount = gross - itemDiscounts;
+          const orderDiscount = (preOrderDiscount * BigInt(orderDiscountBps) + 5000n) / 10000n;
+          const grand = preOrderDiscount - orderDiscount;
+          const effectiveDiscountBps = gross > 0n ? Number(((gross - grand) * 10000n + gross / 2n) / gross) : 0;
+          const maxDiscountBps = Math.max(effectiveDiscountBps, orderDiscountBps, ...checkout.items.map((item) => item.discountBps));
           if (!policy.require_supervisor_approval || maxDiscountBps <= Number(policy.max_discount_without_approval_bps)) {
             throw new SupervisorAuthorizationError("SUPERVISOR_NOT_ALLOWED");
           }
           await tx.query(
             `SELECT public.prodx_record_security_audit_event($1, $2, $3, 'SUPERVISOR_AUTHORIZATION_REQUESTED', $4::jsonb)`,
             [
-              crypto17.randomUUID(),
+              crypto18.randomUUID(),
               context.principal.organizationId,
               context.principal.userId,
               JSON.stringify({ action: "discount", idempotencyKey: checkout.idempotencyKey, payloadHash: checkoutAuthorizationFingerprint(checkout), thresholdBps: Number(policy.max_discount_without_approval_bps) })
@@ -4547,7 +5038,7 @@ var registerSupervisorAuthorizationRoute = (app, db, verifySupervisorToken) => {
 };
 
 // server/http/discount-policy-route.ts
-import crypto18 from "node:crypto";
+import crypto19 from "node:crypto";
 var validPolicy = (value) => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const body = value;
@@ -4595,7 +5086,7 @@ var registerDiscountPolicyRoute = (app, db) => {
       if (!rows.rows[0]) return null;
       await tx.query(
         `SELECT public.prodx_record_security_audit_event($1, $2, $3, 'DISCOUNT_POLICY_UPDATED', $4::jsonb)`,
-        [crypto18.randomUUID(), context.principal.organizationId, context.principal.userId, JSON.stringify({ storeId: context.principal.storeId, requireSupervisorApproval: request.body.requireSupervisorApproval, maxDiscountWithoutApprovalBps: request.body.maxDiscountWithoutApprovalBps })]
+        [crypto19.randomUUID(), context.principal.organizationId, context.principal.userId, JSON.stringify({ storeId: context.principal.storeId, requireSupervisorApproval: request.body.requireSupervisorApproval, maxDiscountWithoutApprovalBps: request.body.maxDiscountWithoutApprovalBps })]
       );
       return rows.rows[0];
     });
@@ -4754,7 +5245,7 @@ var registerOrderReadRoute = (app, db, permission = "pos.sell") => {
 };
 
 // server/transactions/void-service.ts
-import crypto19 from "node:crypto";
+import crypto20 from "node:crypto";
 var VoidValidationError = class extends Error {
   constructor() {
     super(...arguments);
@@ -4832,7 +5323,7 @@ var createVoidService = (db) => ({
       if (paid !== dbCents5(order.grand_total_amount)) throw new VoidConflictError("Recorded cash payments do not match the order total.");
       const shift = (await tx.query("SELECT id FROM prodx_shifts WHERE id=$1 AND store_id=$2 AND status='open' FOR UPDATE", [order.shift_id, request.storeId])).rows[0];
       if (!shift) throw new VoidConflictError("The originating shift is not open; cash reversal cannot be committed.");
-      const voidId = crypto19.randomUUID();
+      const voidId = crypto20.randomUUID();
       const inserted = (await tx.query(
         "INSERT INTO prodx_voids (id,organization_id,store_id,order_id,reason,authorized_by_user_id,requester_user_id,idempotency_key) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING RETURNING id",
         [voidId, order.organization_id, request.storeId, request.orderId, request.reason.trim(), supervisorUserId, request.requesterUserId, request.idempotencyKey]
@@ -4851,19 +5342,19 @@ var createVoidService = (db) => ({
         if (!stock) throw new VoidConflictError(`Product ${item.product_id} is unavailable for void reversal.`);
         await tx.query(
           "INSERT INTO prodx_inventory_ledger (id,organization_id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id) VALUES($1,$2,$3,$4,$5,$6,'void_reversal',$7,$8)",
-          [crypto19.randomUUID(), order.organization_id, request.storeId, item.product_id, item.quantity, stock.current_stock, voidId, supervisorUserId]
+          [crypto20.randomUUID(), order.organization_id, request.storeId, item.product_id, item.quantity, stock.current_stock, voidId, supervisorUserId]
         );
       }
       const amount = dbCents5(order.grand_total_amount);
       await tx.query(
         "INSERT INTO prodx_cash_movements (id,organization_id,store_id,shift_id,type,amount,reason,performed_by_user_id,currency) VALUES($1,$2,$3,$4,'cash_refund',$5,$6,$7,$8)",
-        [crypto19.randomUUID(), order.organization_id, request.storeId, shift.id, numeric3(amount), `Void for Order #${order.order_number}: ${request.reason.trim()}`, supervisorUserId, orderCurrency]
+        [crypto20.randomUUID(), order.organization_id, request.storeId, shift.id, numeric3(amount), `Void for Order #${order.order_number}: ${request.reason.trim()}`, supervisorUserId, orderCurrency]
       );
       await tx.query("UPDATE prodx_orders SET status=$1 WHERE id=$2 AND store_id=$3", ["voided", request.orderId, request.storeId]);
       await tx.query(
         "INSERT INTO prodx_audit_log (id,organization_id,store_id,register_id,user_id,action,severity,details) VALUES($1,$2,$3,$4,$5,'order_void_committed','critical',$6::jsonb)",
         [
-          crypto19.randomUUID(),
+          crypto20.randomUUID(),
           order.organization_id,
           request.storeId,
           order.register_id,
@@ -4929,7 +5420,7 @@ var registerVoidRoute = (app, db) => {
 };
 
 // server/transactions/inventory-adjustment-service.ts
-import crypto20 from "node:crypto";
+import crypto21 from "node:crypto";
 var InventoryAdjustmentValidationError = class extends Error {
   constructor() {
     super(...arguments);
@@ -4959,16 +5450,16 @@ var createInventoryAdjustmentService = (db) => ({
       const products = (await tx.query("SELECT id,current_stock FROM prodx_products WHERE organization_id=$1 AND store_id=$2 AND id=ANY($3::uuid[]) AND active=true ORDER BY id FOR UPDATE", [request.organizationId, request.storeId, productIds])).rows;
       if (products.length !== productIds.length) throw new InventoryAdjustmentValidationError("One or more products do not belong to the authenticated store or are inactive.");
       if (request.quantityDelta < 0 && products.some((p) => p.current_stock + request.quantityDelta < 0)) throw new InventoryAdjustmentConflictError("Inventory adjustment would make stock negative.");
-      const adjustmentId = crypto20.randomUUID();
+      const adjustmentId = crypto21.randomUUID();
       const inserted = (await tx.query("INSERT INTO prodx_inventory_adjustments (id,organization_id,store_id,requester_user_id,idempotency_key,quantity_delta,reason,product_ids,notes) VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9) ON CONFLICT (store_id,idempotency_key) DO NOTHING RETURNING id", [adjustmentId, request.organizationId, request.storeId, request.requesterUserId, request.idempotencyKey.trim(), request.quantityDelta, request.reason, JSON.stringify(productIds), request.notes?.trim() || null])).rows[0];
       if (!inserted) throw new InventoryAdjustmentConflictError("Concurrent inventory adjustment detected; retry with the same idempotency key.");
       const entries = [];
       for (const product of products) {
         const updated = (await tx.query("UPDATE prodx_products SET current_stock=current_stock+$1,updated_at=CURRENT_TIMESTAMP WHERE id=$2 AND store_id=$3 RETURNING current_stock", [request.quantityDelta, product.id, request.storeId])).rows[0];
-        const entry = (await tx.query("INSERT INTO prodx_inventory_ledger (id,organization_id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id,created_at", [crypto20.randomUUID(), request.organizationId, request.storeId, product.id, request.quantityDelta, updated.current_stock, request.reason, adjustmentId, request.requesterUserId])).rows[0];
+        const entry = (await tx.query("INSERT INTO prodx_inventory_ledger (id,organization_id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id,created_at", [crypto21.randomUUID(), request.organizationId, request.storeId, product.id, request.quantityDelta, updated.current_stock, request.reason, adjustmentId, request.requesterUserId])).rows[0];
         entries.push(entry);
       }
-      await tx.query("INSERT INTO prodx_audit_log (id,organization_id,store_id,user_id,action,severity,details) VALUES($1,$2,$3,$4,'inventory_adjustment_committed','critical',$5::jsonb)", [crypto20.randomUUID(), request.organizationId, request.storeId, request.requesterUserId, JSON.stringify({ adjustmentId, productIds, quantityDelta: request.quantityDelta, reason: request.reason, idempotencyKey: request.idempotencyKey.trim() })]);
+      await tx.query("INSERT INTO prodx_audit_log (id,organization_id,store_id,user_id,action,severity,details) VALUES($1,$2,$3,$4,'inventory_adjustment_committed','critical',$5::jsonb)", [crypto21.randomUUID(), request.organizationId, request.storeId, request.requesterUserId, JSON.stringify({ adjustmentId, productIds, quantityDelta: request.quantityDelta, reason: request.reason, idempotencyKey: request.idempotencyKey.trim() })]);
       return { success: true, idempotencyCached: false, adjustmentId, entries };
     });
   }
@@ -7128,6 +7619,7 @@ var createProductionApp = async (options = {}) => {
           config: readFirstTenantBootstrapConfig(process.env)
         }
       });
+      registerPaymentWebhookRoute(configuredApp, transactions);
       registerPublicInfrastructureRoutes(configuredApp, pool);
     },
     authenticateRequest: async (request) => {
