@@ -65,6 +65,12 @@ export const assertCheckoutRequest: (value: unknown) => asserts value is Checkou
     }
   }
 
+  // The discount-authorization audit RPC and persisted authorization contract
+  // bound this key to 256 characters; reject it here for every checkout path.
+  if ([...(value.idempotencyKey as string)].length > 256) {
+    throw new CheckoutValidationError('idempotencyKey must be at most 256 characters.');
+  }
+
   if (!Array.isArray(value.items) || value.items.length === 0) {
     throw new CheckoutValidationError('At least one checkout item is required.');
   }

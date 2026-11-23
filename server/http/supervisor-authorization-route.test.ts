@@ -128,6 +128,12 @@ test('supervisor authorization route rejects malformed requests before database 
   try {
     const response = await fetch(`${server.baseUrl}/api/v1/authorizations/supervisor`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'refund', orderId: '', supervisorUsername: 'supervisor', supervisorSecret: '' }) });
     assert.equal(response.status, 400);
+    const oversized = await fetch(`${server.baseUrl}/api/v1/authorizations/supervisor`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ action: 'refund', orderId: 'order-1', supervisorUserId: 'x'.repeat(129), supervisorAccessToken: 'invalid-token' }),
+    });
+    assert.equal(oversized.status, 400);
     assert.equal(databaseReached, false);
   } finally { await server.close(); }
 });
