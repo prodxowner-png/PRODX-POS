@@ -272,5 +272,6 @@ test('PostgreSQL discount supervisor route enforces server catalog BigInt totals
     assert.equal(Number(authRows[0].policy_threshold_bps), 1500);
   } finally {
     await server.close();
+    await pool.query('DELETE FROM prodx_supervisor_authorizations WHERE organization_id = $1', [ids.org]);
   }
 });

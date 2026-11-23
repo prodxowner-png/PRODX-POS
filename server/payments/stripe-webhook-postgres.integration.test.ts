@@ -295,7 +295,99 @@ test('PostgreSQL Stripe webhook route verifies signatures, deduplicates concurre
   });
   const server = await startServer(app);
   try {
-    // 1. Concurrent duplicate signed webhook delivery -> exactly 1 transition & 1 audit event
+    // 0a. Underpaid payment_intent.succeeded (amount_received < prodx_payments.amount) -> 409 PAYMENT_WEBHOOK_AMOUNT_MISMATCH, status unchanged
+    const underpaidEventId = `evt_test_underpaid_${suffix}`;
+    const underpaidBody = JSON.stringify({
+      id: underpaidEventId,
+      type: 'payment_intent.succeeded',
+      data: {
+        object: {
+          id: piRef1,
+          amount: 1500,
+          amount_received: 100,
+          currency: 'thb',
+          metadata: {
+            organizationId: id.org,
+            storeId: id.store,
+            orderId: order1.order.id,
+            paymentId: id.payment1,
+          },
+        },
+      },
+    });
+    const underpaidRes = await fetch(`${server.baseUrl}/api/v1/webhooks/stripe`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'stripe-signature': signStripeWebhookPayload(underpaidBody, WEBHOOK_SECRET) },
+      body: underpaidBody,
+    });
+    assert.equal(underpaidRes.status, 409);
+    assert.equal(((await underpaidRes.json()) as { error: { code: string } }).error.code, 'PAYMENT_WEBHOOK_AMOUNT_MISMATCH');
+    assert.equal((await pool.query('SELECT status FROM prodx_payments WHERE id=$1', [id.payment1])).rows[0].status, 'authorized');
+    assert.equal(
+      (await pool.query('SELECT status FROM prodx_payment_webhook_events WHERE provider_event_id=$1', [underpaidEventId])).rows[0].status,
+      'rejected',
+    );
+
+    // 0b. Currency mismatch (usd vs THB) -> 409 PAYMENT_WEBHOOK_CURRENCY_MISMATCH, status unchanged
+    const currencyMismatchEventId = `evt_test_currency_${suffix}`;
+    const currencyMismatchBody = JSON.stringify({
+      id: currencyMismatchEventId,
+      type: 'payment_intent.succeeded',
+      data: {
+        object: {
+          id: piRef1,
+          amount_received: 1500,
+          currency: 'usd',
+          metadata: {
+            organizationId: id.org,
+            storeId: id.store,
+            orderId: order1.order.id,
+            paymentId: id.payment1,
+          },
+        },
+      },
+    });
+    const currencyMismatchRes = await fetch(`${server.baseUrl}/api/v1/webhooks/stripe`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'stripe-signature': signStripeWebhookPayload(currencyMismatchBody, WEBHOOK_SECRET) },
+      body: currencyMismatchBody,
+    });
+    assert.equal(currencyMismatchRes.status, 409);
+    assert.equal(((await currencyMismatchRes.json()) as { error: { code: string } }).error.code, 'PAYMENT_WEBHOOK_CURRENCY_MISMATCH');
+    assert.equal((await pool.query('SELECT status FROM prodx_payments WHERE id=$1', [id.payment1])).rows[0].status, 'authorized');
+    assert.equal(
+      (await pool.query('SELECT status FROM prodx_payment_webhook_events WHERE provider_event_id=$1', [currencyMismatchEventId])).rows[0].status,
+      'rejected',
+    );
+
+    // 0c. Missing amount_received/amount on payment_intent.succeeded -> 409 PAYMENT_WEBHOOK_AMOUNT_MISMATCH, status unchanged
+    const missingAmountEventId = `evt_test_missing_amount_${suffix}`;
+    const missingAmountBody = JSON.stringify({
+      id: missingAmountEventId,
+      type: 'payment_intent.succeeded',
+      data: {
+        object: {
+          id: piRef1,
+          currency: 'thb',
+          metadata: {
+            organizationId: id.org,
+            storeId: id.store,
+            orderId: order1.order.id,
+            paymentId: id.payment1,
+          },
+        },
+      },
+    });
+    const missingAmountRes = await fetch(`${server.baseUrl}/api/v1/webhooks/stripe`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'stripe-signature': signStripeWebhookPayload(missingAmountBody, WEBHOOK_SECRET) },
+      body: missingAmountBody,
+    });
+    assert.equal(missingAmountRes.status, 409);
+    assert.equal(((await missingAmountRes.json()) as { error: { code: string } }).error.code, 'PAYMENT_WEBHOOK_AMOUNT_MISMATCH');
+    assert.equal((await pool.query('SELECT status FROM prodx_payments WHERE id=$1', [id.payment1])).rows[0].status, 'authorized');
+
+    // 1. Concurrent duplicate signed webhook delivery with exact amount_received + currency -> exactly 1 transition & 1 audit event
     const eventId1 = `evt_test_succeeded_${suffix}`;
     const rawBody1 = JSON.stringify({
       id: eventId1,
@@ -303,6 +395,8 @@ test('PostgreSQL Stripe webhook route verifies signatures, deduplicates concurre
       data: {
         object: {
           id: piRef1,
+          amount_received: 1500,
+          currency: 'thb',
           metadata: {
             organizationId: id.org,
             storeId: id.store,

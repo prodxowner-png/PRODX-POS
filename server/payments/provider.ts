@@ -62,6 +62,8 @@ export type VerifiedWebhookEvent = {
     orderId?: string;
     storeId?: string;
     organizationId?: string;
+    amountReceived?: bigint;
+    currency?: string;
     failureCode?: string;
     failureReason?: string;
   } | null;

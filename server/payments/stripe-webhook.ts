@@ -188,6 +188,15 @@ export const verifyStripeWebhook = (input: VerifyWebhookInput): VerifiedWebhookE
         ? nonEmptyString(dataObject.cancellation_reason)
         : undefined;
 
+    const rawAmount = dataObject.amount_received !== undefined && dataObject.amount_received !== null
+      ? dataObject.amount_received
+      : dataObject.amount;
+    const amountReceived = typeof rawAmount === 'number' && Number.isSafeInteger(rawAmount) && rawAmount >= 0
+      ? BigInt(rawAmount)
+      : undefined;
+    const currencyRaw = nonEmptyString(dataObject.currency);
+    const currency = currencyRaw ? currencyRaw.toUpperCase() : undefined;
+
     paymentStatusTransition = {
       to: transitionTarget,
       providerReference,
@@ -195,6 +204,8 @@ export const verifyStripeWebhook = (input: VerifyWebhookInput): VerifiedWebhookE
       orderId: optionalUuid(metadata.orderId ?? metadata.order_id),
       storeId: optionalUuid(metadata.storeId ?? metadata.store_id),
       organizationId: optionalUuid(metadata.organizationId ?? metadata.organization_id),
+      amountReceived,
+      currency,
       failureCode,
       failureReason,
     };

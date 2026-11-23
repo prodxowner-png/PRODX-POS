@@ -4390,6 +4390,10 @@ var verifyStripeWebhook = (input) => {
     const lastPaymentError = dataObject.last_payment_error && typeof dataObject.last_payment_error === "object" && !Array.isArray(dataObject.last_payment_error) ? dataObject.last_payment_error : null;
     const failureCode = transitionTarget === "failed" ? nonEmptyString(lastPaymentError?.code) ?? nonEmptyString(lastPaymentError?.decline_code) : void 0;
     const failureReason = transitionTarget === "failed" ? nonEmptyString(lastPaymentError?.message) : transitionTarget === "cancelled" ? nonEmptyString(dataObject.cancellation_reason) : void 0;
+    const rawAmount = dataObject.amount_received !== void 0 && dataObject.amount_received !== null ? dataObject.amount_received : dataObject.amount;
+    const amountReceived = typeof rawAmount === "number" && Number.isSafeInteger(rawAmount) && rawAmount >= 0 ? BigInt(rawAmount) : void 0;
+    const currencyRaw = nonEmptyString(dataObject.currency);
+    const currency = currencyRaw ? currencyRaw.toUpperCase() : void 0;
     paymentStatusTransition = {
       to: transitionTarget,
       providerReference,
@@ -4397,6 +4401,8 @@ var verifyStripeWebhook = (input) => {
       orderId: optionalUuid(metadata.orderId ?? metadata.order_id),
       storeId: optionalUuid(metadata.storeId ?? metadata.store_id),
       organizationId: optionalUuid(metadata.organizationId ?? metadata.organization_id),
+      amountReceived,
+      currency,
       failureCode,
       failureReason
     };
@@ -4416,6 +4422,14 @@ var stripePaymentProvider = {
 };
 
 // server/http/payment-webhook-route.ts
+var parseDbAmountToMinorUnits = (value) => {
+  const text = typeof value === "string" ? value.trim() : String(value ?? "").trim();
+  const match = /^(\d+)(?:\.(\d{1,2}))?$/.exec(text);
+  if (!match) return null;
+  const whole = BigInt(match[1]);
+  const fractional = BigInt((match[2] ?? "").padEnd(2, "0"));
+  return whole * 100n + fractional;
+};
 var registerPaymentWebhookRoute = (app, db, options = {}) => {
   app.post("/api/v1/webhooks/stripe", async (request, response, next) => {
     try {
@@ -4553,7 +4567,7 @@ var registerPaymentWebhookRoute = (app, db, options = {}) => {
           [target.organization_id, target.store_id]
         );
         const lockedPayment = (await tx.query(
-          `SELECT id, order_id, status, provider, provider_reference
+          `SELECT id, order_id, status, amount, currency, provider, provider_reference
            FROM public.prodx_payments
           WHERE id = $1 AND store_id = $2 AND organization_id = $3
           FOR UPDATE`,
@@ -4604,6 +4618,57 @@ var registerPaymentWebhookRoute = (app, db, options = {}) => {
               }
             }
           };
+        }
+        if (transition.to === "captured") {
+          const expectedCurrency = lockedPayment.currency.trim().toUpperCase();
+          const actualCurrency = transition.currency?.trim().toUpperCase();
+          if (!actualCurrency || actualCurrency !== expectedCurrency) {
+            const reason = actualCurrency ? `Currency mismatch: expected ${expectedCurrency}, received ${actualCurrency}.` : `Missing currency on payment_intent.succeeded (expected ${expectedCurrency}).`;
+            await tx.query(
+              `SELECT public.prodx_payment_webhook_update_status($1, 'rejected', $2, $3, $4, $5)`,
+              [
+                recorded.event_row_id,
+                target.organization_id,
+                target.store_id,
+                target.payment_id,
+                reason
+              ]
+            );
+            return {
+              status: 409,
+              body: {
+                error: {
+                  code: "PAYMENT_WEBHOOK_CURRENCY_MISMATCH",
+                  message: reason,
+                  requestId: request.id
+                }
+              }
+            };
+          }
+          const expectedMinorUnits = parseDbAmountToMinorUnits(lockedPayment.amount);
+          if (expectedMinorUnits === null || transition.amountReceived === void 0 || transition.amountReceived !== expectedMinorUnits) {
+            const reason = transition.amountReceived === void 0 ? `Missing amount_received/amount on payment_intent.succeeded (expected ${expectedMinorUnits?.toString() ?? "valid amount"} minor units).` : `Amount mismatch: expected ${expectedMinorUnits?.toString() ?? "valid amount"} minor units, received ${transition.amountReceived.toString()} minor units.`;
+            await tx.query(
+              `SELECT public.prodx_payment_webhook_update_status($1, 'rejected', $2, $3, $4, $5)`,
+              [
+                recorded.event_row_id,
+                target.organization_id,
+                target.store_id,
+                target.payment_id,
+                reason
+              ]
+            );
+            return {
+              status: 409,
+              body: {
+                error: {
+                  code: "PAYMENT_WEBHOOK_AMOUNT_MISMATCH",
+                  message: reason,
+                  requestId: request.id
+                }
+              }
+            };
+          }
         }
         const attemptIdempotencyKey = `webhook:${verifiedEvent.provider}:${verifiedEvent.eventId}`;
         await tx.query(

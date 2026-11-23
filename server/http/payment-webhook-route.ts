@@ -36,8 +36,19 @@ type LockedPaymentRow = {
   id: string;
   order_id: string;
   status: string;
+  amount: string;
+  currency: string;
   provider: string;
   provider_reference: string | null;
+};
+
+const parseDbAmountToMinorUnits = (value: unknown): bigint | null => {
+  const text = typeof value === 'string' ? value.trim() : String(value ?? '').trim();
+  const match = /^(\d+)(?:\.(\d{1,2}))?$/.exec(text);
+  if (!match) return null;
+  const whole = BigInt(match[1]);
+  const fractional = BigInt((match[2] ?? '').padEnd(2, '0'));
+  return whole * 100n + fractional;
 };
 
 export const registerPaymentWebhookRoute = (
@@ -201,7 +212,7 @@ export const registerPaymentWebhookRoute = (
       );
 
       const lockedPayment = (await tx.query<LockedPaymentRow>(
-        `SELECT id, order_id, status, provider, provider_reference
+        `SELECT id, order_id, status, amount, currency, provider, provider_reference
            FROM public.prodx_payments
           WHERE id = $1 AND store_id = $2 AND organization_id = $3
           FOR UPDATE`,
@@ -254,6 +265,67 @@ export const registerPaymentWebhookRoute = (
             },
           },
         };
+      }
+
+      if (transition.to === 'captured') {
+        const expectedCurrency = lockedPayment.currency.trim().toUpperCase();
+        const actualCurrency = transition.currency?.trim().toUpperCase();
+        if (!actualCurrency || actualCurrency !== expectedCurrency) {
+          const reason = actualCurrency
+            ? `Currency mismatch: expected ${expectedCurrency}, received ${actualCurrency}.`
+            : `Missing currency on payment_intent.succeeded (expected ${expectedCurrency}).`;
+          await tx.query(
+            `SELECT public.prodx_payment_webhook_update_status($1, 'rejected', $2, $3, $4, $5)`,
+            [
+              recorded.event_row_id,
+              target.organization_id,
+              target.store_id,
+              target.payment_id,
+              reason,
+            ],
+          );
+          return {
+            status: 409 as const,
+            body: {
+              error: {
+                code: 'PAYMENT_WEBHOOK_CURRENCY_MISMATCH',
+                message: reason,
+                requestId: request.id,
+              },
+            },
+          };
+        }
+
+        const expectedMinorUnits = parseDbAmountToMinorUnits(lockedPayment.amount);
+        if (
+          expectedMinorUnits === null
+          || transition.amountReceived === undefined
+          || transition.amountReceived !== expectedMinorUnits
+        ) {
+          const reason = transition.amountReceived === undefined
+            ? `Missing amount_received/amount on payment_intent.succeeded (expected ${expectedMinorUnits?.toString() ?? 'valid amount'} minor units).`
+            : `Amount mismatch: expected ${expectedMinorUnits?.toString() ?? 'valid amount'} minor units, received ${transition.amountReceived.toString()} minor units.`;
+          await tx.query(
+            `SELECT public.prodx_payment_webhook_update_status($1, 'rejected', $2, $3, $4, $5)`,
+            [
+              recorded.event_row_id,
+              target.organization_id,
+              target.store_id,
+              target.payment_id,
+              reason,
+            ],
+          );
+          return {
+            status: 409 as const,
+            body: {
+              error: {
+                code: 'PAYMENT_WEBHOOK_AMOUNT_MISMATCH',
+                message: reason,
+                requestId: request.id,
+              },
+            },
+          };
+        }
       }
 
       const attemptIdempotencyKey = `webhook:${verifiedEvent.provider}:${verifiedEvent.eventId}`;
