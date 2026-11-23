@@ -26,6 +26,7 @@ const valid = (value: unknown): value is Body => {
   const body = value as Record<string, unknown>;
   if (!['refund', 'void', 'discount'].includes(String(body.action)) ||
       (typeof body.supervisorUsername !== 'string' && typeof body.supervisorUserId !== 'string') ||
+      (typeof body.supervisorUserId === 'string' && (body.supervisorUserId.trim().length === 0 || body.supervisorUserId.length > 128)) ||
       !((typeof body.supervisorSecret === 'string' && body.supervisorSecret.length > 0 && body.supervisorSecret.length <= 1024) || (typeof body.supervisorAccessToken === 'string' && body.supervisorAccessToken.length > 0 && body.supervisorAccessToken.length <= 8192)) ||
       (typeof body.supervisorAccessToken === 'string' && typeof body.supervisorUserId !== 'string')) return false;
   if (body.action === 'discount') {

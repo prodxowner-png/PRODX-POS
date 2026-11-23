@@ -57,3 +57,20 @@ test('new privileged functions explicitly revoke PUBLIC and Supabase API-role ex
     assert.ok(migration.includes(signature), `missing ACL hardening for ${signature}`);
   }
 });
+
+test('security audit RPC locks requester/actor/permission rows and enforces storeId on rejection', () => {
+  assert.match(migration, /FOR SHARE OF requester, membership;/);
+  assert.match(migration, /FOR SHARE OF actor, membership;/);
+  assert.match(migration, /FOR SHARE OF actor, m, ur, r, rp, permission;/);
+  assert.match(migration, /security audit store is required for supervisor rejection/);
+  assert.match(migration, /security audit store does not match authenticated store/);
+});
+
+test('migration runner preserves prodx_app EXECUTE revocation for prodx_auth_find_supervisor_credential', () => {
+  const migrateScript = readFileSync(new URL('../../scripts/migrate.ts', import.meta.url), 'utf8');
+  assert.match(
+    migrateScript,
+    /to_regprocedure\('public\.prodx_auth_find_supervisor_credential\(uuid, uuid, text\)'\)/,
+  );
+});
+

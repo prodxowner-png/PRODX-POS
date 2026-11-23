@@ -1198,6 +1198,7 @@ var createSupervisorAuthorizationService = (db, now = () => /* @__PURE__ */ new 
           eventType: "SUPERVISOR_AUTH_REJECTED",
           metadata: {
             action: input.action,
+            ...input.action === "discount" ? { storeId: input.storeId } : {},
             orderId: input.orderId,
             requesterUserId: input.requesterUserId,
             ...input.action === "discount" && credential?.status === "disabled" ? { requestedSupervisorUserId: credential.userId } : {},
@@ -4371,7 +4372,7 @@ import crypto17 from "node:crypto";
 var valid = (value) => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const body = value;
-  if (!["refund", "void", "discount"].includes(String(body.action)) || typeof body.supervisorUsername !== "string" && typeof body.supervisorUserId !== "string" || !(typeof body.supervisorSecret === "string" && body.supervisorSecret.length > 0 && body.supervisorSecret.length <= 1024 || typeof body.supervisorAccessToken === "string" && body.supervisorAccessToken.length > 0 && body.supervisorAccessToken.length <= 8192) || typeof body.supervisorAccessToken === "string" && typeof body.supervisorUserId !== "string") return false;
+  if (!["refund", "void", "discount"].includes(String(body.action)) || typeof body.supervisorUsername !== "string" && typeof body.supervisorUserId !== "string" || typeof body.supervisorUserId === "string" && (body.supervisorUserId.trim().length === 0 || body.supervisorUserId.length > 128) || !(typeof body.supervisorSecret === "string" && body.supervisorSecret.length > 0 && body.supervisorSecret.length <= 1024 || typeof body.supervisorAccessToken === "string" && body.supervisorAccessToken.length > 0 && body.supervisorAccessToken.length <= 8192) || typeof body.supervisorAccessToken === "string" && typeof body.supervisorUserId !== "string") return false;
   if (body.action === "discount") {
     if (!body.checkout || typeof body.checkout !== "object" || Array.isArray(body.checkout)) return false;
     try {

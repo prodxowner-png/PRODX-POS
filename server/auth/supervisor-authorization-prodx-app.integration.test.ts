@@ -146,10 +146,11 @@ test('supervisor authorization works end-to-end under the real prodx_app runtime
       asRuntimeRole(client, context, 'direct_credential_update', () => client.query('UPDATE public.prodx_user_credentials SET failed_attempts = 0')),
       (error: unknown) => (error as { code?: string }).code === '42501',
     );
-    const privileges = await client.query<{ find: boolean; fail: boolean; reset: boolean; anyone: boolean }>(`
+    const privileges = await client.query<{ find: boolean; fail: boolean; reset: boolean; legacyAuthFind: boolean; anyone: boolean }>(`
       SELECT has_function_privilege('prodx_app', 'public.prodx_supervisor_find_credential(uuid,uuid,text)', 'EXECUTE') AS find,
              has_function_privilege('prodx_app', 'public.prodx_supervisor_record_failed_attempt(uuid,uuid,uuid)', 'EXECUTE') AS fail,
              has_function_privilege('prodx_app', 'public.prodx_supervisor_reset_failed_attempts(uuid,uuid,uuid,text)', 'EXECUTE') AS reset,
+             has_function_privilege('prodx_app', 'public.prodx_auth_find_supervisor_credential(uuid,uuid,text)', 'EXECUTE') AS "legacyAuthFind",
              EXISTS (
                SELECT 1 FROM pg_catalog.pg_proc p, LATERAL aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) acl
                 WHERE p.oid IN ('public.prodx_supervisor_find_credential(uuid,uuid,text)'::regprocedure,
@@ -157,7 +158,7 @@ test('supervisor authorization works end-to-end under the real prodx_app runtime
                                 'public.prodx_supervisor_reset_failed_attempts(uuid,uuid,uuid,text)'::regprocedure)
                   AND acl.grantee = 0
              ) AS anyone`);
-    assert.deepEqual(privileges.rows[0], { find: true, fail: true, reset: true, anyone: false });
+    assert.deepEqual(privileges.rows[0], { find: true, fail: true, reset: true, legacyAuthFind: false, anyone: false });
     const definers = await client.query<{ proname: string; prosecdef: boolean; proconfig: string[] }>(`
       SELECT proname, prosecdef, proconfig FROM pg_catalog.pg_proc
        WHERE pronamespace = 'public'::regnamespace AND proname LIKE 'prodx_supervisor_%' ORDER BY proname`);
@@ -168,13 +169,26 @@ test('supervisor authorization works end-to-end under the real prodx_app runtime
     }
 
     // A NULL-actor rejection is valid only when it still identifies the
-    // authenticated requester; never accept an anonymous rejection audit.
+    // authenticated requester and store; never accept an anonymous or unscoped rejection audit.
     const missingRequesterMarker = `missing-requester-${suffix}`;
     await assert.rejects(
       asRuntimeRole(client, context, 'rejection_without_requester', () => client.query(
         `SELECT public.prodx_record_security_audit_event($1, $2, NULL, 'SUPERVISOR_AUTH_REJECTED', $3::jsonb)`,
         [randomUUID(), ids.org, JSON.stringify({
           action: 'discount',
+          storeId: ids.store,
+          requestedSupervisorUserId: missingRequesterMarker,
+          reason: 'invalid_or_locked',
+        })],
+      )),
+      (error: unknown) => (error as { code?: string }).code === '22023',
+    );
+    await assert.rejects(
+      asRuntimeRole(client, context, 'rejection_without_store', () => client.query(
+        `SELECT public.prodx_record_security_audit_event($1, $2, NULL, 'SUPERVISOR_AUTH_REJECTED', $3::jsonb)`,
+        [randomUUID(), ids.org, JSON.stringify({
+          action: 'discount',
+          requesterUserId: ids.requester,
           requestedSupervisorUserId: missingRequesterMarker,
           reason: 'invalid_or_locked',
         })],
@@ -224,8 +238,8 @@ test('supervisor authorization works end-to-end under the real prodx_app runtime
       asRuntimeRole(client, context, 'disabled_supervisor_rejection', () => service.authorize(disabledDiscountRequest)),
       isAuthError('INVALID_CREDENTIALS'),
     );
-    const disabledRejection = await client.query<{ user_id: string | null; event_type: string; requested_supervisor: string | null }>(
-      `SELECT user_id, event_type, metadata->>'requestedSupervisorUserId' AS requested_supervisor
+    const disabledRejection = await client.query<{ user_id: string | null; event_type: string; requested_supervisor: string | null; store_id: string | null }>(
+      `SELECT user_id, event_type, metadata->>'requestedSupervisorUserId' AS requested_supervisor, metadata->>'storeId' AS store_id
          FROM public.prodx_security_audit_events
         WHERE organization_id = $1 AND event_type = 'SUPERVISOR_AUTH_REJECTED'
           AND metadata->>'requestedSupervisorUserId' = $2
@@ -235,6 +249,7 @@ test('supervisor authorization works end-to-end under the real prodx_app runtime
       user_id: null,
       event_type: 'SUPERVISOR_AUTH_REJECTED',
       requested_supervisor: ids.disabledSupervisor,
+      store_id: ids.store,
     });
 
     // Wrong secret: counted atomically, audited, and persisted (not rolled back).

@@ -320,18 +320,18 @@ BEGIN
       USING ERRCODE = '22023';
   END IF;
 
-  IF NOT EXISTS (
-    SELECT 1
-      FROM public.prodx_users requester
-      JOIN public.prodx_store_memberships membership
-        ON membership.organization_id = requester.organization_id
-       AND membership.user_id = requester.id
-       AND membership.store_id = v_context_store
-       AND membership.active = TRUE
-     WHERE requester.id = v_context_user
-       AND requester.organization_id = v_context_org
-       AND requester.status = 'active'
-  ) THEN
+  PERFORM 1
+    FROM public.prodx_users requester
+    JOIN public.prodx_store_memberships membership
+      ON membership.organization_id = requester.organization_id
+     AND membership.user_id = requester.id
+     AND membership.store_id = v_context_store
+     AND membership.active = TRUE
+   WHERE requester.id = v_context_user
+     AND requester.organization_id = v_context_org
+     AND requester.status = 'active'
+   FOR SHARE OF requester, membership;
+  IF NOT FOUND THEN
     RAISE EXCEPTION 'security audit requester is not an active member of the authenticated store'
       USING ERRCODE = '42501';
   END IF;
@@ -374,12 +374,22 @@ BEGIN
       END IF;
 
     WHEN 'SUPERVISOR_AUTH_REJECTED' THEN
-      v_allowed_keys := ARRAY['action', 'orderId', 'requesterUserId', 'requestedSupervisorUserId', 'reason'];
+      v_allowed_keys := ARRAY['action', 'storeId', 'orderId', 'requesterUserId', 'requestedSupervisorUserId', 'reason'];
       IF NOT (p_metadata ? 'requesterUserId')
          OR pg_catalog.jsonb_typeof(p_metadata->'requesterUserId') IS DISTINCT FROM 'string'
          OR pg_catalog.length(pg_catalog.btrim(p_metadata->>'requesterUserId')) = 0 THEN
         RAISE EXCEPTION 'security audit requester is required for supervisor rejection'
           USING ERRCODE = '22023';
+      END IF;
+      IF NOT (p_metadata ? 'storeId')
+         OR pg_catalog.jsonb_typeof(p_metadata->'storeId') IS DISTINCT FROM 'string'
+         OR (p_metadata->>'storeId') !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' THEN
+        RAISE EXCEPTION 'security audit store is required for supervisor rejection'
+          USING ERRCODE = '22023';
+      END IF;
+      IF (p_metadata->>'storeId')::uuid IS DISTINCT FROM v_context_store THEN
+        RAISE EXCEPTION 'security audit store does not match authenticated store'
+          USING ERRCODE = '42501';
       END IF;
       v_requester := (p_metadata->>'requesterUserId')::uuid;
       IF v_action IS DISTINCT FROM 'discount'
@@ -653,8 +663,8 @@ BEGIN
       USING ERRCODE = '42501';
   END IF;
 
-  IF p_user_id IS NOT NULL AND NOT EXISTS (
-    SELECT 1
+  IF p_user_id IS NOT NULL THEN
+    PERFORM 1
       FROM public.prodx_users actor
       JOIN public.prodx_store_memberships membership
         ON membership.organization_id = actor.organization_id
@@ -664,13 +674,15 @@ BEGIN
      WHERE actor.id = p_user_id
        AND actor.organization_id = v_context_org
        AND actor.status = 'active'
-  ) THEN
-    RAISE EXCEPTION 'security audit actor is not an active member of the authenticated store'
-      USING ERRCODE = '42501';
+     FOR SHARE OF actor, membership;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'security audit actor is not an active member of the authenticated store'
+        USING ERRCODE = '42501';
+    END IF;
   END IF;
 
-  IF v_permission_key IS NOT NULL AND NOT EXISTS (
-    SELECT 1
+  IF v_permission_key IS NOT NULL THEN
+    PERFORM 1
       FROM public.prodx_users actor
       JOIN public.prodx_store_memberships m
         ON m.organization_id = actor.organization_id
@@ -695,9 +707,11 @@ BEGIN
      WHERE actor.id = p_user_id
        AND actor.organization_id = v_context_org
        AND actor.status = 'active'
-  ) THEN
-    RAISE EXCEPTION 'security audit supervisor does not hold the required store permission'
-      USING ERRCODE = '42501';
+     FOR SHARE OF actor, m, ur, r, rp, permission;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'security audit supervisor does not hold the required store permission'
+        USING ERRCODE = '42501';
+    END IF;
   END IF;
 
   INSERT INTO public.prodx_security_audit_events

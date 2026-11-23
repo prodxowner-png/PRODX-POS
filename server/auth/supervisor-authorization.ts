@@ -108,6 +108,7 @@ export const createSupervisorAuthorizationService = (db: SqlExecutor, now: () =>
           eventType: 'SUPERVISOR_AUTH_REJECTED',
           metadata: {
             action: input.action,
+            ...(input.action === 'discount' ? { storeId: input.storeId } : {}),
             orderId: input.orderId,
             requesterUserId: input.requesterUserId,
             ...(input.action === 'discount' && credential?.status === 'disabled' ? { requestedSupervisorUserId: credential.userId } : {}),
