@@ -55,6 +55,54 @@ CREATE TRIGGER prodx_payment_webhook_events_no_delete_guard
   FOR EACH ROW
   EXECUTE FUNCTION public.prodx_payment_webhook_events_no_delete();
 
+CREATE OR REPLACE FUNCTION public.prodx_payment_webhook_events_before_update_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public
+AS $trigger$
+BEGIN
+  -- 1. Immutable event envelope fields
+  IF NEW.id IS DISTINCT FROM OLD.id
+     OR NEW.provider IS DISTINCT FROM OLD.provider
+     OR NEW.provider_event_id IS DISTINCT FROM OLD.provider_event_id
+     OR NEW.event_type IS DISTINCT FROM OLD.event_type
+     OR NEW.payload_sha256 IS DISTINCT FROM OLD.payload_sha256
+     OR NEW.provider_reference IS DISTINCT FROM OLD.provider_reference
+     OR NEW.received_at IS DISTINCT FROM OLD.received_at THEN
+    RAISE EXCEPTION 'prodx_payment_webhook_events envelope fields are immutable'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- 2. Prevent tenant and payment attribution from ever being overwritten once set
+  IF (OLD.organization_id IS NOT NULL AND NEW.organization_id IS DISTINCT FROM OLD.organization_id)
+     OR (OLD.store_id IS NOT NULL AND NEW.store_id IS DISTINCT FROM OLD.store_id)
+     OR (OLD.payment_id IS NOT NULL AND NEW.payment_id IS DISTINCT FROM OLD.payment_id) THEN
+    RAISE EXCEPTION 'prodx_payment_webhook_events tenant and payment attribution cannot be overwritten'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- 3. Prevent terminal-state rewrites and enforce valid one-way status transition:
+  --    only 'received' -> ('processed', 'ignored', 'rejected') is permitted.
+  IF OLD.status <> 'received' THEN
+    RAISE EXCEPTION 'prodx_payment_webhook_events terminal status % cannot be rewritten', OLD.status
+      USING ERRCODE = '42501';
+  END IF;
+
+  IF NEW.status NOT IN ('processed', 'ignored', 'rejected') THEN
+    RAISE EXCEPTION 'Invalid payment webhook status transition from % to %', OLD.status, NEW.status
+      USING ERRCODE = '22023';
+  END IF;
+
+  RETURN NEW;
+END;
+$trigger$;
+
+DROP TRIGGER IF EXISTS prodx_payment_webhook_events_update_guard ON public.prodx_payment_webhook_events;
+CREATE TRIGGER prodx_payment_webhook_events_update_guard
+  BEFORE UPDATE ON public.prodx_payment_webhook_events
+  FOR EACH ROW
+  EXECUTE FUNCTION public.prodx_payment_webhook_events_before_update_guard();
+
 -- Atomically record a verified webhook event into the replay inbox.
 -- Returns inserted = true on first delivery, inserted = false on duplicate replay.
 CREATE OR REPLACE FUNCTION public.prodx_payment_webhook_record_event(
@@ -166,7 +214,8 @@ BEGIN
 END;
 $function$;
 
--- Finalize webhook event processing status (processed / ignored / rejected) with optional tenant attribution.
+-- Finalize webhook event processing status (processed / ignored / rejected) with enforced
+-- tenant session context, payment ownership verification, one-way transition, and non-overwritable attribution.
 CREATE OR REPLACE FUNCTION public.prodx_payment_webhook_update_status(
   p_event_row_id UUID,
   p_status TEXT,
@@ -180,19 +229,138 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = pg_catalog, public
 AS $function$
+DECLARE
+  v_event public.prodx_payment_webhook_events%ROWTYPE;
+  v_context_org UUID := NULLIF(pg_catalog.current_setting('app.organization_id', true), '')::uuid;
+  v_context_store UUID := NULLIF(pg_catalog.current_setting('app.store_id', true), '')::uuid;
+  v_ref_payment_org UUID;
+  v_ref_payment_store UUID;
+  v_ref_payment_id UUID;
+  v_target_org UUID;
+  v_target_store UUID;
+  v_target_payment UUID;
 BEGIN
-  IF p_event_row_id IS NULL OR p_status NOT IN ('processed', 'ignored', 'rejected') THEN
+  -- 1. Validate basic argument invariants and valid one-way target status
+  IF p_event_row_id IS NULL OR p_status IS NULL OR p_status NOT IN ('processed', 'ignored', 'rejected') THEN
     RAISE EXCEPTION 'Invalid payment webhook status update' USING ERRCODE = '22023';
   END IF;
 
+  IF (p_organization_id IS NULL) <> (p_store_id IS NULL) THEN
+    RAISE EXCEPTION 'payment webhook status update requires both organization_id and store_id or neither'
+      USING ERRCODE = '22023';
+  END IF;
+
+  IF p_status = 'processed' AND (p_organization_id IS NULL OR p_store_id IS NULL OR p_payment_id IS NULL) THEN
+    RAISE EXCEPTION 'processed payment webhook status requires organization_id, store_id, and payment_id'
+      USING ERRCODE = '22023';
+  END IF;
+
+  IF p_payment_id IS NOT NULL AND (p_organization_id IS NULL OR p_store_id IS NULL) THEN
+    RAISE EXCEPTION 'payment_id requires organization_id and store_id on payment webhook status update'
+      USING ERRCODE = '22023';
+  END IF;
+
+  -- 2. Lock and fetch existing event row
+  SELECT *
+    INTO v_event
+    FROM public.prodx_payment_webhook_events
+   WHERE id = p_event_row_id
+     FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'payment webhook event not found'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- 3. Prevent terminal-state rewrites (enforce one-way transition from 'received' only)
+  IF v_event.status <> 'received' THEN
+    RAISE EXCEPTION 'payment webhook event is already in terminal status %', v_event.status
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- 4. Prevent existing tenant and payment attribution from ever being overwritten
+  IF (v_event.organization_id IS NOT NULL AND p_organization_id IS DISTINCT FROM v_event.organization_id)
+     OR (v_event.store_id IS NOT NULL AND p_store_id IS DISTINCT FROM v_event.store_id)
+     OR (v_event.payment_id IS NOT NULL AND p_payment_id IS DISTINCT FROM v_event.payment_id) THEN
+    RAISE EXCEPTION 'payment webhook event tenant and payment attribution cannot be overwritten'
+      USING ERRCODE = '42501';
+  END IF;
+
+  v_target_org := COALESCE(v_event.organization_id, p_organization_id);
+  v_target_store := COALESCE(v_event.store_id, p_store_id);
+  v_target_payment := COALESCE(v_event.payment_id, p_payment_id);
+
+  -- 5. Resolve authoritative event ownership from provider_reference when present
+  IF v_event.provider_reference IS NOT NULL THEN
+    SELECT p.organization_id, p.store_id, p.id
+      INTO v_ref_payment_org, v_ref_payment_store, v_ref_payment_id
+      FROM public.prodx_payments p
+     WHERE p.provider_reference = v_event.provider_reference
+       AND (p.provider = v_event.provider OR p.provider = 'internal')
+     ORDER BY p.created_at DESC
+     LIMIT 1;
+
+    IF v_ref_payment_id IS NOT NULL THEN
+      IF v_target_org IS DISTINCT FROM v_ref_payment_org
+         OR v_target_store IS DISTINCT FROM v_ref_payment_store
+         OR (v_target_payment IS NOT NULL AND v_target_payment IS DISTINCT FROM v_ref_payment_id) THEN
+        RAISE EXCEPTION 'payment webhook event ownership mismatch for provider_reference'
+          USING ERRCODE = '42501';
+      END IF;
+      v_target_payment := COALESCE(v_target_payment, v_ref_payment_id);
+    END IF;
+  END IF;
+
+  -- 6. Enforce tenant session context and payment ownership
+  IF v_target_org IS NOT NULL OR v_target_store IS NOT NULL THEN
+    IF v_context_org IS NULL
+       OR v_context_store IS NULL
+       OR v_target_org IS DISTINCT FROM v_context_org
+       OR v_target_store IS DISTINCT FROM v_context_store THEN
+      RAISE EXCEPTION 'payment webhook status update is outside the authenticated tenant context'
+        USING ERRCODE = '42501';
+    END IF;
+
+    IF v_target_payment IS NOT NULL THEN
+      IF NOT EXISTS (
+        SELECT 1
+          FROM public.prodx_payments p
+         WHERE p.id = v_target_payment
+           AND p.organization_id = v_target_org
+           AND p.store_id = v_target_store
+           AND (
+             v_event.provider_reference IS NULL
+             OR p.provider_reference IS NULL
+             OR p.provider_reference = v_event.provider_reference
+           )
+      ) THEN
+        RAISE EXCEPTION 'payment webhook event payment does not belong to the target tenant store'
+          USING ERRCODE = '42501';
+      END IF;
+    END IF;
+  ELSE
+    -- Unattributed update is only permitted for pre-tenant unresolvable 'ignored' events
+    IF p_status <> 'ignored' OR v_target_payment IS NOT NULL THEN
+      RAISE EXCEPTION 'tenant attribution is required for payment webhook status %', p_status
+        USING ERRCODE = '42501';
+    END IF;
+  END IF;
+
+  -- 7. Perform one-way status transition preserving first-bound attribution
   UPDATE public.prodx_payment_webhook_events
      SET status = p_status,
-         organization_id = COALESCE(p_organization_id, organization_id),
-         store_id = COALESCE(p_store_id, store_id),
-         payment_id = COALESCE(p_payment_id, payment_id),
+         organization_id = COALESCE(organization_id, v_target_org),
+         store_id = COALESCE(store_id, v_target_store),
+         payment_id = COALESCE(payment_id, v_target_payment),
          failure_reason = p_failure_reason,
          processed_at = CURRENT_TIMESTAMP
-   WHERE id = p_event_row_id;
+   WHERE id = p_event_row_id
+     AND status = 'received';
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'payment webhook event status could not be updated'
+      USING ERRCODE = '42501';
+  END IF;
 END;
 $function$;
 

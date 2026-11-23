@@ -175,6 +175,15 @@ export const registerPaymentWebhookRoute = (
         };
       }
 
+      // Bind transaction-local tenant context from the resolved authoritative payment target
+      // so all webhook status updates, payment locks, attempt rows, and audit queries execute
+      // strictly under PostgreSQL RLS for the owning tenant.
+      await tx.query(
+        `SELECT set_config('app.organization_id', $1, true),
+                set_config('app.store_id', $2, true)`,
+        [target.organization_id, target.store_id],
+      );
+
       if (
         (transition.organizationId && transition.organizationId !== target.organization_id)
         || (transition.storeId && transition.storeId !== target.store_id)
@@ -202,14 +211,6 @@ export const registerPaymentWebhookRoute = (
           },
         };
       }
-
-      // Bind transaction-local tenant context so all downstream payment, attempt,
-      // and audit queries execute strictly under PostgreSQL RLS for this tenant.
-      await tx.query(
-        `SELECT set_config('app.organization_id', $1, true),
-                set_config('app.store_id', $2, true)`,
-        [target.organization_id, target.store_id],
-      );
 
       const lockedPayment = (await tx.query<LockedPaymentRow>(
         `SELECT id, order_id, status, amount, currency, provider, provider_reference

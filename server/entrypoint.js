@@ -4539,6 +4539,11 @@ var registerPaymentWebhookRoute = (app, db, options = {}) => {
             }
           };
         }
+        await tx.query(
+          `SELECT set_config('app.organization_id', $1, true),
+                set_config('app.store_id', $2, true)`,
+          [target.organization_id, target.store_id]
+        );
         if (transition.organizationId && transition.organizationId !== target.organization_id || transition.storeId && transition.storeId !== target.store_id || transition.orderId && transition.orderId !== target.order_id || transition.paymentId && transition.paymentId !== target.payment_id) {
           await tx.query(
             `SELECT public.prodx_payment_webhook_update_status($1, 'rejected', $2, $3, $4, $5)`,
@@ -4561,11 +4566,6 @@ var registerPaymentWebhookRoute = (app, db, options = {}) => {
             }
           };
         }
-        await tx.query(
-          `SELECT set_config('app.organization_id', $1, true),
-                set_config('app.store_id', $2, true)`,
-          [target.organization_id, target.store_id]
-        );
         const lockedPayment = (await tx.query(
           `SELECT id, order_id, status, amount, currency, provider, provider_reference
            FROM public.prodx_payments

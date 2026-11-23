@@ -517,13 +517,51 @@ test('PostgreSQL Stripe webhook route verifies signatures, deduplicates concurre
     const payment2AfterCancel = (await pool.query('SELECT status, failure_reason FROM prodx_payments WHERE id=$1', [id.payment2])).rows[0];
     assert.deepEqual(payment2AfterCancel, { status: 'cancelled', failure_reason: 'requested_by_customer' });
 
-    // 5. Verify FORCE RLS & cross-tenant isolation + no-DELETE on prodx_payment_webhook_events
+    // 5. Verify FORCE RLS & cross-tenant isolation + no-DELETE + SECURITY DEFINER / trigger catalog metadata
     const rlsMeta = (await pool.query(
-      `SELECT relrowsecurity, relforcerowsecurity
+      `SELECT relname, relrowsecurity, relforcerowsecurity
          FROM pg_class
-        WHERE oid = 'public.prodx_payment_webhook_events'::regclass`,
-    )).rows[0];
-    assert.deepEqual(rlsMeta, { relrowsecurity: true, relforcerowsecurity: true });
+        WHERE oid IN (
+          'public.prodx_payment_webhook_events'::regclass,
+          'public.prodx_supervisor_authorizations'::regclass
+        )
+        ORDER BY relname`,
+    )).rows;
+    assert.deepEqual(rlsMeta, [
+      { relname: 'prodx_payment_webhook_events', relrowsecurity: true, relforcerowsecurity: true },
+      { relname: 'prodx_supervisor_authorizations', relrowsecurity: true, relforcerowsecurity: true },
+    ]);
+
+    const procMeta = (await pool.query(
+      `SELECT proname, prosecdef
+         FROM pg_proc
+        WHERE pronamespace = 'public'::regnamespace
+          AND proname IN (
+            'prodx_payment_webhook_record_event',
+            'prodx_payment_webhook_resolve_target',
+            'prodx_payment_webhook_update_status',
+            'prodx_payment_webhook_events_before_update_guard'
+          )
+        ORDER BY proname`,
+    )).rows;
+    assert.deepEqual(procMeta, [
+      { proname: 'prodx_payment_webhook_events_before_update_guard', prosecdef: false },
+      { proname: 'prodx_payment_webhook_record_event', prosecdef: true },
+      { proname: 'prodx_payment_webhook_resolve_target', prosecdef: true },
+      { proname: 'prodx_payment_webhook_update_status', prosecdef: true },
+    ]);
+
+    const triggerMeta = (await pool.query(
+      `SELECT tgname, tgenabled
+         FROM pg_trigger
+        WHERE tgrelid = 'public.prodx_payment_webhook_events'::regclass
+          AND NOT tgisinternal
+        ORDER BY tgname`,
+    )).rows;
+    assert.deepEqual(triggerMeta, [
+      { tgname: 'prodx_payment_webhook_events_no_delete_guard', tgenabled: 'O' },
+      { tgname: 'prodx_payment_webhook_events_update_guard', tgenabled: 'O' },
+    ]);
 
     const foreignVisibility = await appDb.transaction(async (tx) => {
       await tx.query("SELECT set_config('app.organization_id', $1, true), set_config('app.store_id', $2, true)", [id.foreignOrg, id.foreignStore]);
@@ -535,6 +573,214 @@ test('PostgreSQL Stripe webhook route verifies signatures, deduplicates concurre
       "SELECT has_table_privilege('prodx_app', 'public.prodx_payment_webhook_events', 'DELETE') AS can_delete",
     )).rows[0];
     assert.equal(deletePriv.can_delete, false, 'prodx_app must not have DELETE privilege on prodx_payment_webhook_events');
+
+    // 6. Adversarial tests under real prodx_app role for prodx_payment_webhook_update_status() and BEFORE UPDATE trigger
+    const validSha = 'a'.repeat(64);
+    const advReceivedForPi1 = (await appDb.query<{ event_row_id: string; inserted: boolean }>(
+      'SELECT event_row_id, inserted FROM public.prodx_payment_webhook_record_event($1, $2, $3, $4, $5)',
+      ['stripe', `evt_adv_pi1_${suffix}`, 'payment_intent.succeeded', validSha, piRef1],
+    )).rows[0];
+    assert.equal(advReceivedForPi1.inserted, true);
+
+    // 6a. Missing tenant session context (app.organization_id / app.store_id unset) must be rejected (42501)
+    await assert.rejects(
+      appDb.query(
+        `SELECT public.prodx_payment_webhook_update_status($1, 'rejected', $2, $3, $4, 'missing_context')`,
+        [advReceivedForPi1.event_row_id, id.org, id.store, id.payment1],
+      ),
+      (err: { code?: string; message?: string }) => err.code === '42501' && /outside the authenticated tenant context/i.test(err.message ?? ''),
+    );
+
+    // 6b. Cross-tenant session context passing Tenant A's IDs must be rejected (42501)
+    await assert.rejects(
+      appDb.transaction(async (tx) => {
+        await tx.query("SELECT set_config('app.organization_id', $1, true), set_config('app.store_id', $2, true)", [id.foreignOrg, id.foreignStore]);
+        await tx.query(
+          `SELECT public.prodx_payment_webhook_update_status($1, 'rejected', $2, $3, $4, 'cross_tenant_target')`,
+          [advReceivedForPi1.event_row_id, id.org, id.store, id.payment1],
+        );
+      }),
+      (err: { code?: string; message?: string }) => err.code === '42501' && /outside the authenticated tenant context/i.test(err.message ?? ''),
+    );
+
+    // 6c. Cross-tenant hijack of an unattributed 'received' event whose provider_reference resolves to Tenant A's payment must be rejected (42501)
+    await assert.rejects(
+      appDb.transaction(async (tx) => {
+        await tx.query("SELECT set_config('app.organization_id', $1, true), set_config('app.store_id', $2, true)", [id.foreignOrg, id.foreignStore]);
+        await tx.query(
+          `SELECT public.prodx_payment_webhook_update_status($1, 'rejected', $2, $3, NULL, 'cross_tenant_hijack')`,
+          [advReceivedForPi1.event_row_id, id.foreignOrg, id.foreignStore],
+        );
+      }),
+      (err: { code?: string; message?: string }) => err.code === '42501' && /ownership mismatch for provider_reference/i.test(err.message ?? ''),
+    );
+
+    // 6d. Unattributed 'ignored' suppression of an event whose provider_reference resolves to Tenant A's payment must be rejected (42501)
+    await assert.rejects(
+      appDb.query(
+        `SELECT public.prodx_payment_webhook_update_status($1, 'ignored', NULL, NULL, NULL, 'suppress_tenant_event')`,
+        [advReceivedForPi1.event_row_id],
+      ),
+      (err: { code?: string; message?: string }) => err.code === '42501' && /ownership mismatch for provider_reference/i.test(err.message ?? ''),
+    );
+
+    // 6e. Cross-tenant payment_id mismatch on an event without provider_reference must be rejected (42501)
+    const advNoRefEvent = (await appDb.query<{ event_row_id: string; inserted: boolean }>(
+      'SELECT event_row_id, inserted FROM public.prodx_payment_webhook_record_event($1, $2, $3, $4, NULL)',
+      ['stripe', `evt_adv_noref_${suffix}`, 'payment_intent.succeeded', validSha],
+    )).rows[0];
+    assert.equal(advNoRefEvent.inserted, true);
+
+    await assert.rejects(
+      appDb.transaction(async (tx) => {
+        await tx.query("SELECT set_config('app.organization_id', $1, true), set_config('app.store_id', $2, true)", [id.foreignOrg, id.foreignStore]);
+        await tx.query(
+          `SELECT public.prodx_payment_webhook_update_status($1, 'rejected', $2, $3, $4, 'cross_tenant_payment')`,
+          [advNoRefEvent.event_row_id, id.foreignOrg, id.foreignStore, id.payment1],
+        );
+      }),
+      (err: { code?: string; message?: string }) => err.code === '42501' && /payment does not belong to the target tenant store/i.test(err.message ?? ''),
+    );
+
+    // 6f. Valid one-way transition ('received' -> 'rejected') under owning tenant context succeeds once
+    await appDb.transaction(async (tx) => {
+      await tx.query("SELECT set_config('app.organization_id', $1, true), set_config('app.store_id', $2, true)", [id.org, id.store]);
+      await tx.query(
+        `SELECT public.prodx_payment_webhook_update_status($1, 'rejected', $2, $3, $4, 'legitimate_rejection')`,
+        [advReceivedForPi1.event_row_id, id.org, id.store, id.payment1],
+      );
+    });
+
+    const advAfterReject = (await pool.query(
+      'SELECT status, organization_id, store_id, payment_id, failure_reason FROM public.prodx_payment_webhook_events WHERE id = $1',
+      [advReceivedForPi1.event_row_id],
+    )).rows[0];
+    assert.deepEqual(advAfterReject, {
+      status: 'rejected',
+      organization_id: id.org,
+      store_id: id.store,
+      payment_id: id.payment1,
+      failure_reason: 'legitimate_rejection',
+    });
+
+    // 6g. Terminal-state rewrites (rejected -> processed, processed -> rejected, processed -> ignored, processed -> received)
+    //     must be rejected both via prodx_payment_webhook_update_status() AND via direct UPDATE as prodx_app
+    const processedEventRowId = (await pool.query<{ id: string }>(
+      'SELECT id FROM public.prodx_payment_webhook_events WHERE provider_event_id = $1',
+      [eventId1],
+    )).rows[0].id;
+
+    await assert.rejects(
+      appDb.transaction(async (tx) => {
+        await tx.query("SELECT set_config('app.organization_id', $1, true), set_config('app.store_id', $2, true)", [id.org, id.store]);
+        await tx.query(
+          `SELECT public.prodx_payment_webhook_update_status($1, 'processed', $2, $3, $4, NULL)`,
+          [advReceivedForPi1.event_row_id, id.org, id.store, id.payment1],
+        );
+      }),
+      (err: { code?: string; message?: string }) => err.code === '42501' && /terminal status rejected/i.test(err.message ?? ''),
+    );
+
+    await assert.rejects(
+      appDb.transaction(async (tx) => {
+        await tx.query("SELECT set_config('app.organization_id', $1, true), set_config('app.store_id', $2, true)", [id.org, id.store]);
+        await tx.query(
+          `SELECT public.prodx_payment_webhook_update_status($1, 'rejected', $2, $3, $4, 'rewrite_processed')`,
+          [processedEventRowId, id.org, id.store, id.payment1],
+        );
+      }),
+      (err: { code?: string; message?: string }) => err.code === '42501' && /terminal status processed/i.test(err.message ?? ''),
+    );
+
+    await assert.rejects(
+      appDb.transaction(async (tx) => {
+        await tx.query("SELECT set_config('app.organization_id', $1, true), set_config('app.store_id', $2, true)", [id.org, id.store]);
+        await tx.query(
+          `SELECT public.prodx_payment_webhook_update_status($1, 'received', $2, $3, $4, NULL)`,
+          [processedEventRowId, id.org, id.store, id.payment1],
+        );
+      }),
+      (err: { code?: string }) => err.code === '22023',
+    );
+
+    await assert.rejects(
+      appDb.transaction(async (tx) => {
+        await tx.query("SELECT set_config('app.organization_id', $1, true), set_config('app.store_id', $2, true)", [id.org, id.store]);
+        await tx.query(
+          `UPDATE public.prodx_payment_webhook_events SET status = 'rejected', failure_reason = 'direct_tamper' WHERE id = $1`,
+          [processedEventRowId],
+        );
+      }),
+      (err: { code?: string; message?: string }) => err.code === '42501' && /terminal status processed cannot be rewritten/i.test(err.message ?? ''),
+    );
+
+    await assert.rejects(
+      appDb.transaction(async (tx) => {
+        await tx.query("SELECT set_config('app.organization_id', $1, true), set_config('app.store_id', $2, true)", [id.org, id.store]);
+        await tx.query(
+          `UPDATE public.prodx_payment_webhook_events SET status = 'received' WHERE id = $1`,
+          [processedEventRowId],
+        );
+      }),
+      (err: { code?: string; message?: string }) => err.code === '42501' && /terminal status processed cannot be rewritten/i.test(err.message ?? ''),
+    );
+
+    // 6h. Tenant and payment attribution overwrite (and envelope mutation) must be rejected (42501)
+    //     even on a 'received' row that already has tenant attribution bound
+    const preAttributedEvent = (await pool.query<{ id: string }>(
+      `INSERT INTO public.prodx_payment_webhook_events (
+         provider, provider_event_id, event_type, payload_sha256,
+         organization_id, store_id, payment_id, provider_reference, status
+       )
+       VALUES ('stripe', $1, 'payment_intent.succeeded', $2, $3, $4, $5, $6, 'received')
+       RETURNING id`,
+      [`evt_adv_preattr_${suffix}`, validSha, id.org, id.store, id.payment1, piRef1],
+    )).rows[0];
+
+    await assert.rejects(
+      appDb.transaction(async (tx) => {
+        await tx.query("SELECT set_config('app.organization_id', $1, true), set_config('app.store_id', $2, true)", [id.foreignOrg, id.foreignStore]);
+        await tx.query(
+          `SELECT public.prodx_payment_webhook_update_status($1, 'rejected', $2, $3, $4, 'overwrite_tenant')`,
+          [preAttributedEvent.id, id.foreignOrg, id.foreignStore, id.payment2],
+        );
+      }),
+      (err: { code?: string; message?: string }) => err.code === '42501' && /attribution cannot be overwritten/i.test(err.message ?? ''),
+    );
+
+    await assert.rejects(
+      appDb.transaction(async (tx) => {
+        await tx.query("SELECT set_config('app.organization_id', $1, true), set_config('app.store_id', $2, true)", [id.org, id.store]);
+        await tx.query(
+          `SELECT public.prodx_payment_webhook_update_status($1, 'rejected', $2, $3, $4, 'overwrite_payment')`,
+          [preAttributedEvent.id, id.org, id.store, id.payment2],
+        );
+      }),
+      (err: { code?: string; message?: string }) => err.code === '42501' && /attribution cannot be overwritten/i.test(err.message ?? ''),
+    );
+
+    await assert.rejects(
+      pool.query(
+        `UPDATE public.prodx_payment_webhook_events
+            SET organization_id = $2, store_id = $3, status = 'rejected'
+          WHERE id = $1`,
+        [preAttributedEvent.id, id.foreignOrg, id.foreignStore],
+      ),
+      (err: { code?: string; message?: string }) => err.code === '42501' && /attribution cannot be overwritten/i.test(err.message ?? ''),
+    );
+
+    await assert.rejects(
+      appDb.transaction(async (tx) => {
+        await tx.query("SELECT set_config('app.organization_id', $1, true), set_config('app.store_id', $2, true)", [id.org, id.store]);
+        await tx.query(
+          `UPDATE public.prodx_payment_webhook_events
+              SET payload_sha256 = $2, status = 'rejected'
+            WHERE id = $1`,
+          [preAttributedEvent.id, 'b'.repeat(64)],
+        );
+      }),
+      (err: { code?: string; message?: string }) => err.code === '42501' && /envelope fields are immutable/i.test(err.message ?? ''),
+    );
   } finally {
     await server.close();
   }
