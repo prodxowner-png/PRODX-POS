@@ -247,3 +247,61 @@ test('resolveConfiguredDatabaseUrl preserves valid URLs and rejects placeholder 
   );
 });
 
+test('createPostgresPool applies safe default timeouts and respects explicit config and env overrides', async () => {
+  const { createPostgresPool } = await import('./postgres');
+
+  await withEnvironment(
+    {
+      DATABASE_URL: 'postgresql://postgres@127.0.0.1:5432/prodx_test',
+      PG_CONNECTION_TIMEOUT_MS: undefined,
+      PG_IDLE_TIMEOUT_MS: undefined,
+      PG_STATEMENT_TIMEOUT_MS: undefined,
+    },
+    async () => {
+      const defaultPool = createPostgresPool();
+      try {
+        const opts = (defaultPool as unknown as { options: Record<string, unknown> }).options;
+        assert.equal(opts.connectionTimeoutMillis, 10_000);
+        assert.equal(opts.idleTimeoutMillis, 30_000);
+        assert.equal(opts.statement_timeout, 30_000);
+      } finally {
+        await defaultPool.end();
+      }
+
+      const explicitPool = createPostgresPool({
+        connectionTimeoutMillis: 2500,
+        idleTimeoutMillis: 5000,
+        statement_timeout: 0,
+      });
+      try {
+        const opts = (explicitPool as unknown as { options: Record<string, unknown> }).options;
+        assert.equal(opts.connectionTimeoutMillis, 2500);
+        assert.equal(opts.idleTimeoutMillis, 5000);
+        assert.equal(opts.statement_timeout, 0);
+      } finally {
+        await explicitPool.end();
+      }
+    },
+  );
+
+  await withEnvironment(
+    {
+      DATABASE_URL: 'postgresql://postgres@127.0.0.1:5432/prodx_test',
+      PG_CONNECTION_TIMEOUT_MS: '4000',
+      PG_IDLE_TIMEOUT_MS: '12000',
+      PG_STATEMENT_TIMEOUT_MS: '15000',
+    },
+    async () => {
+      const envPool = createPostgresPool();
+      try {
+        const opts = (envPool as unknown as { options: Record<string, unknown> }).options;
+        assert.equal(opts.connectionTimeoutMillis, 4000);
+        assert.equal(opts.idleTimeoutMillis, 12000);
+        assert.equal(opts.statement_timeout, 15000);
+      } finally {
+        await envPool.end();
+      }
+    },
+  );
+});
+
