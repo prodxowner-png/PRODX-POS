@@ -1,6 +1,6 @@
 # PRODX-POS — Stripe Connect PromptPay Sandbox Plan
 
-**Status:** BLOCKED — Stripe Connect platform eligibility and Test-mode account access are not verified.
+**Status:** BLOCKED — Thailand Direct Charges + PromptPay is documented as supported, and a dedicated Test-mode context is available; the sandbox platform/connected account are not charge-enabled and connected-account onboarding requirements are outstanding.
 
 **Tracking:** [GitHub issue #404](https://github.com/prodxowner-png/PRODX-POS/issues/404).
 **Scope:** Thailand-based vertical SaaS/POS. Each merchant Tenant sells directly to its own walk-in customers and must receive its own PromptPay proceeds. PRODX-POS is the software platform, not the merchant of record for store sales.
@@ -9,25 +9,27 @@
 
 Evaluate Stripe Connect **SaaS platform + Direct Charges**. A payment must be created in the connected merchant account context, not on the PRODX-POS platform balance. Stripe's Connect planner identifies Direct Charges as the default SaaS pattern and recommends Stripe-owned processing pricing and connected-account responsibility for merchant risk/losses. Use the connected merchant's full Stripe Dashboard initially; avoid building a custom financial dashboard before payment eligibility is proven.
 
-This is a provisional architecture decision, not authorization to process live payments. Stripe's PromptPay documentation says PromptPay supports Connect and full/partial refunds, but the public documentation retrieved for this review does not explicitly prove the exact combination **Thailand platform + Thailand connected account + PromptPay + Direct Charges**. Obtain written confirmation or a successful end-to-end Test-mode proof from Stripe before treating this combination as supported.
+This is a provisional architecture decision, not authorization to process live payments. Stripe's Thailand marketplace support matrix explicitly lists **Thailand platform + Thailand connected account + PromptPay + Direct Charges** as supported. This resolves the country/charge-method eligibility question at the documentation level; an end-to-end Test-mode proof is still required before wiring or enabling payments.
 
 ## Evidence checked (2026-11-23)
 
-- Stripe PromptPay: THB presentment, customer scans QR, Stripe confirms payment, Connect support listed, full/partial refunds supported. Hosted-redirect refunds are asynchronous and final outcomes arrive through `refund.updated` / `refund.failed`.
+- Stripe Thailand marketplace support matrix: Thailand platform + Thailand connected account + PromptPay + Direct Charges is explicitly marked supported. Thailand platform restrictions still apply; separate charges and transfers are not supported. See https://support.stripe.com/questions/stripe-thailand-support-for-marketplaces.
+- Stripe PromptPay: THB-only for Thai accounts, Connect support listed, full/partial refunds supported. Stripe says platforms must request the `promptpay_payments` capability for connected accounts. See https://support.stripe.com/questions/how-to-enable-promptpay and https://stripe.com/payment-method/promptpay. Hosted-redirect refunds are asynchronous and final outcomes arrive through `refund.updated` / `refund.failed`.
 - Stripe PromptPay test flow: create a QR in Test mode; scan with a QR reader; Stripe-hosted test page lets the tester authorize or fail the payment.
 - Stripe Connect planner: classifies this business as a SaaS platform because merchants sell to their own customers; recommends Direct Charges, Stripe-owned pricing, connected-account risk ownership, full Stripe Dashboard, and embedded onboarding for new connected accounts.
-- Stripe account read-only inspection: the only account exposed to this connector is a **live** Thailand Standard account. It reports `charges_enabled=false`, `payouts_enabled=false`, `details_submitted=false`, `promptpay_payments=inactive`, and `transfers=inactive`, with outstanding verification requirements. It is not a usable Test-mode platform context and no connected accounts were created.
+- Stripe Test-mode read-only inspection: dedicated sandbox platform context `acct_1UDrOUJP6AGDPEmR` is available (`livemode=false`, country `TH`, currency `thb`). The platform account currently reports `type=standard`, `charges_enabled=false`, `details_submitted=false`, empty `capabilities`, and `requirements.disabled_reason=requirements.pending_verification`.
+- `GET /v1/accounts` under the sandbox platform context returns one Thai test connected account `acct_1UDrlvJP6AH2R48U` (`controller.type=application`, country `TH`, currency `thb`). It is not payment-ready: `charges_enabled=false`, `card_payments=inactive`, `transfers=inactive`, `requirements.disabled_reason=requirements.past_due`; `promptpay_payments` is not present in its current capabilities. No Stripe resources were created or modified during inspection.
 - Repository inspection: no Stripe SDK/provider adapter or Stripe webhook route exists. Existing `POST /api/v1/payments/lifecycle` accepts provider/status fields from an authenticated request body; it is not a trusted provider webhook and must not be used as Stripe settlement evidence. Checkout currently writes `prodx_orders` with default `server_confirmed`, inserts payment rows, and deducts stock in the same transaction. It does not wait for an asynchronous external QR payment confirmation.
 - Existing `prodx_payment_attempts` stores attempts but has no connected-account mapping, provider event inbox, Stripe environment discriminator, or Stripe refund reference. Existing `refund-service.ts` intentionally fails closed for non-cash refunds until a provider adapter exists.
 
 ## Sandbox prerequisites — no-cost / no-live-money
 
-1. Obtain a dedicated Stripe Test-mode context/account in the connected Stripe app. Do not use the currently exposed live context for test writes.
-2. Ask Stripe to confirm Connect platform activation for the Thailand platform account and the exact PromptPay Direct Charges flow for Thai connected accounts.
-3. Confirm the required Connect account configuration and onboarding type. Prefer the current Accounts v2 configuration for new SaaS platforms; do not create legacy `type=standard|express|custom` accounts based only on old examples.
-4. Enable PromptPay in Test mode for the platform and confirm whether each connected account must separately activate/request the relevant payment-method capability.
+1. Complete/resolve the dedicated sandbox platform account requirements; do not use the live context for test writes.
+2. Resolve the test connected account's outstanding `requirements.past_due` items through the appropriate Stripe-hosted onboarding flow; do not fabricate KYC or representative data.
+3. Confirm the platform's intended Connect account configuration/onboarding model with Stripe before creating additional test connected accounts. The current test account list already contains one application-connected Thai test account; inspect before creating anything to avoid duplicates.
+4. Request/activate `promptpay_payments` for each connected account as required by Stripe, then verify the capability is active. PromptPay must be THB.
 5. Use two test connected merchants (Tenant A and Tenant B), both in Thailand, and keep their account IDs distinct.
-6. Create QR payments only in Test mode. Use Stripe's test QR page to simulate success and failure. Never use a real banking app or real funds during this phase.
+6. Only after the accounts are charge-enabled, create QR payments in Test mode. Use Stripe's test QR page to simulate success and failure. Never use a real banking app or real funds during this phase.
 
 ## Target payment lifecycle
 
@@ -62,11 +64,11 @@ External HTTP calls must happen outside PostgreSQL transactions. A verified webh
 
 ## Explicit blockers before implementation can be safely wired
 
-1. **Stripe account/platform blocker:** the connected Stripe account currently visible is live-only, incomplete, and has PromptPay inactive. Test-mode account context is not available through the connector.
-2. **Provider eligibility blocker:** exact Thai Connect + PromptPay + Direct Charges eligibility is not proven by the retrieved public docs. Obtain Stripe Support confirmation or a successful sandbox test using Thai connected accounts.
+1. **Sandbox readiness blocker:** Test-mode platform context is available, but the platform is not charge-enabled and has pending verification requirements. The existing Thai test connected account is not charge-enabled, has past-due onboarding requirements, and does not expose an active `promptpay_payments` capability.
+2. **End-to-end proof blocker:** Stripe's official Thailand support matrix documents the exact Thai platform + Thai connected account + PromptPay + Direct Charges combination as supported, but two-tenant sandbox charge/settlement/refund proof is still outstanding.
 3. **Checkout state-machine blocker:** current checkout finalizes orders and stock immediately; asynchronous QR settlement requires an explicit pending-payment/order state and reservation policy. This is a cross-cutting database/domain change and must be designed with migrations and concurrency tests, not patched by marking the existing payment lifecycle endpoint as trusted.
 4. **Refund blocker:** issue #96 remains open; external provider refund settlement and reconciliation are not implemented.
 
 ## Safe execution boundary
 
-No live Stripe API writes, Connected Account creation, payment creation, refund, production environment change, database migration, or production deployment was performed as part of this plan. Do not switch to live mode to test. Revisit this document after Test-mode access and Stripe eligibility confirmation are available.
+No Stripe API writes, Connected Account creation, capability requests, payment creation, refund, production environment change, database migration, or production deployment was performed during this inspection. All account reads used the dedicated Test-mode context (`livemode=false`). Do not switch to live mode to test. Revisit this document after sandbox onboarding and capability activation are complete.
