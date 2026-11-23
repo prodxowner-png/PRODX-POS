@@ -186,7 +186,7 @@ export interface StateSanitationResult {
 }
 
 const VALID_OUTBOX_TYPES = new Set(['order_transaction', 'shift_movement', 'stock_adjustment']);
-const VALID_SYNC_STATES = new Set(['queued', 'syncing', 'synced', 'failed', 'conflict_requires_attention']);
+const VALID_SYNC_STATES = new Set(['queued', 'syncing', 'synced', 'failed', 'conflict_requires_attention', 'dead_letter']);
 
 export function isValidOutboxQueueItem(item: any): boolean {
   if (!item || typeof item !== 'object' || Array.isArray(item)) return false;

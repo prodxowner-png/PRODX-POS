@@ -26,7 +26,7 @@ const parseBody = (value: unknown): SyncCommandBody => {
     typeof item.type !== 'string' || !['order_transaction', 'shift_movement', 'stock_adjustment'].includes(item.type) ||
     typeof item.createdAt !== 'string' || Number.isNaN(Date.parse(item.createdAt)) ||
     typeof item.attempts !== 'number' || !Number.isSafeInteger(item.attempts) || item.attempts < 0 ||
-    typeof item.syncState !== 'string' || !['queued', 'syncing', 'synced', 'failed', 'conflict_requires_attention'].includes(item.syncState)
+    typeof item.syncState !== 'string' || !['queued', 'syncing', 'synced', 'failed', 'conflict_requires_attention', 'dead_letter'].includes(item.syncState)
   ) {
     throw new CheckoutValidationError('Sync request item metadata is invalid.');
   }
