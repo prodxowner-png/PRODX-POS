@@ -14,6 +14,7 @@ declare global {
     interface Request {
       id: string;
       prodxContext?: RequestContext;
+      rawBody?: Buffer;
     }
   }
 }
@@ -147,7 +148,12 @@ export const createApp = (options: BackendBoundaryOptions) => {
 
   // Attach correlation before parsing so malformed JSON receives a request id too.
   app.use(attachRequestId);
-  app.use(express.json({ limit: '1mb' }));
+  app.use(express.json({
+    limit: '1mb',
+    verify: (request, _response, buffer) => {
+      (request as Request).rawBody = Buffer.from(buffer);
+    },
+  }));
   app.locals.prodxAuthorize = options.authorizeRequest;
   options.configurePublicRoutes?.(app);
   app.get('/api/v1/healthz', (_request, response) => {
