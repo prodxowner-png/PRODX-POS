@@ -3084,17 +3084,21 @@ var cents2 = (money3, label) => {
   if (!money3.currency || money3.currency.length !== 3) throw new ShiftValidationError(`${label} currency is invalid.`);
   return money3.amountInCents;
 };
-var dbAmountToCents = (value, label) => {
+var dbAmountToBigIntCents = (value, label) => {
   const raw = String(value);
   if (!/^\d+(\.\d{1,2})?$/.test(raw)) throw new ShiftValidationError(`${label} monetary value is invalid.`);
   const [whole, frac = ""] = raw.split(".");
-  const amount = BigInt(whole) * 100n + BigInt((frac + "00").slice(0, 2));
-  if (amount > BigInt(Number.MAX_SAFE_INTEGER)) throw new ShiftValidationError(`${label} exceeds safe monetary range.`);
+  return BigInt(whole) * 100n + BigInt((frac + "00").slice(0, 2));
+};
+var bigIntCentsToSafeNumber = (amount, label) => {
+  if (amount > BigInt(Number.MAX_SAFE_INTEGER) || amount < BigInt(Number.MIN_SAFE_INTEGER)) throw new ShiftValidationError(`${label} exceeds safe monetary range.`);
   return Number(amount);
 };
+var dbAmountToCents = (value, label) => bigIntCentsToSafeNumber(dbAmountToBigIntCents(value, label), label);
 var toDecimal = (centsValue) => {
-  const abs = BigInt(Math.trunc(Math.abs(centsValue)));
-  const sign = centsValue < 0 ? "-" : "";
+  const raw = typeof centsValue === "bigint" ? centsValue : BigInt(Math.trunc(centsValue));
+  const abs = raw < 0n ? -raw : raw;
+  const sign = raw < 0n ? "-" : "";
   return `${sign}${abs / 100n}.${(abs % 100n).toString().padStart(2, "0")}`;
 };
 var money = (value, currency, label = "Amount") => ({ amountInCents: dbAmountToCents(value, label), currency });
@@ -3105,9 +3109,9 @@ var loadShift = async (db, shiftId, storeId) => {
   const row = s.rows[0];
   if (!row) throw new ShiftConflictError("Shift not found in this store.");
   const m = await db.query(`SELECT id,shift_id,type,amount,reason,performed_by_user_id,currency,created_at FROM prodx_cash_movements WHERE shift_id=$1 AND store_id=$2 ORDER BY created_at,id`, [shiftId, storeId]);
-  let expected = 0, cashSales = 0, cashRefunds = 0, paidIn = 0, paidOut = 0;
+  let expected = 0n, cashSales = 0n, cashRefunds = 0n, paidIn = 0n, paidOut = 0n;
   for (const x of m.rows) {
-    const a = dbAmountToCents(x.amount, "Cash movement");
+    const a = dbAmountToBigIntCents(x.amount, "Cash movement");
     if (x.type === "opening_float") expected += a;
     else if (x.type === "cash_sale") {
       cashSales += a;
@@ -3123,8 +3127,11 @@ var loadShift = async (db, shiftId, storeId) => {
       expected -= a;
     }
   }
-  const actual = row.actual_counted_cash_amount == null ? void 0 : money(row.actual_counted_cash_amount, row.currency, "Counted cash");
-  return { id: row.id, storeId: row.store_id, registerId: row.register_id, cashierId: row.cashier_id, cashierName: row.cashier_name, openedAt: new Date(row.opened_at).toISOString(), closedAt: row.closed_at ? new Date(row.closed_at).toISOString() : void 0, status: row.status, openingFloat: money(row.opening_float_amount, row.currency, "Opening float"), movements: m.rows.map(mapMovement), totalCashSales: money(toDecimal(cashSales), row.currency), totalCashRefunds: money(toDecimal(cashRefunds), row.currency), totalPaidIn: money(toDecimal(paidIn), row.currency), totalPaidOut: money(toDecimal(paidOut), row.currency), expectedCashInDrawer: { amountInCents: expected, currency: row.currency }, actualCountedCash: actual, variance: actual ? { amountInCents: actual.amountInCents - expected, currency: row.currency } : void 0 };
+  const actualCents = row.actual_counted_cash_amount == null ? void 0 : dbAmountToBigIntCents(row.actual_counted_cash_amount, "Counted cash");
+  const actual = actualCents === void 0 ? void 0 : { amountInCents: bigIntCentsToSafeNumber(actualCents, "Counted cash"), currency: row.currency };
+  const expectedNum = bigIntCentsToSafeNumber(expected, "Expected cash");
+  const variance = actualCents === void 0 ? void 0 : { amountInCents: bigIntCentsToSafeNumber(actualCents - expected, "Cash variance"), currency: row.currency };
+  return { id: row.id, storeId: row.store_id, registerId: row.register_id, cashierId: row.cashier_id, cashierName: row.cashier_name, openedAt: new Date(row.opened_at).toISOString(), closedAt: row.closed_at ? new Date(row.closed_at).toISOString() : void 0, status: row.status, openingFloat: money(row.opening_float_amount, row.currency, "Opening float"), movements: m.rows.map(mapMovement), totalCashSales: { amountInCents: bigIntCentsToSafeNumber(cashSales, "Total cash sales"), currency: row.currency }, totalCashRefunds: { amountInCents: bigIntCentsToSafeNumber(cashRefunds, "Total cash refunds"), currency: row.currency }, totalPaidIn: { amountInCents: bigIntCentsToSafeNumber(paidIn, "Total paid in"), currency: row.currency }, totalPaidOut: { amountInCents: bigIntCentsToSafeNumber(paidOut, "Total paid out"), currency: row.currency }, expectedCashInDrawer: { amountInCents: expectedNum, currency: row.currency }, actualCountedCash: actual, variance };
 };
 var operation = async (tx, context, type, shiftId, key, payload) => {
   if (!key.trim()) throw new ShiftValidationError("Idempotency key is required.");
@@ -4221,7 +4228,7 @@ var parseBody2 = (value) => {
     throw new CheckoutValidationError("Sync request item is required.");
   }
   const item = candidate;
-  if (typeof item.id !== "string" || !item.id.trim() || typeof item.idempotencyKey !== "string" || !item.idempotencyKey.trim() || typeof item.type !== "string" || !["order_transaction", "shift_movement", "stock_adjustment"].includes(item.type) || typeof item.createdAt !== "string" || Number.isNaN(Date.parse(item.createdAt)) || typeof item.attempts !== "number" || !Number.isSafeInteger(item.attempts) || item.attempts < 0 || typeof item.syncState !== "string" || !["queued", "syncing", "synced", "failed", "conflict_requires_attention"].includes(item.syncState)) {
+  if (typeof item.id !== "string" || !item.id.trim() || typeof item.idempotencyKey !== "string" || !item.idempotencyKey.trim() || typeof item.type !== "string" || !["order_transaction", "shift_movement", "stock_adjustment"].includes(item.type) || typeof item.createdAt !== "string" || Number.isNaN(Date.parse(item.createdAt)) || typeof item.attempts !== "number" || !Number.isSafeInteger(item.attempts) || item.attempts < 0 || typeof item.syncState !== "string" || !["queued", "syncing", "synced", "failed", "conflict_requires_attention", "dead_letter"].includes(item.syncState)) {
     throw new CheckoutValidationError("Sync request item metadata is invalid.");
   }
   return { item: candidate };
