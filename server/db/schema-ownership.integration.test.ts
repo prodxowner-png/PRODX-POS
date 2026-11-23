@@ -1,12 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Pool } from 'pg';
+import { assertDisposableTestDatabaseUrl } from './test-database-guard';
 
-const databaseUrl = process.env.DATABASE_URL;
+const configuredDatabaseUrl = process.env.DATABASE_URL?.trim();
+const databaseUrl = configuredDatabaseUrl
+  ? assertDisposableTestDatabaseUrl(configuredDatabaseUrl, 'server/db/schema-ownership.integration.test.ts')
+  : null;
 const shouldRun = Boolean(databaseUrl) && process.env.NODE_ENV !== 'production';
 
 test('PRODX runtime role cannot access foreign public objects or inherit future grants', { skip: !shouldRun }, async () => {
-  const pool = new Pool({ connectionString: databaseUrl, max: 1 });
+  const pool = new Pool({ connectionString: databaseUrl ?? undefined, max: 1 });
   try {
     const role = await pool.query<{ rolsuper: boolean; rolbypassrls: boolean; rolcreatedb: boolean; rolcreaterole: boolean; rolinherit: boolean }>(
       `SELECT rolsuper, rolbypassrls, rolcreatedb, rolcreaterole, rolinherit FROM pg_roles WHERE rolname = 'prodx_app'`,
@@ -133,7 +137,7 @@ test('PRODX runtime role cannot access foreign public objects or inherit future 
 });
 
 test('PRODX public API roles cannot access POS tables or internal RPC functions', { skip: !shouldRun }, async () => {
-  const pool = new Pool({ connectionString: databaseUrl, max: 1 });
+  const pool = new Pool({ connectionString: databaseUrl ?? undefined, max: 1 });
   try {
     const apiRoles = await pool.query<{ rolname: string }>(
       `SELECT rolname FROM pg_roles WHERE rolname = ANY($1::text[])`,

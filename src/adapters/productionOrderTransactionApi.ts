@@ -1,13 +1,10 @@
+import { resolveProductionApiBaseUrl } from './apiBaseUrl';
 import type { CheckoutRequest, CheckoutResponse } from './types';
 
 const configuredBaseUrl = (): string | undefined => import.meta.env?.VITE_AUTH_API_BASE_URL;
 
 function requireBaseUrl(baseUrl?: string): string {
-  const resolved = (baseUrl ?? configuredBaseUrl())?.trim();
-  if (!resolved) {
-    throw new Error('Production checkout API is not configured: VITE_AUTH_API_BASE_URL is missing.');
-  }
-  return resolved.replace(/\/$/, '');
+  return resolveProductionApiBaseUrl(baseUrl ?? configuredBaseUrl());
 }
 
 function errorMessage(body: unknown, fallback: string): string {

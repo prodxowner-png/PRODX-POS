@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createHash, randomUUID } from 'node:crypto';
-import { createPostgresPool, resolveConfiguredDatabaseUrl } from '../db/postgres';
+import { createPostgresPool } from '../db/postgres';
 import { createTransactionalPostgresExecutor } from '../db/transaction';
 import { assertDisposableTestDatabaseUrl } from '../db/test-database-guard';
 import type { CheckoutRequest } from '../../src/adapters/types';
@@ -13,7 +13,7 @@ import {
 } from './checkout-service';
 import { runWithRequestContext } from '../http/request-context-storage';
 
-const url = resolveConfiguredDatabaseUrl(process.env.DATABASE_URL);
+const url = process.env.DATABASE_URL?.trim();
 if (url) {
   assertDisposableTestDatabaseUrl(url);
 }

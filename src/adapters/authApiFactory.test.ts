@@ -24,6 +24,9 @@ function createStubAuthApi(label: string): IAuthApi {
     async logout() {
       throw new Error(`stub:${label}:logout`);
     },
+    async renewSession() {
+      throw new Error(`stub:${label}:renewSession`);
+    },
     async verifySession() {
       throw new Error(`stub:${label}:verifySession`);
     },
@@ -150,7 +153,19 @@ test('development mock adapter is selected only when isDev is true and never whe
   );
 });
 
-// 5. Runtime calls with unconfigured provider (all 5 IAuthApi methods reject)
+
+// Explicit invalid API routing must fail closed without throwing during module evaluation.
+test('invalid explicit production API base URL resolves to fail-closed auth', async () => {
+  const productionStub = createStubAuthApi('production');
+  const resolved = resolveAuthApi(
+    { isDev: false, provider: 'production', apiBaseUrl: '//attacker.example' },
+    { productionApi: productionStub },
+  );
+  assert.notEqual(resolved, productionStub);
+  await assert.rejects(resolved.verifySession('token'), { message: UNCONFIGURED_AUTH_PROVIDER_ERROR });
+});
+
+// 5. Runtime calls with unconfigured provider (all 6 IAuthApi methods reject)
 test('authApi fails closed on every IAuthApi method when unconfigured outside DEV', async () => {
   const errorPattern = { message: UNCONFIGURED_AUTH_PROVIDER_ERROR };
 
@@ -166,6 +181,7 @@ test('authApi fails closed on every IAuthApi method when unconfigured outside DE
       errorPattern,
     );
     await assert.rejects(api.logout('token'), errorPattern);
+    await assert.rejects(api.renewSession('token'), errorPattern);
     await assert.rejects(api.verifySession('token'), errorPattern);
     await assert.rejects(api.getStores('demo', 'token'), errorPattern);
     await assert.rejects(api.forgotPin('demo', 'STORE-01', '123456', 'POS-01'), errorPattern);

@@ -1,3 +1,4 @@
+import { resolveProductionApiBaseUrl } from './apiBaseUrl';
 export type ProductionVoidRequest = {
   orderId: string;
   reason: string;
@@ -14,13 +15,12 @@ export type ProductionVoidResponse = {
   message: string;
 };
 
-const API_BASE_URL = import.meta.env.VITE_AUTH_API_BASE_URL;
+const API_BASE_URL = resolveProductionApiBaseUrl(import.meta.env.VITE_AUTH_API_BASE_URL);
 
 export function createProductionVoidApi(token: string) {
   return {
     async voidOrder(request: ProductionVoidRequest): Promise<ProductionVoidResponse> {
       if (!token.trim()) throw new Error('Authenticated session token is required for void.');
-      if (!API_BASE_URL) throw new Error('Production order API is not configured.');
       const response = await fetch(API_BASE_URL.replace(/\/$/, '') + '/api/v1/orders/void', {
         method: 'POST',
         credentials: 'include',

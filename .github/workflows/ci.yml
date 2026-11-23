@@ -65,13 +65,8 @@ jobs:
     - name: Verify migration governance
       run: bun run db:migrations:check
 
-    - name: Apply PostgreSQL migrations
-      shell: bash
-      run: |
-        set -euo pipefail
-        for migration in db/migrations/*.sql; do
-          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration"
-        done
+    - name: Apply PostgreSQL migrations with production runner
+      run: bun run db:migrate
 
     - name: Exercise production migration runner on a clean PostgreSQL database
       shell: bash
@@ -107,8 +102,25 @@ jobs:
           FROM prodx_schema_migrations
         " | grep -Fx 'migration runner verified'
 
-    - name: Run server tests
-      run: bun run server:test
+    - name: Run client tests
+      run: bun run client:test
+
+    - name: Prepare isolated first-tenant PostgreSQL integration database
+      shell: bash
+      run: |
+        set -euo pipefail
+        PGPASSWORD=prodx createdb --host=127.0.0.1 --username=prodx prodx_bootstrap_test
+        DATABASE_URL=postgresql://prodx:prodx@127.0.0.1:5432/prodx_bootstrap_test bun run db:migrate
+
+    - name: Run server tests including first-tenant PostgreSQL integration (no skips)
+      shell: bash
+      env:
+        PRODX_RUN_BOOTSTRAP_POSTGRES_INTEGRATION: '1'
+        PRODX_BOOTSTRAP_TEST_DATABASE_URL: postgresql://prodx:prodx@127.0.0.1:5432/prodx_bootstrap_test
+      run: |
+        set -euo pipefail
+        bun run server:test 2>&1 | tee /tmp/prodx-server-test.log
+        grep -Eq '^ℹ skipped 0$' /tmp/prodx-server-test.log
 
     - name: Build application
       run: bun run build

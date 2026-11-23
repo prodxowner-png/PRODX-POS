@@ -3,12 +3,16 @@ import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 import type { PoolClient } from 'pg';
-import { createPostgresPool, resolveConfiguredDatabaseUrl } from '../db/postgres';
+import { createPostgresPool } from '../db/postgres';
+import { assertDisposableTestDatabaseUrl } from '../db/test-database-guard';
 import { hashPassword } from './password';
 import type { SqlExecutor } from './postgres-repository';
 import { createSupervisorAuthorizationService, SupervisorAuthorizationError } from './supervisor-authorization';
 
-const databaseUrl = resolveConfiguredDatabaseUrl(process.env.DATABASE_URL);
+const configuredDatabaseUrl = process.env.DATABASE_URL?.trim();
+const databaseUrl = configuredDatabaseUrl
+  ? assertDisposableTestDatabaseUrl(configuredDatabaseUrl, 'server/auth/supervisor-authorization-prodx-app.integration.test.ts')
+  : null;
 const pool = databaseUrl ? createPostgresPool({ connectionString: databaseUrl, max: 2 }) : null;
 
 const SECRET = 'Supervisor-Step-Up-Secret!47';

@@ -2,11 +2,10 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import test from 'node:test';
 import { hashPassword } from './auth/password';
-import { resolveConfiguredDatabaseUrl } from './db/postgres';
 import { assertDisposableTestDatabaseUrl } from './db/test-database-guard';
 import { createProductionApp } from './entrypoint';
 
-const databaseUrl = resolveConfiguredDatabaseUrl(process.env.DATABASE_URL);
+const databaseUrl = process.env.DATABASE_URL?.trim();
 
 const ids = {
   org: crypto.randomUUID(),
@@ -45,7 +44,6 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
     t.skip('DATABASE_URL is not configured; run with PostgreSQL.');
     return;
   }
-  assertDisposableTestDatabaseUrl(databaseUrl, 'server/phase4-verification-audit.integration.test.ts');
 
   const { app, pool } = await createProductionApp({
     checkCompromisedPassword: async () => ({ compromised: false, count: 0 }),

@@ -1,9 +1,13 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test from 'node:test';
-import { createPostgresPool, resolveConfiguredDatabaseUrl } from '../db/postgres';
+import { createPostgresPool } from '../db/postgres';
+import { assertDisposableTestDatabaseUrl } from '../db/test-database-guard';
 
-const databaseUrl = resolveConfiguredDatabaseUrl(process.env.DATABASE_URL);
+const configuredDatabaseUrl = process.env.DATABASE_URL?.trim();
+const databaseUrl = configuredDatabaseUrl
+  ? assertDisposableTestDatabaseUrl(configuredDatabaseUrl, 'server/auth/supervisor-authorization-concurrency.integration.test.ts')
+  : null;
 const pool = databaseUrl ? createPostgresPool({ connectionString: databaseUrl, max: 3 }) : null;
 
 test('supervisor reset serializes with concurrent store-membership revocation', async (t) => {

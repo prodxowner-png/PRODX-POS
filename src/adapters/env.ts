@@ -1,10 +1,20 @@
-export const isMockDisabled = (): boolean => 
+export const isMockDisabled = (): boolean =>
   typeof localStorage !== 'undefined' && localStorage.getItem('prodx_disable_mocks') === 'true';
 
-export const hasProductionUrl = (): boolean => {
-  const url = import.meta.env.VITE_AUTH_API_BASE_URL?.trim() || '';
-  return !!url && url.startsWith('http');
-};
+const isViteDevelopmentBuild = (): boolean =>
+  typeof import.meta.env !== 'undefined' && import.meta.env.DEV === true;
+
+export const hasProductionApiRoute = (flags: {
+  isDev: boolean;
+  isPreview: boolean;
+  mocksDisabled: boolean;
+}): boolean => flags.mocksDisabled || (!flags.isDev && !flags.isPreview);
+
+export const hasProductionUrl = (): boolean => hasProductionApiRoute({
+  isDev: isViteDevelopmentBuild(),
+  isPreview: isAiStudioPreview(),
+  mocksDisabled: isMockDisabled(),
+});
 
 export const isAiStudioPreview = (): boolean => {
   if (typeof window === 'undefined') return false;
@@ -14,7 +24,16 @@ export const isAiStudioPreview = (): boolean => {
          h.includes('localhost');
 };
 
-export const shouldReadMock = (): boolean => {
-  if (isMockDisabled()) return false;
-  return import.meta.env.DEV || !hasProductionUrl() || isAiStudioPreview();
-};
+export const shouldUseDevelopmentMocks = (flags: {
+  isDev: boolean;
+  isPreview: boolean;
+  mocksDisabled: boolean;
+}): boolean => !flags.mocksDisabled && (flags.isDev || flags.isPreview);
+
+export const isDevelopmentMode = (): boolean => shouldUseDevelopmentMocks({
+  isDev: isViteDevelopmentBuild(),
+  isPreview: isAiStudioPreview(),
+  mocksDisabled: isMockDisabled(),
+});
+
+export const shouldReadMock = (): boolean => isDevelopmentMode();
