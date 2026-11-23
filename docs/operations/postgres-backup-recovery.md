@@ -24,15 +24,27 @@ No database credential is stored in the repository.
 
 ## Restore verification
 
-The workflow restores the dump into an ephemeral PostgreSQL 16 instance and fails on restore errors.
+The workflow restores the dump into an ephemeral PostgreSQL instance using `pg_restore --dbname="${TARGET_DATABASE_URL}" --clean --if-exists --no-owner --no-acl --exit-on-error` and fails on restore errors.
 
 It then verifies:
 
-1. the public schema can be queried;
-2. the `schema_migrations` table exists;
-3. the restored migration table is readable.
+1. the `public` schema can be queried;
+2. the `prodx_schema_migrations` table exists and contains the expected applied migrations;
+3. Row Level Security (`RLS`) is enabled on all core tenant, policy, and audit tables, including `FORCE ROW LEVEL SECURITY` on `prodx_discount_policies`;
+4. append-only immutability triggers (`prodx_audit_log_immutable_guard`, `prodx_security_audit_events_immutable_guard`, `prodx_refund_immutable_guard`, `prodx_void_immutable_guard`) remain enabled;
+5. dump and restore timings and dump byte size are recorded in a sanitized verification report (`artifacts/recovery-drill-report.json`).
 
-A successful workflow run is required before a restore drill can be treated as verified.
+The raw `.dump` file is deleted in an `if: always()` cleanup step and is **never** uploaded as a GitHub Actions artifact. Only `artifacts/recovery-drill-report.json` is uploaded.
+
+For local disposable verification against two local PostgreSQL databases, run:
+
+```bash
+scripts/verify-postgres-backup-restore.sh \
+  --source "postgresql://postgres:postgres@127.0.0.1:55433/prodx_dr_source" \
+  --target "postgresql://postgres:postgres@127.0.0.1:55433/prodx_dr_restore"
+```
+
+A successful workflow run against production (with owner approval) is still required before production recovery readiness can be treated as verified.
 
 ## Evidence required for Production Readiness
 
