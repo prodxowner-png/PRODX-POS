@@ -5,7 +5,7 @@
  * infrastructure / backend API layer (e.g. NestJS + PostgreSQL).
  */
 
-import { User, SessionContext, Store } from '../domain/auth';
+import { User, SessionAuthProvider, SessionContext, Store } from '../domain/auth';
 import type { WebAuthnAssertionPayload } from '../services/webauthnService';
 import {
   Product,
@@ -83,9 +83,9 @@ export interface CheckoutResponse {
 
 export interface IAuthApi {
   login(req: LoginRequest): Promise<SessionContext>;
-  logout(token: string): Promise<void>;
-  /** Refreshes a Supabase-backed POS session; null means this is not a Supabase session. */
-  renewSession(token: string): Promise<SessionContext | null>;
+  logout(token: string, authProvider?: SessionAuthProvider): Promise<void>;
+  /** Refreshes only a Supabase-backed POS session; null means this is not a Supabase session. */
+  renewSession(token: string, authProvider?: SessionAuthProvider): Promise<SessionContext | null>;
   verifySession(token: string): Promise<SessionContext | null>;
   getStores(orgSlug: string, token: string): Promise<readonly Store[]>;
   forgotPin(organizationSlug: string, storeCode: string, emailOrPin: string, registerId: string): Promise<void>;

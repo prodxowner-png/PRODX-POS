@@ -474,10 +474,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setOperationalScopeState(storedScope);
           saveStoredOperationalScope(storedScope);
         }
-        const scopedSession = applyOperationalScopeToSession(verified, storedScope);
+        const scopedSession = applyOperationalScopeToSession({
+          ...verified,
+          authProvider: verified.authProvider ?? persisted.authProvider,
+        }, storedScope);
         sessionRef.current = scopedSession;
         setSession(scopedSession);
-        writePersistedSession(sessionStorage, scopedSession.token);
+        writePersistedSession(sessionStorage, scopedSession.token, scopedSession.authProvider);
         lastActivityRef.current = Date.now();
       } catch (err) {
         console.error('[AuthContext] Session restore error:', err);
@@ -660,10 +663,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       );
 
       try {
-        writePersistedSession(sessionStorage, newSession.token);
+        writePersistedSession(sessionStorage, newSession.token, newSession.authProvider);
       } catch (error) {
         logTrace('ERROR_PERSIST', { error: String(error) });
-        await authApi.logout(newSession.token).catch(() => undefined);
+        await authApi.logout(newSession.token, newSession.authProvider).catch(() => undefined);
         throw error;
       }
       try {
@@ -735,7 +738,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (expectedToken && !isCurrentSessionRenewal(false, sessionRef.current?.token, expectedToken)) return;
     setIsLoading(true);
     try {
-      if (token && (!expectedToken || token === expectedToken)) await authApi.logout(token);
+      if (token && (!expectedToken || token === expectedToken)) await authApi.logout(token, session?.authProvider);
     } catch (error) {
       console.error('[AuthContext] Server logout failed; local session was cleared.', error);
     } finally {
@@ -760,10 +763,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       token: session.token,
       expiresAt: session.expiresAt,
       getActiveToken: () => sessionRef.current?.token,
-      renew: (token) => authApi.renewSession(token),
+      renew: (token) => authApi.renewSession(token, session.authProvider),
       onRenewed: (renewed) => {
         setSession((current) => current?.token === session.token
-          ? applyOperationalScopeToSession(renewed, current.operationalScope ?? null)
+          ? applyOperationalScopeToSession({
+              ...renewed,
+              authProvider: renewed.authProvider ?? current.authProvider,
+            }, current.operationalScope ?? null)
           : current);
       },
       logout: (token) => logout(token),
@@ -850,24 +856,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         replacement.currentStore.id !== previousSession.currentStore.id ||
         replacement.registerId !== previousSession.registerId
       ) {
-        await authApi.logout(replacement.token).catch(() => undefined);
+        await authApi.logout(replacement.token, replacement.authProvider).catch(() => undefined);
         return false;
       }
       try {
-        await authApi.logout(previousSession.token);
+        await authApi.logout(previousSession.token, previousSession.authProvider);
       } catch {
-        await authApi.logout(replacement.token).catch(() => undefined);
+        await authApi.logout(replacement.token, replacement.authProvider).catch(() => undefined);
         return false;
       }
       const scopedReplacement = applyOperationalScopeToSession(replacement, activeScope ?? null);
-      writePersistedSession(sessionStorage, scopedReplacement.token);
+      writePersistedSession(sessionStorage, scopedReplacement.token, scopedReplacement.authProvider);
       sessionRef.current = scopedReplacement;
       setSession(scopedReplacement);
       setIsLocked(false);
       lastActivityRef.current = Date.now();
       return true;
     } catch {
-      if (replacement) await authApi.logout(replacement.token).catch(() => undefined);
+      if (replacement) await authApi.logout(replacement.token, replacement.authProvider).catch(() => undefined);
       return false;
     }
   };
@@ -1031,7 +1037,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
     const updatedSession = { ...session, currentUser: updatedUser };
     setSession(updatedSession);
-    writePersistedSession(sessionStorage, updatedSession.token);
+    writePersistedSession(sessionStorage, updatedSession.token, updatedSession.authProvider);
   };
 
   const updateRolePermissions = (role: Role, perms: Permission[]) => {
@@ -1045,7 +1051,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         currentUser: { ...session.currentUser, permissions: perms },
       };
       setSession(updatedSession);
-      writePersistedSession(sessionStorage, updatedSession.token);
+      writePersistedSession(sessionStorage, updatedSession.token, updatedSession.authProvider);
     }
   };
 
@@ -1064,7 +1070,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         currentUser: { ...session.currentUser, permissions: defaults[session.currentUser.role] },
       };
       setSession(updatedSession);
-      writePersistedSession(sessionStorage, updatedSession.token);
+      writePersistedSession(sessionStorage, updatedSession.token, updatedSession.authProvider);
     }
   };
 
