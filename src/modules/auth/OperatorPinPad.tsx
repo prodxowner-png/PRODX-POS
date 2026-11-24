@@ -1,5 +1,15 @@
 import React, { useEffect } from 'react';
-import { KeyRound, Lock, Fingerprint, QrCode, UserRound, ArrowRight, X, Loader2, ScanFace, Zap } from 'lucide-react';
+import {
+  Grid2X2,
+  Delete,
+  ArrowRight,
+  UserRound,
+  QrCode,
+  Fingerprint,
+  Loader2,
+  ScanFace,
+  Zap,
+} from 'lucide-react';
 import { useSound } from '../../context/SoundContext';
 import { PasskeyCredentialRecord } from '../../services/webauthnService';
 
@@ -38,16 +48,11 @@ export const OperatorPinPad: React.FC<OperatorPinPadProps> = ({
   activePasskey,
   onQuickBiometricSignIn,
 }) => {
-  const { playClick, playSuccess, playCriticalAlert } = useSound();
+  const { playClick } = useSound();
 
   const handleDigitPress = (digit: string) => {
     playClick();
     onPinInput(digit);
-  };
-
-  const handleClearPress = () => {
-    playClick();
-    onPinClear();
   };
 
   const handleDeletePress = () => {
@@ -97,178 +102,148 @@ export const OperatorPinPad: React.FC<OperatorPinPadProps> = ({
   }, [terminalReady, pin, onPinInput, onPinDelete, onSubmit, onPinClear, playClick]);
 
   return (
-    <div className="space-y-3">
-      {/* Quick Sign-In (WebAuthn / Passkeys) to bypass PIN */}
-      {hasRegisteredBiometrics && onQuickBiometricSignIn && (
-        <div className="space-y-2 pb-1">
-          <button
-            type="button"
-            id="quick-sign-in-btn"
-            disabled={!terminalReady || isLoading || isBiometricVerifying}
-            onClick={() => {
-              playClick();
-              onQuickBiometricSignIn();
-            }}
-            className="w-full relative group overflow-hidden rounded-2xl border-2 border-brand-border-strong bg-brand-primary hover:bg-brand-primary-hover text-brand-primary-text p-3 sm:p-3.5 transition-all shadow-md shadow-brand-primary/20 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2 active:scale-[0.99]"
-            aria-label={isThai ? 'เข้าสู่ระบบด่วนด้วยชีวมิติ (ข้ามการกด PIN)' : 'Quick Sign-In with biometrics (Bypass PIN)'}
-          >
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <div className="h-10 w-10 rounded-xl bg-cta text-cta-text flex items-center justify-center shrink-0 shadow-sm shadow-cta/30 group-hover:scale-105 transition-transform">
-                  {isBiometricVerifying ? (
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                  ) : activePasskey?.authenticatorType === 'face_id' ? (
-                    <ScanFace className="w-5 h-5" />
-                  ) : (
-                    <Fingerprint className="w-5 h-5" />
-                  )}
-                </div>
-                <div className="text-left min-w-0">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="text-xs font-black tracking-tight text-white flex items-center gap-1">
-                      <Zap className="w-3.5 h-3.5 text-cta fill-cta" />
-                      <span>{isThai ? 'เข้าสู่ระบบด่วน' : 'Quick Sign-In'}</span>
-                    </span>
-                    <span className="rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-1.5 py-0.2 text-[9px] font-mono font-bold uppercase tracking-wider">
-                      FIDO2
-                    </span>
-                  </div>
-                  <div className="text-[11px] text-slate-300 truncate">
-                    {activePasskey
-                      ? `${activePasskey.userName} · ${isThai ? 'แตะสแกนข้าม PIN' : 'Touch to bypass PIN'}`
-                      : isThai
-                        ? 'สแกนลายนิ้วมือเพื่อข้ามการกด PIN'
-                        : 'Biometric scan to bypass PIN'}
-                  </div>
-                </div>
-              </div>
-              <div className="shrink-0 flex items-center gap-1 text-xs font-black text-cta group-hover:text-white transition-colors">
-                <span className="hidden xs:inline">{isThai ? 'สแกน' : 'Scan'}</span>
-                <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
-              </div>
-            </div>
-          </button>
-
-          <div className="relative py-1 flex items-center justify-center">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-brand-border" />
-            </div>
-            <div className="relative bg-brand-surface px-2.5 text-[10px] font-black uppercase tracking-wider text-brand-text-secondary">
-              {isThai ? 'หรือ กดรหัส PIN 6 หลัก' : 'Or Enter 6-Digit PIN'}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* PIN Dots */}
-      <div className="flex justify-center gap-3 py-1">
-        {[0, 1, 2, 3, 4, 5].map((i) => (
-          <div
-            key={i}
-            className={`w-10 h-12 sm:w-11 sm:h-13 rounded-2xl border-2 flex items-center justify-center transition-all duration-300 ${
-              pin.length > i
-                ? 'border-cta bg-cta-subtle text-cta scale-105 shadow-md shadow-cta/20'
-                : 'border-brand-border bg-brand-surface-muted'
-            }`}
-          >
-            {pin.length > i ? <div className="w-3.5 h-3.5 rounded-full bg-cta animate-pulse" /> : null}
-          </div>
-        ))}
+    <div className="space-y-4">
+      {/* 6 Circular PIN Indicator Dots */}
+      <div
+        className="flex justify-center items-center gap-3.5 sm:gap-4 py-2"
+        role="status"
+        aria-label={isThai ? `กรอกรหัส PIN แล้ว ${pin.length} จาก 6 หลัก` : `${pin.length} of 6 PIN digits entered`}
+      >
+        {[0, 1, 2, 3, 4, 5].map((i) => {
+          const isFilled = pin.length > i;
+          return (
+            <div
+              key={i}
+              className={`w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full transition-all duration-200 ${
+                isFilled
+                  ? 'bg-[#F97316] border-2 border-[#F97316] shadow-sm shadow-orange-500/40 scale-110'
+                  : 'bg-white/80 border-2 border-[#CBD5E1]'
+              }`}
+            />
+          );
+        })}
       </div>
 
-      {/* Numpad Grid */}
-      <div className="grid grid-cols-3 gap-2 max-w-[340px] mx-auto py-1">
+      {/* Tactile Keypad Grid (3 columns x 4 rows) */}
+      <div className="grid grid-cols-3 gap-2.5 max-w-[340px] mx-auto py-1">
         {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((digit) => (
           <button
             type="button"
             key={digit}
             disabled={!terminalReady || isLoading}
             onClick={() => handleDigitPress(digit.toString())}
-            className="h-12 sm:h-13 rounded-2xl bg-brand-surface border-2 border-brand-border text-lg font-black text-brand-text hover:border-cta hover:bg-cta-subtle hover:text-cta active:scale-95 focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2 transition-all flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-xs select-none"
+            aria-label={`Digit ${digit}`}
+            className="h-13 sm:h-14 rounded-2xl bg-white border border-[#E2E8F0] text-2xl font-black text-[#183D32] hover:bg-[#FFF7ED] hover:border-[#F97316]/50 active:scale-95 focus-visible:ring-2 focus-visible:ring-[#F97316] focus-visible:ring-offset-2 transition-all flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-xs select-none"
           >
             {digit}
           </button>
         ))}
+
+        {/* Row 4: Orange Backspace, 0, Orange Submit Arrow */}
         <button
           type="button"
-          disabled={!terminalReady || isLoading}
-          onClick={handleClearPress}
-          className="h-12 sm:h-13 rounded-2xl bg-brand-surface-muted border-2 border-brand-border text-brand-text-secondary font-black text-xs uppercase tracking-wider hover:bg-danger-subtle hover:text-danger hover:border-danger active:scale-95 focus-visible:ring-2 focus-visible:ring-danger focus-visible:ring-offset-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer select-none"
+          disabled={!terminalReady || isLoading || pin.length === 0}
+          onClick={handleDeletePress}
+          aria-label={isThai ? 'ลบตัวเลข PIN' : 'Backspace PIN'}
+          className="h-13 sm:h-14 rounded-2xl bg-gradient-to-br from-[#F97316] to-[#EA580C] text-white flex items-center justify-center hover:from-[#EA580C] hover:to-[#C2410C] active:scale-95 focus-visible:ring-2 focus-visible:ring-[#F97316] focus-visible:ring-offset-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-md shadow-orange-500/25 select-none"
         >
-          {isThai ? 'ล้าง' : 'Clear'}
+          <Delete className="w-6 h-6 stroke-[2.2]" />
         </button>
+
         <button
           type="button"
           disabled={!terminalReady || isLoading}
           onClick={() => handleDigitPress('0')}
-          className="h-12 sm:h-13 rounded-2xl bg-brand-surface border-2 border-brand-border text-lg font-black text-brand-text hover:border-cta hover:bg-cta-subtle hover:text-cta active:scale-95 focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-xs select-none"
+          aria-label="Digit 0"
+          className="h-13 sm:h-14 rounded-2xl bg-white border border-[#E2E8F0] text-2xl font-black text-[#183D32] hover:bg-[#FFF7ED] hover:border-[#F97316]/50 active:scale-95 focus-visible:ring-2 focus-visible:ring-[#F97316] focus-visible:ring-offset-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-xs select-none"
         >
           0
         </button>
+
         <button
           type="button"
-          disabled={!terminalReady || isLoading}
-          onClick={handleDeletePress}
-          className="h-12 sm:h-13 rounded-2xl bg-brand-surface-muted border-2 border-brand-border flex items-center justify-center text-brand-text-secondary hover:bg-brand-surface-hover hover:text-brand-text active:scale-95 focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer select-none"
+          disabled={!terminalReady || isLoading || pin.length < 4}
+          onClick={handleSubmitPress}
+          aria-label={isThai ? 'เข้าสู่ระบบด้วย PIN' : 'Submit PIN'}
+          className="h-13 sm:h-14 rounded-2xl bg-gradient-to-br from-[#F97316] to-[#EA580C] text-white flex items-center justify-center hover:from-[#EA580C] hover:to-[#C2410C] active:scale-95 focus-visible:ring-2 focus-visible:ring-[#F97316] focus-visible:ring-offset-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-md shadow-orange-500/25 select-none"
         >
-          <X className="w-5 h-5" />
+          <ArrowRight className="w-6 h-6 stroke-[2.5]" />
         </button>
       </div>
 
-      {/* Submit CTA */}
-      <div className="max-w-[340px] mx-auto space-y-3 pt-1">
-        <button
-          type="button"
-          disabled={!terminalReady || pin.length < 4 || isLoading}
-          onClick={handleSubmitPress}
-          className="w-full h-13 px-6 bg-cta text-cta-text rounded-2xl font-black text-sm flex items-center justify-center gap-2 hover:bg-cta-hover active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2 transition-all disabled:opacity-30 disabled:cursor-not-allowed shadow-md shadow-cta/30 cursor-pointer whitespace-nowrap"
-        >
-          {isLoading ? (
-            <Loader2 className="w-5 h-5 animate-spin shrink-0" />
-          ) : (
-            <span className="truncate">{isThai ? 'เข้าสู่ระบบ POS' : 'Sign in to POS Terminal'}</span>
-          )}
-        </button>
+      {/* Auth Mode Switcher ("เลือกวิธีเข้าสู่ระบบ") */}
+      <div className="max-w-[340px] mx-auto pt-2 space-y-2">
+        <div className="text-center text-xs font-bold text-[#64748B]">
+          {isThai ? 'เลือกวิธีเข้าสู่ระบบ' : 'Select Login Method'}
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          {/* PIN Tab (Active) */}
+          <button
+            type="button"
+            onClick={() => onSwitchMode('pin')}
+            className="h-10 px-2 rounded-xl bg-[#F5E1D0] border-2 border-[#F97316] text-[#183D32] text-xs font-black flex items-center justify-center gap-1.5 shadow-2xs transition-all cursor-pointer"
+          >
+            <Grid2X2 className="w-3.5 h-3.5 text-[#183D32]" />
+            <span>PIN</span>
+          </button>
 
-        {/* Secondary Navigation Options */}
-        <div className="flex items-center justify-between pt-1 text-xs font-bold text-brand-text-secondary">
+          {/* User/Password Tab */}
           <button
             type="button"
-            disabled={!terminalReady}
-            onClick={() => {
-              playClick();
-              onSwitchMode('biometric');
-            }}
-            className="hover:text-brand-primary focus-visible:ring-2 focus-visible:ring-cta rounded-lg p-1 transition-colors flex items-center gap-1 cursor-pointer"
+            onClick={() => onSwitchMode('email')}
+            className="h-10 px-2 rounded-xl bg-white border border-[#E2E8F0] text-[#64748B] hover:text-[#183D32] hover:bg-[#FFF7ED] text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer"
           >
-            <Fingerprint className="w-4 h-4 text-brand-primary" />
-            <span>{isThai ? 'ชีวมิติ' : 'Biometric'}</span>
+            <UserRound className="w-3.5 h-3.5 text-[#64748B]" />
+            <span className="truncate">{isThai ? 'ผู้ใช้ / รหัสผ่าน' : 'User / Pass'}</span>
           </button>
+
+          {/* QR Tab */}
           <button
             type="button"
-            disabled={!terminalReady}
-            onClick={() => {
-              playClick();
-              onSwitchMode('qr');
-            }}
-            className="hover:text-brand-primary focus-visible:ring-2 focus-visible:ring-cta rounded-lg p-1 transition-colors flex items-center gap-1 cursor-pointer"
+            onClick={() => onSwitchMode('qr')}
+            className="h-10 px-2 rounded-xl bg-white border border-[#E2E8F0] text-[#64748B] hover:text-[#183D32] hover:bg-[#FFF7ED] text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer"
           >
-            <QrCode className="w-4 h-4 text-brand-primary" />
-            <span>{isThai ? 'สแกน QR' : 'QR Badge'}</span>
-          </button>
-          <button
-            type="button"
-            disabled={!terminalReady}
-            onClick={() => {
-              playClick();
-              onSwitchMode('email');
-            }}
-            className="hover:text-brand-primary focus-visible:ring-2 focus-visible:ring-cta rounded-lg p-1 transition-colors flex items-center gap-1 cursor-pointer"
-          >
-            <UserRound className="w-4 h-4 text-brand-primary" />
-            <span>{isThai ? 'บัญชีพนักงาน' : 'Staff ID'}</span>
+            <QrCode className="w-3.5 h-3.5 text-[#64748B]" />
+            <span>{isThai ? 'สแกน QR' : 'Scan QR'}</span>
           </button>
         </div>
+
+        {/* Quick Biometrics if enrolled */}
+        {hasRegisteredBiometrics && onQuickBiometricSignIn && (
+          <div className="pt-1.5">
+            <button
+              type="button"
+              id="quick-sign-in-btn"
+              disabled={!terminalReady || isLoading || isBiometricVerifying}
+              onClick={() => {
+                playClick();
+                onQuickBiometricSignIn();
+              }}
+              className="w-full h-10 rounded-xl bg-[#183D32] text-white hover:bg-[#0F2A22] text-xs font-bold flex items-center justify-between px-3.5 transition-all shadow-sm cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+              aria-label={isThai ? 'เข้าสู่ระบบด่วนด้วยชีวมิติ' : 'Quick Sign-In with biometrics'}
+            >
+              <div className="flex items-center gap-2">
+                {isBiometricVerifying ? (
+                  <Loader2 className="w-4 h-4 animate-spin text-[#F97316]" />
+                ) : activePasskey?.authenticatorType === 'face_id' ? (
+                  <ScanFace className="w-4 h-4 text-[#F97316]" />
+                ) : (
+                  <Fingerprint className="w-4 h-4 text-[#F97316]" />
+                )}
+                <span>
+                  {activePasskey
+                    ? `${activePasskey.userName} · ${isThai ? 'แตะสแกนข้าม PIN' : 'Touch to bypass PIN'}`
+                    : isThai
+                      ? 'สแกนลายนิ้วมือ / Passkey'
+                      : 'Biometric Passkey'}
+                </span>
+              </div>
+              <span className="text-[10px] bg-[#F97316] text-white px-1.5 py-0.5 rounded font-black">
+                FIDO2
+              </span>
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

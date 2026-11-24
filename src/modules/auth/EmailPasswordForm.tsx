@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { UserRound, Lock, Eye, EyeOff, Loader2, KeyRound } from 'lucide-react';
+import { UserRound, Lock, Eye, EyeOff, Loader2, KeyRound, QrCode } from 'lucide-react';
 
 interface EmailPasswordFormProps {
   isThai: boolean;
@@ -29,13 +29,13 @@ export const EmailPasswordForm: React.FC<EmailPasswordFormProps> = ({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-3 max-w-[340px] mx-auto">
+    <form onSubmit={handleSubmit} className="space-y-3.5 max-w-[340px] mx-auto py-1">
       <div className="space-y-1">
-        <label htmlFor="pos-email" className="text-[11px] font-black uppercase text-brand-text-secondary cursor-pointer">
-          {isThai ? 'อีเมลบัญชีผู้ใช้' : 'Account Email'}
+        <label htmlFor="pos-email" className="text-[11px] font-black uppercase text-[#183D32] block cursor-pointer">
+          {isThai ? 'อีเมลบัญชีผู้ใช้ (Account Email)' : 'Account Email'}
         </label>
         <div className="relative">
-          <UserRound className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-text-secondary" />
+          <UserRound className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[#64748B]" />
           <input
             id="pos-email"
             name="email"
@@ -48,17 +48,17 @@ export const EmailPasswordForm: React.FC<EmailPasswordFormProps> = ({
             autoComplete="username"
             spellCheck={false}
             enterKeyHint="next"
-            className="w-full h-11 bg-brand-surface border-2 border-brand-border rounded-xl pl-9 pr-3 text-xs font-bold text-brand-text outline-none focus:border-cta focus:ring-2 focus:ring-cta/30 transition-all disabled:opacity-50"
+            className="w-full h-11 bg-white border border-[#CBD5E1] rounded-xl pl-10 pr-3 text-xs font-bold text-[#183D32] outline-none focus:border-[#F97316] focus:ring-2 focus:ring-[#F97316]/30 transition-all disabled:opacity-50"
           />
         </div>
       </div>
 
       <div className="space-y-1">
-        <label htmlFor="pos-password" className="text-[11px] font-black uppercase text-brand-text-secondary cursor-pointer">
-          {isThai ? 'รหัสผ่าน' : 'Password'}
+        <label htmlFor="pos-password" className="text-[11px] font-black uppercase text-[#183D32] block cursor-pointer">
+          {isThai ? 'รหัสผ่าน (Password)' : 'Password'}
         </label>
         <div className="relative">
-          <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-text-secondary" />
+          <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[#64748B]" />
           <input
             id="pos-password"
             name="password"
@@ -70,12 +70,12 @@ export const EmailPasswordForm: React.FC<EmailPasswordFormProps> = ({
             required
             autoComplete="current-password"
             enterKeyHint="done"
-            className="w-full h-11 bg-brand-surface border-2 border-brand-border rounded-xl pl-9 pr-9 text-xs font-bold text-brand-text outline-none focus:border-cta focus:ring-2 focus:ring-cta/30 transition-all disabled:opacity-50"
+            className="w-full h-11 bg-white border border-[#CBD5E1] rounded-xl pl-10 pr-10 text-xs font-bold text-[#183D32] outline-none focus:border-[#F97316] focus:ring-2 focus:ring-[#F97316]/30 transition-all disabled:opacity-50"
           />
           <button
             type="button"
             onClick={() => setShowPassword((prev) => !prev)}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-brand-text-secondary hover:text-brand-text p-1 rounded-md focus-visible:ring-2 focus-visible:ring-cta cursor-pointer"
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-[#64748B] hover:text-[#183D32] p-1 rounded-md focus-visible:ring-2 focus-visible:ring-[#F97316] cursor-pointer"
             aria-label={showPassword ? 'Hide password' : 'Show password'}
           >
             {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -86,7 +86,7 @@ export const EmailPasswordForm: React.FC<EmailPasswordFormProps> = ({
       <button
         type="submit"
         disabled={!terminalReady || !email.trim() || !password || isLoading}
-        className="w-full h-12 px-4 bg-cta text-cta-text rounded-xl font-black text-xs flex items-center justify-center gap-2 hover:bg-cta-hover active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2 transition-all disabled:opacity-30 disabled:cursor-not-allowed shadow-md shadow-cta/20 cursor-pointer whitespace-nowrap"
+        className="w-full h-12 px-4 bg-gradient-to-br from-[#F97316] to-[#EA580C] text-white rounded-xl font-black text-xs flex items-center justify-center gap-2 hover:from-[#EA580C] hover:to-[#C2410C] active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-[#F97316] focus-visible:ring-offset-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-md shadow-orange-500/25 cursor-pointer whitespace-nowrap"
       >
         {isLoading ? (
           <Loader2 className="w-4 h-4 animate-spin shrink-0" />
@@ -95,21 +95,46 @@ export const EmailPasswordForm: React.FC<EmailPasswordFormProps> = ({
         )}
       </button>
 
-      <div className="flex items-center justify-between pt-1 text-xs font-bold text-brand-text-secondary">
-        <button
-          type="button"
-          onClick={() => onSwitchMode('pin')}
-          className="hover:text-brand-primary focus-visible:ring-2 focus-visible:ring-cta rounded-lg p-1 transition-colors cursor-pointer inline-flex items-center gap-1"
-        >
-          <KeyRound className="w-4 h-4 text-brand-primary" />
-          <span>{isThai ? 'ใช้แป้น PIN' : 'Use PIN Pad'}</span>
-        </button>
+      {/* Mode Switcher */}
+      <div className="pt-2 space-y-2">
+        <div className="text-center text-xs font-bold text-[#64748B]">
+          {isThai ? 'เลือกวิธีเข้าสู่ระบบ' : 'Select Login Method'}
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          <button
+            type="button"
+            onClick={() => onSwitchMode('pin')}
+            className="h-10 px-2 rounded-xl bg-white border border-[#E2E8F0] text-[#64748B] hover:text-[#183D32] hover:bg-[#FFF7ED] text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+          >
+            <KeyRound className="w-3.5 h-3.5 text-[#64748B]" />
+            <span>PIN</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => onSwitchMode('email')}
+            className="h-10 px-2 rounded-xl bg-[#F5E1D0] border-2 border-[#F97316] text-[#183D32] text-xs font-black flex items-center justify-center gap-1.5 shadow-2xs transition-all cursor-pointer"
+          >
+            <UserRound className="w-3.5 h-3.5 text-[#183D32]" />
+            <span className="truncate">{isThai ? 'ผู้ใช้ / รหัสผ่าน' : 'User / Pass'}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => onSwitchMode('qr')}
+            className="h-10 px-2 rounded-xl bg-white border border-[#E2E8F0] text-[#64748B] hover:text-[#183D32] hover:bg-[#FFF7ED] text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+          >
+            <QrCode className="w-3.5 h-3.5 text-[#64748B]" />
+            <span>{isThai ? 'สแกน QR' : 'Scan QR'}</span>
+          </button>
+        </div>
+      </div>
+
+      <div className="text-center pt-1">
         <button
           type="button"
           onClick={onForgotPin}
-          className="text-brand-text-secondary hover:text-brand-primary underline focus-visible:ring-2 focus-visible:ring-cta rounded-lg p-1 transition-colors cursor-pointer"
+          className="text-xs text-[#64748B] hover:text-[#F97316] underline cursor-pointer"
         >
-          {isThai ? 'ลืมรหัสผ่าน?' : 'Forgot password?'}
+          {isThai ? 'ลืมรหัสผ่านหรือ PIN?' : 'Forgot password or PIN?'}
         </button>
       </div>
     </form>

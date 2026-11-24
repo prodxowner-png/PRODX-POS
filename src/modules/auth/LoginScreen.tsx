@@ -1,19 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
-  AlertTriangle,
   Clock3,
   Globe2,
-  Lock,
-  RefreshCw,
   ShieldCheck,
-  WifiOff,
+  Sun,
   X,
+  ChevronDown,
 } from 'lucide-react';
-import { auditService } from '../../services/auditService';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { useToast } from '../../context/ToastContext';
+import { useTheme } from '../../context/ThemeContext';
 import {
   getOrganizations,
   getBranches,
@@ -23,7 +21,6 @@ import { Organization, Branch, Terminal } from '../settings/types';
 import { OperationalScope } from '../../domain/auth';
 import { OrganizationLoginContext } from '../../adapters/types';
 import { TERMINAL_SCOPE_STORAGE_KEYS } from './OrganizationSelection';
-import { ProdxVectorMark } from '../../components/common/ProdxLogo';
 import {
   checkWebAuthnCapability,
   getRegisteredPasskeys,
@@ -37,6 +34,7 @@ import { OperatorPinPad } from './OperatorPinPad';
 import { BiometricAuthPanel } from './BiometricAuthPanel';
 import { QrBadgeScannerPanel } from './QrBadgeScannerPanel';
 import { EmailPasswordForm } from './EmailPasswordForm';
+import { PosTerminalIllustration } from './PosTerminalIllustration';
 
 const BIOMETRIC_REMEMBER_STORAGE_KEY = 'prodx.auth.remember_biometrics';
 const BIOMETRIC_REMEMBER_PASSKEY_ID_KEY = 'prodx.auth.remembered_passkey_id';
@@ -64,9 +62,10 @@ export interface LoginScreenProps {
 }
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) => {
-  const { login, loginWithBiometrics, forgotPin, isLoading, operationalScope, setOperationalScope } =
+  const { login, loginWithBiometrics, isLoading, operationalScope, setOperationalScope } =
     useAuth();
   const { language, setLanguage } = useLanguage();
+  const { theme, toggleTheme } = useTheme();
   const { addToast } = useToast();
   const isThai = language === 'th';
 
@@ -85,8 +84,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
   const [terminals, setTerminals] = useState<Terminal[]>([]);
   const [isFetching, setIsFetching] = useState<boolean>(true);
   const [isInitialLoading, setIsInitialLoading] = useState<boolean>(true);
-  const [isFetchingBranches, setIsFetchingBranches] = useState<boolean>(false);
-  const [isFetchingTerminals, setIsFetchingTerminals] = useState<boolean>(false);
 
   const [pin, setPin] = useState('');
   const [loginMode, setLoginMode] = useState<'pin' | 'biometric' | 'email' | 'qr'>(() =>
@@ -109,7 +106,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
   });
   const [isBiometricVerifying, setIsBiometricVerifying] = useState<boolean>(false);
   const [isEnrollModalOpen, setIsEnrollModalOpen] = useState<boolean>(false);
-  const hasAutoInitiatedBiometricRef = useRef<boolean>(false);
 
   type LoginErrorType = 'network' | 'credentials' | 'mapping' | null;
 
@@ -131,36 +127,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
       window.dispatchEvent(new PopStateEvent('popstate'));
     }
   };
-
-  const copy = useMemo(
-    () =>
-      isThai
-        ? {
-            eyebrow: 'PRODX POS · OPERATOR CONSOLE',
-            title: 'พร้อมเริ่มกะการขาย',
-            subtitle: 'ยืนยันตัวตนพนักงานแคชเชียร์เพื่อเปิดใช้งานเครื่อง POS',
-            signIn: 'เข้าสู่ระบบพนักงาน POS',
-            organization: 'องค์กร',
-            store: 'สาขา',
-            register: 'เครื่องขาย POS',
-            verified: 'Secure Enterprise Login',
-            language: 'English',
-            adminLoginBtn: 'Admin Login',
-          }
-        : {
-            eyebrow: 'PRODX POS · OPERATOR CONSOLE',
-            title: 'Ready for your shift',
-            subtitle: 'Authenticate cashier operator to access POS terminal.',
-            signIn: 'Sign in to POS Terminal',
-            organization: 'Organization',
-            store: 'Store Branch',
-            register: 'POS Terminal',
-            verified: 'Secure Enterprise Login',
-            language: 'ไทย',
-            adminLoginBtn: 'Admin Login',
-          },
-    [isThai],
-  );
 
   const selectedOrganization = useMemo(
     () => orgs.find((o) => o.id === selectedOrgId || o.slug === selectedOrgId) ?? null,
@@ -477,203 +443,232 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
   );
 
   return (
-    <main className="h-[100svh] w-screen overflow-hidden bg-brand-bg text-brand-text font-sans flex flex-col lg:grid lg:grid-cols-[40%_60%]">
-      {/* Visual Sidebar */}
-      <section className="relative hidden overflow-hidden bg-brand-primary text-brand-primary-text lg:flex flex-col justify-between p-10 border-r border-brand-border/40">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(232,137,74,0.18),transparent_42%),radial-gradient(circle_at_80%_80%,rgba(15,42,34,0.38),transparent_42%)]" />
-        <div className="relative z-10 flex items-center gap-4">
-          <ProdxVectorMark size={48} className="shadow-2xl rounded-2xl" />
-          <div>
-            <div className="text-2xl font-black tracking-tighter">
-              PRODX<span className="font-light text-slate-300">POS</span>
-            </div>
-            <div className="text-[10px] font-bold uppercase tracking-[0.3em] text-brand-gold-500">
-              Enterprise POS Engine
-            </div>
-          </div>
-        </div>
+    <main className="min-h-[100svh] w-screen overflow-x-hidden bg-[#FAF5EE] text-[#183D32] font-sans flex flex-col justify-center items-center p-3 sm:p-6 lg:p-10">
+      <div className="w-full max-w-6xl flex flex-col lg:grid lg:grid-cols-2 gap-8 lg:gap-12 items-center">
+        {/* Left Side: Desktop Visual Hero (Retail Minimart Scene) */}
+        <section className="hidden lg:flex flex-col justify-between w-full h-full min-h-[580px] p-6 xl:p-8">
+          <PosTerminalIllustration isThai={isThai} />
+        </section>
 
-        <div className="relative z-10 max-w-md my-auto space-y-4">
-          <div className="inline-flex items-center gap-2 rounded-md bg-white/10 border border-white/20 px-3 py-1">
-            <ShieldCheck className="w-3.5 h-3.5 text-brand-gold-500" />
-            <span className="text-[10px] font-bold uppercase tracking-wider text-brand-primary-text">{copy.verified}</span>
-          </div>
-          <h1 className="text-4xl xl:text-5xl font-black tracking-tight leading-tight">
-            {isThai ? 'จุดชำระเงินอัจฉริยะ' : 'High-Performance'} <br />
-            <span className="text-cta">{isThai ? 'ระดับองค์กร' : 'Retail POS Station'}</span>
-          </h1>
-          <p className="text-sm text-slate-200 leading-relaxed">
-            {isThai
-              ? 'ระบบจัดการหน้าร้านความเร็วสูง รองรับออฟไลน์ซิงค์และบันทึกความปลอดภัยระดับสูงสุด'
-              : 'Empowering enterprise retail with rapid checkout, offline resilience, and secure auditing.'}
-          </p>
-        </div>
-
-        <div className="relative z-10 pt-6 border-t border-white/15 flex items-center justify-between text-xs text-slate-300 font-bold">
-          <span>POS Terminal Operator Authentication</span>
-          <div>© PRODX POS</div>
-        </div>
-      </section>
-
-      {/* Main Zero-Scroll Authentication Panel */}
-      <section className="flex-1 flex flex-col justify-between bg-brand-surface text-brand-text overflow-hidden p-4 sm:p-6 lg:p-8">
-        <header className="flex items-center justify-between gap-2 sm:gap-4 pb-4 border-b border-brand-border shrink-0">
-          <div className="lg:hidden flex items-center gap-2 shrink-0">
-            <div className="h-8 w-8 rounded-lg bg-brand-primary text-brand-primary-text font-black flex items-center justify-center text-sm">P</div>
-            <span className="font-black text-base sm:text-lg">PRODX<span className="text-brand-primary">POS</span></span>
-          </div>
-          <div className="flex items-center gap-1.5 sm:gap-2 ml-auto shrink-0">
-            <div className="hidden sm:flex items-center gap-1.5 px-3 py-2 bg-brand-surface-muted border border-brand-border rounded-lg text-xs font-bold text-brand-text">
-              <Clock3 className="w-3.5 h-3.5 text-brand-text-secondary" />
-              <span>{clock}</span>
-            </div>
-            <button
-              type="button"
-              onClick={navigateToAdminLogin}
-              className="flex items-center gap-1.5 px-2.5 sm:px-3.5 py-2 min-h-[40px] bg-brand-primary text-brand-primary-text rounded-lg text-xs font-black hover:bg-brand-primary-hover focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2 transition-all shadow-xs cursor-pointer whitespace-nowrap"
+        {/* Right Side: Exact Reference Floating Card (#FFF7ED) */}
+        <section className="w-full flex items-center justify-center">
+          <article
+            className="relative w-full max-w-[420px] sm:max-w-[440px] rounded-[28px] sm:rounded-[32px] bg-[#FFF7ED] border border-[#F5E1D0] p-6 sm:p-7 shadow-2xl shadow-orange-950/10 overflow-hidden"
+            aria-labelledby="login-card-title"
+          >
+            {/* Top-Left Organic Decorative Orange Swoosh */}
+            <svg
+              className="absolute -top-2 -left-2 w-28 h-28 pointer-events-none z-0"
+              viewBox="0 0 120 120"
+              fill="none"
+              aria-hidden="true"
             >
-              <ShieldCheck className="w-3.5 h-3.5 text-brand-gold-500 shrink-0" />
-              <span>{copy.adminLoginBtn}</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setLanguage(isThai ? 'en' : 'th')}
-              className="flex items-center gap-1.5 px-2.5 sm:px-3.5 py-2 min-h-[40px] border-2 border-brand-border rounded-lg text-xs font-black text-brand-text hover:border-brand-border-strong focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2 cursor-pointer whitespace-nowrap"
+              <path d="M0 70 C 25 35, 50 15, 95 0 L 0 0 Z" fill="#F97316" fillOpacity="0.2" />
+              <path d="M0 50 C 20 25, 40 10, 75 0 L 0 0 Z" fill="#F97316" fillOpacity="0.38" />
+            </svg>
+
+            {/* Bottom-Right Organic Decorative Orange Swoosh */}
+            <svg
+              className="absolute -bottom-2 -right-2 w-28 h-28 pointer-events-none z-0"
+              viewBox="0 0 120 120"
+              fill="none"
+              aria-hidden="true"
             >
-              <Globe2 className="w-3.5 h-3.5 text-brand-text-secondary shrink-0" />
-              <span>{copy.language}</span>
-            </button>
-          </div>
-        </header>
+              <path d="M120 50 C 95 85, 70 105, 25 120 L 120 120 Z" fill="#F97316" fillOpacity="0.2" />
+              <path d="M120 70 C 100 95, 80 110, 45 120 L 120 120 Z" fill="#F97316" fillOpacity="0.38" />
+            </svg>
 
-        {/* Dynamic Body: Zero-Scroll Compact Layout */}
-        <div className="flex-1 flex flex-col justify-center max-w-[440px] mx-auto w-full py-4 space-y-4">
-          <div>
-            <div className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-text-accent mb-1">
-              {copy.eyebrow}
-            </div>
-            <h2 className="text-2xl font-black text-brand-text tracking-tight">{copy.title}</h2>
-            <p className="text-xs text-brand-text-secondary font-medium">{copy.subtitle}</p>
-          </div>
+            <div className="relative z-10 space-y-4">
+              {/* Top Controls: Admin link + Language + Theme Toggle */}
+              <div className="flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={navigateToAdminLogin}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-white/80 border border-[#E2E8F0] hover:border-[#183D32] text-[11px] font-black text-[#183D32] transition-all cursor-pointer shadow-2xs"
+                  aria-label="Admin Portal"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5 text-[#F97316]" />
+                  <span>Admin</span>
+                </button>
 
-          {/* Compact Terminal Scope Bar */}
-          <TerminalScopeBar
-            isThai={isThai}
-            isInitialLoading={isInitialLoading}
-            isFetching={isFetching}
-            terminalReady={terminalReady}
-            organizationContext={organizationContext}
-            selectedOrgId={selectedOrgId}
-            selectedBranchId={selectedBranchId}
-            selectedTerminalId={selectedTerminalId}
-            orgs={orgs}
-            branches={branches}
-            terminals={terminals}
-            isOrgValid={isOrgValid}
-            isBranchValid={isBranchValid}
-            isTerminalValid={isTerminalValid}
-            onOrganizationChange={handleOrganizationChange}
-            onBranchChange={handleBranchChange}
-            onTerminalChange={handleTerminalChange}
-            onSyncCatalog={loadFirestoreCatalog}
-            isExpanded={isScopeBarExpanded}
-            onToggleExpand={() => setIsScopeBarExpanded((prev) => !prev)}
-          />
+                <div className="flex items-center gap-2">
+                  {/* Language Selector Pill */}
+                  <button
+                    type="button"
+                    onClick={() => setLanguage(isThai ? 'en' : 'th')}
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-white/80 border border-[#E2E8F0] hover:border-[#183D32] text-xs font-black text-[#183D32] transition-all cursor-pointer shadow-2xs"
+                    aria-label={isThai ? 'Switch to English' : 'เปลี่ยนเป็นภาษาไทย'}
+                  >
+                    <Globe2 className="w-3.5 h-3.5 text-[#64748B]" />
+                    <span>{isThai ? 'TH' : 'EN'}</span>
+                    <ChevronDown className="w-3 h-3 text-[#64748B]" />
+                  </button>
 
-          {/* Login Error Notification Banner */}
-          {loginError && (
-            <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 flex items-start gap-2.5 text-xs text-rose-900">
-              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-              <div className="flex-1">
-                <div className="font-black">{loginError.title}</div>
-                <div>{loginError.message}</div>
+                  {/* Theme Toggle Button (Sun icon in circular beige button) */}
+                  <button
+                    type="button"
+                    onClick={toggleTheme}
+                    className="w-8 h-8 rounded-full bg-[#F5E1D0] hover:bg-[#EAD4C2] flex items-center justify-center transition-colors cursor-pointer shadow-2xs"
+                    aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+                  >
+                    <Sun className="w-4 h-4 text-[#EA580C]" />
+                  </button>
+                </div>
               </div>
-              <button type="button" onClick={() => setLoginError(null)} className="text-rose-400 hover:text-rose-600">
-                <X className="w-4 h-4" />
-              </button>
+
+              {/* Card Brand Header */}
+              <header className="text-center pt-1 pb-1">
+                <div className="flex flex-col items-center justify-center">
+                  <div className="w-12 h-12 rounded-2xl bg-[#F97316] text-white font-black text-2xl flex items-center justify-center shadow-md shadow-orange-500/25">
+                    P
+                  </div>
+                  <div className="mt-2 text-xl font-black text-[#183D32] tracking-tight">
+                    PRODX <span className="text-[#F97316]">POS</span>
+                  </div>
+                  <div className="text-[9px] font-bold uppercase tracking-[0.26em] text-[#64748B] mt-0.5">
+                    - PROFESSIONAL POS SYSTEM -
+                  </div>
+                </div>
+
+                <h2 id="login-card-title" className="text-2xl sm:text-3xl font-black text-[#183D32] tracking-tight mt-3">
+                  {isThai ? 'เข้าสู่ระบบ' : 'Sign In'}
+                </h2>
+                <p className="text-xs text-[#5A616D] font-medium mt-1">
+                  {isThai
+                    ? 'ยินดีต้อนรับสู่ระบบจัดการร้านค้า PRODX POS'
+                    : 'Welcome to PRODX POS Retail Management'}
+                </p>
+              </header>
+
+              {/* Login Error Alert */}
+              {loginError && (
+                <div className="rounded-xl border border-rose-200 bg-rose-50 p-2.5 flex items-start gap-2 text-xs text-rose-900 animate-in fade-in duration-200">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <div className="font-black">{loginError.title}</div>
+                    <div>{loginError.message}</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setLoginError(null)}
+                    aria-label="Dismiss error"
+                    className="text-rose-400 hover:text-rose-600"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+
+              {/* Authentication Mode Panel */}
+              <div>
+                {loginMode === 'pin' && (
+                  <OperatorPinPad
+                    isThai={isThai}
+                    terminalReady={terminalReady}
+                    isLoading={isLoading}
+                    pin={pin}
+                    onPinInput={handlePinInput}
+                    onPinClear={handlePinClear}
+                    onPinDelete={handlePinDelete}
+                    onSubmit={() => void performLogin(pin, pin)}
+                    onSwitchMode={(mode) => setLoginMode(mode)}
+                    onForgotPin={() => setLoginMode('email')}
+                    onTriggerScopeError={() => setIsScopeBarExpanded(true)}
+                    hasRegisteredBiometrics={enrolledPasskeys.length > 0}
+                    isBiometricVerifying={isBiometricVerifying}
+                    activePasskey={
+                      enrolledPasskeys.find((k) => k.id === selectedPasskeyId) ||
+                      enrolledPasskeys[0]
+                    }
+                    onQuickBiometricSignIn={() => void handleBiometricLogin()}
+                  />
+                )}
+
+                {loginMode === 'email' && (
+                  <EmailPasswordForm
+                    isThai={isThai}
+                    terminalReady={terminalReady}
+                    isLoading={isLoading}
+                    onSubmit={(em, pw) => void performLogin(em, pw)}
+                    onSwitchMode={(mode) => setLoginMode(mode)}
+                    onForgotPin={() => {
+                      addToast({
+                        title: 'Password Reset',
+                        message: 'Contact administrator to reset password or PIN.',
+                        type: 'info',
+                      });
+                    }}
+                  />
+                )}
+
+                {loginMode === 'qr' && (
+                  <QrBadgeScannerPanel
+                    isThai={isThai}
+                    terminalReady={terminalReady}
+                    isLoading={isLoading}
+                    onScan={(res) => {
+                      if (res?.[0]?.rawValue) {
+                        void performLogin(res[0].rawValue, res[0].rawValue);
+                      }
+                    }}
+                    onSwitchMode={(mode) => setLoginMode(mode)}
+                  />
+                )}
+
+                {loginMode === 'biometric' && (
+                  <BiometricAuthPanel
+                    isThai={isThai}
+                    terminalReady={terminalReady}
+                    isLoading={isLoading}
+                    isBiometricVerifying={isBiometricVerifying}
+                    enrolledPasskeys={enrolledPasskeys}
+                    selectedPasskeyId={selectedPasskeyId}
+                    webauthnCapability={webauthnCapability}
+                    onSelectPasskey={setSelectedPasskeyId}
+                    onScanBiometric={handleBiometricLogin}
+                    onOpenEnrollModal={() => setIsEnrollModalOpen(true)}
+                    onSwitchMode={(mode) => setLoginMode(mode)}
+                  />
+                )}
+              </div>
+
+              {/* Scope & Terminal Status Bar */}
+              <div className="pt-1">
+                <TerminalScopeBar
+                  isThai={isThai}
+                  isInitialLoading={isInitialLoading}
+                  isFetching={isFetching}
+                  terminalReady={terminalReady}
+                  organizationContext={organizationContext}
+                  selectedOrgId={selectedOrgId}
+                  selectedBranchId={selectedBranchId}
+                  selectedTerminalId={selectedTerminalId}
+                  orgs={orgs}
+                  branches={branches}
+                  terminals={terminals}
+                  isOrgValid={isOrgValid}
+                  isBranchValid={isBranchValid}
+                  isTerminalValid={isTerminalValid}
+                  onOrganizationChange={handleOrganizationChange}
+                  onBranchChange={handleBranchChange}
+                  onTerminalChange={handleTerminalChange}
+                  onSyncCatalog={loadFirestoreCatalog}
+                  isExpanded={isScopeBarExpanded}
+                  onToggleExpand={() => setIsScopeBarExpanded((prev) => !prev)}
+                />
+              </div>
+
+              {/* Card Footer Divider & Developer Attribution */}
+              <footer className="pt-2">
+                <div className="w-full border-t border-[#E2E8F0] my-2" />
+                <div className="text-[10px] sm:text-[11px] font-black tracking-[0.2em] text-[#64748B] uppercase text-center">
+                  — DEVELOPED BY THODSAWAT —
+                </div>
+              </footer>
             </div>
-          )}
-
-          {/* Operator Authentication Mode Panels */}
-          <div className="rounded-2xl border border-brand-border bg-brand-surface p-4 shadow-xs">
-            {loginMode === 'pin' && (
-              <OperatorPinPad
-                isThai={isThai}
-                terminalReady={terminalReady}
-                isLoading={isLoading}
-                pin={pin}
-                onPinInput={handlePinInput}
-                onPinClear={handlePinClear}
-                onPinDelete={handlePinDelete}
-                onSubmit={() => void performLogin(pin, pin)}
-                onSwitchMode={(mode) => setLoginMode(mode)}
-                onForgotPin={() => {
-                  setLoginMode('email');
-                }}
-                onTriggerScopeError={() => setIsScopeBarExpanded(true)}
-                hasRegisteredBiometrics={enrolledPasskeys.length > 0}
-                isBiometricVerifying={isBiometricVerifying}
-                activePasskey={
-                  enrolledPasskeys.find((k) => k.id === selectedPasskeyId) ||
-                  enrolledPasskeys[0]
-                }
-                onQuickBiometricSignIn={() => void handleBiometricLogin()}
-              />
-            )}
-
-            {loginMode === 'biometric' && (
-              <BiometricAuthPanel
-                isThai={isThai}
-                terminalReady={terminalReady}
-                isLoading={isLoading}
-                isBiometricVerifying={isBiometricVerifying}
-                enrolledPasskeys={enrolledPasskeys}
-                selectedPasskeyId={selectedPasskeyId}
-                webauthnCapability={webauthnCapability}
-                onSelectPasskey={setSelectedPasskeyId}
-                onScanBiometric={handleBiometricLogin}
-                onOpenEnrollModal={() => setIsEnrollModalOpen(true)}
-                onSwitchMode={(mode) => setLoginMode(mode)}
-              />
-            )}
-
-            {loginMode === 'qr' && (
-              <QrBadgeScannerPanel
-                isThai={isThai}
-                terminalReady={terminalReady}
-                isLoading={isLoading}
-                onScan={(res) => {
-                  if (res?.[0]?.rawValue) {
-                    void performLogin(res[0].rawValue, res[0].rawValue);
-                  }
-                }}
-                onSwitchMode={(mode) => setLoginMode(mode)}
-              />
-            )}
-
-            {loginMode === 'email' && (
-              <EmailPasswordForm
-                isThai={isThai}
-                terminalReady={terminalReady}
-                isLoading={isLoading}
-                onSubmit={(email, pass) => void performLogin(email, pass)}
-                onSwitchMode={(mode) => setLoginMode(mode)}
-                onForgotPin={() => {
-                  addToast({ title: 'Password Reset', message: 'Reset email requested.', type: 'info' });
-                }}
-              />
-            )}
-          </div>
-        </div>
-
-        <footer className="pt-3 border-t border-brand-border flex items-center justify-between text-[11px] text-brand-text-secondary font-medium shrink-0">
-          <div>PRODX POS v2.5 · Enterprise Edition</div>
-          <div className="flex items-center gap-1.5">
-            <Lock className="w-3 h-3 text-emerald-600" />
-            <span className="text-emerald-700 font-bold">Encrypted Session</span>
-          </div>
-        </footer>
-      </section>
+          </article>
+        </section>
+      </div>
 
       {/* Passkey Enrollment Modal */}
       {isEnrollModalOpen && (
