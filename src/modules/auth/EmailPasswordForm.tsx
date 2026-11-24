@@ -31,36 +31,45 @@ export const EmailPasswordForm: React.FC<EmailPasswordFormProps> = ({
   return (
     <form onSubmit={handleSubmit} className="space-y-3 max-w-[340px] mx-auto">
       <div className="space-y-1">
-        <label className="text-[11px] font-black uppercase text-brand-text-secondary">
+        <label htmlFor="pos-email" className="text-[11px] font-black uppercase text-brand-text-secondary cursor-pointer">
           {isThai ? 'อีเมลบัญชีผู้ใช้' : 'Account Email'}
         </label>
         <div className="relative">
           <UserRound className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-text-secondary" />
           <input
+            id="pos-email"
+            name="email"
             type="email"
             value={email}
             disabled={!terminalReady || isLoading}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="cashier@prodx.co"
             required
+            autoComplete="username"
+            spellCheck={false}
+            enterKeyHint="next"
             className="w-full h-11 bg-brand-surface border-2 border-brand-border rounded-xl pl-9 pr-3 text-xs font-bold text-brand-text outline-none focus:border-cta focus:ring-2 focus:ring-cta/30 transition-all disabled:opacity-50"
           />
         </div>
       </div>
 
       <div className="space-y-1">
-        <label className="text-[11px] font-black uppercase text-brand-text-secondary">
+        <label htmlFor="pos-password" className="text-[11px] font-black uppercase text-brand-text-secondary cursor-pointer">
           {isThai ? 'รหัสผ่าน' : 'Password'}
         </label>
         <div className="relative">
           <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-text-secondary" />
           <input
+            id="pos-password"
+            name="password"
             type={showPassword ? 'text' : 'password'}
             value={password}
             disabled={!terminalReady || isLoading}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="••••••••"
             required
+            autoComplete="current-password"
+            enterKeyHint="done"
             className="w-full h-11 bg-brand-surface border-2 border-brand-border rounded-xl pl-9 pr-9 text-xs font-bold text-brand-text outline-none focus:border-cta focus:ring-2 focus:ring-cta/30 transition-all disabled:opacity-50"
           />
           <button

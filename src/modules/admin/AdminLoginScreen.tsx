@@ -386,12 +386,16 @@ export const AdminLoginScreen: React.FC<AdminLoginScreenProps> = ({
 
           <form onSubmit={handleAdminLogin} className="space-y-4">
             {/* Organization Scope Selector */}
-            <label className="block">
-              <span className="text-xs font-bold text-brand-text flex items-center gap-1.5">
-                <Building2 className="h-3.5 w-3.5 text-cta" />
-                {isThai ? 'องค์กรหลักที่ต้องการจัดการ' : 'Primary Organization Scope'}
-              </span>
+            <div>
+              <label htmlFor="admin-org-scope" className="block text-xs font-bold text-brand-text cursor-pointer">
+                <span className="flex items-center gap-1.5">
+                  <Building2 className="h-3.5 w-3.5 text-cta" />
+                  {isThai ? 'องค์กรหลักที่ต้องการจัดการ' : 'Primary Organization Scope'}
+                </span>
+              </label>
               <select
+                id="admin-org-scope"
+                name="organizationScope"
                 value={selectedOrgSlug}
                 onChange={(e) => setSelectedOrgSlug(e.target.value)}
                 className="w-full h-11 sm:h-12 mt-1.5 rounded-xl bg-brand-surface border border-brand-border px-3.5 text-xs sm:text-sm font-bold text-brand-text focus:border-cta focus:ring-2 focus:ring-cta/40 outline-none"
@@ -406,34 +410,49 @@ export const AdminLoginScreen: React.FC<AdminLoginScreenProps> = ({
                   ))
                 )}
               </select>
-            </label>
+            </div>
 
             {authMode === 'credentials' ? (
               <div className="space-y-3.5">
-                <label className="block">
-                  <span className="text-xs font-bold text-brand-text flex items-center gap-1.5">
-                    <Mail className="h-3.5 w-3.5" />
-                    {isThai ? 'อีเมลผู้ดูแลระบบ (Admin Email)' : 'Administrator Email'}
-                  </span>
+                <div>
+                  <label htmlFor="admin-email" className="block text-xs font-bold text-brand-text cursor-pointer">
+                    <span className="flex items-center gap-1.5">
+                      <Mail className="h-3.5 w-3.5" />
+                      {isThai ? 'อีเมลผู้ดูแลระบบ (Admin Email)' : 'Administrator Email'}
+                    </span>
+                  </label>
                   <input
+                    id="admin-email"
+                    name="email"
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="kamkokaewthodsawat@gmail.com"
+                    required
+                    autoComplete="username"
+                    spellCheck={false}
+                    enterKeyHint="next"
                     className="w-full h-11 sm:h-12 mt-1.5 rounded-xl bg-brand-surface border border-brand-border px-4 text-sm font-bold text-brand-text placeholder:text-brand-text-muted focus:border-cta focus:ring-2 focus:ring-cta/40 outline-none"
                   />
-                </label>
-                <label className="block">
-                  <span className="text-xs font-bold text-brand-text flex items-center gap-1.5">
-                    <Lock className="h-3.5 w-3.5" />
-                    {isThai ? 'รหัสผ่าน / รหัส PIN ผู้ดูแลระบบ' : 'Admin Password / Security PIN'}
-                  </span>
+                </div>
+                <div>
+                  <label htmlFor="admin-password" className="block text-xs font-bold text-brand-text cursor-pointer">
+                    <span className="flex items-center gap-1.5">
+                      <Lock className="h-3.5 w-3.5" />
+                      {isThai ? 'รหัสผ่าน / รหัส PIN ผู้ดูแลระบบ' : 'Admin Password / Security PIN'}
+                    </span>
+                  </label>
                   <div className="relative mt-1.5">
                     <input
+                      id="admin-password"
+                      name="password"
                       type={showPassword ? 'text' : 'password'}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="Enter admin password or PIN"
+                      required
+                      autoComplete="current-password"
+                      enterKeyHint="done"
                       className="w-full h-11 sm:h-12 rounded-xl bg-brand-surface border border-brand-border pl-4 pr-12 text-sm font-bold text-brand-text placeholder:text-brand-text-muted focus:border-cta focus:ring-2 focus:ring-cta/40 outline-none"
                     />
                     <button
@@ -445,26 +464,35 @@ export const AdminLoginScreen: React.FC<AdminLoginScreenProps> = ({
                       {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
                   </div>
-                </label>
+                </div>
               </div>
             ) : (
               <div className="space-y-3.5">
-                <label className="block">
-                  <span className="text-xs font-bold text-brand-text-secondary flex items-center gap-1.5">
-                    <KeyRound className="h-3.5 w-3.5" />
-                    {isThai
-                      ? 'รหัส PIN สำหรับผู้ดูแลระบบ (รองรับหน้าจอสัมผัส POS)'
-                      : 'Administrator Security PIN (Touch POS Ready)'}
-                  </span>
+                <div>
+                  <label htmlFor="admin-pin" className="block text-xs font-bold text-brand-text-secondary cursor-pointer">
+                    <span className="flex items-center gap-1.5">
+                      <KeyRound className="h-3.5 w-3.5" />
+                      {isThai
+                        ? 'รหัส PIN สำหรับผู้ดูแลระบบ (รองรับหน้าจอสัมผัส POS)'
+                        : 'Administrator Security PIN (Touch POS Ready)'}
+                    </span>
+                  </label>
                   <input
+                    id="admin-pin"
+                    name="pin"
                     type="password"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    autoComplete="current-password"
                     value={adminPin}
                     onChange={(e) => setAdminPin(e.target.value)}
                     placeholder="••••"
                     maxLength={8}
+                    required
+                    enterKeyHint="done"
                     className="w-full h-12 mt-1.5 rounded-xl bg-brand-surface border border-brand-border px-4 text-center tracking-[0.4em] text-lg font-black text-brand-text focus:border-cta outline-none"
                   />
-                </label>
+                </div>
 
                 {/* Touch-friendly Numpad for POS Screens & Tablets */}
                 <div className="grid grid-cols-3 gap-2">
