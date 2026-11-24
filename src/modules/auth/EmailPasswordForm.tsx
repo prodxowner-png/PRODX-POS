@@ -104,7 +104,7 @@ export const EmailPasswordForm: React.FC<EmailPasswordFormProps> = ({
           <button
             type="button"
             onClick={() => onSwitchMode('pin')}
-            className="h-10 px-2 rounded-xl bg-[#FFFFFF] dark:bg-[#0F172A] border border-[#E2E8F0] dark:border-[#334155] text-[#64748B] dark:text-[#94A3B8] hover:text-[#183D32] dark:hover:text-[#F8FAFC] hover:bg-[#FFF7ED] dark:hover:bg-[#1E293B] text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+            className="h-10 px-2 rounded-xl bg-[#FFFFFF] dark:bg-[#0F172A] border border-[#E2E8F0] dark:border-[#334155] text-[#64748B] dark:text-[#94A3B8] hover:text-[#183D32] dark:hover:text-[#F8FAFC] hover:bg-[#FFF7ED] dark:hover:bg-background text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer"
           >
             <KeyRound className="w-3.5 h-3.5" />
             <span>PIN</span>
@@ -120,7 +120,7 @@ export const EmailPasswordForm: React.FC<EmailPasswordFormProps> = ({
           <button
             type="button"
             onClick={() => onSwitchMode('qr')}
-            className="h-10 px-2 rounded-xl bg-[#FFFFFF] dark:bg-[#0F172A] border border-[#E2E8F0] dark:border-[#334155] text-[#64748B] dark:text-[#94A3B8] hover:text-[#183D32] dark:hover:text-[#F8FAFC] hover:bg-[#FFF7ED] dark:hover:bg-[#1E293B] text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+            className="h-10 px-2 rounded-xl bg-[#FFFFFF] dark:bg-[#0F172A] border border-[#E2E8F0] dark:border-[#334155] text-[#64748B] dark:text-[#94A3B8] hover:text-[#183D32] dark:hover:text-[#F8FAFC] hover:bg-[#FFF7ED] dark:hover:bg-background text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer"
           >
             <QrCode className="w-3.5 h-3.5" />
             <span>{isThai ? 'สแกน QR' : 'Scan QR'}</span>

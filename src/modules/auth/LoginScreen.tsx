@@ -495,7 +495,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
                   <button
                     type="button"
                     onClick={toggleTheme}
-                    className="w-8 h-8 rounded-full bg-[#F5E1D0] dark:bg-[#334155] hover:bg-[#EAD4C2] dark:hover:bg-[#475569] flex items-center justify-center transition-colors cursor-pointer shadow-2xs"
+                    className="w-8 h-8 rounded-full bg-[#F5E1D0] dark:bg-[#334155] hover:bg-[#EAD4C2] dark:hover:bg-background flex items-center justify-center transition-colors cursor-pointer shadow-2xs"
                     aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
                   >
                     {isDark ? (

@@ -126,7 +126,7 @@ export const TerminalScopeBar: React.FC<TerminalScopeBarProps> = ({
                 disabled={isFetching}
                 title={isThai ? 'ซิงค์ข้อมูลสาขา' : 'Sync Catalog'}
                 aria-label={isThai ? 'ซิงค์ข้อมูลสาขา' : 'Sync Catalog'}
-                className="p-1 rounded-lg hover:bg-[#F5E1D0] dark:hover:bg-[#1E293B] text-[#64748B] dark:text-[#94A3B8] transition-colors disabled:opacity-50 cursor-pointer"
+                className="p-1 rounded-lg hover:bg-[#F5E1D0] dark:hover:bg-background text-[#64748B] dark:text-[#94A3B8] transition-colors disabled:opacity-50 cursor-pointer"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${isFetching ? 'animate-spin text-[#F97316]' : ''}`} />
               </button>
