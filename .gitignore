@@ -8,3 +8,4 @@ coverage/
 !.env.example
 
 .private-build/
+.agents/teamwork/
