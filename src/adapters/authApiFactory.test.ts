@@ -11,6 +11,7 @@ import {
 } from './authApiFactory';
 import {
   AUTH_SESSION_STORAGE_KEY,
+  readPersistedSession,
   restoreVerifiedSession,
   writePersistedSession,
   type SessionStorageLike,
@@ -186,6 +187,18 @@ test('authApi fails closed on every IAuthApi method when unconfigured outside DE
     await assert.rejects(api.getStores('demo', 'token'), errorPattern);
     await assert.rejects(api.forgotPin('demo', 'STORE-01', '123456', 'POS-01'), errorPattern);
   }
+});
+
+test('persisted POS session keeps only the validated auth provider needed for safe renewal routing', () => {
+  const storage = createMemoryStorage();
+  writePersistedSession(storage, 'pos-pin-token', 'pin');
+  assert.deepEqual(readPersistedSession(storage), { token: 'pos-pin-token', authProvider: 'pin' });
+
+  storage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify({ token: 'pos-legacy-token', authProvider: 'admin' }));
+  assert.deepEqual(readPersistedSession(storage), { token: 'pos-legacy-token' });
+
+  storage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify({ token: 'pos-pre-metadata-token' }));
+  assert.deepEqual(readPersistedSession(storage), { token: 'pos-pre-metadata-token' });
 });
 
 // 6. Session initialization failure clears persisted session/storage and creates no bypass
