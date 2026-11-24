@@ -95,9 +95,12 @@ test('supervisor authorization works end-to-end under the real prodx_app runtime
         ('public.prodx_record_security_audit_event(uuid,uuid,uuid,text,jsonb)'::regprocedure, TRUE)
       )
       SELECT signature::text,
-             has_function_privilege('anon', signature, 'EXECUTE') AS anon,
-             has_function_privilege('authenticated', signature, 'EXECUTE') AS authenticated,
-             has_function_privilege('service_role', signature, 'EXECUTE') AS service_role,
+             CASE WHEN EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon')
+               THEN has_function_privilege('anon', signature, 'EXECUTE') ELSE FALSE END AS anon,
+             CASE WHEN EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated')
+               THEN has_function_privilege('authenticated', signature, 'EXECUTE') ELSE FALSE END AS authenticated,
+             CASE WHEN EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role')
+               THEN has_function_privilege('service_role', signature, 'EXECUTE') ELSE FALSE END AS service_role,
              has_function_privilege('prodx_app', signature, 'EXECUTE') AS prodx_app
         FROM expected ORDER BY signature::text`);
     assert.deepEqual(functionPrivileges.rows, [
