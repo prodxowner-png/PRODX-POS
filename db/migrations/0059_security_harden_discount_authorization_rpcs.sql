@@ -398,8 +398,18 @@ BEGIN
       END IF;
 
     WHEN 'SUPERVISOR_AUTHORIZATION_REQUESTED' THEN
-      v_allowed_keys := ARRAY['action', 'idempotencyKey', 'payloadHash', 'thresholdBps'];
+      v_allowed_keys := ARRAY['action', 'storeId', 'idempotencyKey', 'payloadHash', 'thresholdBps'];
       v_actor_must_be_requester := TRUE;
+      IF NOT (p_metadata ? 'storeId')
+         OR pg_catalog.jsonb_typeof(p_metadata->'storeId') IS DISTINCT FROM 'string'
+         OR (p_metadata->>'storeId') !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' THEN
+        RAISE EXCEPTION 'security audit store is required for discount authorization request'
+          USING ERRCODE = '22023';
+      END IF;
+      IF (p_metadata->>'storeId')::uuid IS DISTINCT FROM v_context_store THEN
+        RAISE EXCEPTION 'security audit store does not match authenticated store'
+          USING ERRCODE = '42501';
+      END IF;
       v_idempotency_key := p_metadata->>'idempotencyKey';
       v_checkout_hash := p_metadata->>'payloadHash';
       IF v_action IS DISTINCT FROM 'discount'
