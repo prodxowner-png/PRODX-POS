@@ -10,7 +10,7 @@ Options:
   --target <url>               Target PostgreSQL URL (default: $TARGET_DATABASE_URL)
   --report <path>              Optional file path to write sanitized JSON drill report
   --docker-container <name>    Optional Docker container running PostgreSQL (default: $PG_DOCKER_CONTAINER)
-  --require-all-force-rls      Require all 37 RLS tables, all 3 FORCE RLS tables, and all 5 immutable triggers
+  (Guard counts follow applied migrations: 36/1/4 baseline; 37/2/5 when 0062 is applied)
   --allow-non-local            Explicitly allow non-local database hosts (unsafe for production)
   -h, --help                   Show this help message
 EOF
@@ -21,7 +21,6 @@ TARGET_URL="${TARGET_DATABASE_URL:-}"
 REPORT_PATH=""
 DOCKER_CONTAINER="${PG_DOCKER_CONTAINER:-}"
 ALLOW_NON_LOCAL="${PRODX_DRILL_ALLOW_NON_LOCAL:-false}"
-REQUIRE_ALL_FORCE_RLS="${PRODX_DRILL_REQUIRE_ALL_FORCE_RLS:-false}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -40,10 +39,6 @@ while [[ $# -gt 0 ]]; do
     --docker-container)
       DOCKER_CONTAINER="${2:-}"
       shift 2
-      ;;
-    --require-all-force-rls)
-      REQUIRE_ALL_FORCE_RLS="true"
-      shift
       ;;
     --allow-non-local)
       ALLOW_NON_LOCAL="true"
@@ -193,9 +188,14 @@ now_ms() {
   fi
 }
 
-# Detect whether migration 0062 (prodx_payment_webhook_events) is present in source
-HAS_0062="$(psql_scalar "${EXEC_SOURCE_URL}" "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'prodx_payment_webhook_events';")"
-SOURCE_FORCE_RLS_COUNT="$(psql_scalar "${EXEC_SOURCE_URL}" "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname IN ('prodx_discount_policies','prodx_supervisor_authorizations','prodx_payment_webhook_events') AND c.relforcerowsecurity IS TRUE;")"
+# Detect migration 0062 from the authoritative migration ledger, not a manually-created table.
+HAS_0062="$(psql_scalar "${EXEC_SOURCE_URL}" "SELECT count(*) FROM public.prodx_schema_migrations WHERE version = '0062_payment_webhook_inbox_and_discount_force_rls';")"
+WEBHOOK_TABLE_EXISTS="$(psql_scalar "${EXEC_SOURCE_URL}" "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'prodx_payment_webhook_events';")"
+if [[ "${HAS_0062}" -ne "${WEBHOOK_TABLE_EXISTS}" ]]; then
+  echo "ERROR: Migration 0062 ledger state and prodx_payment_webhook_events table presence do not match." >&2
+  exit 1
+fi
+SOURCE_FORCE_RLS_COUNT="$(psql_scalar "${EXEC_SOURCE_URL}" "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname IN ('prodx_discount_policies','prodx_payment_webhook_events') AND c.relforcerowsecurity IS TRUE;")"
 
 # 1. Dump source database
 DUMP_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -254,7 +254,7 @@ fi
 BASELINE_RLS_TABLES_SQL="'prodx_organizations','prodx_stores','prodx_users','prodx_user_credentials','prodx_roles','prodx_role_permissions','prodx_store_memberships','prodx_user_roles','prodx_devices','prodx_sessions','prodx_security_audit_events','prodx_categories','prodx_products','prodx_registers','prodx_shifts','prodx_orders','prodx_order_items','prodx_payments','prodx_inventory_ledger','prodx_cash_movements','prodx_audit_log','prodx_refunds','prodx_refund_items','prodx_payment_attempts','prodx_supervisor_authorizations','prodx_shift_operations','prodx_voids','prodx_inventory_adjustments','prodx_timeclock_credentials','prodx_timeclock_records','prodx_timeclock_operations','prodx_timeclock_auth_attempts','prodx_catalog_pricing_operations','prodx_catalog_import_operations','prodx_tasks','prodx_discount_policies'"
 ALL_37_RLS_TABLES_SQL="${BASELINE_RLS_TABLES_SQL},'prodx_payment_webhook_events'"
 
-if [[ "${HAS_0062}" -eq 1 || "${REQUIRE_ALL_FORCE_RLS}" == "true" ]]; then
+if [[ "${HAS_0062}" -eq 1 ]]; then
   EXPECTED_RLS_COUNT=37
   RLS_QUERY_LIST="${ALL_37_RLS_TABLES_SQL}"
 else
@@ -268,23 +268,24 @@ if [[ "${RLS_ENABLED_COUNT}" -ne "${EXPECTED_RLS_COUNT}" ]]; then
   exit 1
 fi
 
-FORCE_RLS_ENABLED_COUNT="$(psql_scalar "${EXEC_TARGET_URL}" "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname IN ('prodx_discount_policies','prodx_supervisor_authorizations','prodx_payment_webhook_events') AND c.relforcerowsecurity IS TRUE;")"
+FORCE_RLS_ENABLED_COUNT="$(psql_scalar "${EXEC_TARGET_URL}" "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname IN ('prodx_discount_policies','prodx_payment_webhook_events') AND c.relforcerowsecurity IS TRUE;")"
 if [[ "${FORCE_RLS_ENABLED_COUNT}" -ne "${SOURCE_FORCE_RLS_COUNT}" ]]; then
   echo "ERROR: FORCE ROW LEVEL SECURITY table count mismatch between source (${SOURCE_FORCE_RLS_COUNT}) and target (${FORCE_RLS_ENABLED_COUNT})." >&2
   exit 1
 fi
 
-if [[ "${HAS_0062}" -eq 1 || "${REQUIRE_ALL_FORCE_RLS}" == "true" ]]; then
-  EXPECTED_FORCE_RLS_COUNT=3
+if [[ "${HAS_0062}" -eq 1 ]]; then
+  EXPECTED_FORCE_RLS_COUNT=2
 else
-  EXPECTED_FORCE_RLS_COUNT="${SOURCE_FORCE_RLS_COUNT}"
-  if [[ "${EXPECTED_FORCE_RLS_COUNT}" -lt 1 ]]; then
-    EXPECTED_FORCE_RLS_COUNT=1
-  fi
+  EXPECTED_FORCE_RLS_COUNT=1
 fi
 
+FORCE_RLS_EXPECTED_UNIT="tables"
+if [[ "${EXPECTED_FORCE_RLS_COUNT}" -eq 1 ]]; then
+  FORCE_RLS_EXPECTED_UNIT="table"
+fi
 if [[ "${FORCE_RLS_ENABLED_COUNT}" -ne "${EXPECTED_FORCE_RLS_COUNT}" ]]; then
-  echo "ERROR: Expected ${EXPECTED_FORCE_RLS_COUNT} tables with FORCE ROW LEVEL SECURITY enabled after restore, found ${FORCE_RLS_ENABLED_COUNT}." >&2
+  echo "ERROR: Expected ${EXPECTED_FORCE_RLS_COUNT} ${FORCE_RLS_EXPECTED_UNIT} with FORCE ROW LEVEL SECURITY enabled after restore, found ${FORCE_RLS_ENABLED_COUNT}." >&2
   exit 1
 fi
 
@@ -294,22 +295,22 @@ if [[ "${DISCOUNT_FORCE_RLS}" -ne 1 ]]; then
   exit 1
 fi
 
-if [[ "${HAS_0062}" -eq 1 || "${REQUIRE_ALL_FORCE_RLS}" == "true" ]]; then
+if [[ "${HAS_0062}" -eq 1 ]]; then
   EXPECTED_IMMUTABLE_TRIGGER_COUNT=5
-  IMMUTABLE_TRIGGER_VALUES="('prodx_audit_log_immutable_guard'),('prodx_security_audit_events_immutable_guard'),('prodx_refund_immutable_guard'),('prodx_void_immutable_guard'),('prodx_payment_webhook_events_no_delete_guard')"
+  IMMUTABLE_TRIGGER_VALUES="('prodx_audit_log_immutable_guard','prodx_audit_log'),('prodx_security_audit_events_immutable_guard','prodx_security_audit_events'),('prodx_refund_immutable_guard','prodx_refunds'),('prodx_void_immutable_guard','prodx_voids'),('prodx_payment_webhook_events_no_delete_guard','prodx_payment_webhook_events')"
 else
   EXPECTED_IMMUTABLE_TRIGGER_COUNT=4
-  IMMUTABLE_TRIGGER_VALUES="('prodx_audit_log_immutable_guard'),('prodx_security_audit_events_immutable_guard'),('prodx_refund_immutable_guard'),('prodx_void_immutable_guard')"
+  IMMUTABLE_TRIGGER_VALUES="('prodx_audit_log_immutable_guard','prodx_audit_log'),('prodx_security_audit_events_immutable_guard','prodx_security_audit_events'),('prodx_refund_immutable_guard','prodx_refunds'),('prodx_void_immutable_guard','prodx_voids')"
 fi
 
-IMMUTABLE_TRIGGER_COUNT="$(psql_scalar "${EXEC_TARGET_URL}" "SELECT count(*) FROM (VALUES ${IMMUTABLE_TRIGGER_VALUES}) AS expected(tgname) WHERE EXISTS (SELECT 1 FROM pg_trigger t WHERE t.tgname = expected.tgname AND NOT t.tgisinternal AND t.tgenabled IN ('O', 'A'));")"
+IMMUTABLE_TRIGGER_COUNT="$(psql_scalar "${EXEC_TARGET_URL}" "SELECT count(*) FROM (VALUES ${IMMUTABLE_TRIGGER_VALUES}) AS expected(tgname, relname) WHERE EXISTS (SELECT 1 FROM pg_trigger t JOIN pg_class rel ON rel.oid = t.tgrelid JOIN pg_namespace n ON n.oid = rel.relnamespace WHERE n.nspname = 'public' AND t.tgname = expected.tgname AND rel.relname = expected.relname AND NOT t.tgisinternal AND t.tgenabled IN ('O', 'A'));" )"
 if [[ "${IMMUTABLE_TRIGGER_COUNT}" -ne "${EXPECTED_IMMUTABLE_TRIGGER_COUNT}" ]]; then
   echo "ERROR: Expected ${EXPECTED_IMMUTABLE_TRIGGER_COUNT} append-only immutability triggers enabled after restore, found ${IMMUTABLE_TRIGGER_COUNT}." >&2
   exit 1
 fi
 
 RLS_VERIFIED_TABLES_JSON="$(psql_scalar "${EXEC_TARGET_URL}" "SELECT COALESCE(json_agg(c.relname ORDER BY c.relname)::text, '[]') FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname IN (${RLS_QUERY_LIST}) AND c.relrowsecurity IS TRUE;")"
-FORCE_RLS_VERIFIED_TABLES_JSON="$(psql_scalar "${EXEC_TARGET_URL}" "SELECT COALESCE(json_agg(c.relname ORDER BY c.relname)::text, '[]') FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname IN ('prodx_discount_policies','prodx_supervisor_authorizations','prodx_payment_webhook_events') AND c.relforcerowsecurity IS TRUE;")"
+FORCE_RLS_VERIFIED_TABLES_JSON="$(psql_scalar "${EXEC_TARGET_URL}" "SELECT COALESCE(json_agg(c.relname ORDER BY c.relname)::text, '[]') FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname IN ('prodx_discount_policies','prodx_payment_webhook_events') AND c.relforcerowsecurity IS TRUE;")"
 
 # 4. Verify row count parity across key domain tables
 TABLES=(
@@ -326,7 +327,7 @@ TABLES=(
   prodx_supervisor_authorizations
 )
 
-if [[ "${HAS_0062}" -eq 1 || "${REQUIRE_ALL_FORCE_RLS}" == "true" ]]; then
+if [[ "${HAS_0062}" -eq 1 ]]; then
   TABLES+=(prodx_payment_webhook_events)
 fi
 

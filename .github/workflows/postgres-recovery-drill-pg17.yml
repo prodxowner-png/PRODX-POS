@@ -1,0 +1,60 @@
+name: PostgreSQL 17 Backup & Restore Integration Gate
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/postgres-recovery-drill.yml"
+      - ".github/workflows/postgres-recovery-drill-pg17.yml"
+      - "db/migrations/**"
+      - "docs/operations/postgres-backup-recovery.md"
+      - "scripts/verify-postgres-backup-restore.sh"
+      - "server/db/postgres-recovery-drill.test.ts"
+      - "server/db/test-database-guard.ts"
+      - "package.json"
+      - "package-lock.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  postgres-17-recovery-drill:
+    name: Disposable PostgreSQL 17 dump/restore integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: drill
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: drill_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U drill -d drill_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://drill@127.0.0.1:5432/drill_test
+      NODE_ENV: test
+      PRODX_DR_TEST_PG17: "1"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.12.0
+          cache: npm
+
+      - name: Pin npm toolchain
+        run: npm install --global npm@11.21.2
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Run PostgreSQL 17 backup/restore integration
+        run: node --import tsx --test --test-concurrency=1 server/db/postgres-recovery-drill.test.ts

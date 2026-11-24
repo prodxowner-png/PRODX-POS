@@ -4,8 +4,9 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 import { Pool } from 'pg';
+import { assertDisposableTestDatabaseUrl } from './test-database-guard';
 
-const EXPECTED_37_TENANT_SENSITIVE_RLS_TABLES = [
+const EXPECTED_36_TENANT_SENSITIVE_RLS_TABLES = [
   'prodx_audit_log',
   'prodx_cash_movements',
   'prodx_catalog_import_operations',
@@ -19,7 +20,6 @@ const EXPECTED_37_TENANT_SENSITIVE_RLS_TABLES = [
   'prodx_orders',
   'prodx_organizations',
   'prodx_payment_attempts',
-  'prodx_payment_webhook_events',
   'prodx_payments',
   'prodx_products',
   'prodx_refund_items',
@@ -45,60 +45,76 @@ const EXPECTED_37_TENANT_SENSITIVE_RLS_TABLES = [
   'prodx_voids',
 ] as const;
 
-const EXPECTED_3_FORCE_RLS_TABLES = [
-  'prodx_discount_policies',
+const EXPECTED_37_TENANT_SENSITIVE_RLS_TABLES = [
+  ...EXPECTED_36_TENANT_SENSITIVE_RLS_TABLES,
   'prodx_payment_webhook_events',
-  'prodx_supervisor_authorizations',
 ] as const;
 
-const EXPECTED_5_IMMUTABLE_TRIGGERS = [
+const EXPECTED_1_FORCE_RLS_TABLES = ['prodx_discount_policies'] as const;
+const EXPECTED_2_FORCE_RLS_TABLES = [
+  ...EXPECTED_1_FORCE_RLS_TABLES,
+  'prodx_payment_webhook_events',
+] as const;
+
+const EXPECTED_4_IMMUTABLE_TRIGGERS = [
   'prodx_audit_log_immutable_guard',
-  'prodx_payment_webhook_events_no_delete_guard',
   'prodx_refund_immutable_guard',
   'prodx_security_audit_events_immutable_guard',
   'prodx_void_immutable_guard',
+] as const;
+const EXPECTED_5_IMMUTABLE_TRIGGERS = [
+  ...EXPECTED_4_IMMUTABLE_TRIGGERS,
+  'prodx_payment_webhook_events_no_delete_guard',
 ] as const;
 
 const workflowPath = join(process.cwd(), '.github/workflows/postgres-recovery-drill.yml');
 const scriptPath = join(process.cwd(), 'scripts/verify-postgres-backup-restore.sh');
 const runbookPath = join(process.cwd(), 'docs/operations/postgres-backup-recovery.md');
 
-test('postgres-recovery-drill.yml verifies RLS across all 37 tenant-sensitive tables, FORCE RLS across all 3 required tables, and all 5 immutable triggers', () => {
+test('postgres-recovery-drill.yml verifies RLS across all 36 migration-backed tenant-sensitive tables, FORCE RLS across the one baseline required table, and all 4 immutable triggers', () => {
   const workflow = readFileSync(workflowPath, 'utf8');
+  const script = readFileSync(scriptPath, 'utf8');
 
-  assert.equal(EXPECTED_37_TENANT_SENSITIVE_RLS_TABLES.length, 37);
-  for (const tableName of EXPECTED_37_TENANT_SENSITIVE_RLS_TABLES) {
+  assert.equal(EXPECTED_36_TENANT_SENSITIVE_RLS_TABLES.length, 36);
+  for (const tableName of EXPECTED_36_TENANT_SENSITIVE_RLS_TABLES) {
     const escaped = tableName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const occurrences = workflow.match(new RegExp(`'${escaped}'`, 'g')) ?? [];
     assert.ok(
-      occurrences.length >= 2,
-      `Expected ${tableName} in both scalar rls_enabled_count and DO-block missing_rls_count in postgres-recovery-drill.yml (found ${occurrences.length})`,
+      occurrences.length >= 1,
+      `Expected ${tableName} in the migration-backed RLS table list in postgres-recovery-drill.yml (found ${occurrences.length})`,
     );
   }
 
-  for (const forceRlsTable of EXPECTED_3_FORCE_RLS_TABLES) {
+  for (const forceRlsTable of EXPECTED_1_FORCE_RLS_TABLES) {
     const escaped = forceRlsTable.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const occurrences = workflow.match(new RegExp(`'${escaped}'`, 'g')) ?? [];
     assert.ok(
-      occurrences.length >= 4,
-      `Expected ${forceRlsTable} in RLS and FORCE RLS checks in postgres-recovery-drill.yml (found ${occurrences.length})`,
+      occurrences.length >= 2,
+      `Expected ${forceRlsTable} in the RLS and FORCE RLS table lists in postgres-recovery-drill.yml (found ${occurrences.length})`,
     );
   }
 
-  for (const triggerName of EXPECTED_5_IMMUTABLE_TRIGGERS) {
+  assert.match(script, /rel\.oid\s*=\s*t\.tgrelid/i);
+  assert.match(script, /rel\.relname\s*=\s*expected\.relname/i);
+
+  for (const triggerName of EXPECTED_4_IMMUTABLE_TRIGGERS) {
     const escaped = triggerName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const occurrences = workflow.match(new RegExp(`'${escaped}'`, 'g')) ?? [];
     assert.ok(
-      occurrences.length >= 2,
-      `Expected ${triggerName} in scalar immutable_trigger_count and DO-block missing_trigger_count in postgres-recovery-drill.yml`,
+      occurrences.length >= 1,
+      `Expected ${triggerName} in the table-bound immutable trigger list in postgres-recovery-drill.yml`,
     );
   }
 
   assert.match(workflow, /left\(c\.relname,\s*6\)\s*=\s*'prodx_'\s*AND\s*NOT\s*c\.relrowsecurity/i);
-  assert.match(workflow, /"rlsExpectedCoreTableCount":\s*37/);
+  assert.match(workflow, /rel\.oid\s*=\s*t\.tgrelid/i);
+  assert.match(workflow, /rel\.relname\s*=\s*expected\.relname/i);
+  assert.match(workflow, /version = '0062_payment_webhook_inbox_and_discount_force_rls'/);
+  assert.match(workflow, /'prodx_payment_webhook_events_no_delete_guard','prodx_payment_webhook_events'/);
+  assert.match(workflow, /"rlsExpectedCoreTableCount":\s*\$\{rls_expected_count\}/);
   assert.match(workflow, /"unprotectedProdxTableCount":\s*0/);
-  assert.match(workflow, /"forceRlsExpectedTableCount":\s*3/);
-  assert.match(workflow, /"immutableTriggerExpectedCount":\s*5/);
+  assert.match(workflow, /"forceRlsExpectedTableCount":\s*\$\{force_rls_expected_count\}/);
+  assert.match(workflow, /"immutableTriggerExpectedCount":\s*\$\{immutable_trigger_expected_count\}/);
 });
 
 test('postgres-recovery-drill.yml deletes raw database dump in always() cleanup and uploads only sanitized JSON report', () => {
@@ -115,25 +131,25 @@ test('postgres-recovery-drill.yml deletes raw database dump in always() cleanup 
   assert.doesNotMatch(uploadSplit[1], /prodx-production\.dump/);
 });
 
-test('verify-postgres-backup-restore.sh and runbook cover all 37 RLS tables, 3 FORCE RLS tables, and 5 append-only triggers', () => {
+test('verify-postgres-backup-restore.sh and runbook cover all 36 migration-backed RLS tables, 1 FORCE RLS table, and 4 append-only triggers', () => {
   const script = readFileSync(scriptPath, 'utf8');
   const runbook = readFileSync(runbookPath, 'utf8');
 
-  for (const tableName of EXPECTED_37_TENANT_SENSITIVE_RLS_TABLES) {
+  for (const tableName of EXPECTED_36_TENANT_SENSITIVE_RLS_TABLES) {
     assert.ok(
       script.includes(`'${tableName}'`),
       `Expected scripts/verify-postgres-backup-restore.sh to verify RLS on ${tableName}`,
     );
   }
 
-  for (const forceRlsTable of EXPECTED_3_FORCE_RLS_TABLES) {
+  for (const forceRlsTable of EXPECTED_1_FORCE_RLS_TABLES) {
     assert.ok(
       script.includes(forceRlsTable) && runbook.includes(forceRlsTable),
       `Expected script and runbook to reference FORCE RLS table ${forceRlsTable}`,
     );
   }
 
-  for (const triggerName of EXPECTED_5_IMMUTABLE_TRIGGERS) {
+  for (const triggerName of EXPECTED_4_IMMUTABLE_TRIGGERS) {
     assert.ok(
       script.includes(triggerName) && runbook.includes(triggerName),
       `Expected script and runbook to reference immutable trigger ${triggerName}`,
@@ -142,7 +158,10 @@ test('verify-postgres-backup-restore.sh and runbook cover all 37 RLS tables, 3 F
 });
 
 const databaseUrl = process.env.DATABASE_URL;
-const shouldRunPgIntegration = Boolean(databaseUrl) && process.env.NODE_ENV !== 'production';
+const shouldRunPgIntegration = process.env.PRODX_DR_TEST_PG17 === '1';
+if (shouldRunPgIntegration) {
+  assertDisposableTestDatabaseUrl(databaseUrl, 'PostgreSQL 17 backup/restore integration test');
+}
 
 function replaceDatabaseName(connectionString: string, dbName: string): string {
   const parsed = new URL(connectionString);
@@ -174,8 +193,28 @@ function detectDockerContainerForDatabase(connectionString: string): string | un
   return undefined;
 }
 
+test('dedicated PostgreSQL 17 workflow runs the guarded recovery drill on a PG17 service', () => {
+  const workflow = readFileSync(join(process.cwd(), '.github/workflows/postgres-recovery-drill-pg17.yml'), 'utf8');
+  assert.match(workflow, /image:\s*postgres:17/);
+  assert.match(workflow, /PRODX_DR_TEST_PG17:\s*["']1["']/);
+  assert.match(workflow, /DATABASE_URL:.*drill_test/);
+  assert.match(workflow, /POSTGRES_HOST_AUTH_METHOD:\s*trust/);
+  assert.doesNotMatch(workflow, /POSTGRES_PASSWORD/);
+  assert.match(workflow, /node --import tsx --test --test-concurrency=1 server\/db\/postgres-recovery-drill\.test\.ts/);
+});
+
+test('PostgreSQL recovery integration is opt-in, rejects non-disposable DATABASE_URLs, and pins server version 17', () => {
+  const source = readFileSync(join(process.cwd(), 'server/db/postgres-recovery-drill.test.ts'), 'utf8');
+  assert.match(source, /PRODX_DR_TEST_PG17 === '1'/);
+  assert.match(source, /assertDisposableTestDatabaseUrl\(databaseUrl/);
+  assert.match(source, /SHOW server_version_num/);
+  assert.match(source, /execFileSync\(process\.execPath, \[\s*'--import', 'tsx', 'scripts\/migrate\.ts'/);
+  assert.match(source, /assert\.equal\(serverMajor, 17/);
+  assert.doesNotMatch(source, /CREATE TABLE IF NOT EXISTS public\.prodx_payment_webhook_events/);
+});
+
 test(
-  'PostgreSQL backup/restore drill verifies all 37 RLS tables, all 3 FORCE RLS tables, and produces a sanitized report with zero dump contents or PII',
+  'PostgreSQL backup/restore drill verifies all 36 RLS tables, the baseline FORCE RLS table, and produces a sanitized report with zero dump contents or PII',
   { skip: !shouldRunPgIntegration, timeout: 120_000 },
   async () => {
     const baseDatabaseUrl = databaseUrl!;
@@ -192,77 +231,28 @@ test(
 
     const adminPool = new Pool({ connectionString: baseDatabaseUrl, max: 1 });
     try {
+      const version = await adminPool.query<{ server_version_num: string }>('SHOW server_version_num');
+      const serverMajor = Math.floor(Number(version.rows[0]?.server_version_num) / 10000);
+      assert.equal(serverMajor, 17, 'PostgreSQL recovery/restore integration must run against PostgreSQL 17');
       await adminPool.query(`CREATE DATABASE "${sourceDbName}"`);
       await adminPool.query(`CREATE DATABASE "${targetDbName}"`);
 
       // Apply repository migrations to sourceDbName
-      execFileSync('npx', ['tsx', 'scripts/migrate.ts'], {
+      execFileSync(process.execPath, ['--import', 'tsx', 'scripts/migrate.ts'], {
         cwd: process.cwd(),
         env: { ...process.env, DATABASE_URL: sourceUrl },
         stdio: 'pipe',
       });
 
       const sourcePool = new Pool({ connectionString: sourceUrl, max: 1 });
+      let has0062 = false;
       try {
-        // Ensure 0062 payment webhook inbox table, append-only delete guard, and FORCE RLS on
-        // prodx_payment_webhook_events & prodx_supervisor_authorizations are present in the drill source DB.
-        await sourcePool.query(`
-          CREATE TABLE IF NOT EXISTS public.prodx_payment_webhook_events (
-            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            provider TEXT NOT NULL,
-            provider_event_id TEXT NOT NULL,
-            event_type TEXT NOT NULL,
-            payload_sha256 TEXT NOT NULL,
-            organization_id UUID REFERENCES public.prodx_organizations(id) ON DELETE RESTRICT,
-            store_id UUID,
-            payment_id UUID,
-            provider_reference TEXT,
-            status TEXT NOT NULL DEFAULT 'received',
-            failure_reason TEXT,
-            received_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            processed_at TIMESTAMPTZ,
-            CONSTRAINT prodx_payment_webhook_events_provider_event_unique UNIQUE (provider, provider_event_id)
-          );
-
-          CREATE OR REPLACE FUNCTION public.prodx_payment_webhook_events_no_delete()
-          RETURNS trigger
-          LANGUAGE plpgsql
-          AS $trigger$
-          BEGIN
-            RAISE EXCEPTION 'prodx_payment_webhook_events is append-only; DELETE is not permitted'
-              USING ERRCODE = '42501';
-          END;
-          $trigger$;
-
-          DROP TRIGGER IF EXISTS prodx_payment_webhook_events_no_delete_guard ON public.prodx_payment_webhook_events;
-          CREATE TRIGGER prodx_payment_webhook_events_no_delete_guard
-            BEFORE DELETE ON public.prodx_payment_webhook_events
-            FOR EACH ROW
-            EXECUTE FUNCTION public.prodx_payment_webhook_events_no_delete();
-
-          ALTER TABLE public.prodx_payment_webhook_events ENABLE ROW LEVEL SECURITY;
-          ALTER TABLE public.prodx_payment_webhook_events FORCE ROW LEVEL SECURITY;
-          DROP POLICY IF EXISTS prodx_app_tenant_isolation ON public.prodx_payment_webhook_events;
-          CREATE POLICY prodx_app_tenant_isolation ON public.prodx_payment_webhook_events
-            FOR ALL TO prodx_app
-            USING (
-              organization_id = NULLIF(current_setting('app.organization_id', true), '')::uuid
-              AND store_id = NULLIF(current_setting('app.store_id', true), '')::uuid
-            )
-            WITH CHECK (
-              organization_id = NULLIF(current_setting('app.organization_id', true), '')::uuid
-              AND store_id = NULLIF(current_setting('app.store_id', true), '')::uuid
-            );
-
-          ALTER TABLE public.prodx_supervisor_authorizations ENABLE ROW LEVEL SECURITY;
-          ALTER TABLE public.prodx_supervisor_authorizations FORCE ROW LEVEL SECURITY;
-
-          INSERT INTO public.prodx_schema_migrations(version)
-          VALUES ('0062_payment_webhook_inbox_and_discount_force_rls')
-          ON CONFLICT (version) DO NOTHING;
-        `);
-
-        // Seed synthetic PII, secrets, financial transactions, inventory ledger, supervisor auth, and webhook inbox rows
+        const migrationResult = await sourcePool.query<{ count: string }>(
+          `SELECT count(*)::text AS count FROM public.prodx_schema_migrations
+           WHERE version = '0062_payment_webhook_inbox_and_discount_force_rls'`,
+        );
+        has0062 = Number(migrationResult.rows[0]?.count ?? 0) === 1;
+        // Seed synthetic PII, secrets, financial transactions, inventory ledger, and supervisor authorization rows
         const orgId = '11111111-1111-4111-8111-111111111111';
         const storeId = '22222222-2222-4222-8222-222222222222';
         const userId = '33333333-3333-4333-8333-333333333333';
@@ -385,6 +375,20 @@ test(
           await sourcePool.query('ROLLBACK');
           throw err;
         }
+        if (has0062) {
+          await sourcePool.query(
+            `INSERT INTO public.prodx_payment_webhook_events (
+               provider, provider_event_id, event_type, payload_sha256,
+               organization_id, store_id, payment_id, provider_reference, status
+             )
+             VALUES (
+               'stripe', 'evt_secret_webhook_777', 'payment_intent.succeeded',
+               'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+               $1, $2, $3, 'pi_secret_provider_ref_123', 'processed'
+             )`,
+            [orgId, storeId, paymentId],
+          );
+        }
         await sourcePool.query(
           `INSERT INTO public.prodx_discount_policies (
              organization_id, store_id, require_supervisor_approval, max_discount_without_approval_bps, updated_by_user_id
@@ -405,18 +409,6 @@ test(
           [orgId, storeId, userId, sessionId, orderId],
         );
         await sourcePool.query(
-          `INSERT INTO public.prodx_payment_webhook_events (
-             provider, provider_event_id, event_type, payload_sha256,
-             organization_id, store_id, payment_id, provider_reference, status
-           )
-           VALUES (
-             'stripe', 'evt_secret_webhook_777', 'payment_intent.succeeded',
-             'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-             $1, $2, $3, 'pi_secret_provider_ref_123', 'processed'
-           )`,
-          [orgId, storeId, paymentId],
-        );
-        await sourcePool.query(
           `INSERT INTO public.prodx_security_audit_events (id, organization_id, user_id, event_type, metadata)
            VALUES (gen_random_uuid(), $1, $2, 'dr_pii_probe', '{"phone":"+66819998877","token":"tok_secret_session_hash_999"}'::jsonb)`,
           [orgId, userId],
@@ -433,7 +425,6 @@ test(
       const dockerContainer = detectDockerContainerForDatabase(baseDatabaseUrl);
       const args = [
         scriptPath,
-        '--require-all-force-rls',
         '--source',
         sourceUrl,
         '--target',
@@ -487,23 +478,22 @@ test(
       assert.equal(report.status, 'PASS');
       assert.ok(report.dump.bytes > 0);
       assert.equal(report.verification.unprotectedProdxTableCount, 0);
-      assert.equal(report.verification.rlsEnabledCoreTableCount, 37);
-      assert.equal(report.verification.rlsExpectedCoreTableCount, 37);
-      assert.deepEqual(
-        report.verification.rlsVerifiedTables,
-        [...EXPECTED_37_TENANT_SENSITIVE_RLS_TABLES],
-      );
-      assert.equal(report.verification.forceRlsEnabledTableCount, 3);
-      assert.equal(report.verification.forceRlsExpectedTableCount, 3);
-      assert.deepEqual(
-        report.verification.forceRlsVerifiedTables,
-        [...EXPECTED_3_FORCE_RLS_TABLES],
-      );
-      assert.equal(report.verification.immutableTriggerCount, 5);
-      assert.equal(report.verification.immutableTriggerExpectedCount, 5);
+      const expectedRlsTables = has0062
+        ? EXPECTED_37_TENANT_SENSITIVE_RLS_TABLES
+        : EXPECTED_36_TENANT_SENSITIVE_RLS_TABLES;
+      const expectedForceRlsTables = has0062 ? EXPECTED_2_FORCE_RLS_TABLES : EXPECTED_1_FORCE_RLS_TABLES;
+      const expectedImmutableTriggers = has0062 ? EXPECTED_5_IMMUTABLE_TRIGGERS : EXPECTED_4_IMMUTABLE_TRIGGERS;
+      assert.equal(report.verification.rlsEnabledCoreTableCount, expectedRlsTables.length);
+      assert.equal(report.verification.rlsExpectedCoreTableCount, expectedRlsTables.length);
+      assert.deepEqual(report.verification.rlsVerifiedTables, [...expectedRlsTables]);
+      assert.equal(report.verification.forceRlsEnabledTableCount, expectedForceRlsTables.length);
+      assert.equal(report.verification.forceRlsExpectedTableCount, expectedForceRlsTables.length);
+      assert.deepEqual(report.verification.forceRlsVerifiedTables, [...expectedForceRlsTables]);
+      assert.equal(report.verification.immutableTriggerCount, expectedImmutableTriggers.length);
+      assert.equal(report.verification.immutableTriggerExpectedCount, expectedImmutableTriggers.length);
       assert.equal(report.verification.rowCounts.prodx_supervisor_authorizations, 1);
-      assert.equal(report.verification.rowCounts.prodx_payment_webhook_events, 1);
       assert.equal(report.verification.rowCounts.prodx_discount_policies, 1);
+      if (has0062) assert.equal(report.verification.rowCounts.prodx_payment_webhook_events, 1);
       assert.equal(report.verification.reconciliation.inventoryLedgerDeltaSum, 23);
       assert.equal(report.verification.reconciliation.inventoryLedgerMismatchCount, 0);
       assert.equal(report.verification.reconciliation.ordersGrandTotalAmount, '1250.00');
@@ -524,7 +514,6 @@ test(
         '$2b$12$secretHashValueDoNotLeak',
         'tok_secret_session_hash_999',
         'grant_secret_hash_888',
-        'evt_secret_webhook_777',
         'pi_secret_provider_ref_123',
       ];
       for (const token of forbiddenTokens) {
@@ -535,11 +524,11 @@ test(
         );
       }
 
-      // Negative regression check: if FORCE RLS is removed from prodx_supervisor_authorizations, the drill must fail
+      // Negative regression check: if FORCE RLS is removed from prodx_discount_policies, the drill must fail
       const tamperPool = new Pool({ connectionString: sourceUrl, max: 1 });
       try {
         await tamperPool.query(
-          'ALTER TABLE public.prodx_supervisor_authorizations NO FORCE ROW LEVEL SECURITY',
+          'ALTER TABLE public.prodx_discount_policies NO FORCE ROW LEVEL SECURITY',
         );
       } finally {
         await tamperPool.end();
@@ -553,8 +542,8 @@ test(
             stdio: 'pipe',
           });
         },
-        /Expected 3 tables with FORCE ROW LEVEL SECURITY enabled after restore/,
-        'Drill script must fail if FORCE ROW LEVEL SECURITY is missing on prodx_supervisor_authorizations',
+        new RegExp(`Expected ${expectedForceRlsTables.length} ${expectedForceRlsTables.length === 1 ? 'table' : 'tables'} with FORCE ROW LEVEL SECURITY enabled after restore`),
+        'Drill script must fail if FORCE ROW LEVEL SECURITY is missing on prodx_discount_policies',
       );
     } finally {
       await adminPool
