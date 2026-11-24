@@ -485,7 +485,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
           <ProdxVectorMark size={48} className="shadow-2xl rounded-2xl" />
           <div>
             <div className="text-2xl font-black tracking-tighter">
-              PRODX<span className="font-light text-brand-primary-text/80">POS</span>
+              PRODX<span className="font-light text-cta">POS</span>
             </div>
             <div className="text-[10px] font-bold uppercase tracking-[0.3em] text-brand-gold-500">
               Enterprise POS Engine
@@ -516,21 +516,33 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
       </section>
 
       {/* Main Authentication Panel */}
-      <section className="flex-1 flex flex-col justify-between bg-brand-surface text-brand-text overflow-y-auto p-4 sm:p-6 lg:p-8">
-        <header className="flex items-center justify-between gap-2 sm:gap-4 pb-4 border-b border-brand-border shrink-0">
-          <div className="lg:hidden flex items-center gap-2 shrink-0">
-            <div className="h-8 w-8 rounded-lg bg-brand-primary text-brand-primary-text font-black flex items-center justify-center text-sm">P</div>
-            <span className="font-black text-base sm:text-lg">PRODX<span className="text-brand-text-accent">POS</span></span>
+      <section className="relative flex-1 flex flex-col justify-between bg-brand-surface text-brand-text overflow-y-auto overflow-x-hidden p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-6 lg:p-8">
+        {/* Subtle Forest × Orange Top Corner Ribbon Accent */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-brand-primary via-cta to-brand-gold-500 opacity-90"
+        />
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -top-20 -right-20 h-44 w-44 rounded-full bg-cta/10 blur-3xl"
+        />
+
+        <header className="relative z-10 flex items-center justify-between gap-2 sm:gap-4 pb-4 border-b border-brand-border shrink-0">
+          <div className="lg:hidden flex items-center gap-2.5 shrink-0">
+            <ProdxVectorMark size={36} className="rounded-xl shadow-xs" />
+            <span className="font-black text-base sm:text-lg tracking-tight text-brand-text">
+              PRODX <span className="text-brand-text-accent dark:text-cta">POS</span>
+            </span>
           </div>
           <div className="flex items-center gap-1.5 sm:gap-2 ml-auto shrink-0">
             <div className="hidden sm:flex items-center gap-1.5 px-3 py-2 min-h-[44px] bg-brand-surface-muted border border-brand-border rounded-lg text-xs font-bold text-brand-text">
               <Clock3 className="w-3.5 h-3.5 text-brand-text-secondary" />
-              <span className="tabular-nums">{clock}</span>
+              <span className="font-mono tabular-nums">{clock}</span>
             </div>
             <button
               type="button"
               onClick={navigateToAdminLogin}
-              className="flex items-center gap-1.5 px-2.5 sm:px-3.5 py-2 min-h-[44px] bg-brand-primary text-brand-primary-text rounded-lg text-xs font-black hover:bg-brand-primary-hover focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2 transition-all shadow-xs cursor-pointer whitespace-nowrap"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3.5 py-2 min-h-[44px] bg-brand-primary text-brand-primary-text rounded-lg text-xs font-black hover:bg-brand-primary-hover active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2 transition-all shadow-xs cursor-pointer whitespace-nowrap"
             >
               <ShieldCheck className="w-3.5 h-3.5 text-brand-gold-500 shrink-0" />
               <span>{copy.adminLoginBtn}</span>
@@ -538,7 +550,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
             <button
               type="button"
               onClick={() => setLanguage(isThai ? 'en' : 'th')}
-              className="flex items-center gap-1.5 px-2.5 sm:px-3.5 py-2 min-h-[44px] border-2 border-brand-border rounded-lg text-xs font-black text-brand-text hover:border-brand-border-strong focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2 cursor-pointer whitespace-nowrap"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3.5 py-2 min-h-[44px] border-2 border-brand-border rounded-lg text-xs font-black text-brand-text hover:border-brand-border-strong active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2 transition-all cursor-pointer whitespace-nowrap"
             >
               <Globe2 className="w-3.5 h-3.5 text-brand-text-secondary shrink-0" />
               <span>{copy.language}</span>
@@ -547,13 +559,13 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
         </header>
 
         {/* Dynamic Body: Responsive Compact Layout */}
-        <div className="flex-1 flex flex-col justify-center max-w-[440px] mx-auto w-full py-4 space-y-4">
+        <div className="relative z-10 flex-1 flex flex-col justify-center max-w-[440px] mx-auto w-full py-4 space-y-4">
           <div>
-            <div className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-text-accent mb-1">
+            <div className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-text-accent dark:text-cta mb-1">
               {copy.eyebrow}
             </div>
-            <h2 className="text-2xl font-black text-brand-text tracking-tight">{copy.title}</h2>
-            <p className="text-xs text-brand-text-secondary font-medium">{copy.subtitle}</p>
+            <h2 className="text-2xl font-black text-brand-text tracking-tight leading-snug">{copy.title}</h2>
+            <p className="text-xs text-brand-text-secondary font-medium leading-relaxed">{copy.subtitle}</p>
           </div>
 
           {/* Compact Terminal Scope Bar */}
@@ -584,10 +596,10 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
           {loginError && (
             <div
               role="alert"
-              className="rounded-xl border border-danger/40 bg-danger-subtle p-3 flex items-start gap-2.5 text-xs text-danger"
+              className="rounded-xl border border-danger/40 bg-danger-subtle p-3 flex items-start gap-2.5 text-xs text-danger-text"
             >
               <AlertCircle className="w-4 h-4 text-danger shrink-0 mt-0.5" />
-              <div className="flex-1">
+              <div className="flex-1 leading-relaxed">
                 <div className="font-black">{loginError.title}</div>
                 <div>{loginError.message}</div>
               </div>
@@ -595,7 +607,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
                 type="button"
                 onClick={() => setLoginError(null)}
                 aria-label={isThai ? 'ปิดข้อความแจ้งเตือน' : 'Dismiss error message'}
-                className="p-1 text-danger/80 hover:text-danger rounded-md focus-visible:ring-2 focus-visible:ring-danger cursor-pointer"
+                className="min-h-[44px] min-w-[44px] -my-1.5 -mr-1.5 flex items-center justify-center text-danger-text/80 hover:text-danger-text rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -674,11 +686,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
           </div>
         </div>
 
-        <footer className="pt-3 border-t border-brand-border flex items-center justify-between text-[11px] text-brand-text-secondary font-medium shrink-0">
+        <footer className="relative z-10 pt-3 border-t border-brand-border flex items-center justify-between text-[11px] text-brand-text-secondary font-medium shrink-0">
           <div>PRODX POS v2.5 · Enterprise Edition</div>
           <div className="flex items-center gap-1.5">
-            <Lock className="w-3 h-3 text-emerald-600" />
-            <span className="text-emerald-700 font-bold">Encrypted Session</span>
+            <Lock className="w-3 h-3 text-emerald-700 dark:text-emerald-400" />
+            <span className="text-emerald-800 dark:text-emerald-300 font-bold">Encrypted Session</span>
           </div>
         </footer>
       </section>
