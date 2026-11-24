@@ -90,7 +90,7 @@ const NIGHT_STATUS_TOKENS = {
   subtle: '#1b2227',
 };
 
-const NIGHT_CTA_SUBTLE = '#2f231c';
+const NIGHT_CTA_SUBTLE = 'rgba(232, 137, 74, 0.16)';
 
 const DAY_FALLBACK_SURFACES = {
   bg: '#F8FAFC',

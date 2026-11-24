@@ -35,15 +35,28 @@ test('dark mode overrides light preset surfaces and emits dark-mode status text/
   assert.equal(vars['--brand-text'], '#f2ede4');
   assert.equal(vars['--brand-cta'], '#e8894a');
   assert.equal(vars['--brand-cta-text'], '#20242b');
-  assert.equal(vars['--brand-cta-subtle'], '#2f231c');
+  assert.equal(vars['--brand-cta-subtle'], 'rgba(232, 137, 74, 0.16)');
   assert.notEqual(vars['--brand-cta-subtle'], signature.semanticTokens.ctaSubtle);
+
+  // Composite rgba(232, 137, 74, 0.16) over --brand-surface (#1b2227) and verify WCAG AA >= 4.5:1
+  const alpha = 0.16;
+  const bgR = parseInt(vars['--brand-surface'].slice(1, 3), 16);
+  const bgG = parseInt(vars['--brand-surface'].slice(3, 5), 16);
+  const bgB = parseInt(vars['--brand-surface'].slice(5, 7), 16);
+  const compHex = `#${[
+    Math.round(232 * alpha + bgR * (1 - alpha)),
+    Math.round(137 * alpha + bgG * (1 - alpha)),
+    Math.round(74 * alpha + bgB * (1 - alpha)),
+  ]
+    .map((c) => c.toString(16).padStart(2, '0'))
+    .join('')}`;
   assert.ok(
-    getContrastRatio(vars['--brand-cta'], vars['--brand-cta-subtle']) >= 4.5,
-    'Dark mode --brand-cta on --brand-cta-subtle must meet >= 4.5:1',
+    getContrastRatio(vars['--brand-cta'], compHex) >= 4.5,
+    'Dark mode --brand-cta on composited --brand-cta-subtle must meet >= 4.5:1',
   );
   assert.ok(
-    getContrastRatio(vars['--brand-text'], vars['--brand-cta-subtle']) >= 4.5,
-    'Dark mode --brand-text on --brand-cta-subtle must meet >= 4.5:1',
+    getContrastRatio(vars['--brand-text'], compHex) >= 4.5,
+    'Dark mode --brand-text on composited --brand-cta-subtle must meet >= 4.5:1',
   );
   assert.equal(vars['--brand-danger'], '#c62f2f');
 
