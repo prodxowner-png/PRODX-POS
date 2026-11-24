@@ -196,6 +196,9 @@ function detectDockerContainerForDatabase(connectionString: string): string | un
 test('dedicated PostgreSQL 17 workflow runs the guarded recovery drill on a PG17 service', () => {
   const workflow = readFileSync(join(process.cwd(), '.github/workflows/postgres-recovery-drill-pg17.yml'), 'utf8');
   assert.match(workflow, /image:\s*postgres:17/);
+  assert.match(workflow, /uses: actions\/checkout@[0-9a-f]{40}/);
+  assert.match(workflow, /uses: actions\/setup-node@[0-9a-f]{40}/);
+  assert.doesNotMatch(workflow, /uses: actions\/(?:checkout|setup-node)@v[0-9]+/);
   assert.match(workflow, /PRODX_DR_TEST_PG17:\s*["']1["']/);
   assert.match(workflow, /DATABASE_URL:.*drill_test/);
   assert.match(workflow, /POSTGRES_HOST_AUTH_METHOD:\s*trust/);
