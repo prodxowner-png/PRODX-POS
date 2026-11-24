@@ -117,11 +117,11 @@ jobs:
           migration_count="$(psql "${TARGET_DATABASE_URL}" --tuples-only --no-align --set ON_ERROR_STOP=1 \
             --command "SELECT count(*) FROM public.prodx_schema_migrations;")"
           rls_enabled_count="$(psql "${TARGET_DATABASE_URL}" --tuples-only --no-align --set ON_ERROR_STOP=1 \
-            --command "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname IN ('prodx_orders','prodx_order_items','prodx_payments','prodx_refunds','prodx_voids','prodx_shifts','prodx_cash_movements','prodx_inventory_ledger','prodx_audit_log','prodx_security_audit_events','prodx_discount_policies') AND c.relrowsecurity IS TRUE;")"
+            --command "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname IN ('prodx_organizations','prodx_stores','prodx_users','prodx_user_credentials','prodx_roles','prodx_role_permissions','prodx_store_memberships','prodx_user_roles','prodx_devices','prodx_sessions','prodx_security_audit_events','prodx_categories','prodx_products','prodx_registers','prodx_shifts','prodx_orders','prodx_order_items','prodx_payments','prodx_inventory_ledger','prodx_cash_movements','prodx_audit_log','prodx_refunds','prodx_refund_items','prodx_payment_attempts','prodx_supervisor_authorizations','prodx_shift_operations','prodx_voids','prodx_inventory_adjustments','prodx_timeclock_credentials','prodx_timeclock_records','prodx_timeclock_operations','prodx_timeclock_auth_attempts','prodx_catalog_pricing_operations','prodx_catalog_import_operations','prodx_tasks','prodx_discount_policies','prodx_payment_webhook_events') AND c.relrowsecurity IS TRUE;")"
           force_rls_enabled_count="$(psql "${TARGET_DATABASE_URL}" --tuples-only --no-align --set ON_ERROR_STOP=1 \
-            --command "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname IN ('prodx_discount_policies') AND c.relforcerowsecurity IS TRUE;")"
+            --command "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname IN ('prodx_discount_policies','prodx_supervisor_authorizations','prodx_payment_webhook_events') AND c.relforcerowsecurity IS TRUE;")"
           immutable_trigger_count="$(psql "${TARGET_DATABASE_URL}" --tuples-only --no-align --set ON_ERROR_STOP=1 \
-            --command "SELECT count(*) FROM (VALUES ('prodx_audit_log_immutable_guard'),('prodx_security_audit_events_immutable_guard'),('prodx_refund_immutable_guard'),('prodx_void_immutable_guard')) AS expected(tgname) WHERE EXISTS (SELECT 1 FROM pg_trigger t WHERE t.tgname = expected.tgname AND NOT t.tgisinternal AND t.tgenabled IN ('O', 'A'));")"
+            --command "SELECT count(*) FROM (VALUES ('prodx_audit_log_immutable_guard'),('prodx_security_audit_events_immutable_guard'),('prodx_refund_immutable_guard'),('prodx_void_immutable_guard'),('prodx_payment_webhook_events_no_delete_guard')) AS expected(tgname) WHERE EXISTS (SELECT 1 FROM pg_trigger t WHERE t.tgname = expected.tgname AND NOT t.tgisinternal AND t.tgenabled IN ('O', 'A'));")"
 
           psql "${TARGET_DATABASE_URL}" \
             --set ON_ERROR_STOP=1 <<'SQL'
@@ -129,6 +129,7 @@ jobs:
           DECLARE
             migration_count int;
             missing_rls_count int;
+            unprotected_prodx_table_count int;
             missing_force_rls_count int;
             missing_trigger_count int;
           BEGIN
@@ -140,17 +141,43 @@ jobs:
             SELECT count(*) INTO missing_rls_count
               FROM (
                 VALUES
+                  ('prodx_organizations'),
+                  ('prodx_stores'),
+                  ('prodx_users'),
+                  ('prodx_user_credentials'),
+                  ('prodx_roles'),
+                  ('prodx_role_permissions'),
+                  ('prodx_store_memberships'),
+                  ('prodx_user_roles'),
+                  ('prodx_devices'),
+                  ('prodx_sessions'),
+                  ('prodx_security_audit_events'),
+                  ('prodx_categories'),
+                  ('prodx_products'),
+                  ('prodx_registers'),
+                  ('prodx_shifts'),
                   ('prodx_orders'),
                   ('prodx_order_items'),
                   ('prodx_payments'),
-                  ('prodx_refunds'),
-                  ('prodx_voids'),
-                  ('prodx_shifts'),
-                  ('prodx_cash_movements'),
                   ('prodx_inventory_ledger'),
+                  ('prodx_cash_movements'),
                   ('prodx_audit_log'),
-                  ('prodx_security_audit_events'),
-                  ('prodx_discount_policies')
+                  ('prodx_refunds'),
+                  ('prodx_refund_items'),
+                  ('prodx_payment_attempts'),
+                  ('prodx_supervisor_authorizations'),
+                  ('prodx_shift_operations'),
+                  ('prodx_voids'),
+                  ('prodx_inventory_adjustments'),
+                  ('prodx_timeclock_credentials'),
+                  ('prodx_timeclock_records'),
+                  ('prodx_timeclock_operations'),
+                  ('prodx_timeclock_auth_attempts'),
+                  ('prodx_catalog_pricing_operations'),
+                  ('prodx_catalog_import_operations'),
+                  ('prodx_tasks'),
+                  ('prodx_discount_policies'),
+                  ('prodx_payment_webhook_events')
               ) AS expected(relname)
              WHERE NOT EXISTS (
                SELECT 1
@@ -161,12 +188,26 @@ jobs:
                   AND c.relrowsecurity IS TRUE
              );
             IF missing_rls_count > 0 THEN
-              RAISE EXCEPTION 'Expected RLS enabled on all core tenant, policy, and audit tables after restore (missing: %)', missing_rls_count;
+              RAISE EXCEPTION 'Expected RLS enabled on all 37 required tenant-sensitive tables after restore (missing: %)', missing_rls_count;
+            END IF;
+
+            SELECT count(*) INTO unprotected_prodx_table_count
+              FROM pg_class c
+              JOIN pg_namespace n ON n.oid = c.relnamespace
+             WHERE n.nspname = 'public'
+               AND c.relkind IN ('r', 'p')
+               AND left(c.relname, 6) = 'prodx_'
+               AND NOT c.relrowsecurity;
+            IF unprotected_prodx_table_count > 0 THEN
+              RAISE EXCEPTION 'Expected RLS enabled on every public.prodx_* table after restore (unprotected: %)', unprotected_prodx_table_count;
             END IF;
 
             SELECT count(*) INTO missing_force_rls_count
               FROM (
-                VALUES ('prodx_discount_policies')
+                VALUES
+                  ('prodx_discount_policies'),
+                  ('prodx_supervisor_authorizations'),
+                  ('prodx_payment_webhook_events')
               ) AS expected(relname)
              WHERE NOT EXISTS (
                SELECT 1
@@ -177,7 +218,7 @@ jobs:
                   AND c.relforcerowsecurity IS TRUE
              );
             IF missing_force_rls_count > 0 THEN
-              RAISE EXCEPTION 'Expected FORCE ROW LEVEL SECURITY enabled on prodx_discount_policies after restore (missing: %)', missing_force_rls_count;
+              RAISE EXCEPTION 'Expected FORCE ROW LEVEL SECURITY enabled on prodx_discount_policies, prodx_supervisor_authorizations, and prodx_payment_webhook_events after restore (missing: %)', missing_force_rls_count;
             END IF;
 
             SELECT count(*) INTO missing_trigger_count
@@ -186,7 +227,8 @@ jobs:
                   ('prodx_audit_log_immutable_guard'),
                   ('prodx_security_audit_events_immutable_guard'),
                   ('prodx_refund_immutable_guard'),
-                  ('prodx_void_immutable_guard')
+                  ('prodx_void_immutable_guard'),
+                  ('prodx_payment_webhook_events_no_delete_guard')
               ) AS expected(tgname)
              WHERE NOT EXISTS (
                SELECT 1
@@ -196,7 +238,7 @@ jobs:
                   AND t.tgenabled IN ('O', 'A')
              );
             IF missing_trigger_count > 0 THEN
-              RAISE EXCEPTION 'Expected append-only audit/refund/void triggers enabled after restore (missing: %)', missing_trigger_count;
+              RAISE EXCEPTION 'Expected append-only audit/refund/void/webhook triggers enabled after restore (missing: %)', missing_trigger_count;
             END IF;
           END
           $$;
@@ -223,11 +265,12 @@ jobs:
               "publicTableCount": ${public_table_count},
               "migrationCount": ${migration_count},
               "rlsEnabledCoreTableCount": ${rls_enabled_count},
-              "rlsExpectedCoreTableCount": 11,
+              "rlsExpectedCoreTableCount": 37,
+              "unprotectedProdxTableCount": 0,
               "forceRlsEnabledTableCount": ${force_rls_enabled_count},
-              "forceRlsExpectedTableCount": 1,
+              "forceRlsExpectedTableCount": 3,
               "immutableTriggerCount": ${immutable_trigger_count},
-              "immutableTriggerExpectedCount": 4
+              "immutableTriggerExpectedCount": 5
             }
           }
           EOF

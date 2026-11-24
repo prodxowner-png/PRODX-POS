@@ -10,6 +10,7 @@ Options:
   --target <url>               Target PostgreSQL URL (default: $TARGET_DATABASE_URL)
   --report <path>              Optional file path to write sanitized JSON drill report
   --docker-container <name>    Optional Docker container running PostgreSQL (default: $PG_DOCKER_CONTAINER)
+  --require-all-force-rls      Require all 37 RLS tables, all 3 FORCE RLS tables, and all 5 immutable triggers
   --allow-non-local            Explicitly allow non-local database hosts (unsafe for production)
   -h, --help                   Show this help message
 EOF
@@ -20,6 +21,7 @@ TARGET_URL="${TARGET_DATABASE_URL:-}"
 REPORT_PATH=""
 DOCKER_CONTAINER="${PG_DOCKER_CONTAINER:-}"
 ALLOW_NON_LOCAL="${PRODX_DRILL_ALLOW_NON_LOCAL:-false}"
+REQUIRE_ALL_FORCE_RLS="${PRODX_DRILL_REQUIRE_ALL_FORCE_RLS:-false}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -38,6 +40,10 @@ while [[ $# -gt 0 ]]; do
     --docker-container)
       DOCKER_CONTAINER="${2:-}"
       shift 2
+      ;;
+    --require-all-force-rls)
+      REQUIRE_ALL_FORCE_RLS="true"
+      shift
       ;;
     --allow-non-local)
       ALLOW_NON_LOCAL="true"
@@ -137,7 +143,7 @@ else
       exit 2
     fi
   done
-  WORK_DIR="$(mktemp -d)"
+  WORK_DIR="$(mktemp -d "${TMPDIR:-/var/tmp}/prodx-dr-drill.XXXXXX")"
   DUMP_FILE="${WORK_DIR}/prodx-dr-drill.dump"
 fi
 
@@ -171,6 +177,10 @@ now_ms() {
     echo "$(( $(date +%s) * 1000 ))"
   fi
 }
+
+# Detect whether migration 0062 (prodx_payment_webhook_events) is present in source
+HAS_0062="$(psql_scalar "${EXEC_SOURCE_URL}" "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'prodx_payment_webhook_events';")"
+SOURCE_FORCE_RLS_COUNT="$(psql_scalar "${EXEC_SOURCE_URL}" "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname IN ('prodx_discount_policies','prodx_supervisor_authorizations','prodx_payment_webhook_events') AND c.relforcerowsecurity IS TRUE;")"
 
 # 1. Dump source database
 DUMP_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -220,23 +230,71 @@ if [[ "${TARGET_MIGRATION_COUNT}" -lt 40 || "${TARGET_MIGRATION_COUNT}" -ne "${S
   exit 1
 fi
 
-RLS_ENABLED_COUNT="$(psql_scalar "${EXEC_TARGET_URL}" "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname IN ('prodx_orders','prodx_order_items','prodx_payments','prodx_refunds','prodx_voids','prodx_shifts','prodx_cash_movements','prodx_inventory_ledger','prodx_audit_log','prodx_security_audit_events','prodx_discount_policies') AND c.relrowsecurity IS TRUE;")"
-if [[ "${RLS_ENABLED_COUNT}" -ne 11 ]]; then
-  echo "ERROR: Expected 11 core tables with RLS enabled after restore, found ${RLS_ENABLED_COUNT}." >&2
+UNPROTECTED_PRODX_TABLES="$(psql_scalar "${EXEC_TARGET_URL}" "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relkind IN ('r','p') AND left(c.relname, 6) = 'prodx_' AND NOT c.relrowsecurity;")"
+if [[ "${UNPROTECTED_PRODX_TABLES}" -ne 0 ]]; then
+  echo "ERROR: Expected 0 unprotected public.prodx_* tables after restore, found ${UNPROTECTED_PRODX_TABLES}." >&2
   exit 1
 fi
 
-FORCE_RLS_ENABLED_COUNT="$(psql_scalar "${EXEC_TARGET_URL}" "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname IN ('prodx_discount_policies') AND c.relforcerowsecurity IS TRUE;")"
-if [[ "${FORCE_RLS_ENABLED_COUNT}" -ne 1 ]]; then
-  echo "ERROR: Expected FORCE ROW LEVEL SECURITY enabled on prodx_discount_policies after restore, found ${FORCE_RLS_ENABLED_COUNT}." >&2
+BASELINE_RLS_TABLES_SQL="'prodx_organizations','prodx_stores','prodx_users','prodx_user_credentials','prodx_roles','prodx_role_permissions','prodx_store_memberships','prodx_user_roles','prodx_devices','prodx_sessions','prodx_security_audit_events','prodx_categories','prodx_products','prodx_registers','prodx_shifts','prodx_orders','prodx_order_items','prodx_payments','prodx_inventory_ledger','prodx_cash_movements','prodx_audit_log','prodx_refunds','prodx_refund_items','prodx_payment_attempts','prodx_supervisor_authorizations','prodx_shift_operations','prodx_voids','prodx_inventory_adjustments','prodx_timeclock_credentials','prodx_timeclock_records','prodx_timeclock_operations','prodx_timeclock_auth_attempts','prodx_catalog_pricing_operations','prodx_catalog_import_operations','prodx_tasks','prodx_discount_policies'"
+ALL_37_RLS_TABLES_SQL="${BASELINE_RLS_TABLES_SQL},'prodx_payment_webhook_events'"
+
+if [[ "${HAS_0062}" -eq 1 || "${REQUIRE_ALL_FORCE_RLS}" == "true" ]]; then
+  EXPECTED_RLS_COUNT=37
+  RLS_QUERY_LIST="${ALL_37_RLS_TABLES_SQL}"
+else
+  EXPECTED_RLS_COUNT=36
+  RLS_QUERY_LIST="${BASELINE_RLS_TABLES_SQL}"
+fi
+
+RLS_ENABLED_COUNT="$(psql_scalar "${EXEC_TARGET_URL}" "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname IN (${RLS_QUERY_LIST}) AND c.relrowsecurity IS TRUE;")"
+if [[ "${RLS_ENABLED_COUNT}" -ne "${EXPECTED_RLS_COUNT}" ]]; then
+  echo "ERROR: Expected ${EXPECTED_RLS_COUNT} tenant-sensitive tables with RLS enabled after restore, found ${RLS_ENABLED_COUNT}." >&2
   exit 1
 fi
 
-IMMUTABLE_TRIGGER_COUNT="$(psql_scalar "${EXEC_TARGET_URL}" "SELECT count(*) FROM (VALUES ('prodx_audit_log_immutable_guard'),('prodx_security_audit_events_immutable_guard'),('prodx_refund_immutable_guard'),('prodx_void_immutable_guard')) AS expected(tgname) WHERE EXISTS (SELECT 1 FROM pg_trigger t WHERE t.tgname = expected.tgname AND NOT t.tgisinternal AND t.tgenabled IN ('O', 'A'));")"
-if [[ "${IMMUTABLE_TRIGGER_COUNT}" -ne 4 ]]; then
-  echo "ERROR: Expected 4 append-only immutability triggers enabled after restore, found ${IMMUTABLE_TRIGGER_COUNT}." >&2
+FORCE_RLS_ENABLED_COUNT="$(psql_scalar "${EXEC_TARGET_URL}" "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname IN ('prodx_discount_policies','prodx_supervisor_authorizations','prodx_payment_webhook_events') AND c.relforcerowsecurity IS TRUE;")"
+if [[ "${FORCE_RLS_ENABLED_COUNT}" -ne "${SOURCE_FORCE_RLS_COUNT}" ]]; then
+  echo "ERROR: FORCE ROW LEVEL SECURITY table count mismatch between source (${SOURCE_FORCE_RLS_COUNT}) and target (${FORCE_RLS_ENABLED_COUNT})." >&2
   exit 1
 fi
+
+if [[ "${HAS_0062}" -eq 1 || "${REQUIRE_ALL_FORCE_RLS}" == "true" ]]; then
+  EXPECTED_FORCE_RLS_COUNT=3
+else
+  EXPECTED_FORCE_RLS_COUNT="${SOURCE_FORCE_RLS_COUNT}"
+  if [[ "${EXPECTED_FORCE_RLS_COUNT}" -lt 1 ]]; then
+    EXPECTED_FORCE_RLS_COUNT=1
+  fi
+fi
+
+if [[ "${FORCE_RLS_ENABLED_COUNT}" -ne "${EXPECTED_FORCE_RLS_COUNT}" ]]; then
+  echo "ERROR: Expected ${EXPECTED_FORCE_RLS_COUNT} tables with FORCE ROW LEVEL SECURITY enabled after restore, found ${FORCE_RLS_ENABLED_COUNT}." >&2
+  exit 1
+fi
+
+DISCOUNT_FORCE_RLS="$(psql_scalar "${EXEC_TARGET_URL}" "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'prodx_discount_policies' AND c.relforcerowsecurity IS TRUE;")"
+if [[ "${DISCOUNT_FORCE_RLS}" -ne 1 ]]; then
+  echo "ERROR: Expected FORCE ROW LEVEL SECURITY enabled on prodx_discount_policies after restore." >&2
+  exit 1
+fi
+
+if [[ "${HAS_0062}" -eq 1 || "${REQUIRE_ALL_FORCE_RLS}" == "true" ]]; then
+  EXPECTED_IMMUTABLE_TRIGGER_COUNT=5
+  IMMUTABLE_TRIGGER_VALUES="('prodx_audit_log_immutable_guard'),('prodx_security_audit_events_immutable_guard'),('prodx_refund_immutable_guard'),('prodx_void_immutable_guard'),('prodx_payment_webhook_events_no_delete_guard')"
+else
+  EXPECTED_IMMUTABLE_TRIGGER_COUNT=4
+  IMMUTABLE_TRIGGER_VALUES="('prodx_audit_log_immutable_guard'),('prodx_security_audit_events_immutable_guard'),('prodx_refund_immutable_guard'),('prodx_void_immutable_guard')"
+fi
+
+IMMUTABLE_TRIGGER_COUNT="$(psql_scalar "${EXEC_TARGET_URL}" "SELECT count(*) FROM (VALUES ${IMMUTABLE_TRIGGER_VALUES}) AS expected(tgname) WHERE EXISTS (SELECT 1 FROM pg_trigger t WHERE t.tgname = expected.tgname AND NOT t.tgisinternal AND t.tgenabled IN ('O', 'A'));")"
+if [[ "${IMMUTABLE_TRIGGER_COUNT}" -ne "${EXPECTED_IMMUTABLE_TRIGGER_COUNT}" ]]; then
+  echo "ERROR: Expected ${EXPECTED_IMMUTABLE_TRIGGER_COUNT} append-only immutability triggers enabled after restore, found ${IMMUTABLE_TRIGGER_COUNT}." >&2
+  exit 1
+fi
+
+RLS_VERIFIED_TABLES_JSON="$(psql_scalar "${EXEC_TARGET_URL}" "SELECT COALESCE(json_agg(c.relname ORDER BY c.relname)::text, '[]') FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname IN (${RLS_QUERY_LIST}) AND c.relrowsecurity IS TRUE;")"
+FORCE_RLS_VERIFIED_TABLES_JSON="$(psql_scalar "${EXEC_TARGET_URL}" "SELECT COALESCE(json_agg(c.relname ORDER BY c.relname)::text, '[]') FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname IN ('prodx_discount_policies','prodx_supervisor_authorizations','prodx_payment_webhook_events') AND c.relforcerowsecurity IS TRUE;")"
 
 # 4. Verify row count parity across key domain tables
 TABLES=(
@@ -250,7 +308,12 @@ TABLES=(
   prodx_audit_log
   prodx_security_audit_events
   prodx_discount_policies
+  prodx_supervisor_authorizations
 )
+
+if [[ "${HAS_0062}" -eq 1 || "${REQUIRE_ALL_FORCE_RLS}" == "true" ]]; then
+  TABLES+=(prodx_payment_webhook_events)
+fi
 
 ROW_COUNTS_JSON=""
 for tbl in "${TABLES[@]}"; do
@@ -315,12 +378,15 @@ REPORT_JSON="$(cat <<EOF
     "publicTableCount": ${PUBLIC_TABLE_COUNT},
     "sourceMigrationCount": ${SOURCE_MIGRATION_COUNT},
     "restoredMigrationCount": ${TARGET_MIGRATION_COUNT},
+    "unprotectedProdxTableCount": ${UNPROTECTED_PRODX_TABLES},
     "rlsEnabledCoreTableCount": ${RLS_ENABLED_COUNT},
-    "rlsExpectedCoreTableCount": 11,
+    "rlsExpectedCoreTableCount": ${EXPECTED_RLS_COUNT},
+    "rlsVerifiedTables": ${RLS_VERIFIED_TABLES_JSON},
     "forceRlsEnabledTableCount": ${FORCE_RLS_ENABLED_COUNT},
-    "forceRlsExpectedTableCount": 1,
+    "forceRlsExpectedTableCount": ${EXPECTED_FORCE_RLS_COUNT},
+    "forceRlsVerifiedTables": ${FORCE_RLS_VERIFIED_TABLES_JSON},
     "immutableTriggerCount": ${IMMUTABLE_TRIGGER_COUNT},
-    "immutableTriggerExpectedCount": 4,
+    "immutableTriggerExpectedCount": ${EXPECTED_IMMUTABLE_TRIGGER_COUNT},
     "rowCounts": {${ROW_COUNTS_JSON}},
     "reconciliation": {
       "inventoryLedgerDeltaSum": ${TARGET_INVENTORY_DELTA_SUM},

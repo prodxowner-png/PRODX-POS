@@ -30,8 +30,8 @@ It then verifies:
 
 1. the `public` schema can be queried;
 2. the `prodx_schema_migrations` table exists and contains the expected applied migrations;
-3. Row Level Security (`RLS`) is enabled on all core tenant, policy, and audit tables, including `FORCE ROW LEVEL SECURITY` on `prodx_discount_policies`;
-4. append-only immutability triggers (`prodx_audit_log_immutable_guard`, `prodx_security_audit_events_immutable_guard`, `prodx_refund_immutable_guard`, `prodx_void_immutable_guard`) remain enabled;
+3. Row Level Security (`RLS`) is enabled on all 37 required tenant-sensitive tables (and every `public.prodx_*` table has `relrowsecurity = true`), including `FORCE ROW LEVEL SECURITY` on `prodx_discount_policies`, `prodx_supervisor_authorizations`, and `prodx_payment_webhook_events`;
+4. append-only immutability triggers (`prodx_audit_log_immutable_guard`, `prodx_security_audit_events_immutable_guard`, `prodx_refund_immutable_guard`, `prodx_void_immutable_guard`, `prodx_payment_webhook_events_no_delete_guard`) remain enabled;
 5. dump and restore timings and dump byte size are recorded in a sanitized verification report (`artifacts/recovery-drill-report.json`).
 
 The raw `.dump` file is deleted in an `if: always()` cleanup step and is **never** uploaded as a GitHub Actions artifact. Only `artifacts/recovery-drill-report.json` is uploaded.
