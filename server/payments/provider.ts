@@ -21,7 +21,9 @@ export const VALID_PAYMENT_STATUS_TRANSITIONS: Readonly<Record<PaymentStatus, Re
   authorized: new Set<PaymentStatus>(['authorized', 'captured', 'failed', 'cancelled', 'unknown', 'voided']),
   captured: new Set<PaymentStatus>(['captured', 'settled', 'voided']),
   settled: new Set<PaymentStatus>(['settled']),
-  failed: new Set<PaymentStatus>(['failed']),
+  // Stripe PaymentIntents can be retried after payment_failed; a later signed
+  // payment_intent.succeeded event may capture the same PaymentIntent.
+  failed: new Set<PaymentStatus>(['failed', 'captured']),
   cancelled: new Set<PaymentStatus>(['cancelled']),
   unknown: new Set<PaymentStatus>(['unknown', 'authorized', 'captured', 'failed', 'cancelled']),
   voided: new Set<PaymentStatus>(['voided']),

@@ -11,6 +11,7 @@ import { createApp } from '../http/createApp';
 import { registerPaymentWebhookRoute } from '../http/payment-webhook-route';
 import { createCheckoutService } from '../transactions/checkout-service';
 import { assertValidPaymentTransition, isValidPaymentTransition, PaymentTransitionError } from './provider';
+import { getCurrencyMinorUnitExponent, parseMajorAmountToMinorUnits } from './currency';
 import { signStripeWebhookPayload } from './stripe-webhook';
 
 const WEBHOOK_SECRET = 'whsec_test_prodx_m2_stripe_signing_secret_0123456789';
@@ -74,6 +75,12 @@ const createProdxAppExecutor = (pool: Pool): TransactionalSqlExecutor => ({
   },
 });
 
+test('payment status transition validator permits a failed Stripe attempt to succeed on retry', () => {
+  assert.equal(isValidPaymentTransition('failed', 'captured'), true);
+  assert.equal(isValidPaymentTransition('failed', 'pending'), false);
+  assert.equal(isValidPaymentTransition('captured', 'failed'), false);
+});
+
 test('payment status transition validator enforces valid 8-state transitions', () => {
   assert.equal(isValidPaymentTransition('pending', 'authorized'), true);
   assert.equal(isValidPaymentTransition('pending', 'captured'), true);
@@ -86,11 +93,23 @@ test('payment status transition validator enforces valid 8-state transitions', (
   assert.equal(isValidPaymentTransition('captured', 'failed'), false);
   assert.equal(isValidPaymentTransition('captured', 'pending'), false);
   assert.equal(isValidPaymentTransition('settled', 'failed'), false);
-  assert.equal(isValidPaymentTransition('failed', 'captured'), false);
+  assert.equal(isValidPaymentTransition('failed', 'captured'), true);
   assert.equal(isValidPaymentTransition('cancelled', 'captured'), false);
   assert.equal(isValidPaymentTransition('voided', 'captured'), false);
 
   assert.throws(() => assertValidPaymentTransition('captured', 'failed'), PaymentTransitionError);
+});
+
+test('payment amount conversion uses each currency minor-unit exponent without floating-point arithmetic', () => {
+  assert.equal(getCurrencyMinorUnitExponent('JPY'), 0);
+  assert.equal(getCurrencyMinorUnitExponent('THB'), 2);
+  assert.equal(getCurrencyMinorUnitExponent('BHD'), 3);
+  assert.equal(getCurrencyMinorUnitExponent('US'), null);
+  assert.equal(parseMajorAmountToMinorUnits('1000.00', 'JPY'), 1000n);
+  assert.equal(parseMajorAmountToMinorUnits('1000.01', 'JPY'), null);
+  assert.equal(parseMajorAmountToMinorUnits('1250.00', 'THB'), 125000n);
+  assert.equal(parseMajorAmountToMinorUnits('12.34', 'BHD'), 12340n);
+  assert.equal(parseMajorAmountToMinorUnits('not-an-amount', 'THB'), null);
 });
 
 test('POST /api/v1/webhooks/stripe fails closed with 503 when STRIPE_WEBHOOK_SECRET is missing and rejects invalid signatures before DB tx', async () => {
@@ -204,7 +223,7 @@ test('PostgreSQL Stripe webhook route verifies signatures, deduplicates concurre
     foreignOrg: randomUUID(), foreignStore: randomUUID(),
     user: randomUUID(), register: randomUUID(), shift: randomUUID(),
     category: randomUUID(), product: randomUUID(),
-    payment1: randomUUID(), payment2: randomUUID(),
+    payment1: randomUUID(), payment2: randomUUID(), payment3: randomUUID(),
   };
   const suffix = id.org.replaceAll('-', '').slice(0, 12);
 
@@ -275,9 +294,11 @@ test('PostgreSQL Stripe webhook route verifies signatures, deduplicates concurre
   const checkoutService = createCheckoutService(adminDb);
   const order1 = await checkoutService.checkout(makeCheckout(`wh-order-1-${suffix}`, id.payment1));
   const order2 = await checkoutService.checkout(makeCheckout(`wh-order-2-${suffix}`, id.payment2));
+  const order3 = await checkoutService.checkout(makeCheckout(`wh-order-3-${suffix}`, id.payment3));
 
   const piRef1 = `pi_test_wh_1_${suffix}`;
   const piRef2 = `pi_test_wh_2_${suffix}`;
+  const piRef3 = `pi_test_wh_3_${suffix}`;
   await pool.query(
     "UPDATE prodx_payments SET status='authorized', provider='stripe', provider_reference=$1, captured_at=NULL WHERE id=$2 AND store_id=$3",
     [piRef1, id.payment1, id.store],
@@ -285,6 +306,10 @@ test('PostgreSQL Stripe webhook route verifies signatures, deduplicates concurre
   await pool.query(
     "UPDATE prodx_payments SET status='pending', provider='stripe', provider_reference=$1, captured_at=NULL WHERE id=$2 AND store_id=$3",
     [piRef2, id.payment2, id.store],
+  );
+  await pool.query(
+    "UPDATE prodx_payments SET status='pending', provider='stripe', provider_reference=$1, captured_at=NULL WHERE id=$2 AND store_id=$3",
+    [piRef3, id.payment3, id.store],
   );
 
   const app = createApp({
@@ -447,7 +472,65 @@ test('PostgreSQL Stripe webhook route verifies signatures, deduplicates concurre
     )).rows[0].count;
     assert.equal(auditCount, 1, 'concurrent duplicate webhook must insert exactly 1 audit log entry');
 
-    // 2. Invalid regression (captured -> failed) must be rejected with 409 and preserve captured state
+    // 2. A retryable PaymentIntent may fail once and later succeed using the same provider reference.
+    const retryFailureEventId = `evt_test_retry_failed_${suffix}`;
+    const retryFailureBody = JSON.stringify({
+      id: retryFailureEventId,
+      type: 'payment_intent.payment_failed',
+      data: {
+        object: {
+          id: piRef3,
+          last_payment_error: { code: 'card_declined', message: 'First attempt declined' },
+          metadata: {
+            organizationId: id.org,
+            storeId: id.store,
+            orderId: order3.order.id,
+            paymentId: id.payment3,
+          },
+        },
+      },
+    });
+    const retryFailureRes = await fetch(`${server.baseUrl}/api/v1/webhooks/stripe`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'stripe-signature': signStripeWebhookPayload(retryFailureBody, WEBHOOK_SECRET) },
+      body: retryFailureBody,
+    });
+    assert.equal(retryFailureRes.status, 200);
+    assert.equal((await pool.query('SELECT status FROM prodx_payments WHERE id=$1', [id.payment3])).rows[0].status, 'failed');
+
+    const retrySuccessEventId = `evt_test_retry_succeeded_${suffix}`;
+    const retrySuccessBody = JSON.stringify({
+      id: retrySuccessEventId,
+      type: 'payment_intent.succeeded',
+      data: {
+        object: {
+          id: piRef3,
+          amount_received: 1500,
+          currency: 'thb',
+          metadata: {
+            organizationId: id.org,
+            storeId: id.store,
+            orderId: order3.order.id,
+            paymentId: id.payment3,
+          },
+        },
+      },
+    });
+    const retrySuccessRes = await fetch(`${server.baseUrl}/api/v1/webhooks/stripe`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'stripe-signature': signStripeWebhookPayload(retrySuccessBody, WEBHOOK_SECRET) },
+      body: retrySuccessBody,
+    });
+    assert.equal(retrySuccessRes.status, 200);
+    assert.equal((await pool.query('SELECT status FROM prodx_payments WHERE id=$1', [id.payment3])).rows[0].status, 'captured');
+    assert.equal((await pool.query('SELECT count(*)::int AS count FROM prodx_payment_attempts WHERE payment_id=$1', [id.payment3])).rows[0].count, 2);
+    assert.equal((await pool.query("SELECT count(*)::int AS count FROM prodx_audit_log WHERE store_id=$1 AND action='payment_webhook_transition' AND details->>'providerEventId' = ANY($2::text[])", [id.store, [retryFailureEventId, retrySuccessEventId]])).rows[0].count, 2);
+    assert.deepEqual(
+      (await pool.query('SELECT status FROM prodx_payment_webhook_events WHERE provider_event_id = ANY($1::text[]) ORDER BY provider_event_id', [[retryFailureEventId, retrySuccessEventId]])).rows.map((row: { status: string }) => row.status),
+      ['processed', 'processed'],
+    );
+
+    // 3. Invalid regression (captured -> failed) must be rejected with 409 and preserve captured state
     const regressionEventId = `evt_test_regress_${suffix}`;
     const regressionBody = JSON.stringify({
       id: regressionEventId,
@@ -469,7 +552,7 @@ test('PostgreSQL Stripe webhook route verifies signatures, deduplicates concurre
     const payment1AfterRegression = (await pool.query('SELECT status FROM prodx_payments WHERE id=$1', [id.payment1])).rows[0];
     assert.equal(payment1AfterRegression.status, 'captured', 'captured payment must not regress to failed');
 
-    // 3. Cross-tenant metadata mismatch must fail closed with 409 without mutating payment2
+    // 4. Cross-tenant metadata mismatch must fail closed with 409 without mutating payment2
     const crossTenantEventId = `evt_test_cross_tenant_${suffix}`;
     const crossTenantBody = JSON.stringify({
       id: crossTenantEventId,
@@ -495,7 +578,7 @@ test('PostgreSQL Stripe webhook route verifies signatures, deduplicates concurre
     const payment2AfterCrossTenant = (await pool.query('SELECT status FROM prodx_payments WHERE id=$1', [id.payment2])).rows[0];
     assert.equal(payment2AfterCrossTenant.status, 'pending', 'cross-tenant webhook must not mutate payment');
 
-    // 4. Valid payment_intent.canceled transitions pending -> cancelled
+    // 5. Valid payment_intent.canceled transitions pending -> cancelled
     const cancelEventId = `evt_test_cancel_${suffix}`;
     const cancelBody = JSON.stringify({
       id: cancelEventId,
@@ -517,7 +600,7 @@ test('PostgreSQL Stripe webhook route verifies signatures, deduplicates concurre
     const payment2AfterCancel = (await pool.query('SELECT status, failure_reason FROM prodx_payments WHERE id=$1', [id.payment2])).rows[0];
     assert.deepEqual(payment2AfterCancel, { status: 'cancelled', failure_reason: 'requested_by_customer' });
 
-    // 5. Verify FORCE RLS & cross-tenant isolation + no-DELETE + SECURITY DEFINER / trigger catalog metadata
+    // 6. Verify FORCE RLS & cross-tenant isolation + no-DELETE + SECURITY DEFINER / trigger catalog metadata
     const rlsMeta = (await pool.query(
       `SELECT relname, relrowsecurity, relforcerowsecurity
          FROM pg_class
@@ -574,7 +657,7 @@ test('PostgreSQL Stripe webhook route verifies signatures, deduplicates concurre
     )).rows[0];
     assert.equal(deletePriv.can_delete, false, 'prodx_app must not have DELETE privilege on prodx_payment_webhook_events');
 
-    // 6. Adversarial tests under real prodx_app role for prodx_payment_webhook_update_status() and BEFORE UPDATE trigger
+    // 7. Adversarial tests under real prodx_app role for prodx_payment_webhook_update_status() and BEFORE UPDATE trigger
     const validSha = 'a'.repeat(64);
     const advReceivedForPi1 = (await appDb.query<{ event_row_id: string; inserted: boolean }>(
       'SELECT event_row_id, inserted FROM public.prodx_payment_webhook_record_event($1, $2, $3, $4, $5)',

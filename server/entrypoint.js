@@ -4264,13 +4264,41 @@ var VALID_PAYMENT_STATUS_TRANSITIONS = {
   authorized: /* @__PURE__ */ new Set(["authorized", "captured", "failed", "cancelled", "unknown", "voided"]),
   captured: /* @__PURE__ */ new Set(["captured", "settled", "voided"]),
   settled: /* @__PURE__ */ new Set(["settled"]),
-  failed: /* @__PURE__ */ new Set(["failed"]),
+  // Stripe PaymentIntents can be retried after payment_failed; a later signed
+  // payment_intent.succeeded event may capture the same PaymentIntent.
+  failed: /* @__PURE__ */ new Set(["failed", "captured"]),
   cancelled: /* @__PURE__ */ new Set(["cancelled"]),
   unknown: /* @__PURE__ */ new Set(["unknown", "authorized", "captured", "failed", "cancelled"]),
   voided: /* @__PURE__ */ new Set(["voided"])
 };
 var isValidPaymentStatus = (value) => typeof value === "string" && PAYMENT_STATUS_SET.has(value);
 var isValidPaymentTransition = (from, to) => VALID_PAYMENT_STATUS_TRANSITIONS[from].has(to);
+
+// server/payments/currency.ts
+var getCurrencyMinorUnitExponent = (currency) => {
+  const normalized = currency.trim().toUpperCase();
+  if (!/^[A-Z]{3}$/.test(normalized)) return null;
+  try {
+    const exponent = new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: normalized
+    }).resolvedOptions().maximumFractionDigits;
+    return typeof exponent === "number" && Number.isInteger(exponent) && exponent >= 0 && exponent <= 3 ? exponent : null;
+  } catch {
+    return null;
+  }
+};
+var parseMajorAmountToMinorUnits = (value, currency) => {
+  const exponent = getCurrencyMinorUnitExponent(currency);
+  if (exponent === null || typeof value !== "string") return null;
+  const match = /^(\d+)(?:\.(\d+))?$/.exec(value.trim());
+  if (!match) return null;
+  const fraction = match[2] ?? "";
+  if (fraction.length > exponent && /[1-9]/.test(fraction.slice(exponent))) return null;
+  const scale = 10n ** BigInt(exponent);
+  const fractionalMinorUnits = fraction.slice(0, exponent).padEnd(exponent, "0") || "0";
+  return BigInt(match[1]) * scale + BigInt(fractionalMinorUnits);
+};
 
 // server/payments/stripe-webhook.ts
 import crypto17 from "node:crypto";
@@ -4422,14 +4450,6 @@ var stripePaymentProvider = {
 };
 
 // server/http/payment-webhook-route.ts
-var parseDbAmountToMinorUnits = (value) => {
-  const text = typeof value === "string" ? value.trim() : String(value ?? "").trim();
-  const match = /^(\d+)(?:\.(\d{1,2}))?$/.exec(text);
-  if (!match) return null;
-  const whole = BigInt(match[1]);
-  const fractional = BigInt((match[2] ?? "").padEnd(2, "0"));
-  return whole * 100n + fractional;
-};
 var registerPaymentWebhookRoute = (app, db, options = {}) => {
   app.post("/api/v1/webhooks/stripe", async (request, response, next) => {
     try {
@@ -4645,7 +4665,7 @@ var registerPaymentWebhookRoute = (app, db, options = {}) => {
               }
             };
           }
-          const expectedMinorUnits = parseDbAmountToMinorUnits(lockedPayment.amount);
+          const expectedMinorUnits = parseMajorAmountToMinorUnits(lockedPayment.amount, expectedCurrency);
           if (expectedMinorUnits === null || transition.amountReceived === void 0 || transition.amountReceived !== expectedMinorUnits) {
             const reason = transition.amountReceived === void 0 ? `Missing amount_received/amount on payment_intent.succeeded (expected ${expectedMinorUnits?.toString() ?? "valid amount"} minor units).` : `Amount mismatch: expected ${expectedMinorUnits?.toString() ?? "valid amount"} minor units, received ${transition.amountReceived.toString()} minor units.`;
             await tx.query(

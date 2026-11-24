@@ -5,6 +5,7 @@ import {
   isValidPaymentTransition,
   type PaymentStatus,
 } from '../payments/provider.ts';
+import { parseMajorAmountToMinorUnits } from '../payments/currency.ts';
 import {
   DEFAULT_STRIPE_WEBHOOK_TOLERANCE_SECONDS,
   stripePaymentProvider,
@@ -40,15 +41,6 @@ type LockedPaymentRow = {
   currency: string;
   provider: string;
   provider_reference: string | null;
-};
-
-const parseDbAmountToMinorUnits = (value: unknown): bigint | null => {
-  const text = typeof value === 'string' ? value.trim() : String(value ?? '').trim();
-  const match = /^(\d+)(?:\.(\d{1,2}))?$/.exec(text);
-  if (!match) return null;
-  const whole = BigInt(match[1]);
-  const fractional = BigInt((match[2] ?? '').padEnd(2, '0'));
-  return whole * 100n + fractional;
 };
 
 export const registerPaymentWebhookRoute = (
@@ -297,7 +289,7 @@ export const registerPaymentWebhookRoute = (
           };
         }
 
-        const expectedMinorUnits = parseDbAmountToMinorUnits(lockedPayment.amount);
+        const expectedMinorUnits = parseMajorAmountToMinorUnits(lockedPayment.amount, expectedCurrency);
         if (
           expectedMinorUnits === null
           || transition.amountReceived === undefined
