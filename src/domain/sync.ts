@@ -33,3 +33,31 @@ export interface OutboxItem<T = unknown> {
   readonly serverConfirmedId?: string;
   readonly serverConfirmedAt?: string;
 }
+
+export interface ShiftMovementOutboxPayload {
+  readonly idempotencyKey: string;
+  readonly storeId?: string;
+  readonly shiftId: string;
+  readonly type: 'paid_in' | 'paid_out' | 'drawer_drop';
+  readonly amount: {
+    readonly amountInCents: number;
+    readonly currency: string;
+  };
+  readonly reason: string;
+  readonly performedByUserId?: string;
+}
+
+export interface StockAdjustmentOutboxPayload {
+  readonly idempotencyKey: string;
+  readonly storeId?: string;
+  readonly productIds: readonly string[];
+  readonly quantityDelta: number;
+  readonly reason:
+    | 'purchase_received'
+    | 'transfer_in'
+    | 'transfer_out'
+    | 'audit_count_adjustment'
+    | 'damaged_write_off';
+  readonly notes?: string;
+  readonly requesterUserId?: string;
+}

@@ -3,6 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { useBreadcrumb, BreadcrumbLevel } from '../../context/BreadcrumbContext';
+import { useOffline } from '../../context/OfflineContext';
 import { createCatalogReadApi } from '../../adapters/catalogApiFactory';
 import { createCatalogApi } from '../../adapters/catalogApiFactory';
 import { Product, InventoryLedgerEntry, StockMovementReason, Category } from '../../domain/catalog';
@@ -61,6 +62,7 @@ export const InventoryScreen: React.FC = () => {
   const { addToast } = useToast();
   const { t, language } = useLanguage();
   const { setSubLevels } = useBreadcrumb();
+  const { isOnline, queueOutboxItem } = useOffline();
 
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<readonly Category[]>([]);
@@ -322,6 +324,33 @@ export const InventoryScreen: React.FC = () => {
     if (!session || selectedProductIds.length === 0) return;
     setIsSubmitting(true);
     try {
+      if (!isOnline) {
+        const idempotencyKey = `inventory-adjust:${crypto.randomUUID()}`;
+        await queueOutboxItem('stock_adjustment', idempotencyKey, {
+          idempotencyKey,
+          storeId: session.currentStore.id,
+          productIds: [...selectedProductIds],
+          quantityDelta: bulkQuantityDelta,
+          reason: bulkAdjustReason as
+            | 'purchase_received'
+            | 'transfer_in'
+            | 'transfer_out'
+            | 'audit_count_adjustment'
+            | 'damaged_write_off',
+          notes: bulkAdjustNotes || undefined,
+          requesterUserId: session.currentUser.id,
+        });
+        addToast({
+          title: language === 'th' ? 'บันทึกการปรับสต็อกแบบกลุ่มลงคิวออฟไลน์' : 'Bulk Stock Adjustment Queued Offline',
+          message: language === 'th'
+            ? `บันทึก ${selectedProductIds.length} รายการลงในคิวออฟไลน์แล้ว จะซิงก์เมื่อออนไลน์`
+            : `Queued stock adjustment for ${selectedProductIds.length} items in local outbox. Will sync when online.`,
+          type: 'warning',
+        });
+        setIsBulkAdjustModalOpen(false);
+        setSelectedProductIds([]);
+        return;
+      }
       const entries = await inventoryAdjustmentApi.bulkAdjustStock(
         session.currentStore.id,
         selectedProductIds,
@@ -556,6 +585,42 @@ export const InventoryScreen: React.FC = () => {
     if (!session || selectedRestockIds.length === 0) return;
     setIsSubmittingRestock(true);
     try {
+      if (!isOnline) {
+        let queuedCount = 0;
+        for (const id of selectedRestockIds) {
+          const item = restockSuggestions.find((s) => s.product.id === id);
+          if (!item) continue;
+
+          const qty = restockQuantities[id] !== undefined ? restockQuantities[id] : item.smartRecommendedQty;
+          if (qty <= 0) continue;
+
+          const idempotencyKey = `inventory-adjust:${crypto.randomUUID()}`;
+          await queueOutboxItem('stock_adjustment', idempotencyKey, {
+            idempotencyKey,
+            storeId: session.currentStore.id,
+            productIds: [id],
+            quantityDelta: qty,
+            reason: 'purchase_received',
+            notes: language === 'th' ? 'การแนะนำสั่งสินค้าคงคลังอัจฉริยะ (Smart Restock)' : 'Executed smart restock replenishment',
+            requesterUserId: session.currentUser.id,
+          });
+          queuedCount += 1;
+        }
+
+        addToast({
+          title: language === 'th' ? 'บันทึกการเติมสต็อกลงคิวออฟไลน์' : 'Smart Restock Queued Offline',
+          message: language === 'th'
+            ? `บันทึก ${queuedCount} รายการลงในคิวออฟไลน์แล้ว จะซิงก์เมื่อออนไลน์`
+            : `Queued smart restock for ${queuedCount} items in local outbox. Will sync when online.`,
+          type: 'warning',
+        });
+
+        setSelectedRestockIds([]);
+        setRestockQuantities({});
+        setActiveTab('catalog');
+        return;
+      }
+
       const updatedProductsList = [...products];
       const newLedgerEntries = [...ledgerEntries];
 
@@ -637,6 +702,30 @@ export const InventoryScreen: React.FC = () => {
     if (!selectedProduct || !session) return;
     setIsSubmitting(true);
     try {
+      if (!isOnline) {
+        const idempotencyKey = `inventory-adjust:${crypto.randomUUID()}`;
+        await queueOutboxItem('stock_adjustment', idempotencyKey, {
+          idempotencyKey,
+          storeId: session.currentStore.id,
+          productIds: [selectedProduct.id],
+          quantityDelta: adjustQuantity,
+          reason: adjustReason as
+            | 'purchase_received'
+            | 'transfer_in'
+            | 'transfer_out'
+            | 'audit_count_adjustment'
+            | 'damaged_write_off',
+          notes: adjustNotes || undefined,
+          requesterUserId: session.currentUser.id,
+        });
+        addToast({
+          title: language === 'th' ? 'บันทึกการปรับสต็อกลงคิวออฟไลน์' : 'Stock Adjustment Queued Offline',
+          message: `${selectedProduct.name}: ${adjustQuantity >= 0 ? `+${adjustQuantity}` : adjustQuantity} (Queued for server sync)`,
+          type: 'warning',
+        });
+        setIsAdjustModalOpen(false);
+        return;
+      }
       const entry = await inventoryAdjustmentApi.adjustStock(
         session.currentStore.id,
         selectedProduct.id,

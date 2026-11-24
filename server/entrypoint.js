@@ -3199,7 +3199,7 @@ var createShiftService = (db) => ({
       if (op.replay) {
         const r2 = await tx.query(`SELECT id,shift_id,type,amount,reason,performed_by_user_id,currency,created_at FROM prodx_cash_movements WHERE id=(SELECT result_id FROM prodx_shift_operations WHERE id=$1)`, [op.id]);
         if (!r2.rows[0]) throw new ShiftConflictError("Cash movement operation is incomplete.");
-        return mapMovement(r2.rows[0]);
+        return { ...mapMovement(r2.rows[0]), idempotencyCached: true };
       }
       const shift = await tx.query(`SELECT id,status,currency FROM prodx_shifts WHERE id=$1 AND store_id=$2 FOR UPDATE`, [shiftId, context.storeId]);
       const s = shift.rows[0];
@@ -3211,7 +3211,7 @@ var createShiftService = (db) => ({
       await tx.query(`UPDATE prodx_shift_operations SET result_id=$1 WHERE id=$2`, [id, op.id]);
       await tx.query(`INSERT INTO prodx_audit_log(id,organization_id,store_id,user_id,action,severity,details) VALUES($1,$2,$3,$4,$5,'info',$6::jsonb)`, [crypto13.randomUUID(), context.organizationId, context.storeId, context.userId, "cash_movement_recorded", JSON.stringify({ shiftId, type, amount: value, reason })]);
       const r = await tx.query(`SELECT id,shift_id,type,amount,reason,performed_by_user_id,currency,created_at FROM prodx_cash_movements WHERE id=$1`, [id]);
-      return mapMovement(r.rows[0]);
+      return { ...mapMovement(r.rows[0]), idempotencyCached: false };
     });
   }
 });
@@ -4217,7 +4217,131 @@ var registerPaymentLifecycleRoute = (app, db, permission = "payment.capture") =>
   });
 };
 
+// src/domain/sync-outbox-policy.ts
+var SUPPORTED_OFFLINE_SYNC_COMMAND_TYPES = /* @__PURE__ */ new Set([
+  "order_transaction",
+  "shift_movement",
+  "stock_adjustment"
+]);
+var ALLOWED_MANUAL_SHIFT_MOVEMENT_TYPES = /* @__PURE__ */ new Set(["paid_in", "paid_out", "drawer_drop"]);
+var ALLOWED_STOCK_ADJUSTMENT_REASONS = /* @__PURE__ */ new Set([
+  "purchase_received",
+  "transfer_in",
+  "transfer_out",
+  "audit_count_adjustment",
+  "damaged_write_off"
+]);
+function isSupportedOfflineCommandType(type) {
+  return SUPPORTED_OFFLINE_SYNC_COMMAND_TYPES.has(type);
+}
+function isShiftMovementOutboxPayload(value) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const candidate = value;
+  if (typeof candidate.idempotencyKey !== "string" || !candidate.idempotencyKey.trim()) return false;
+  if (typeof candidate.shiftId !== "string" || !candidate.shiftId.trim()) return false;
+  if (typeof candidate.type !== "string" || !ALLOWED_MANUAL_SHIFT_MOVEMENT_TYPES.has(candidate.type)) {
+    return false;
+  }
+  if (typeof candidate.reason !== "string" || !candidate.reason.trim()) return false;
+  if (typeof candidate.amount !== "object" || candidate.amount === null || Array.isArray(candidate.amount)) {
+    return false;
+  }
+  const amount = candidate.amount;
+  if (typeof amount.amountInCents !== "number" || !Number.isSafeInteger(amount.amountInCents) || amount.amountInCents <= 0 || amount.amountInCents > 999999999999) {
+    return false;
+  }
+  if (typeof amount.currency !== "string" || !/^[A-Z]{3}$/.test(amount.currency.trim())) return false;
+  if (candidate.storeId !== void 0 && (typeof candidate.storeId !== "string" || !candidate.storeId.trim())) {
+    return false;
+  }
+  if (candidate.performedByUserId !== void 0 && (typeof candidate.performedByUserId !== "string" || !candidate.performedByUserId.trim())) {
+    return false;
+  }
+  return true;
+}
+function isStockAdjustmentOutboxPayload(value) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const candidate = value;
+  if (typeof candidate.idempotencyKey !== "string" || !candidate.idempotencyKey.trim()) return false;
+  if (!Array.isArray(candidate.productIds) || candidate.productIds.length === 0 || candidate.productIds.length > 200) {
+    return false;
+  }
+  if (!candidate.productIds.every((id) => typeof id === "string" && id.trim().length > 0)) return false;
+  if (typeof candidate.quantityDelta !== "number" || !Number.isSafeInteger(candidate.quantityDelta) || candidate.quantityDelta === 0 || Math.abs(candidate.quantityDelta) > 2147483647) {
+    return false;
+  }
+  if (typeof candidate.reason !== "string" || !ALLOWED_STOCK_ADJUSTMENT_REASONS.has(candidate.reason)) {
+    return false;
+  }
+  if (candidate.notes !== void 0 && typeof candidate.notes !== "string") return false;
+  if (candidate.storeId !== void 0 && (typeof candidate.storeId !== "string" || !candidate.storeId.trim())) {
+    return false;
+  }
+  if (candidate.requesterUserId !== void 0 && (typeof candidate.requesterUserId !== "string" || !candidate.requesterUserId.trim())) {
+    return false;
+  }
+  return true;
+}
+
+// server/transactions/inventory-adjustment-service.ts
+import crypto17 from "node:crypto";
+var InventoryAdjustmentValidationError = class extends Error {
+  constructor() {
+    super(...arguments);
+    this.code = "INVENTORY_ADJUSTMENT_VALIDATION_FAILED";
+  }
+};
+var InventoryAdjustmentConflictError = class extends Error {
+  constructor() {
+    super(...arguments);
+    this.code = "INVENTORY_ADJUSTMENT_CONFLICT";
+  }
+};
+var createInventoryAdjustmentService = (db) => ({
+  async adjust(request) {
+    if (!request.storeId || !request.organizationId || !request.requesterUserId || !request.idempotencyKey.trim()) throw new InventoryAdjustmentValidationError("Store, organization, requester and idempotency key are required.");
+    if (!Number.isInteger(request.quantityDelta) || request.quantityDelta === 0) throw new InventoryAdjustmentValidationError("Quantity delta must be a non-zero integer.");
+    const productIds = [...new Set(request.productIds.map((id) => id.trim()).filter(Boolean))];
+    if (!productIds.length) throw new InventoryAdjustmentValidationError("At least one product is required.");
+    if (productIds.length > 200) throw new InventoryAdjustmentValidationError("A maximum of 200 products can be adjusted per operation.");
+    return db.transaction(async (tx) => {
+      const existing = (await tx.query("SELECT id, organization_id, product_ids::text AS product_ids, quantity_delta, reason FROM prodx_inventory_adjustments WHERE store_id=$1 AND idempotency_key=$2 LIMIT 1", [request.storeId, request.idempotencyKey.trim()])).rows[0];
+      if (existing) {
+        if (existing.organization_id !== request.organizationId || existing.quantity_delta !== request.quantityDelta || existing.reason !== request.reason || JSON.stringify(JSON.parse(existing.product_ids).sort()) !== JSON.stringify([...productIds].sort())) throw new InventoryAdjustmentConflictError("The idempotency key was already used for a different inventory adjustment.");
+        const cached = (await tx.query("SELECT id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id,created_at FROM prodx_inventory_ledger WHERE store_id=$1 AND reference_id=$2 ORDER BY created_at,id", [request.storeId, existing.id])).rows;
+        return { success: true, idempotencyCached: true, adjustmentId: existing.id, entries: cached };
+      }
+      const products = (await tx.query("SELECT id,current_stock FROM prodx_products WHERE organization_id=$1 AND store_id=$2 AND id=ANY($3::uuid[]) AND active=true ORDER BY id FOR UPDATE", [request.organizationId, request.storeId, productIds])).rows;
+      if (products.length !== productIds.length) throw new InventoryAdjustmentValidationError("One or more products do not belong to the authenticated store or are inactive.");
+      if (request.quantityDelta < 0 && products.some((p) => p.current_stock + request.quantityDelta < 0)) throw new InventoryAdjustmentConflictError("Inventory adjustment would make stock negative.");
+      const adjustmentId = crypto17.randomUUID();
+      const inserted = (await tx.query("INSERT INTO prodx_inventory_adjustments (id,organization_id,store_id,requester_user_id,idempotency_key,quantity_delta,reason,product_ids,notes) VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9) ON CONFLICT (store_id,idempotency_key) DO NOTHING RETURNING id", [adjustmentId, request.organizationId, request.storeId, request.requesterUserId, request.idempotencyKey.trim(), request.quantityDelta, request.reason, JSON.stringify(productIds), request.notes?.trim() || null])).rows[0];
+      if (!inserted) throw new InventoryAdjustmentConflictError("Concurrent inventory adjustment detected; retry with the same idempotency key.");
+      const entries = [];
+      for (const product of products) {
+        const updated = (await tx.query("UPDATE prodx_products SET current_stock=current_stock+$1,updated_at=CURRENT_TIMESTAMP WHERE id=$2 AND store_id=$3 RETURNING current_stock", [request.quantityDelta, product.id, request.storeId])).rows[0];
+        const entry = (await tx.query("INSERT INTO prodx_inventory_ledger (id,organization_id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id,created_at", [crypto17.randomUUID(), request.organizationId, request.storeId, product.id, request.quantityDelta, updated.current_stock, request.reason, adjustmentId, request.requesterUserId])).rows[0];
+        entries.push(entry);
+      }
+      await tx.query("INSERT INTO prodx_audit_log (id,organization_id,store_id,user_id,action,severity,details) VALUES($1,$2,$3,$4,'inventory_adjustment_committed','critical',$5::jsonb)", [crypto17.randomUUID(), request.organizationId, request.storeId, request.requesterUserId, JSON.stringify({ adjustmentId, productIds, quantityDelta: request.quantityDelta, reason: request.reason, idempotencyKey: request.idempotencyKey.trim() })]);
+      return { success: true, idempotencyCached: false, adjustmentId, entries };
+    });
+  }
+});
+
 // server/http/sync-route.ts
+var extractRawCommandType = (body) => {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) return void 0;
+  const candidate = body.item;
+  if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) return void 0;
+  const rawType = candidate.type;
+  return typeof rawType === "string" ? rawType : void 0;
+};
+var resolveRequiredPermission = (rawType, defaultPermission) => {
+  if (rawType === "shift_movement") return "cash.shift.movement";
+  if (rawType === "stock_adjustment") return "inventory.adjust";
+  return defaultPermission;
+};
 var parseBody2 = (value) => {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new CheckoutValidationError("Sync request body must be an object.");
@@ -4228,14 +4352,16 @@ var parseBody2 = (value) => {
     throw new CheckoutValidationError("Sync request item is required.");
   }
   const item = candidate;
-  if (typeof item.id !== "string" || !item.id.trim() || typeof item.idempotencyKey !== "string" || !item.idempotencyKey.trim() || typeof item.type !== "string" || !["order_transaction", "shift_movement", "stock_adjustment"].includes(item.type) || typeof item.createdAt !== "string" || Number.isNaN(Date.parse(item.createdAt)) || typeof item.attempts !== "number" || !Number.isSafeInteger(item.attempts) || item.attempts < 0 || typeof item.syncState !== "string" || !["queued", "syncing", "synced", "failed", "conflict_requires_attention", "dead_letter"].includes(item.syncState)) {
+  if (typeof item.id !== "string" || !item.id.trim() || typeof item.idempotencyKey !== "string" || !item.idempotencyKey.trim() || typeof item.type !== "string" || !item.type.trim() || typeof item.createdAt !== "string" || Number.isNaN(Date.parse(item.createdAt)) || typeof item.attempts !== "number" || !Number.isSafeInteger(item.attempts) || item.attempts < 0 || typeof item.syncState !== "string" || !["queued", "syncing", "synced", "failed", "conflict_requires_attention", "dead_letter"].includes(item.syncState)) {
     throw new CheckoutValidationError("Sync request item metadata is invalid.");
   }
   return { item: candidate };
 };
 var registerSyncRoute = (app, db, permission = "pos.sell") => {
   const checkout = createCheckoutService(db);
-  app.post("/api/v1/sync/commands", requirePermission(permission), async (request, response) => {
+  const shiftService = createShiftService(db);
+  const inventoryAdjustment = createInventoryAdjustmentService(db);
+  app.post("/api/v1/sync/commands", async (request, response) => {
     try {
       const context = request.prodxContext;
       if (!context) {
@@ -4244,12 +4370,24 @@ var registerSyncRoute = (app, db, permission = "pos.sell") => {
         });
         return;
       }
+      const requiredPermission = resolveRequiredPermission(extractRawCommandType(request.body), permission);
+      const authorizer = request.app.locals.prodxAuthorize;
+      if (!authorizer || !await authorizer(context, requiredPermission)) {
+        response.status(403).json({
+          error: {
+            code: "FORBIDDEN",
+            message: "The authenticated user is not authorized for this action.",
+            requestId: request.id
+          }
+        });
+        return;
+      }
       const { item } = parseBody2(request.body);
-      if (item.type !== "order_transaction") {
+      if (!isSupportedOfflineCommandType(item.type)) {
         response.status(400).json({
           error: {
             code: "SYNC_COMMAND_UNSUPPORTED",
-            message: "Only order_transaction outbox commands are supported by the production sync endpoint.",
+            message: "Unsupported outbox command type.",
             requestId: request.id
           }
         });
@@ -4260,9 +4398,91 @@ var registerSyncRoute = (app, db, permission = "pos.sell") => {
         response.status(400).json({
           error: {
             code: "SYNC_IDEMPOTENCY_KEY_MISMATCH",
-            message: "Outbox idempotency key must match the checkout payload idempotency key.",
+            message: "Outbox idempotency key must match the command payload idempotency key.",
             requestId: request.id
           }
+        });
+        return;
+      }
+      if (item.type === "shift_movement") {
+        if (!isShiftMovementOutboxPayload(item.payload)) {
+          response.status(400).json({
+            error: { code: "SYNC_PAYLOAD_INVALID", message: "The shift_movement payload is invalid.", requestId: request.id }
+          });
+          return;
+        }
+        if (item.payload.storeId !== void 0 && item.payload.storeId !== context.principal.storeId) {
+          response.status(403).json({
+            error: {
+              code: "FORBIDDEN",
+              message: "Outbox shift movement store does not match the authenticated store context.",
+              requestId: request.id
+            }
+          });
+          return;
+        }
+        const movement = await shiftService.recordCashMovement(
+          {
+            organizationId: context.principal.organizationId,
+            storeId: context.principal.storeId,
+            userId: context.principal.userId
+          },
+          item.payload.shiftId,
+          item.payload.type,
+          createMoney(item.payload.amount.amountInCents, item.payload.amount.currency.trim()),
+          item.payload.reason,
+          item.idempotencyKey
+        );
+        const idempotencyCached = Boolean(movement.idempotencyCached);
+        response.status(idempotencyCached ? 200 : 201).json({
+          commandType: "shift_movement",
+          confirmedEntityId: movement.id,
+          confirmedMovement: movement,
+          syncedAt: movement.timestamp,
+          serverConfirmed: true,
+          idempotencyCached
+        });
+        return;
+      }
+      if (item.type === "stock_adjustment") {
+        if (!isStockAdjustmentOutboxPayload(item.payload)) {
+          response.status(400).json({
+            error: { code: "SYNC_PAYLOAD_INVALID", message: "The stock_adjustment payload is invalid.", requestId: request.id }
+          });
+          return;
+        }
+        if (item.payload.storeId !== void 0 && item.payload.storeId !== context.principal.storeId) {
+          response.status(403).json({
+            error: {
+              code: "FORBIDDEN",
+              message: "Outbox stock adjustment store does not match the authenticated store context.",
+              requestId: request.id
+            }
+          });
+          return;
+        }
+        const result2 = await inventoryAdjustment.adjust({
+          storeId: context.principal.storeId,
+          organizationId: context.principal.organizationId,
+          requesterUserId: context.principal.userId,
+          productIds: item.payload.productIds,
+          quantityDelta: item.payload.quantityDelta,
+          reason: item.payload.reason,
+          notes: item.payload.notes,
+          idempotencyKey: item.idempotencyKey
+        });
+        const firstEntryCreatedAt = result2.entries[0]?.created_at;
+        const syncedAt = firstEntryCreatedAt ? new Date(firstEntryCreatedAt).toISOString() : (/* @__PURE__ */ new Date()).toISOString();
+        response.status(result2.idempotencyCached ? 200 : 201).json({
+          commandType: "stock_adjustment",
+          confirmedEntityId: result2.adjustmentId,
+          confirmedAdjustment: {
+            adjustmentId: result2.adjustmentId,
+            entries: result2.entries
+          },
+          syncedAt,
+          serverConfirmed: true,
+          idempotencyCached: result2.idempotencyCached
         });
         return;
       }
@@ -4279,8 +4499,7 @@ var registerSyncRoute = (app, db, permission = "pos.sell") => {
         cashierId: context.principal.userId
       };
       if (hasCheckoutDiscount(checkoutRequest)) {
-        const authorizer = request.app.locals.prodxAuthorize;
-        if (!authorizer || !await authorizer(context, "pos.discount")) {
+        if (!await authorizer(context, "pos.discount")) {
           const replay = await checkout.resolveCommittedReplay(checkoutRequest, {
             organizationId: context.principal.organizationId,
             storeId: context.principal.storeId,
@@ -4288,6 +4507,8 @@ var registerSyncRoute = (app, db, permission = "pos.sell") => {
           });
           if (replay) {
             response.status(200).json({
+              commandType: "order_transaction",
+              confirmedEntityId: replay.order.id,
               confirmedOrder: replay.order,
               syncedAt: replay.order.serverCommittedAt,
               serverConfirmed: replay.serverConfirmed,
@@ -4309,6 +4530,8 @@ var registerSyncRoute = (app, db, permission = "pos.sell") => {
         sessionId ? { organizationId: context.principal.organizationId, storeId: context.principal.storeId, userId: context.principal.userId, sessionId } : void 0
       );
       response.status(result.idempotencyCached ? 200 : 201).json({
+        commandType: "order_transaction",
+        confirmedEntityId: result.order.id,
         confirmedOrder: result.order,
         syncedAt: result.order.serverCommittedAt,
         serverConfirmed: result.serverConfirmed,
@@ -4327,13 +4550,29 @@ var registerSyncRoute = (app, db, permission = "pos.sell") => {
         response.status(409).json({ error: { code: error4.code, message: error4.message, requestId: request.id } });
         return;
       }
+      if (error4 instanceof ShiftValidationError) {
+        response.status(400).json({ error: { code: error4.code, message: error4.message, requestId: request.id } });
+        return;
+      }
+      if (error4 instanceof ShiftConflictError) {
+        response.status(409).json({ error: { code: error4.code, message: error4.message, requestId: request.id } });
+        return;
+      }
+      if (error4 instanceof InventoryAdjustmentValidationError) {
+        response.status(400).json({ error: { code: error4.code, message: error4.message, requestId: request.id } });
+        return;
+      }
+      if (error4 instanceof InventoryAdjustmentConflictError) {
+        response.status(409).json({ error: { code: error4.code, message: error4.message, requestId: request.id } });
+        return;
+      }
       throw error4;
     }
   });
 };
 
 // server/http/supervisor-authorization-route.ts
-import crypto17 from "node:crypto";
+import crypto18 from "node:crypto";
 var valid = (value) => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const body = value;
@@ -4423,7 +4662,7 @@ var registerSupervisorAuthorizationRoute = (app, db, verifySupervisorToken) => {
         if (body.supervisorAccessToken) {
           if (!verifiedSupervisorIdentity) {
             await tx.query(`SELECT public.prodx_record_security_audit_event($1, $2, $3, 'SUPERVISOR_AUTH_FAILED', $4::jsonb)`, [
-              crypto17.randomUUID(),
+              crypto18.randomUUID(),
               context.principal.organizationId,
               context.principal.userId,
               JSON.stringify({ action: body.action, requestedSupervisorUserId: body.supervisorUserId, reason: "supabase_reauthentication_failed" })
@@ -4437,7 +4676,7 @@ var registerSupervisorAuthorizationRoute = (app, db, verifySupervisorToken) => {
           )).rows[0];
           if (!mappedSupervisor || mappedSupervisor.status !== "active" || mappedSupervisor.userId !== body.supervisorUserId) {
             await tx.query(`SELECT public.prodx_record_security_audit_event($1, $2, $3, 'SUPERVISOR_AUTH_DENIED', $4::jsonb)`, [
-              crypto17.randomUUID(),
+              crypto18.randomUUID(),
               context.principal.organizationId,
               context.principal.userId,
               JSON.stringify({ action: body.action, requestedSupervisorUserId: body.supervisorUserId, reason: "supabase_subject_not_authorized" })
@@ -4469,7 +4708,7 @@ var registerSupervisorAuthorizationRoute = (app, db, verifySupervisorToken) => {
           await tx.query(
             `SELECT public.prodx_record_security_audit_event($1, $2, $3, 'SUPERVISOR_AUTHORIZATION_REQUESTED', $4::jsonb)`,
             [
-              crypto17.randomUUID(),
+              crypto18.randomUUID(),
               context.principal.organizationId,
               context.principal.userId,
               JSON.stringify({ action: "discount", idempotencyKey: checkout.idempotencyKey, payloadHash: checkoutAuthorizationFingerprint(checkout), thresholdBps: Number(policy.max_discount_without_approval_bps) })
@@ -4522,7 +4761,7 @@ var registerSupervisorAuthorizationRoute = (app, db, verifySupervisorToken) => {
 };
 
 // server/http/discount-policy-route.ts
-import crypto18 from "node:crypto";
+import crypto19 from "node:crypto";
 var validPolicy = (value) => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const body = value;
@@ -4570,7 +4809,7 @@ var registerDiscountPolicyRoute = (app, db) => {
       if (!rows.rows[0]) return null;
       await tx.query(
         `SELECT public.prodx_record_security_audit_event($1, $2, $3, 'DISCOUNT_POLICY_UPDATED', $4::jsonb)`,
-        [crypto18.randomUUID(), context.principal.organizationId, context.principal.userId, JSON.stringify({ storeId: context.principal.storeId, requireSupervisorApproval: request.body.requireSupervisorApproval, maxDiscountWithoutApprovalBps: request.body.maxDiscountWithoutApprovalBps })]
+        [crypto19.randomUUID(), context.principal.organizationId, context.principal.userId, JSON.stringify({ storeId: context.principal.storeId, requireSupervisorApproval: request.body.requireSupervisorApproval, maxDiscountWithoutApprovalBps: request.body.maxDiscountWithoutApprovalBps })]
       );
       return rows.rows[0];
     });
@@ -4729,7 +4968,7 @@ var registerOrderReadRoute = (app, db, permission = "pos.sell") => {
 };
 
 // server/transactions/void-service.ts
-import crypto19 from "node:crypto";
+import crypto20 from "node:crypto";
 var VoidValidationError = class extends Error {
   constructor() {
     super(...arguments);
@@ -4807,7 +5046,7 @@ var createVoidService = (db) => ({
       if (paid !== dbCents5(order.grand_total_amount)) throw new VoidConflictError("Recorded cash payments do not match the order total.");
       const shift = (await tx.query("SELECT id FROM prodx_shifts WHERE id=$1 AND store_id=$2 AND status='open' FOR UPDATE", [order.shift_id, request.storeId])).rows[0];
       if (!shift) throw new VoidConflictError("The originating shift is not open; cash reversal cannot be committed.");
-      const voidId = crypto19.randomUUID();
+      const voidId = crypto20.randomUUID();
       const inserted = (await tx.query(
         "INSERT INTO prodx_voids (id,organization_id,store_id,order_id,reason,authorized_by_user_id,requester_user_id,idempotency_key) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING RETURNING id",
         [voidId, order.organization_id, request.storeId, request.orderId, request.reason.trim(), supervisorUserId, request.requesterUserId, request.idempotencyKey]
@@ -4826,19 +5065,19 @@ var createVoidService = (db) => ({
         if (!stock) throw new VoidConflictError(`Product ${item.product_id} is unavailable for void reversal.`);
         await tx.query(
           "INSERT INTO prodx_inventory_ledger (id,organization_id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id) VALUES($1,$2,$3,$4,$5,$6,'void_reversal',$7,$8)",
-          [crypto19.randomUUID(), order.organization_id, request.storeId, item.product_id, item.quantity, stock.current_stock, voidId, supervisorUserId]
+          [crypto20.randomUUID(), order.organization_id, request.storeId, item.product_id, item.quantity, stock.current_stock, voidId, supervisorUserId]
         );
       }
       const amount = dbCents5(order.grand_total_amount);
       await tx.query(
         "INSERT INTO prodx_cash_movements (id,organization_id,store_id,shift_id,type,amount,reason,performed_by_user_id,currency) VALUES($1,$2,$3,$4,'cash_refund',$5,$6,$7,$8)",
-        [crypto19.randomUUID(), order.organization_id, request.storeId, shift.id, numeric3(amount), `Void for Order #${order.order_number}: ${request.reason.trim()}`, supervisorUserId, orderCurrency]
+        [crypto20.randomUUID(), order.organization_id, request.storeId, shift.id, numeric3(amount), `Void for Order #${order.order_number}: ${request.reason.trim()}`, supervisorUserId, orderCurrency]
       );
       await tx.query("UPDATE prodx_orders SET status=$1 WHERE id=$2 AND store_id=$3", ["voided", request.orderId, request.storeId]);
       await tx.query(
         "INSERT INTO prodx_audit_log (id,organization_id,store_id,register_id,user_id,action,severity,details) VALUES($1,$2,$3,$4,$5,'order_void_committed','critical',$6::jsonb)",
         [
-          crypto19.randomUUID(),
+          crypto20.randomUUID(),
           order.organization_id,
           request.storeId,
           order.register_id,
@@ -4902,52 +5141,6 @@ var registerVoidRoute = (app, db) => {
     }
   });
 };
-
-// server/transactions/inventory-adjustment-service.ts
-import crypto20 from "node:crypto";
-var InventoryAdjustmentValidationError = class extends Error {
-  constructor() {
-    super(...arguments);
-    this.code = "INVENTORY_ADJUSTMENT_VALIDATION_FAILED";
-  }
-};
-var InventoryAdjustmentConflictError = class extends Error {
-  constructor() {
-    super(...arguments);
-    this.code = "INVENTORY_ADJUSTMENT_CONFLICT";
-  }
-};
-var createInventoryAdjustmentService = (db) => ({
-  async adjust(request) {
-    if (!request.storeId || !request.organizationId || !request.requesterUserId || !request.idempotencyKey.trim()) throw new InventoryAdjustmentValidationError("Store, organization, requester and idempotency key are required.");
-    if (!Number.isInteger(request.quantityDelta) || request.quantityDelta === 0) throw new InventoryAdjustmentValidationError("Quantity delta must be a non-zero integer.");
-    const productIds = [...new Set(request.productIds.map((id) => id.trim()).filter(Boolean))];
-    if (!productIds.length) throw new InventoryAdjustmentValidationError("At least one product is required.");
-    if (productIds.length > 200) throw new InventoryAdjustmentValidationError("A maximum of 200 products can be adjusted per operation.");
-    return db.transaction(async (tx) => {
-      const existing = (await tx.query("SELECT id, organization_id, product_ids::text AS product_ids, quantity_delta, reason FROM prodx_inventory_adjustments WHERE store_id=$1 AND idempotency_key=$2 LIMIT 1", [request.storeId, request.idempotencyKey.trim()])).rows[0];
-      if (existing) {
-        if (existing.organization_id !== request.organizationId || existing.quantity_delta !== request.quantityDelta || existing.reason !== request.reason || JSON.stringify(JSON.parse(existing.product_ids).sort()) !== JSON.stringify([...productIds].sort())) throw new InventoryAdjustmentConflictError("The idempotency key was already used for a different inventory adjustment.");
-        const cached = (await tx.query("SELECT id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id,created_at FROM prodx_inventory_ledger WHERE store_id=$1 AND reference_id=$2 ORDER BY created_at,id", [request.storeId, existing.id])).rows;
-        return { success: true, idempotencyCached: true, adjustmentId: existing.id, entries: cached };
-      }
-      const products = (await tx.query("SELECT id,current_stock FROM prodx_products WHERE organization_id=$1 AND store_id=$2 AND id=ANY($3::uuid[]) AND active=true ORDER BY id FOR UPDATE", [request.organizationId, request.storeId, productIds])).rows;
-      if (products.length !== productIds.length) throw new InventoryAdjustmentValidationError("One or more products do not belong to the authenticated store or are inactive.");
-      if (request.quantityDelta < 0 && products.some((p) => p.current_stock + request.quantityDelta < 0)) throw new InventoryAdjustmentConflictError("Inventory adjustment would make stock negative.");
-      const adjustmentId = crypto20.randomUUID();
-      const inserted = (await tx.query("INSERT INTO prodx_inventory_adjustments (id,organization_id,store_id,requester_user_id,idempotency_key,quantity_delta,reason,product_ids,notes) VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9) ON CONFLICT (store_id,idempotency_key) DO NOTHING RETURNING id", [adjustmentId, request.organizationId, request.storeId, request.requesterUserId, request.idempotencyKey.trim(), request.quantityDelta, request.reason, JSON.stringify(productIds), request.notes?.trim() || null])).rows[0];
-      if (!inserted) throw new InventoryAdjustmentConflictError("Concurrent inventory adjustment detected; retry with the same idempotency key.");
-      const entries = [];
-      for (const product of products) {
-        const updated = (await tx.query("UPDATE prodx_products SET current_stock=current_stock+$1,updated_at=CURRENT_TIMESTAMP WHERE id=$2 AND store_id=$3 RETURNING current_stock", [request.quantityDelta, product.id, request.storeId])).rows[0];
-        const entry = (await tx.query("INSERT INTO prodx_inventory_ledger (id,organization_id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id,created_at", [crypto20.randomUUID(), request.organizationId, request.storeId, product.id, request.quantityDelta, updated.current_stock, request.reason, adjustmentId, request.requesterUserId])).rows[0];
-        entries.push(entry);
-      }
-      await tx.query("INSERT INTO prodx_audit_log (id,organization_id,store_id,user_id,action,severity,details) VALUES($1,$2,$3,$4,'inventory_adjustment_committed','critical',$5::jsonb)", [crypto20.randomUUID(), request.organizationId, request.storeId, request.requesterUserId, JSON.stringify({ adjustmentId, productIds, quantityDelta: request.quantityDelta, reason: request.reason, idempotencyKey: request.idempotencyKey.trim() })]);
-      return { success: true, idempotencyCached: false, adjustmentId, entries };
-    });
-  }
-});
 
 // server/http/inventory-adjustment-route.ts
 var allowedReasons = /* @__PURE__ */ new Set(["purchase_received", "transfer_in", "transfer_out", "audit_count_adjustment", "damaged_write_off"]);

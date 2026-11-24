@@ -13,6 +13,7 @@ import {
   DEFAULT_MAX_OUTBOX_ATTEMPTS,
   applySyncFailureTransition,
   assertSupportedOfflineCommandType,
+  assertValidOfflineCommandPayload,
   selectOutboxItemsForReplay,
   sortOutboxFifo,
 } from '../domain/sync-outbox-policy';
@@ -331,12 +332,21 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
     payload: T
   ): Promise<OutboxItem<T>> => {
     assertSupportedOfflineCommandType(type);
+    const normalizedPayload = (
+      typeof payload === 'object' &&
+      payload !== null &&
+      !Array.isArray(payload) &&
+      !('idempotencyKey' in payload)
+        ? { ...(payload as Record<string, unknown>), idempotencyKey }
+        : payload
+    ) as T;
+    assertValidOfflineCommandPayload(type, idempotencyKey, normalizedPayload);
     await ensureOutboxReady();
     const item: OutboxItem<T> = {
       id: `outbox-${typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`}`,
       type,
       idempotencyKey,
-      payload,
+      payload: normalizedPayload,
       createdAt: new Date().toISOString(),
       attempts: 0,
       maxAttempts: DEFAULT_MAX_OUTBOX_ATTEMPTS,
@@ -351,12 +361,17 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
       direction: 'local_to_cloud',
       status: 'in_progress',
       entityId: item.id,
-      entityName: 'POS Order Transaction',
+      entityName:
+        type === 'order_transaction'
+          ? 'POS Order Transaction'
+          : type === 'shift_movement'
+          ? 'Shift Float Movement'
+          : 'Stock Adjustment',
       summary: `บันทึกลง Local POS Cache (IndexedDB) สำเร็จ • เตรียมซิงก์ขึ้น Cloud (Key: ${idempotencyKey.slice(0, 16)}...)`,
       details: 'แคชธุรกรรมถูกจัดเก็บปลอดภัยบนเครื่อง พร้อมส่งขึ้นเซิร์ฟเวอร์ทันทีที่มีการเชื่อมต่อ',
       idempotencyKey,
       attempts: 0,
-      localPayload: payload,
+      localPayload: normalizedPayload,
     });
 
     return item;
@@ -389,6 +404,17 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const result = await syncApi.syncOutboxItem({ ...item, attempts: nextAttempts });
         const roundTripMs = Math.max(1, Math.round(performance.now() - syncStartTime));
         const completedAt = result.syncedAt || new Date().toISOString();
+        const confirmedId =
+          result.confirmedEntityId ??
+          result.confirmedOrder?.id ??
+          result.confirmedMovement?.id ??
+          result.confirmedAdjustment?.adjustmentId ??
+          item.id;
+        const confirmedPayload =
+          result.confirmedOrder ??
+          result.confirmedMovement ??
+          result.confirmedAdjustment ??
+          result;
         recordLatency(roundTripMs, 'outbox_sync', 'success');
 
         recordSyncActivity({
@@ -398,18 +424,23 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
           direction: 'local_to_cloud',
           status: 'success',
           entityId: item.id,
-          entityName: item.type === 'order_transaction' ? `POS Order (${result.confirmedOrder.id})` : item.type === 'shift_movement' ? 'Shift Float Movement' : 'Stock Adjustment',
+          entityName:
+            item.type === 'order_transaction'
+              ? `POS Order (${confirmedId})`
+              : item.type === 'shift_movement'
+              ? `Shift Float Movement (${confirmedId})`
+              : `Stock Adjustment (${confirmedId})`,
           summary: `ซิงก์จาก Local POS Cache ไปยัง Cloud DB สำเร็จใน ${roundTripMs} ms`,
-          details: `Authoritative Cloud Commit ID: ${result.confirmedOrder.id} • ตรวจสอบความถูกต้องสมบูรณ์ (Idempotent Commit)`,
+          details: `Authoritative Cloud Commit ID: ${confirmedId} • ตรวจสอบความถูกต้องสมบูรณ์ (Idempotent Commit)`,
           durationMs: roundTripMs,
           attempts: nextAttempts,
-          serverConfirmedId: result.confirmedOrder.id,
+          serverConfirmedId: confirmedId,
           idempotencyKey: item.idempotencyKey,
           localPayload: item.payload,
-          cloudPayload: result.confirmedOrder,
+          cloudPayload: confirmedPayload,
         });
 
-        lastSuccessfulSyncAt = result.syncedAt;
+        lastSuccessfulSyncAt = completedAt;
         await updateOutboxItem(item.id, {
           syncState: 'synced',
           nextRetryAt: undefined,
@@ -417,8 +448,8 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
           lastErrorCode: undefined,
           lastHttpStatus: undefined,
           deadLetteredAt: undefined,
-          serverConfirmedId: result.confirmedOrder.id,
-          serverConfirmedAt: result.syncedAt,
+          serverConfirmedId: confirmedId,
+          serverConfirmedAt: completedAt,
         });
         setOutbox((current) =>
           current.map((i) =>
@@ -431,12 +462,20 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
                   lastErrorCode: undefined,
                   lastHttpStatus: undefined,
                   deadLetteredAt: undefined,
-                  serverConfirmedId: result.confirmedOrder.id,
-                  serverConfirmedAt: result.syncedAt,
+                  serverConfirmedId: confirmedId,
+                  serverConfirmedAt: completedAt,
                 }
               : i
           )
         );
+        if (typeof window !== 'undefined') {
+          if (item.type === 'stock_adjustment' || item.type === 'order_transaction') {
+            window.dispatchEvent(new CustomEvent('prodx:inventory-updated'));
+          }
+          if (item.type === 'shift_movement') {
+            window.dispatchEvent(new CustomEvent('prodx:shift-updated'));
+          }
+        }
       } catch (err: unknown) {
         const roundTripMs = Math.max(1, Math.round(performance.now() - syncStartTime));
         const nowMs = Date.now();

@@ -1,4 +1,4 @@
-import type { ISyncApi } from './types';
+import type { ISyncApi, SyncCommandResponse } from './types';
 import type { OutboxItem } from '../domain/sync';
 
 const configuredBaseUrl = (): string | undefined => import.meta.env?.VITE_AUTH_API_BASE_URL;
@@ -71,7 +71,7 @@ export function createProductionSyncApi(token: string, baseUrl?: string): ISyncA
   };
   return {
     async syncOutboxItem(item: OutboxItem) {
-      return request<{ confirmedOrder: import('../domain/order').Order; syncedAt: string }>('/api/v1/sync/commands', { method: 'POST', body: JSON.stringify({ item }) });
+      return request<SyncCommandResponse>('/api/v1/sync/commands', { method: 'POST', body: JSON.stringify({ item }) });
     },
     async ping(clientTimestamp = Date.now()) {
       const started = performance.now();

@@ -92,6 +92,11 @@ async function seed(): Promise<void> {
     id.supervisor, `vd-sup-${runSuffix}`, 'Void Supervisor',
   ]);
   await pool.query('INSERT INTO prodx_store_memberships(organization_id,store_id,user_id) VALUES($1,$2,$3),($1,$2,$4)', [id.org, id.store, id.user, id.supervisor]);
+  const voidRoleId = randomUUID();
+  await pool.query('INSERT INTO prodx_roles(id,organization_id,role_key,name) VALUES($1,$2,$3,$4)', [voidRoleId, id.org, `void-sup-${runSuffix}`, 'Void Supervisor Role']);
+  await pool.query("INSERT INTO prodx_permissions(id,permission_key,description) VALUES('10000000-0000-4000-8000-000000000007','pos.void','Void eligible sales') ON CONFLICT (permission_key) DO NOTHING");
+  await pool.query("INSERT INTO prodx_role_permissions(organization_id,role_id,permission_id) SELECT $1, $2, id FROM prodx_permissions WHERE permission_key = 'pos.void'", [id.org, voidRoleId]);
+  await pool.query('INSERT INTO prodx_user_roles(organization_id,user_id,role_id,store_id) VALUES($1,$2,$3,$4)', [id.org, id.supervisor, voidRoleId, id.store]);
   await pool.query('INSERT INTO prodx_devices(id,organization_id,store_id,device_key,name) VALUES($1,$2,$3,$4,$5)', [id.device, id.org, id.store, `vd-dev-${runSuffix}`, 'Void Device']);
   await pool.query("INSERT INTO prodx_sessions(id,organization_id,user_id,device_id,token_hash,expires_at) VALUES($1,$2,$3,$4,$5,CURRENT_TIMESTAMP + INTERVAL '1 hour')", [id.session, id.org, id.user, id.device, `vd-sess-${runSuffix}`]);
   await pool.query('INSERT INTO prodx_registers(id,organization_id,store_id,code,name) VALUES($1,$2,$3,$4,$5)', [id.reg, id.org, id.store, `VDR1-${runSuffix}`, 'Void Register']);
