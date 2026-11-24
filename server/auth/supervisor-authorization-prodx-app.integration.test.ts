@@ -80,6 +80,33 @@ test('supervisor authorization works end-to-end under the real prodx_app runtime
 
   await client.query('BEGIN');
   try {
+    // API roles must never execute these SECURITY DEFINER functions directly.
+    // The server runtime retains only the three narrow, tenant-scoped RPCs.
+    const functionPrivileges = await client.query<{
+      signature: string;
+      anon: boolean;
+      authenticated: boolean;
+      service_role: boolean;
+      prodx_app: boolean;
+    }>(`WITH expected(signature, app_expected) AS (VALUES
+        ('public.prodx_seed_discount_policy_for_store()'::regprocedure, FALSE),
+        ('public.prodx_auth_find_supervisor_by_supabase_subject(uuid,uuid,uuid)'::regprocedure, TRUE),
+        ('public.prodx_auth_find_supervisor_credential(uuid,uuid,text)'::regprocedure, TRUE),
+        ('public.prodx_record_security_audit_event(uuid,uuid,uuid,text,jsonb)'::regprocedure, TRUE)
+      )
+      SELECT signature::text,
+             has_function_privilege('anon', signature, 'EXECUTE') AS anon,
+             has_function_privilege('authenticated', signature, 'EXECUTE') AS authenticated,
+             has_function_privilege('service_role', signature, 'EXECUTE') AS service_role,
+             has_function_privilege('prodx_app', signature, 'EXECUTE') AS prodx_app
+        FROM expected ORDER BY signature::text`);
+    assert.deepEqual(functionPrivileges.rows, [
+      { signature: 'prodx_auth_find_supervisor_by_supabase_subject(uuid,uuid,uuid)', anon: false, authenticated: false, service_role: false, prodx_app: true },
+      { signature: 'prodx_auth_find_supervisor_credential(uuid,uuid,text)', anon: false, authenticated: false, service_role: false, prodx_app: true },
+      { signature: 'prodx_record_security_audit_event(uuid,uuid,uuid,text,jsonb)', anon: false, authenticated: false, service_role: false, prodx_app: true },
+      { signature: 'prodx_seed_discount_policy_for_store()', anon: false, authenticated: false, service_role: false, prodx_app: false },
+    ]);
+
     // Fixtures are seeded by the migration owner, then every assertion below
     // executes as prodx_app with RLS and table grants fully in force.
     await client.query(`INSERT INTO public.prodx_organizations (id, code, name) VALUES ($1, $2, 'Supervisor RPC Org'), ($3, $4, 'Supervisor RPC Other Org')`,
