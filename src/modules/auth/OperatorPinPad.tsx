@@ -8,7 +8,6 @@ import {
   Fingerprint,
   Loader2,
   ScanFace,
-  Zap,
 } from 'lucide-react';
 import { useSound } from '../../context/SoundContext';
 import { PasskeyCredentialRecord } from '../../services/webauthnService';
@@ -41,8 +40,6 @@ export const OperatorPinPad: React.FC<OperatorPinPadProps> = ({
   onPinDelete,
   onSubmit,
   onSwitchMode,
-  onForgotPin,
-  onTriggerScopeError,
   hasRegisteredBiometrics = false,
   isBiometricVerifying = false,
   activePasskey,
@@ -65,7 +62,7 @@ export const OperatorPinPad: React.FC<OperatorPinPadProps> = ({
     onSubmit();
   };
 
-  // Physical keyboard numpad listener with tactile audio/haptic click
+  // Physical keyboard numpad listener with tactile click
   useEffect(() => {
     if (!terminalReady) return;
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -116,8 +113,8 @@ export const OperatorPinPad: React.FC<OperatorPinPadProps> = ({
               key={i}
               className={`w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full transition-all duration-200 ${
                 isFilled
-                  ? 'bg-[#F97316] border-2 border-[#F97316] shadow-sm shadow-orange-500/40 scale-110'
-                  : 'bg-white/80 border-2 border-[#CBD5E1]'
+                  ? 'bg-[#F97316] border-2 border-[#F97316] shadow-md shadow-orange-500/50 scale-110'
+                  : 'bg-[#FFFFFF] dark:bg-[#0F172A] border-2 border-[#CBD5E1] dark:border-[#475569]'
               }`}
             />
           );
@@ -133,7 +130,7 @@ export const OperatorPinPad: React.FC<OperatorPinPadProps> = ({
             disabled={!terminalReady || isLoading}
             onClick={() => handleDigitPress(digit.toString())}
             aria-label={`Digit ${digit}`}
-            className="h-13 sm:h-14 rounded-2xl bg-white border border-[#E2E8F0] text-2xl font-black text-[#183D32] hover:bg-[#FFF7ED] hover:border-[#F97316]/50 active:scale-95 focus-visible:ring-2 focus-visible:ring-[#F97316] focus-visible:ring-offset-2 transition-all flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-xs select-none"
+            className="h-13 sm:h-14 rounded-2xl bg-[#FFFFFF] dark:bg-[#0F172A] border border-[#E2E8F0] dark:border-[#334155] text-2xl font-black text-[#183D32] dark:text-[#F8FAFC] hover:bg-[#FFF7ED] dark:hover:bg-[#1E293B] hover:border-[#F97316]/50 dark:hover:border-[#F97316] active:scale-95 focus-visible:ring-2 focus-visible:ring-[#F97316] focus-visible:ring-offset-2 transition-all flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-xs select-none"
           >
             {digit}
           </button>
@@ -145,9 +142,9 @@ export const OperatorPinPad: React.FC<OperatorPinPadProps> = ({
           disabled={!terminalReady || isLoading || pin.length === 0}
           onClick={handleDeletePress}
           aria-label={isThai ? 'ลบตัวเลข PIN' : 'Backspace PIN'}
-          className="h-13 sm:h-14 rounded-2xl bg-gradient-to-br from-[#F97316] to-[#EA580C] text-white flex items-center justify-center hover:from-[#EA580C] hover:to-[#C2410C] active:scale-95 focus-visible:ring-2 focus-visible:ring-[#F97316] focus-visible:ring-offset-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-md shadow-orange-500/25 select-none"
+          className="h-13 sm:h-14 rounded-2xl bg-gradient-to-br from-[#F97316] to-[#EA580C] text-[#FFFFFF] flex items-center justify-center hover:from-[#EA580C] hover:to-[#C2410C] active:scale-95 focus-visible:ring-2 focus-visible:ring-[#F97316] focus-visible:ring-offset-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shadow-md shadow-orange-500/30 select-none"
         >
-          <Delete className="w-6 h-6 stroke-[2.2]" />
+          <Delete className="w-6 h-6 stroke-[2.2] text-[#FFFFFF]" />
         </button>
 
         <button
@@ -155,7 +152,7 @@ export const OperatorPinPad: React.FC<OperatorPinPadProps> = ({
           disabled={!terminalReady || isLoading}
           onClick={() => handleDigitPress('0')}
           aria-label="Digit 0"
-          className="h-13 sm:h-14 rounded-2xl bg-white border border-[#E2E8F0] text-2xl font-black text-[#183D32] hover:bg-[#FFF7ED] hover:border-[#F97316]/50 active:scale-95 focus-visible:ring-2 focus-visible:ring-[#F97316] focus-visible:ring-offset-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-xs select-none"
+          className="h-13 sm:h-14 rounded-2xl bg-[#FFFFFF] dark:bg-[#0F172A] border border-[#E2E8F0] dark:border-[#334155] text-2xl font-black text-[#183D32] dark:text-[#F8FAFC] hover:bg-[#FFF7ED] dark:hover:bg-[#1E293B] hover:border-[#F97316]/50 dark:hover:border-[#F97316] active:scale-95 focus-visible:ring-2 focus-visible:ring-[#F97316] focus-visible:ring-offset-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-xs select-none"
         >
           0
         </button>
@@ -165,15 +162,15 @@ export const OperatorPinPad: React.FC<OperatorPinPadProps> = ({
           disabled={!terminalReady || isLoading || pin.length < 4}
           onClick={handleSubmitPress}
           aria-label={isThai ? 'เข้าสู่ระบบด้วย PIN' : 'Submit PIN'}
-          className="h-13 sm:h-14 rounded-2xl bg-gradient-to-br from-[#F97316] to-[#EA580C] text-white flex items-center justify-center hover:from-[#EA580C] hover:to-[#C2410C] active:scale-95 focus-visible:ring-2 focus-visible:ring-[#F97316] focus-visible:ring-offset-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-md shadow-orange-500/25 select-none"
+          className="h-13 sm:h-14 rounded-2xl bg-gradient-to-br from-[#F97316] to-[#EA580C] text-[#FFFFFF] flex items-center justify-center hover:from-[#EA580C] hover:to-[#C2410C] active:scale-95 focus-visible:ring-2 focus-visible:ring-[#F97316] focus-visible:ring-offset-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shadow-md shadow-orange-500/30 select-none"
         >
-          <ArrowRight className="w-6 h-6 stroke-[2.5]" />
+          <ArrowRight className="w-6 h-6 stroke-[2.5] text-[#FFFFFF]" />
         </button>
       </div>
 
       {/* Auth Mode Switcher ("เลือกวิธีเข้าสู่ระบบ") */}
       <div className="max-w-[340px] mx-auto pt-2 space-y-2">
-        <div className="text-center text-xs font-bold text-[#64748B]">
+        <div className="text-center text-xs font-bold text-[#64748B] dark:text-[#94A3B8]">
           {isThai ? 'เลือกวิธีเข้าสู่ระบบ' : 'Select Login Method'}
         </div>
         <div className="grid grid-cols-3 gap-2">
@@ -181,9 +178,9 @@ export const OperatorPinPad: React.FC<OperatorPinPadProps> = ({
           <button
             type="button"
             onClick={() => onSwitchMode('pin')}
-            className="h-10 px-2 rounded-xl bg-[#F5E1D0] border-2 border-[#F97316] text-[#183D32] text-xs font-black flex items-center justify-center gap-1.5 shadow-2xs transition-all cursor-pointer"
+            className="h-10 px-2 rounded-xl bg-[#F5E1D0] dark:bg-[#F97316]/20 border-2 border-[#F97316] text-[#183D32] dark:text-[#F97316] text-xs font-black flex items-center justify-center gap-1.5 shadow-2xs transition-all cursor-pointer"
           >
-            <Grid2X2 className="w-3.5 h-3.5 text-[#183D32]" />
+            <Grid2X2 className="w-3.5 h-3.5" />
             <span>PIN</span>
           </button>
 
@@ -191,9 +188,9 @@ export const OperatorPinPad: React.FC<OperatorPinPadProps> = ({
           <button
             type="button"
             onClick={() => onSwitchMode('email')}
-            className="h-10 px-2 rounded-xl bg-white border border-[#E2E8F0] text-[#64748B] hover:text-[#183D32] hover:bg-[#FFF7ED] text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+            className="h-10 px-2 rounded-xl bg-[#FFFFFF] dark:bg-[#0F172A] border border-[#E2E8F0] dark:border-[#334155] text-[#64748B] dark:text-[#94A3B8] hover:text-[#183D32] dark:hover:text-[#F8FAFC] hover:bg-[#FFF7ED] dark:hover:bg-[#1E293B] text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer"
           >
-            <UserRound className="w-3.5 h-3.5 text-[#64748B]" />
+            <UserRound className="w-3.5 h-3.5" />
             <span className="truncate">{isThai ? 'ผู้ใช้ / รหัสผ่าน' : 'User / Pass'}</span>
           </button>
 
@@ -201,9 +198,9 @@ export const OperatorPinPad: React.FC<OperatorPinPadProps> = ({
           <button
             type="button"
             onClick={() => onSwitchMode('qr')}
-            className="h-10 px-2 rounded-xl bg-white border border-[#E2E8F0] text-[#64748B] hover:text-[#183D32] hover:bg-[#FFF7ED] text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+            className="h-10 px-2 rounded-xl bg-[#FFFFFF] dark:bg-[#0F172A] border border-[#E2E8F0] dark:border-[#334155] text-[#64748B] dark:text-[#94A3B8] hover:text-[#183D32] dark:hover:text-[#F8FAFC] hover:bg-[#FFF7ED] dark:hover:bg-[#1E293B] text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer"
           >
-            <QrCode className="w-3.5 h-3.5 text-[#64748B]" />
+            <QrCode className="w-3.5 h-3.5" />
             <span>{isThai ? 'สแกน QR' : 'Scan QR'}</span>
           </button>
         </div>
@@ -219,7 +216,7 @@ export const OperatorPinPad: React.FC<OperatorPinPadProps> = ({
                 playClick();
                 onQuickBiometricSignIn();
               }}
-              className="w-full h-10 rounded-xl bg-[#183D32] text-white hover:bg-[#0F2A22] text-xs font-bold flex items-center justify-between px-3.5 transition-all shadow-sm cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+              className="w-full h-10 rounded-xl bg-[#183D32] hover:bg-[#0F2A22] dark:bg-[#047857] dark:hover:bg-[#065F46] text-[#FFFFFF] text-xs font-bold flex items-center justify-between px-3.5 transition-all shadow-sm cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
               aria-label={isThai ? 'เข้าสู่ระบบด่วนด้วยชีวมิติ' : 'Quick Sign-In with biometrics'}
             >
               <div className="flex items-center gap-2">
@@ -238,7 +235,7 @@ export const OperatorPinPad: React.FC<OperatorPinPadProps> = ({
                       : 'Biometric Passkey'}
                 </span>
               </div>
-              <span className="text-[10px] bg-[#F97316] text-white px-1.5 py-0.5 rounded font-black">
+              <span className="text-[10px] bg-[#F97316] text-[#FFFFFF] px-1.5 py-0.5 rounded font-black">
                 FIDO2
               </span>
             </button>

@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
-  Clock3,
   Globe2,
   ShieldCheck,
   Sun,
+  Moon,
   X,
   ChevronDown,
 } from 'lucide-react';
@@ -68,6 +68,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
   const { theme, toggleTheme } = useTheme();
   const { addToast } = useToast();
   const isThai = language === 'th';
+  const isDark = theme === 'dark';
 
   const [selectedOrgId, setSelectedOrgId] = useState<string>(
     () => operationalScope?.organizationId || readTerminalValue(TERMINAL_SCOPE_STORAGE_KEYS.organization),
@@ -89,7 +90,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
   const [loginMode, setLoginMode] = useState<'pin' | 'biometric' | 'email' | 'qr'>(() =>
     readRememberBiometricsPreference() ? 'biometric' : 'pin',
   );
-  const [clock, setClock] = useState('');
   const [isScopeBarExpanded, setIsScopeBarExpanded] = useState<boolean>(false);
 
   const [webauthnCapability, setWebauthnCapability] = useState<WebAuthnCapability | null>(null);
@@ -372,19 +372,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
     void refreshPasskeysAndCapability();
   }, [refreshPasskeysAndCapability]);
 
-  useEffect(() => {
-    const update = () =>
-      setClock(
-        new Intl.DateTimeFormat(isThai ? 'th-TH' : 'en-GB', {
-          hour: '2-digit',
-          minute: '2-digit',
-        }).format(new Date()),
-      );
-    update();
-    const timer = window.setInterval(update, 30_000);
-    return () => window.clearInterval(timer);
-  }, [isThai]);
-
   const handleBiometricLogin = useCallback(
     async (targetRecord?: PasskeyCredentialRecord) => {
       if (isLoading || isBiometricVerifying) return;
@@ -443,17 +430,17 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
   );
 
   return (
-    <main className="min-h-[100svh] w-screen overflow-x-hidden bg-[#FAF5EE] text-[#183D32] font-sans flex flex-col justify-center items-center p-3 sm:p-6 lg:p-10">
+    <main className="min-h-[100svh] w-screen overflow-x-hidden bg-[#FAF5EE] dark:bg-[#0B132B] text-[#183D32] dark:text-[#F8FAFC] font-sans flex flex-col justify-center items-center p-3 sm:p-6 lg:p-10 transition-colors duration-300">
       <div className="w-full max-w-6xl flex flex-col lg:grid lg:grid-cols-2 gap-8 lg:gap-12 items-center">
         {/* Left Side: Desktop Visual Hero (Retail Minimart Scene) */}
         <section className="hidden lg:flex flex-col justify-between w-full h-full min-h-[580px] p-6 xl:p-8">
           <PosTerminalIllustration isThai={isThai} />
         </section>
 
-        {/* Right Side: Exact Reference Floating Card (#FFF7ED) */}
+        {/* Right Side: Exact Reference Floating Card (#FFF7ED in Light, #1E293B in Dark) */}
         <section className="w-full flex items-center justify-center">
           <article
-            className="relative w-full max-w-[420px] sm:max-w-[440px] rounded-[28px] sm:rounded-[32px] bg-[#FFF7ED] border border-[#F5E1D0] p-6 sm:p-7 shadow-2xl shadow-orange-950/10 overflow-hidden"
+            className="relative w-full max-w-[420px] sm:max-w-[440px] rounded-[28px] sm:rounded-[32px] bg-[#FFF7ED] dark:bg-[#1E293B] border border-[#F5E1D0] dark:border-[#334155] p-6 sm:p-7 shadow-2xl shadow-orange-950/10 dark:shadow-black/60 overflow-hidden transition-colors duration-300"
             aria-labelledby="login-card-title"
           >
             {/* Top-Left Organic Decorative Orange Swoosh */}
@@ -463,8 +450,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
               fill="none"
               aria-hidden="true"
             >
-              <path d="M0 70 C 25 35, 50 15, 95 0 L 0 0 Z" fill="#F97316" fillOpacity="0.2" />
-              <path d="M0 50 C 20 25, 40 10, 75 0 L 0 0 Z" fill="#F97316" fillOpacity="0.38" />
+              <path d="M0 70 C 25 35, 50 15, 95 0 L 0 0 Z" fill="#F97316" fillOpacity={isDark ? '0.15' : '0.2'} />
+              <path d="M0 50 C 20 25, 40 10, 75 0 L 0 0 Z" fill="#F97316" fillOpacity={isDark ? '0.28' : '0.38'} />
             </svg>
 
             {/* Bottom-Right Organic Decorative Orange Swoosh */}
@@ -474,8 +461,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
               fill="none"
               aria-hidden="true"
             >
-              <path d="M120 50 C 95 85, 70 105, 25 120 L 120 120 Z" fill="#F97316" fillOpacity="0.2" />
-              <path d="M120 70 C 100 95, 80 110, 45 120 L 120 120 Z" fill="#F97316" fillOpacity="0.38" />
+              <path d="M120 50 C 95 85, 70 105, 25 120 L 120 120 Z" fill="#F97316" fillOpacity={isDark ? '0.15' : '0.2'} />
+              <path d="M120 70 C 100 95, 80 110, 45 120 L 120 120 Z" fill="#F97316" fillOpacity={isDark ? '0.28' : '0.38'} />
             </svg>
 
             <div className="relative z-10 space-y-4">
@@ -484,7 +471,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
                 <button
                   type="button"
                   onClick={navigateToAdminLogin}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-white/80 border border-[#E2E8F0] hover:border-[#183D32] text-[11px] font-black text-[#183D32] transition-all cursor-pointer shadow-2xs"
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-[#FFFFFF] dark:bg-[#0F172A] border border-[#E2E8F0] dark:border-[#334155] hover:border-[#183D32] dark:hover:border-[#38BDF8] text-[11px] font-black text-[#183D32] dark:text-[#F8FAFC] transition-all cursor-pointer shadow-2xs"
                   aria-label="Admin Portal"
                 >
                   <ShieldCheck className="w-3.5 h-3.5 text-[#F97316]" />
@@ -496,22 +483,26 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
                   <button
                     type="button"
                     onClick={() => setLanguage(isThai ? 'en' : 'th')}
-                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-white/80 border border-[#E2E8F0] hover:border-[#183D32] text-xs font-black text-[#183D32] transition-all cursor-pointer shadow-2xs"
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-[#FFFFFF] dark:bg-[#0F172A] border border-[#E2E8F0] dark:border-[#334155] hover:border-[#183D32] dark:hover:border-[#38BDF8] text-xs font-black text-[#183D32] dark:text-[#F8FAFC] transition-all cursor-pointer shadow-2xs"
                     aria-label={isThai ? 'Switch to English' : 'เปลี่ยนเป็นภาษาไทย'}
                   >
-                    <Globe2 className="w-3.5 h-3.5 text-[#64748B]" />
+                    <Globe2 className="w-3.5 h-3.5 text-[#64748B] dark:text-[#94A3B8]" />
                     <span>{isThai ? 'TH' : 'EN'}</span>
-                    <ChevronDown className="w-3 h-3 text-[#64748B]" />
+                    <ChevronDown className="w-3 h-3 text-[#64748B] dark:text-[#94A3B8]" />
                   </button>
 
-                  {/* Theme Toggle Button (Sun icon in circular beige button) */}
+                  {/* Theme Toggle Button (Sun icon in Light Mode, Moon icon in Dark Mode) */}
                   <button
                     type="button"
                     onClick={toggleTheme}
-                    className="w-8 h-8 rounded-full bg-[#F5E1D0] hover:bg-[#EAD4C2] flex items-center justify-center transition-colors cursor-pointer shadow-2xs"
-                    aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+                    className="w-8 h-8 rounded-full bg-[#F5E1D0] dark:bg-[#334155] hover:bg-[#EAD4C2] dark:hover:bg-[#475569] flex items-center justify-center transition-colors cursor-pointer shadow-2xs"
+                    aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
                   >
-                    <Sun className="w-4 h-4 text-[#EA580C]" />
+                    {isDark ? (
+                      <Moon className="w-4 h-4 text-[#F97316]" />
+                    ) : (
+                      <Sun className="w-4 h-4 text-[#EA580C]" />
+                    )}
                   </button>
                 </div>
               </div>
@@ -519,21 +510,21 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
               {/* Card Brand Header */}
               <header className="text-center pt-1 pb-1">
                 <div className="flex flex-col items-center justify-center">
-                  <div className="w-12 h-12 rounded-2xl bg-[#F97316] text-white font-black text-2xl flex items-center justify-center shadow-md shadow-orange-500/25">
+                  <div className="w-12 h-12 rounded-2xl bg-[#F97316] text-[#FFFFFF] font-black text-2xl flex items-center justify-center shadow-md shadow-orange-500/25">
                     P
                   </div>
-                  <div className="mt-2 text-xl font-black text-[#183D32] tracking-tight">
+                  <div className="mt-2 text-xl font-black text-[#183D32] dark:text-[#F8FAFC] tracking-tight">
                     PRODX <span className="text-[#F97316]">POS</span>
                   </div>
-                  <div className="text-[9px] font-bold uppercase tracking-[0.26em] text-[#64748B] mt-0.5">
+                  <div className="text-[9px] font-bold uppercase tracking-[0.26em] text-[#64748B] dark:text-[#94A3B8] mt-0.5">
                     - PROFESSIONAL POS SYSTEM -
                   </div>
                 </div>
 
-                <h2 id="login-card-title" className="text-2xl sm:text-3xl font-black text-[#183D32] tracking-tight mt-3">
+                <h2 id="login-card-title" className="text-2xl sm:text-3xl font-black text-[#183D32] dark:text-[#F8FAFC] tracking-tight mt-3">
                   {isThai ? 'เข้าสู่ระบบ' : 'Sign In'}
                 </h2>
-                <p className="text-xs text-[#5A616D] font-medium mt-1">
+                <p className="text-xs text-[#5A616D] dark:text-[#94A3B8] font-medium mt-1">
                   {isThai
                     ? 'ยินดีต้อนรับสู่ระบบจัดการร้านค้า PRODX POS'
                     : 'Welcome to PRODX POS Retail Management'}
@@ -542,8 +533,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
 
               {/* Login Error Alert */}
               {loginError && (
-                <div className="rounded-xl border border-rose-200 bg-rose-50 p-2.5 flex items-start gap-2 text-xs text-rose-900 animate-in fade-in duration-200">
-                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                <div className="rounded-xl border border-rose-200 dark:border-rose-900 bg-rose-50 dark:bg-rose-950/80 p-2.5 flex items-start gap-2 text-xs text-rose-900 dark:text-rose-200 animate-in fade-in duration-200">
+                  <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
                   <div className="flex-1">
                     <div className="font-black">{loginError.title}</div>
                     <div>{loginError.message}</div>
@@ -552,7 +543,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
                     type="button"
                     onClick={() => setLoginError(null)}
                     aria-label="Dismiss error"
-                    className="text-rose-400 hover:text-rose-600"
+                    className="text-rose-400 hover:text-rose-600 dark:hover:text-rose-300"
                   >
                     <X className="w-4 h-4" />
                   </button>
@@ -660,8 +651,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
 
               {/* Card Footer Divider & Developer Attribution */}
               <footer className="pt-2">
-                <div className="w-full border-t border-[#E2E8F0] my-2" />
-                <div className="text-[10px] sm:text-[11px] font-black tracking-[0.2em] text-[#64748B] uppercase text-center">
+                <div className="w-full border-t border-[#E2E8F0] dark:border-[#334155] my-2" />
+                <div className="text-[10px] sm:text-[11px] font-black tracking-[0.2em] text-[#64748B] dark:text-[#94A3B8] uppercase text-center">
                   — DEVELOPED BY THODSAWAT —
                 </div>
               </footer>
