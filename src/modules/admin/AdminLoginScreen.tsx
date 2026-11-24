@@ -242,7 +242,7 @@ export const AdminLoginScreen: React.FC<AdminLoginScreenProps> = ({
               <span className="text-brand-primary-text/80 font-bold">
                 {isThai ? 'เงื่อนไขสิทธิ์ (RBAC):' : 'Required Role:'}
               </span>
-              <span className="rounded bg-emerald-500/20 border border-emerald-500/40 px-2 py-0.5 font-mono text-[10px] font-bold text-emerald-300">
+              <span className="rounded bg-emerald-500/20 border border-emerald-500/40 px-2 py-0.5 font-mono [font-variant-ligatures:none] text-[10px] font-bold text-emerald-300">
                 role === &apos;admin&apos;
               </span>
             </div>
@@ -331,7 +331,7 @@ export const AdminLoginScreen: React.FC<AdminLoginScreenProps> = ({
                   : 'Strict Administrator Role Gate Active'}
               </span>
             </span>
-            <span className="rounded-md bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 font-mono text-[10px] font-bold uppercase text-emerald-800 dark:text-emerald-300 shrink-0">
+            <span className="rounded-md bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 font-mono [font-variant-ligatures:none] text-[10px] font-bold uppercase text-emerald-800 dark:text-emerald-300 shrink-0">
               role === &apos;admin&apos;
             </span>
           </div>
@@ -522,7 +522,11 @@ export const AdminLoginScreen: React.FC<AdminLoginScreenProps> = ({
             <button
               disabled={isLoading}
               type="submit"
-              className="w-full h-12 mt-2 bg-cta text-cta-text rounded-xl font-black text-sm hover:bg-cta-hover flex items-center justify-center gap-2 transition-all disabled:opacity-50 shadow-lg shadow-cta/30 cursor-pointer active:scale-[0.99] focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2"
+              className={`w-full h-12 mt-2 rounded-xl font-black text-sm flex items-center justify-center gap-2 transition-all focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2 ${
+                isLoading
+                  ? 'bg-brand-surface-muted border border-brand-border text-brand-text-muted shadow-none cursor-not-allowed'
+                  : 'bg-cta text-cta-text hover:bg-cta-hover shadow-lg shadow-cta/30 cursor-pointer active:scale-[0.99]'
+              }`}
             >
               {isLoading ? (
                 <Loader2 className="h-4 w-4 animate-spin" />

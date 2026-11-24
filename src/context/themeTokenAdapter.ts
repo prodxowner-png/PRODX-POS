@@ -90,6 +90,8 @@ const NIGHT_STATUS_TOKENS = {
   subtle: '#1b2227',
 };
 
+const NIGHT_CTA_SUBTLE = '#2f231c';
+
 const DAY_FALLBACK_SURFACES = {
   bg: '#F8FAFC',
   surface: '#FFFFFF',
@@ -280,7 +282,7 @@ export function buildThemeVariables(
     '--brand-cta-hover': preset.semanticTokens.ctaHover,
     '--brand-cta-pressed': preset.semanticTokens.ctaPressed,
     '--brand-cta-text': preset.semanticTokens.ctaText,
-    '--brand-cta-subtle': preset.semanticTokens.ctaSubtle,
+    '--brand-cta-subtle': isDarkMode ? NIGHT_CTA_SUBTLE : preset.semanticTokens.ctaSubtle,
     '--brand-success': preset.semanticTokens.success,
     '--brand-success-text': isDarkMode ? NIGHT_STATUS_TOKENS.text : preset.semanticTokens.successText,
     '--brand-success-subtle': isDarkMode ? NIGHT_STATUS_TOKENS.subtle : preset.semanticTokens.successSubtle,

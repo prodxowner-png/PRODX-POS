@@ -50,23 +50,23 @@ export const TerminalScopeBar: React.FC<TerminalScopeBarProps> = ({
 }) => {
   if (terminalReady && !isExpanded && organizationContext) {
     return (
-      <div className="rounded-xl border border-emerald-200 bg-emerald-50/80 px-4 py-2.5 flex items-center justify-between gap-3 shadow-2xs">
+      <div className="rounded-xl border border-emerald-200 dark:border-emerald-500/30 bg-emerald-50/80 dark:bg-emerald-950/50 px-4 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3 shadow-2xs">
         <div className="flex items-center gap-2.5 min-w-0">
           <div className="h-7 w-7 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0">
             <CheckCircle2 className="w-4 h-4" />
           </div>
-          <div className="min-w-0 flex items-center gap-2 text-xs font-bold text-emerald-950 truncate">
+          <div className="min-w-0 flex flex-wrap sm:flex-nowrap items-center gap-x-2 gap-y-0.5 text-xs font-bold text-emerald-950 dark:text-emerald-100">
             <span className="truncate">{organizationContext.organizationName}</span>
-            <span className="text-emerald-700 font-bold" aria-hidden="true">›</span>
+            <span className="text-emerald-700 dark:text-emerald-400 font-bold" aria-hidden="true">›</span>
             <span className="truncate">{organizationContext.branchName}</span>
-            <span className="text-emerald-700 font-bold" aria-hidden="true">›</span>
-            <span className="font-mono text-emerald-800 font-black">{organizationContext.terminalCode}</span>
+            <span className="text-emerald-700 dark:text-emerald-400 font-bold" aria-hidden="true">›</span>
+            <span className="font-mono text-emerald-800 dark:text-emerald-200 font-black shrink-0">{organizationContext.terminalCode}</span>
           </div>
         </div>
         <button
           type="button"
           onClick={onToggleExpand}
-          className="shrink-0 text-xs font-bold text-emerald-800 hover:text-emerald-950 underline focus-visible:ring-2 focus-visible:ring-emerald-700 focus-visible:ring-offset-1 rounded-md cursor-pointer inline-flex items-center gap-1"
+          className="shrink-0 self-start sm:self-auto min-h-[44px] px-1 text-xs font-bold text-emerald-800 dark:text-emerald-300 hover:text-emerald-950 dark:hover:text-emerald-100 underline focus-visible:ring-2 focus-visible:ring-emerald-700 dark:focus-visible:ring-emerald-400 focus-visible:ring-offset-1 rounded-md cursor-pointer inline-flex items-center gap-1"
         >
           <span>{isThai ? 'เปลี่ยนจุด POS' : 'Change Station'}</span>
           <ChevronDown className="w-3.5 h-3.5" />

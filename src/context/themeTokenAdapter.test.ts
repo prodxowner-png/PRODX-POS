@@ -17,6 +17,7 @@ test('builds a complete light semantic and legacy variable map from the selected
   assert.equal(vars['--brand-bg'], signature.semanticTokens.bg);
   assert.equal(vars['--brand-cta'], '#e8894a');
   assert.equal(vars['--brand-cta-text'], '#20242b');
+  assert.equal(vars['--brand-cta-subtle'], signature.semanticTokens.ctaSubtle);
   assert.equal(vars['--primary-dark'], signature.semanticTokens.primaryHover);
   assert.equal(vars['--primary-text'], signature.semanticTokens.primaryText);
   assert.equal(vars['--brand-primary-text'], signature.semanticTokens.primaryText);
@@ -34,6 +35,16 @@ test('dark mode overrides light preset surfaces and emits dark-mode status text/
   assert.equal(vars['--brand-text'], '#f2ede4');
   assert.equal(vars['--brand-cta'], '#e8894a');
   assert.equal(vars['--brand-cta-text'], '#20242b');
+  assert.equal(vars['--brand-cta-subtle'], '#2f231c');
+  assert.notEqual(vars['--brand-cta-subtle'], signature.semanticTokens.ctaSubtle);
+  assert.ok(
+    getContrastRatio(vars['--brand-cta'], vars['--brand-cta-subtle']) >= 4.5,
+    'Dark mode --brand-cta on --brand-cta-subtle must meet >= 4.5:1',
+  );
+  assert.ok(
+    getContrastRatio(vars['--brand-text'], vars['--brand-cta-subtle']) >= 4.5,
+    'Dark mode --brand-text on --brand-cta-subtle must meet >= 4.5:1',
+  );
   assert.equal(vars['--brand-danger'], '#c62f2f');
 
   // Dark mode status tokens must match prodx-brand-tokens.css (:root.dark) and meet >= 4.5:1

@@ -222,7 +222,11 @@ export const OperatorPinPad: React.FC<OperatorPinPadProps> = ({
           type="button"
           disabled={!terminalReady || pin.length < 4 || isLoading}
           onClick={handleSubmitPress}
-          className="w-full h-13 px-6 bg-cta text-cta-text rounded-2xl font-black text-sm flex items-center justify-center gap-2 hover:bg-cta-hover active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2 transition-all disabled:opacity-30 disabled:cursor-not-allowed shadow-md shadow-cta/30 cursor-pointer whitespace-nowrap"
+          className={`w-full h-13 px-6 rounded-2xl font-black text-sm flex items-center justify-center gap-2 focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2 transition-all whitespace-nowrap ${
+            !terminalReady || pin.length < 4 || isLoading
+              ? 'bg-brand-surface-muted border border-brand-border text-brand-text-muted shadow-none cursor-not-allowed'
+              : 'bg-cta text-cta-text hover:bg-cta-hover active:scale-[0.98] shadow-md shadow-cta/30 cursor-pointer'
+          }`}
         >
           {isLoading ? (
             <Loader2 className="w-5 h-5 animate-spin shrink-0" />

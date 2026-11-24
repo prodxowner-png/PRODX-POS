@@ -485,7 +485,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
           <ProdxVectorMark size={48} className="shadow-2xl rounded-2xl" />
           <div>
             <div className="text-2xl font-black tracking-tighter">
-              PRODX<span className="font-light text-brand-primary-text/80">POS</span>
+              PRODX<span className="font-light text-cta">POS</span>
             </div>
             <div className="text-[10px] font-bold uppercase tracking-[0.3em] text-brand-gold-500">
               Enterprise POS Engine
@@ -518,9 +518,9 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
       {/* Main Authentication Panel */}
       <section className="flex-1 flex flex-col justify-between bg-brand-surface text-brand-text overflow-y-auto p-4 sm:p-6 lg:p-8">
         <header className="flex items-center justify-between gap-2 sm:gap-4 pb-4 border-b border-brand-border shrink-0">
-          <div className="lg:hidden flex items-center gap-2 shrink-0">
-            <div className="h-8 w-8 rounded-lg bg-brand-primary text-brand-primary-text font-black flex items-center justify-center text-sm">P</div>
-            <span className="font-black text-base sm:text-lg">PRODX<span className="text-brand-text-accent">POS</span></span>
+          <div className="lg:hidden flex items-center gap-2.5 shrink-0">
+            <ProdxVectorMark size={36} className="rounded-xl" />
+            <span className="font-black text-base sm:text-lg tracking-tight text-brand-text">PRODX<span className="text-cta">POS</span></span>
           </div>
           <div className="flex items-center gap-1.5 sm:gap-2 ml-auto shrink-0">
             <div className="hidden sm:flex items-center gap-1.5 px-3 py-2 min-h-[44px] bg-brand-surface-muted border border-brand-border rounded-lg text-xs font-bold text-brand-text">
