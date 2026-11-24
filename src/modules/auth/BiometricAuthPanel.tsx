@@ -69,7 +69,7 @@ export const BiometricAuthPanel: React.FC<BiometricAuthPanelProps> = ({
   return (
     <div className="space-y-3.5 max-w-[360px] mx-auto select-none">
       {/* Sensor Status Banner */}
-      <div className="rounded-xl border border-brand-border-strong bg-brand-primary text-brand-primary-text px-3.5 py-2.5 flex items-center justify-between gap-2.5 shadow-xs">
+      <div className="rounded-xl border border-[#183D32]/20 dark:border-slate-700 bg-[#183D32] dark:bg-[#0F172A] text-[#FFFFFF] px-3.5 py-2.5 flex items-center justify-between gap-2.5 shadow-sm">
         <div className="flex items-center gap-2.5 min-w-0">
           <div className="relative h-8 w-8 rounded-lg bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center shrink-0">
             {activePasskey?.authenticatorType === 'face_id' ? (
@@ -78,18 +78,18 @@ export const BiometricAuthPanel: React.FC<BiometricAuthPanelProps> = ({
               <Fingerprint className="w-4 h-4 text-emerald-400" />
             )}
             <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+              <span className="motion-safe:animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
               <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
             </span>
           </div>
           <div className="min-w-0">
-            <div className="text-xs font-bold text-white flex items-center gap-1.5 truncate">
+            <div className="text-xs font-bold text-[#FFFFFF] flex items-center gap-1.5 truncate">
               <span>{isThai ? 'เซ็นเซอร์ชีวมิติพร้อมทำงาน' : 'Biometric Sensor Ready'}</span>
-              <span className="rounded bg-emerald-500/20 px-1 py-0.2 text-[9px] font-mono font-bold text-emerald-300">
+              <span className="rounded bg-emerald-500/20 px-1 py-0.5 text-[9px] font-mono font-bold text-emerald-300">
                 FIDO2
               </span>
             </div>
-            <div className="text-[10px] text-slate-300 truncate">
+            <div className="text-[10px] text-[#CBD5E1] truncate">
               {webauthnCapability?.biometricLabel || 'Touch ID / Fingerprint / Face ID'}
             </div>
           </div>
@@ -100,15 +100,15 @@ export const BiometricAuthPanel: React.FC<BiometricAuthPanelProps> = ({
             playClick();
             onOpenEnrollModal();
           }}
-          className="shrink-0 inline-flex items-center gap-1 rounded-lg bg-white/10 hover:bg-white/20 border border-white/15 px-2.5 py-1.5 text-[11px] font-bold text-white focus-visible:ring-2 focus-visible:ring-cta transition-all cursor-pointer"
+          className="shrink-0 inline-flex items-center gap-1 rounded-lg bg-[#FFFFFF]/10 hover:bg-[#FFFFFF]/20 border border-[#FFFFFF]/20 px-2.5 py-1.5 min-h-[36px] text-[11px] font-bold text-[#FFFFFF] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F97316] transition-all cursor-pointer"
         >
-          <Plus className="w-3.5 h-3.5 text-cta" />
+          <Plus className="w-3.5 h-3.5 text-[#F97316]" />
           <span>{isThai ? 'จัดการ Passkey' : 'Passkeys'}</span>
         </button>
       </div>
 
       {/* Tactile Biometric Interactive Target */}
-      <div className="rounded-2xl border-2 border-brand-border bg-brand-surface-muted p-4 text-center shadow-xs space-y-3">
+      <div className="rounded-2xl border border-[#F0E1D3] dark:border-slate-700 bg-[#FFFFFF] dark:bg-[#1E293B] p-4 text-center shadow-xs space-y-3">
         <div className="flex flex-col items-center justify-center">
           <button
             type="button"
@@ -117,23 +117,23 @@ export const BiometricAuthPanel: React.FC<BiometricAuthPanelProps> = ({
             aria-label={isThai ? 'กดเพื่อสแกนชีวมิติ' : 'Tap to scan biometrics'}
             className={`relative w-20 h-20 rounded-full flex items-center justify-center transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
               isBiometricVerifying
-                ? 'bg-emerald-500 text-white shadow-xl shadow-emerald-500/30 scale-105'
-                : 'bg-brand-primary text-brand-primary-text hover:bg-cta hover:text-cta-text hover:scale-105 active:scale-95 shadow-lg shadow-brand-primary/20'
-            } focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2`}
+                ? 'bg-emerald-600 text-[#FFFFFF] shadow-xl shadow-emerald-600/30 scale-105'
+                : 'bg-[#183D32] dark:bg-[#0F172A] text-[#FFFFFF] hover:bg-[#F97316] hover:text-[#FFFFFF] hover:scale-105 active:scale-95 shadow-lg shadow-[#183D32]/20'
+            } focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F97316] focus-visible:ring-offset-2`}
           >
             {/* Animated Laser Sweep & Glow effect */}
             {isBiometricVerifying ? (
               <div className="absolute inset-0 rounded-full overflow-hidden">
-                <div className="w-full h-1 bg-white animate-laser-sweep" />
+                <div className="w-full h-1 bg-[#FFFFFF] motion-safe:animate-laser-sweep" />
               </div>
             ) : null}
 
             {isBiometricVerifying ? (
-              <Loader2 className="w-9 h-9 animate-spin text-white" />
+              <Loader2 className="w-9 h-9 animate-spin text-[#FFFFFF]" />
             ) : activePasskey?.authenticatorType === 'face_id' ? (
-              <ScanFace className="w-9 h-9 text-cta transition-transform hover:scale-110" />
+              <ScanFace className="w-9 h-9 text-[#F97316] transition-transform hover:scale-110" />
             ) : (
-              <Fingerprint className="w-9 h-9 text-cta transition-transform hover:scale-110" />
+              <Fingerprint className="w-9 h-9 text-[#F97316] transition-transform hover:scale-110" />
             )}
           </button>
         </div>
