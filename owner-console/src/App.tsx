@@ -1,6 +1,20 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import type { Session } from '@supabase/supabase-js';
-import { Activity, ArrowUpRight, Building2, Fingerprint, LogOut, ShieldCheck, Store, Users } from 'lucide-react';
+import {
+  Activity,
+  AlertCircle,
+  ArrowUpRight,
+  Building2,
+  Eye,
+  EyeOff,
+  Fingerprint,
+  LogOut,
+  Moon,
+  ShieldCheck,
+  Store,
+  Sun,
+  Users,
+} from 'lucide-react';
 import {
   enrollOwnerTotp,
   evaluateOwnerSession,
@@ -10,13 +24,28 @@ import {
 import { shouldReevaluateOnAuthEvent } from './lib/authEvents.ts';
 import { supabase, supabaseConfigReady } from './lib/supabase.ts';
 
+const OWNER_THEME_STORAGE_KEY = 'prodx.owner.theme';
+
+function getInitialOwnerTheme(): 'light' | 'dark' {
+  if (typeof window === 'undefined') return 'dark';
+  try {
+    const saved = window.localStorage.getItem(OWNER_THEME_STORAGE_KEY);
+    if (saved === 'light' || saved === 'dark') return saved;
+    return window.matchMedia?.('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  } catch {
+    return 'dark';
+  }
+}
+
 export default function App() {
+  const [theme, setTheme] = useState<'light' | 'dark'>(getInitialOwnerTheme);
   const [authState, setAuthState] = useState<OwnerAuthState>(
     supabaseConfigReady ? 'loading' : 'misconfigured',
   );
   const [session, setSession] = useState<Session | null>(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [factorId, setFactorId] = useState('');
   const [challengeId, setChallengeId] = useState('');
   const [qrCode, setQrCode] = useState('');
@@ -27,6 +56,17 @@ export default function App() {
   const sequence = useRef(0);
   const authStateRef = useRef<OwnerAuthState>(authState);
   const pendingMfaUserId = useRef<string | null>(null);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    try {
+      window.localStorage.setItem(OWNER_THEME_STORAGE_KEY, theme);
+    } catch {
+      // Ignore storage errors in restricted contexts
+    }
+  }, [theme]);
+
+  const toggleTheme = () => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
 
   useEffect(() => {
     authStateRef.current = authState;
@@ -268,6 +308,17 @@ export default function App() {
   if (authState === 'signed-out') {
     return (
       <main className="auth-shell">
+        <div className="auth-utility-bar">
+          <button
+            type="button"
+            className="theme-toggle-button"
+            onClick={toggleTheme}
+            aria-label={theme === 'dark' ? 'สลับเป็นโหมดสว่าง' : 'สลับเป็นโหมดมืด'}
+          >
+            {theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
+            <span>{theme === 'dark' ? 'โหมดสว่าง' : 'โหมดมืด'}</span>
+          </button>
+        </div>
         <section className="auth-brand">
           <div className="brand-mark">P</div>
           <p className="eyebrow">PRODX · ENTERPRISE CONTROL PLANE</p>
@@ -294,25 +345,39 @@ export default function App() {
               id="owner-email"
               type="email"
               autoComplete="username"
+              spellCheck={false}
+              enterKeyHint="next"
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="owner@example.com"
             />
             <label htmlFor="owner-password">รหัสผ่าน</label>
-            <input
-              id="owner-password"
-              type="password"
-              autoComplete="current-password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••••••"
-            />
+            <div className="password-field">
+              <input
+                id="owner-password"
+                type={showPassword ? 'text' : 'password'}
+                autoComplete="current-password"
+                enterKeyHint="done"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••••••"
+              />
+              <button
+                type="button"
+                className="password-toggle"
+                onClick={() => setShowPassword((prev) => !prev)}
+                aria-label={showPassword ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'}
+              >
+                {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
+              </button>
+            </div>
             {error && (
-              <p className="error" role="alert">
-                {error}
-              </p>
+              <div className="error-banner" role="alert">
+                <AlertCircle size={16} />
+                <span>{error}</span>
+              </div>
             )}
             <button className="primary-button" type="submit" disabled={busy}>
               {busy ? 'กำลังตรวจสอบ…' : 'เข้าสู่ Owner Console'} <ArrowUpRight size={17} />
@@ -329,8 +394,21 @@ export default function App() {
   if (authState === 'mfa-enroll' || authState === 'mfa-challenge') {
     return (
       <main className="center-screen">
+        <div className="auth-utility-bar">
+          <button
+            type="button"
+            className="theme-toggle-button"
+            onClick={toggleTheme}
+            aria-label={theme === 'dark' ? 'สลับเป็นโหมดสว่าง' : 'สลับเป็นโหมดมืด'}
+          >
+            {theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
+            <span>{theme === 'dark' ? 'โหมดสว่าง' : 'โหมดมืด'}</span>
+          </button>
+        </div>
         <section className="notice owner-mfa-notice">
-          <Fingerprint />
+          <div className="card-icon">
+            <Fingerprint />
+          </div>
           <p className="eyebrow">MANDATORY OWNER MFA</p>
           <h1>{authState === 'mfa-enroll' ? 'ตั้งค่า Authenticator' : 'ยืนยันตัวตนอีกขั้น'}</h1>
           <p className="muted">
@@ -364,18 +442,22 @@ export default function App() {
                 <label htmlFor="owner-totp">รหัส 6 หลักจาก Authenticator</label>
                 <input
                   id="owner-totp"
+                  className="totp-input"
                   inputMode="numeric"
                   autoComplete="one-time-code"
+                  enterKeyHint="done"
                   pattern="[0-9]{6}"
                   maxLength={6}
+                  placeholder="000000"
                   required
                   value={code}
                   onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                 />
                 {error && (
-                  <p className="error" role="alert">
-                    {error}
-                  </p>
+                  <div className="error-banner" role="alert">
+                    <AlertCircle size={16} />
+                    <span>{error}</span>
+                  </div>
                 )}
                 <button
                   className="primary-button"
@@ -388,9 +470,10 @@ export default function App() {
             </>
           )}
           {error && !qrCode && (
-            <p className="error" role="alert">
-              {error}
-            </p>
+            <div className="error-banner" role="alert">
+              <AlertCircle size={16} />
+              <span>{error}</span>
+            </div>
           )}
           <button
             className="secondary-button"
@@ -408,9 +491,11 @@ export default function App() {
     return (
       <main className="center-screen">
         <section className="notice">
-          <ShieldCheck />
+          <div className="card-icon">
+            <ShieldCheck />
+          </div>
           <h1>ไม่มีสิทธิ์ Owner</h1>
-          <p>{error || 'บัญชีนี้ยังไม่ได้รับ Owner role หรือไม่สามารถยืนยัน MFA ได้'}</p>
+          <p className="muted">{error || 'บัญชีนี้ยังไม่ได้รับ Owner role หรือไม่สามารถยืนยัน MFA ได้'}</p>
           <button
             className="secondary-button"
             onClick={() => void logout()}
@@ -437,6 +522,14 @@ export default function App() {
         </div>
         <div className="account">
           <span>{session?.user.email}</span>
+          <button
+            type="button"
+            className="icon-button"
+            onClick={toggleTheme}
+            aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            {theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
+          </button>
           <button
             className="icon-button"
             onClick={() => void logout()}
