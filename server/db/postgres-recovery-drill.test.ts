@@ -155,25 +155,21 @@ function detectDockerContainerForDatabase(connectionString: string): string | un
     return process.env.PG_DOCKER_CONTAINER;
   }
   try {
-    execFileSync('which', ['pg_dump'], { stdio: 'ignore' });
-    execFileSync('which', ['pg_restore'], { stdio: 'ignore' });
-    execFileSync('which', ['psql'], { stdio: 'ignore' });
-    return undefined;
-  } catch {
-    // Host postgresql-client not installed; auto-detect Docker container publishing the database port.
-  }
-  const parsed = new URL(connectionString);
-  const hostPort = parsed.port || '5432';
-  const output = execFileSync('docker', ['ps', '--format', '{{.Names}}\t{{.Ports}}'], {
-    encoding: 'utf8',
-  });
-  for (const line of output.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    const [name, ports = ''] = trimmed.split('\t');
-    if (ports.includes(`:${hostPort}->5432/tcp`)) {
-      return name;
+    const parsed = new URL(connectionString);
+    const hostPort = parsed.port || '5432';
+    const output = execFileSync('docker', ['ps', '--format', '{{.Names}}\t{{.Ports}}'], {
+      encoding: 'utf8',
+    });
+    for (const line of output.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      const [name, ports = ''] = trimmed.split('\t');
+      if (ports.includes(`:${hostPort}->5432/tcp`)) {
+        return name;
+      }
     }
+  } catch {
+    // Docker not available or not running; fall back to host postgresql-client binaries.
   }
   return undefined;
 }

@@ -132,6 +132,21 @@ EXEC_SOURCE_URL="${SOURCE_URL}"
 EXEC_TARGET_URL="${TARGET_URL}"
 DUMP_FILE=""
 
+if [[ -z "${DOCKER_CONTAINER}" ]] && command -v docker >/dev/null 2>&1; then
+  SOURCE_AUTHORITY="${SOURCE_URL#*://}"
+  SOURCE_AUTHORITY="${SOURCE_AUTHORITY%%/*}"
+  SOURCE_AUTHORITY="${SOURCE_AUTHORITY%%\?*}"
+  SOURCE_AUTHORITY="${SOURCE_AUTHORITY##*@}"
+  SOURCE_PORT="5432"
+  if [[ "${SOURCE_AUTHORITY}" == *:* ]]; then
+    SOURCE_PORT="${SOURCE_AUTHORITY##*:}"
+  fi
+  DETECTED_CONTAINER="$(docker ps --format '{{.Names}}\t{{.Ports}}' 2>/dev/null | awk -F'\t' -v pat=":${SOURCE_PORT}->5432/tcp" '$2 ~ pat { print $1; exit }')"
+  if [[ -n "${DETECTED_CONTAINER}" ]]; then
+    DOCKER_CONTAINER="${DETECTED_CONTAINER}"
+  fi
+fi
+
 if [[ -n "${DOCKER_CONTAINER}" ]]; then
   EXEC_SOURCE_URL="$(rewrite_url_for_docker "${SOURCE_URL}")"
   EXEC_TARGET_URL="$(rewrite_url_for_docker "${TARGET_URL}")"
