@@ -477,7 +477,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
   );
 
   return (
-    <main className="h-[100svh] w-screen overflow-hidden bg-brand-bg text-brand-text font-sans flex flex-col lg:grid lg:grid-cols-[40%_60%]">
+    <main className="min-h-[100svh] w-full bg-brand-bg text-brand-text font-sans flex flex-col lg:grid lg:grid-cols-[40%_60%]">
       {/* Visual Sidebar */}
       <section className="relative hidden overflow-hidden bg-brand-primary text-brand-primary-text lg:flex flex-col justify-between p-10 border-r border-brand-border/40">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(232,137,74,0.18),transparent_42%),radial-gradient(circle_at_80%_80%,rgba(15,42,34,0.38),transparent_42%)]" />
@@ -485,7 +485,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
           <ProdxVectorMark size={48} className="shadow-2xl rounded-2xl" />
           <div>
             <div className="text-2xl font-black tracking-tighter">
-              PRODX<span className="font-light text-slate-300">POS</span>
+              PRODX<span className="font-light text-brand-primary-text/80">POS</span>
             </div>
             <div className="text-[10px] font-bold uppercase tracking-[0.3em] text-brand-gold-500">
               Enterprise POS Engine
@@ -502,35 +502,35 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
             {isThai ? 'จุดชำระเงินอัจฉริยะ' : 'High-Performance'} <br />
             <span className="text-cta">{isThai ? 'ระดับองค์กร' : 'Retail POS Station'}</span>
           </h1>
-          <p className="text-sm text-slate-200 leading-relaxed">
+          <p className="text-sm text-brand-primary-text/80 leading-relaxed">
             {isThai
               ? 'ระบบจัดการหน้าร้านความเร็วสูง รองรับออฟไลน์ซิงค์และบันทึกความปลอดภัยระดับสูงสุด'
               : 'Empowering enterprise retail with rapid checkout, offline resilience, and secure auditing.'}
           </p>
         </div>
 
-        <div className="relative z-10 pt-6 border-t border-white/15 flex items-center justify-between text-xs text-slate-300 font-bold">
+        <div className="relative z-10 pt-6 border-t border-white/15 flex items-center justify-between text-xs text-brand-primary-text/80 font-bold">
           <span>POS Terminal Operator Authentication</span>
           <div>© PRODX POS</div>
         </div>
       </section>
 
-      {/* Main Zero-Scroll Authentication Panel */}
-      <section className="flex-1 flex flex-col justify-between bg-brand-surface text-brand-text overflow-hidden p-4 sm:p-6 lg:p-8">
+      {/* Main Authentication Panel */}
+      <section className="flex-1 flex flex-col justify-between bg-brand-surface text-brand-text overflow-y-auto p-4 sm:p-6 lg:p-8">
         <header className="flex items-center justify-between gap-2 sm:gap-4 pb-4 border-b border-brand-border shrink-0">
           <div className="lg:hidden flex items-center gap-2 shrink-0">
             <div className="h-8 w-8 rounded-lg bg-brand-primary text-brand-primary-text font-black flex items-center justify-center text-sm">P</div>
-            <span className="font-black text-base sm:text-lg">PRODX<span className="text-brand-primary">POS</span></span>
+            <span className="font-black text-base sm:text-lg">PRODX<span className="text-brand-text-accent">POS</span></span>
           </div>
           <div className="flex items-center gap-1.5 sm:gap-2 ml-auto shrink-0">
-            <div className="hidden sm:flex items-center gap-1.5 px-3 py-2 bg-brand-surface-muted border border-brand-border rounded-lg text-xs font-bold text-brand-text">
+            <div className="hidden sm:flex items-center gap-1.5 px-3 py-2 min-h-[44px] bg-brand-surface-muted border border-brand-border rounded-lg text-xs font-bold text-brand-text">
               <Clock3 className="w-3.5 h-3.5 text-brand-text-secondary" />
-              <span>{clock}</span>
+              <span className="tabular-nums">{clock}</span>
             </div>
             <button
               type="button"
               onClick={navigateToAdminLogin}
-              className="flex items-center gap-1.5 px-2.5 sm:px-3.5 py-2 min-h-[40px] bg-brand-primary text-brand-primary-text rounded-lg text-xs font-black hover:bg-brand-primary-hover focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2 transition-all shadow-xs cursor-pointer whitespace-nowrap"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3.5 py-2 min-h-[44px] bg-brand-primary text-brand-primary-text rounded-lg text-xs font-black hover:bg-brand-primary-hover focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2 transition-all shadow-xs cursor-pointer whitespace-nowrap"
             >
               <ShieldCheck className="w-3.5 h-3.5 text-brand-gold-500 shrink-0" />
               <span>{copy.adminLoginBtn}</span>
@@ -538,7 +538,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
             <button
               type="button"
               onClick={() => setLanguage(isThai ? 'en' : 'th')}
-              className="flex items-center gap-1.5 px-2.5 sm:px-3.5 py-2 min-h-[40px] border-2 border-brand-border rounded-lg text-xs font-black text-brand-text hover:border-brand-border-strong focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2 cursor-pointer whitespace-nowrap"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3.5 py-2 min-h-[44px] border-2 border-brand-border rounded-lg text-xs font-black text-brand-text hover:border-brand-border-strong focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2 cursor-pointer whitespace-nowrap"
             >
               <Globe2 className="w-3.5 h-3.5 text-brand-text-secondary shrink-0" />
               <span>{copy.language}</span>
@@ -546,7 +546,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
           </div>
         </header>
 
-        {/* Dynamic Body: Zero-Scroll Compact Layout */}
+        {/* Dynamic Body: Responsive Compact Layout */}
         <div className="flex-1 flex flex-col justify-center max-w-[440px] mx-auto w-full py-4 space-y-4">
           <div>
             <div className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-text-accent mb-1">
@@ -582,13 +582,21 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
 
           {/* Login Error Notification Banner */}
           {loginError && (
-            <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 flex items-start gap-2.5 text-xs text-rose-900">
-              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+            <div
+              role="alert"
+              className="rounded-xl border border-danger/40 bg-danger-subtle p-3 flex items-start gap-2.5 text-xs text-danger"
+            >
+              <AlertCircle className="w-4 h-4 text-danger shrink-0 mt-0.5" />
               <div className="flex-1">
                 <div className="font-black">{loginError.title}</div>
                 <div>{loginError.message}</div>
               </div>
-              <button type="button" onClick={() => setLoginError(null)} className="text-rose-400 hover:text-rose-600">
+              <button
+                type="button"
+                onClick={() => setLoginError(null)}
+                aria-label={isThai ? 'ปิดข้อความแจ้งเตือน' : 'Dismiss error message'}
+                className="p-1 text-danger/80 hover:text-danger rounded-md focus-visible:ring-2 focus-visible:ring-danger cursor-pointer"
+              >
                 <X className="w-4 h-4" />
               </button>
             </div>

@@ -65,7 +65,9 @@ export const AdminLoginScreen: React.FC<AdminLoginScreenProps> = ({
       ...(typeof data.method === 'string' ? { method: data.method } : {}),
     };
 
-    console.log(`%c[ADMIN_AUTH_TRACE][${stage}]`, 'color: #ff6b1a; font-weight: bold;', logPayload);
+    if (import.meta.env.DEV) {
+      console.log(`%c[ADMIN_AUTH_TRACE][${stage}]`, 'color: #ff6b1a; font-weight: bold;', logPayload);
+    }
 
     auditService.logDiagnosticEvent({
       category: 'system',
@@ -202,17 +204,17 @@ export const AdminLoginScreen: React.FC<AdminLoginScreenProps> = ({
         </div>
 
         <div className="relative z-10 my-auto max-w-md space-y-6">
-          <div className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-[11px] font-black uppercase tracking-wider text-white">
+          <div className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-[11px] font-black uppercase tracking-wider text-brand-primary-text">
             <ShieldCheck className="h-3.5 w-3.5 text-brand-gold-500" />
             <span>{isThai ? 'บังคับใช้สิทธิ์ RBAC ระดับสูงสุด' : 'Strict RBAC Role Gate Active'}</span>
           </div>
 
-          <h2 className="text-4xl xl:text-5xl font-black tracking-tight leading-[1.05] text-white">
+          <h2 className="text-4xl xl:text-5xl font-black tracking-tight leading-[1.05] text-brand-primary-text">
             {isThai ? (
               <>
                 ศูนย์ควบคุมระบบ
                 <br />
-                <span className="text-cta">{isThai ? 'ระดับองค์กร.' : 'Enterprise.'}</span>
+                <span className="text-cta">ระดับองค์กร.</span>
               </>
             ) : (
               <>
@@ -223,38 +225,38 @@ export const AdminLoginScreen: React.FC<AdminLoginScreenProps> = ({
             )}
           </h2>
 
-          <p className="text-sm text-slate-200 leading-relaxed">
+          <p className="text-sm text-brand-primary-text/80 leading-relaxed">
             {isThai
               ? 'จัดการโครงสร้างองค์กร สาขา เครื่องขาย POS สิทธิ์การเข้าถึงของพนักงาน (RBAC) และตรวจสอบบันทึกความปลอดภัยแบบเรียลไทม์'
               : 'Configure multi-branch organizations, POS terminal stations, staff RBAC permissions, and immutable security audit trails.'}
           </p>
 
           <div className="rounded-2xl border border-white/15 bg-white/10 p-4 space-y-2.5 text-xs">
-            <div className="flex items-center justify-between text-slate-200">
-              <span className="text-slate-300 font-bold">
+            <div className="flex items-center justify-between text-brand-primary-text/80">
+              <span className="text-brand-primary-text/80 font-bold">
                 {isThai ? 'เส้นทางความปลอดภัย:' : 'Security Route:'}
               </span>
               <span className="font-mono font-bold text-cta">/admin/login</span>
             </div>
-            <div className="flex items-center justify-between text-slate-200">
-              <span className="text-slate-300 font-bold">
+            <div className="flex items-center justify-between text-brand-primary-text/80">
+              <span className="text-brand-primary-text/80 font-bold">
                 {isThai ? 'เงื่อนไขสิทธิ์ (RBAC):' : 'Required Role:'}
               </span>
               <span className="rounded bg-emerald-500/20 border border-emerald-500/40 px-2 py-0.5 font-mono text-[10px] font-bold text-emerald-300">
                 role === &apos;admin&apos;
               </span>
             </div>
-            <div className="flex items-center justify-between text-slate-200">
-              <span className="text-slate-300 font-bold">
+            <div className="flex items-center justify-between text-brand-primary-text/80">
+              <span className="text-brand-primary-text/80 font-bold">
                 {isThai ? 'รองรับอุปกรณ์:' : 'Device Ergonomics:'}
               </span>
-              <span className="font-semibold text-white">Mobile · Tablet · POS · Desktop</span>
+              <span className="font-semibold text-brand-primary-text">Mobile · Tablet · POS · Desktop</span>
             </div>
           </div>
         </div>
 
-        <div className="relative z-10 pt-6 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400 font-bold">
-          <span className="text-slate-300">PostgreSQL &amp; RBAC Security Gate</span>
+        <div className="relative z-10 pt-6 border-t border-white/15 flex items-center justify-between text-[11px] text-brand-primary-text/80 font-bold">
+          <span>PostgreSQL &amp; RBAC Security Gate</span>
           <span>PRODX Enterprise v2.0</span>
         </div>
       </section>
@@ -278,7 +280,7 @@ export const AdminLoginScreen: React.FC<AdminLoginScreenProps> = ({
               <button
                 type="button"
                 onClick={onBackToPos}
-                className="min-h-[40px] px-3 py-1.5 rounded-xl border border-brand-border bg-brand-surface hover:bg-brand-surface-hover text-xs font-bold text-brand-text flex items-center gap-1.5 transition-colors cursor-pointer"
+                className="min-h-[44px] px-3 py-1.5 rounded-xl border border-brand-border bg-brand-surface hover:bg-brand-surface-hover text-xs font-bold text-brand-text flex items-center gap-1.5 transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2"
               >
                 <ArrowLeft className="h-3.5 w-3.5 text-cta" />
                 <span>{isThai ? 'หน้า POS' : 'POS Login'}</span>
@@ -287,7 +289,7 @@ export const AdminLoginScreen: React.FC<AdminLoginScreenProps> = ({
             <button
               type="button"
               onClick={() => setLanguage(isThai ? 'en' : 'th')}
-              className="min-h-[40px] px-3 py-1.5 rounded-xl border border-brand-border bg-brand-surface hover:bg-brand-surface-hover text-xs font-bold text-brand-text flex items-center gap-1.5 transition-colors cursor-pointer"
+              className="min-h-[44px] px-3 py-1.5 rounded-xl border border-brand-border bg-brand-surface hover:bg-brand-surface-hover text-xs font-bold text-brand-text flex items-center gap-1.5 transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2"
             >
               <Globe2 className="h-3.5 w-3.5 text-brand-text-secondary" />
               <span>{isThai ? 'English' : 'ไทย'}</span>
@@ -320,16 +322,16 @@ export const AdminLoginScreen: React.FC<AdminLoginScreenProps> = ({
           </div>
 
           {/* Compact RBAC Enforcement Notice */}
-          <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 sm:p-3.5 flex items-center justify-between gap-2 text-xs">
-            <span className="flex items-center gap-2 font-bold text-emerald-300">
-              <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+          <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 sm:p-3.5 flex items-center justify-between gap-2 text-xs">
+            <span className="flex items-center gap-2 font-bold text-emerald-800 dark:text-emerald-300">
+              <CheckCircle2 className="h-4 w-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
               <span>
                 {isThai
                   ? 'ตรวจสอบสิทธิ์ผู้ดูแลระบบ (Admin Role Gate)'
                   : 'Strict Administrator Role Gate Active'}
               </span>
             </span>
-            <span className="rounded-md bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 font-mono text-[10px] uppercase text-emerald-300 shrink-0">
+            <span className="rounded-md bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 font-mono text-[10px] font-bold uppercase text-emerald-800 dark:text-emerald-300 shrink-0">
               role === &apos;admin&apos;
             </span>
           </div>
@@ -338,27 +340,33 @@ export const AdminLoginScreen: React.FC<AdminLoginScreenProps> = ({
           {rbacError && (
             <div
               role="alert"
-              className="rounded-xl border border-rose-500/40 bg-rose-500/10 p-3.5 flex items-start gap-3 text-rose-200"
+              className="rounded-xl border border-danger/40 bg-danger-subtle p-3.5 flex items-start gap-3 text-danger"
             >
-              <ShieldAlert className="h-5 w-5 text-rose-400 shrink-0 mt-0.5" />
+              <ShieldAlert className="h-5 w-5 text-danger shrink-0 mt-0.5" />
               <div className="text-xs space-y-1">
-                <div className="font-black uppercase tracking-wider text-rose-300">
+                <div className="font-black uppercase tracking-wider text-danger">
                   {isThai ? 'ปฏิเสธการเข้าถึงตามนโยบาย RBAC' : 'RBAC Authorization Denied'}
                 </div>
-                <p className="font-medium text-rose-200/90 leading-relaxed">{rbacError}</p>
+                <p className="font-medium text-danger leading-relaxed">{rbacError}</p>
               </div>
             </div>
           )}
 
           {/* Mode Switcher */}
-          <div className="grid grid-cols-2 gap-1.5 p-1 bg-brand-surface-muted rounded-xl border border-brand-border">
+          <div
+            role="tablist"
+            aria-label={isThai ? 'วิธีเข้าสู่ระบบผู้ดูแลระบบ' : 'Administrator authentication method'}
+            className="grid grid-cols-2 gap-1.5 p-1 bg-brand-surface-muted rounded-xl border border-brand-border"
+          >
             <button
               type="button"
+              role="tab"
+              aria-selected={authMode === 'credentials'}
               onClick={() => {
                 setAuthMode('credentials');
                 setRbacError(null);
               }}
-              className={`min-h-[42px] py-2 rounded-lg text-xs font-black transition-all flex items-center justify-center gap-2 cursor-pointer ${
+              className={`min-h-[44px] py-2 rounded-lg text-xs font-black transition-all flex items-center justify-center gap-2 cursor-pointer focus-visible:ring-2 focus-visible:ring-cta ${
                 authMode === 'credentials'
                   ? 'bg-brand-primary text-brand-primary-text shadow'
                   : 'text-brand-text-secondary hover:text-brand-text'
@@ -369,11 +377,13 @@ export const AdminLoginScreen: React.FC<AdminLoginScreenProps> = ({
             </button>
             <button
               type="button"
+              role="tab"
+              aria-selected={authMode === 'pin'}
               onClick={() => {
                 setAuthMode('pin');
                 setRbacError(null);
               }}
-              className={`min-h-[42px] py-2 rounded-lg text-xs font-black transition-all flex items-center justify-center gap-2 cursor-pointer ${
+              className={`min-h-[44px] py-2 rounded-lg text-xs font-black transition-all flex items-center justify-center gap-2 cursor-pointer focus-visible:ring-2 focus-visible:ring-cta ${
                 authMode === 'pin'
                   ? 'bg-brand-primary text-brand-primary-text shadow'
                   : 'text-brand-text-secondary hover:text-brand-text'
@@ -394,7 +404,7 @@ export const AdminLoginScreen: React.FC<AdminLoginScreenProps> = ({
               <select
                 value={selectedOrgSlug}
                 onChange={(e) => setSelectedOrgSlug(e.target.value)}
-                className="w-full h-11 sm:h-12 mt-1.5 rounded-xl bg-brand-surface border border-brand-border px-3.5 text-xs sm:text-sm font-bold text-brand-text focus:border-cta focus:ring-2 focus:ring-cta/40 outline-none"
+                className="w-full h-11 sm:h-12 mt-1.5 rounded-xl bg-brand-surface border border-brand-border px-3.5 text-base sm:text-sm font-bold text-brand-text focus:border-cta focus:ring-2 focus:ring-cta/40 outline-none"
               >
                 {orgs.length === 0 ? (
                   <option value="prodx">PRODX Retail Group (prodx)</option>
@@ -419,8 +429,10 @@ export const AdminLoginScreen: React.FC<AdminLoginScreenProps> = ({
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="kamkokaewthodsawat@gmail.com"
-                    className="w-full h-11 sm:h-12 mt-1.5 rounded-xl bg-brand-surface border border-brand-border px-4 text-sm font-bold text-brand-text placeholder:text-brand-text-muted focus:border-cta focus:ring-2 focus:ring-cta/40 outline-none"
+                    placeholder="admin@company.com"
+                    autoComplete="username"
+                    spellCheck={false}
+                    className="w-full h-11 sm:h-12 mt-1.5 rounded-xl bg-brand-surface border border-brand-border px-4 text-base sm:text-sm font-bold text-brand-text placeholder:text-brand-text-muted focus:border-cta focus:ring-2 focus:ring-cta/40 outline-none"
                   />
                 </label>
                 <label className="block">
@@ -434,12 +446,13 @@ export const AdminLoginScreen: React.FC<AdminLoginScreenProps> = ({
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="Enter admin password or PIN"
-                      className="w-full h-11 sm:h-12 rounded-xl bg-brand-surface border border-brand-border pl-4 pr-12 text-sm font-bold text-brand-text placeholder:text-brand-text-muted focus:border-cta focus:ring-2 focus:ring-cta/40 outline-none"
+                      autoComplete="current-password"
+                      className="w-full h-11 sm:h-12 rounded-xl bg-brand-surface border border-brand-border pl-4 pr-12 text-base sm:text-sm font-bold text-brand-text placeholder:text-brand-text-muted focus:border-cta focus:ring-2 focus:ring-cta/40 outline-none"
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword((prev) => !prev)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 text-brand-text-secondary hover:text-brand-text rounded-lg focus-visible:ring-2 focus-visible:ring-cta cursor-pointer"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 min-h-[36px] min-w-[36px] flex items-center justify-center text-brand-text-secondary hover:text-brand-text rounded-lg focus-visible:ring-2 focus-visible:ring-cta cursor-pointer"
                       aria-label={showPassword ? 'Hide password' : 'Show password'}
                     >
                       {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -450,7 +463,7 @@ export const AdminLoginScreen: React.FC<AdminLoginScreenProps> = ({
             ) : (
               <div className="space-y-3.5">
                 <label className="block">
-                  <span className="text-xs font-bold text-brand-text-secondary flex items-center gap-1.5">
+                  <span className="text-xs font-bold text-brand-text flex items-center gap-1.5">
                     <KeyRound className="h-3.5 w-3.5" />
                     {isThai
                       ? 'รหัส PIN สำหรับผู้ดูแลระบบ (รองรับหน้าจอสัมผัส POS)'
@@ -458,11 +471,13 @@ export const AdminLoginScreen: React.FC<AdminLoginScreenProps> = ({
                   </span>
                   <input
                     type="password"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
                     value={adminPin}
                     onChange={(e) => setAdminPin(e.target.value)}
                     placeholder="••••"
                     maxLength={8}
-                    className="w-full h-12 mt-1.5 rounded-xl bg-brand-surface border border-brand-border px-4 text-center tracking-[0.4em] text-lg font-black text-brand-text focus:border-cta outline-none"
+                    className="w-full h-12 mt-1.5 rounded-xl bg-brand-surface border border-brand-border px-4 text-center tracking-[0.4em] text-lg font-black tabular-nums text-brand-text focus:border-cta focus:ring-2 focus:ring-cta/40 outline-none"
                   />
                 </label>
 
@@ -473,7 +488,7 @@ export const AdminLoginScreen: React.FC<AdminLoginScreenProps> = ({
                       key={digit}
                       type="button"
                       onClick={() => handlePinDigit(digit)}
-                      className="h-11 sm:h-12 rounded-xl border border-brand-border bg-brand-surface hover:border-cta hover:bg-brand-surface-hover text-base font-black text-brand-text transition-all active:scale-95 cursor-pointer"
+                      className="h-12 sm:h-13 rounded-xl border border-brand-border bg-brand-surface hover:border-cta hover:bg-brand-surface-hover text-base font-black tabular-nums text-brand-text transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-cta cursor-pointer"
                     >
                       {digit}
                     </button>
@@ -481,21 +496,22 @@ export const AdminLoginScreen: React.FC<AdminLoginScreenProps> = ({
                   <button
                     type="button"
                     onClick={() => setAdminPin('')}
-                    className="h-11 sm:h-12 rounded-xl border border-brand-border bg-brand-surface-muted hover:bg-danger-subtle hover:text-danger text-xs font-black uppercase text-brand-text-secondary transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-danger"
+                    className="h-12 sm:h-13 rounded-xl border border-brand-border bg-brand-surface-muted hover:bg-danger-subtle hover:text-danger text-xs font-black uppercase text-brand-text-secondary transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-danger"
                   >
                     Clear
                   </button>
                   <button
                     type="button"
                     onClick={() => handlePinDigit('0')}
-                    className="h-11 sm:h-12 rounded-xl border border-brand-border bg-brand-surface hover:border-cta hover:bg-brand-surface-hover text-base font-black text-brand-text transition-all active:scale-95 cursor-pointer"
+                    className="h-12 sm:h-13 rounded-xl border border-brand-border bg-brand-surface hover:border-cta hover:bg-brand-surface-hover text-base font-black tabular-nums text-brand-text transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-cta cursor-pointer"
                   >
                     0
                   </button>
                   <button
                     type="button"
                     onClick={() => setAdminPin((prev) => prev.slice(0, -1))}
-                    className="h-11 sm:h-12 rounded-xl border border-brand-border bg-brand-surface hover:bg-brand-surface-hover text-brand-text flex items-center justify-center transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-cta"
+                    aria-label={isThai ? 'ลบตัวเลขล่าสุด' : 'Delete last digit'}
+                    className="h-12 sm:h-13 rounded-xl border border-brand-border bg-brand-surface hover:bg-brand-surface-hover text-brand-text flex items-center justify-center transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-cta"
                   >
                     <Delete className="h-4 w-4" />
                   </button>
@@ -523,7 +539,7 @@ export const AdminLoginScreen: React.FC<AdminLoginScreenProps> = ({
             <button
               type="button"
               onClick={onBackToPos}
-              className="w-full h-11 rounded-xl border border-brand-border bg-brand-surface hover:bg-brand-surface-hover text-xs font-bold text-brand-text flex items-center justify-center gap-2 transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-cta"
+              className="w-full min-h-[44px] rounded-xl border border-brand-border bg-brand-surface hover:bg-brand-surface-hover text-xs font-bold text-brand-text flex items-center justify-center gap-2 transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-cta"
             >
               <Monitor className="h-3.5 w-3.5 text-brand-text-secondary" />
               <span>

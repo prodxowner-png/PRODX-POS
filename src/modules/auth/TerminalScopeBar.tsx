@@ -97,7 +97,8 @@ export const TerminalScopeBar: React.FC<TerminalScopeBarProps> = ({
             onClick={onSyncCatalog}
             disabled={isFetching}
             title={isThai ? 'ซิงค์ Firestore' : 'Sync Firestore'}
-            className="p-1.5 rounded-lg hover:bg-brand-surface-hover text-brand-text-secondary transition-colors disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-cta cursor-pointer"
+            aria-label={isThai ? 'ซิงค์ Firestore' : 'Sync Firestore'}
+            className="p-2 min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg hover:bg-brand-surface-hover text-brand-text-secondary transition-colors disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-cta cursor-pointer"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isFetching ? 'animate-spin' : ''}`} />
           </button>
@@ -107,15 +108,19 @@ export const TerminalScopeBar: React.FC<TerminalScopeBarProps> = ({
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
         {/* Organization Select */}
         <div className="space-y-1">
-          <label className="text-[11px] font-black uppercase text-brand-text-secondary flex items-center justify-between">
+          <label
+            htmlFor="terminal-scope-org"
+            className="text-[11px] font-black uppercase text-brand-text-secondary flex items-center justify-between cursor-pointer"
+          >
             <span>{isThai ? 'องค์กร' : 'Organization'} *</span>
             {isOrgValid && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />}
           </label>
           <select
+            id="terminal-scope-org"
             value={selectedOrgId}
             onChange={(e) => onOrganizationChange(e.target.value)}
             disabled={isFetching || isInitialLoading}
-            className="w-full h-10 bg-brand-surface border-2 border-brand-border rounded-lg px-2.5 text-xs font-bold text-brand-text outline-none focus:border-cta focus:ring-2 focus:ring-cta/30 transition-all disabled:opacity-50"
+            className="w-full h-11 bg-brand-surface border-2 border-brand-border rounded-lg px-2.5 text-base sm:text-xs font-bold text-brand-text outline-none focus:border-cta focus:ring-2 focus:ring-cta/30 transition-all disabled:opacity-50"
           >
             <option value="">{isThai ? '-- เลือกองค์กร --' : '-- Select Org --'}</option>
             {orgs.map((o) => (
@@ -128,15 +133,19 @@ export const TerminalScopeBar: React.FC<TerminalScopeBarProps> = ({
 
         {/* Branch Select */}
         <div className="space-y-1">
-          <label className="text-[11px] font-black uppercase text-brand-text-secondary flex items-center justify-between">
+          <label
+            htmlFor="terminal-scope-branch"
+            className="text-[11px] font-black uppercase text-brand-text-secondary flex items-center justify-between cursor-pointer"
+          >
             <span>{isThai ? 'สาขา' : 'Branch'} *</span>
             {isBranchValid && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />}
           </label>
           <select
+            id="terminal-scope-branch"
             value={selectedBranchId}
             onChange={(e) => onBranchChange(e.target.value)}
             disabled={!isOrgValid || isFetching || isInitialLoading}
-            className="w-full h-10 bg-brand-surface border-2 border-brand-border rounded-lg px-2.5 text-xs font-bold text-brand-text outline-none focus:border-cta focus:ring-2 focus:ring-cta/30 transition-all disabled:opacity-50"
+            className="w-full h-11 bg-brand-surface border-2 border-brand-border rounded-lg px-2.5 text-base sm:text-xs font-bold text-brand-text outline-none focus:border-cta focus:ring-2 focus:ring-cta/30 transition-all disabled:opacity-50"
           >
             <option value="">{isThai ? '-- เลือกสาขา --' : '-- Select Branch --'}</option>
             {branches.map((b) => (
@@ -149,15 +158,19 @@ export const TerminalScopeBar: React.FC<TerminalScopeBarProps> = ({
 
         {/* Terminal Select */}
         <div className="space-y-1">
-          <label className="text-[11px] font-black uppercase text-brand-text-secondary flex items-center justify-between">
+          <label
+            htmlFor="terminal-scope-register"
+            className="text-[11px] font-black uppercase text-brand-text-secondary flex items-center justify-between cursor-pointer"
+          >
             <span>{isThai ? 'เครื่อง POS' : 'POS Register'} *</span>
             {isTerminalValid && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />}
           </label>
           <select
+            id="terminal-scope-register"
             value={selectedTerminalId}
             onChange={(e) => onTerminalChange(e.target.value)}
             disabled={!isBranchValid || isFetching || isInitialLoading}
-            className="w-full h-10 bg-brand-surface border-2 border-brand-border rounded-lg px-2.5 text-xs font-bold text-brand-text outline-none focus:border-cta focus:ring-2 focus:ring-cta/30 transition-all disabled:opacity-50"
+            className="w-full h-11 bg-brand-surface border-2 border-brand-border rounded-lg px-2.5 text-base sm:text-xs font-bold text-brand-text outline-none focus:border-cta focus:ring-2 focus:ring-cta/30 transition-all disabled:opacity-50"
           >
             <option value="">{isThai ? '-- เลือกเครื่อง POS --' : '-- Select Register --'}</option>
             {terminals.map((t) => (
