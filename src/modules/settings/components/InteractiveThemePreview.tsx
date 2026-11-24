@@ -85,7 +85,7 @@ export const InteractiveThemePreview: React.FC = () => {
             className={`rounded-xl font-bold text-xs py-2 px-4 shadow-sm transition-all ${
               isCurrentlyActive
                 ? 'opacity-60 cursor-not-allowed bg-muted text-text/40 border border-border'
-                : 'bg-primary hover:bg-primary-dark text-white'
+                : 'bg-primary hover:bg-primary-dark text-primary-foreground'
             }`}
             leftIcon={isCurrentlyActive ? <CheckCircle2 className="h-4 w-4" /> : <Sparkles className="h-4 w-4" />}
           >

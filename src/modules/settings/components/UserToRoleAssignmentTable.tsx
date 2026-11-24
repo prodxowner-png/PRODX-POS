@@ -514,7 +514,7 @@ export const UserToRoleAssignmentTable: React.FC = () => {
                       onClick={() => setRoleFilter(f.id)}
                       className={`px-2.5 py-1 text-xs rounded-md font-bold transition-colors cursor-pointer ${
                         isSelected
-                          ? 'bg-primary text-white shadow-2xs'
+                          ? 'bg-primary text-primary-foreground shadow-2xs'
                           : 'text-text/70 hover:text-text'
                       }`}
                     >
@@ -753,7 +753,7 @@ export const UserToRoleAssignmentTable: React.FC = () => {
                               className={`px-2.5 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${
                                 isCurrentRole
                                   ? r.id === 'admin'
-                                    ? 'bg-primary text-white shadow-2xs'
+                                    ? 'bg-primary text-primary-foreground shadow-2xs'
                                     : r.id === 'manager'
                                     ? 'bg-amber-500 text-white shadow-2xs'
                                     : 'bg-text/70 text-white shadow-2xs'
@@ -1040,7 +1040,7 @@ export const UserToRoleAssignmentTable: React.FC = () => {
                                   className={`px-2.5 min-h-[38px] text-[11px] font-bold rounded-lg transition-all cursor-pointer active:scale-95 flex items-center justify-center ${
                                     isCurrentRole
                                       ? r.id === 'admin'
-                                        ? 'bg-primary text-white shadow-2xs'
+                                        ? 'bg-primary text-primary-foreground shadow-2xs'
                                         : r.id === 'manager'
                                         ? 'bg-amber-500 text-white shadow-2xs'
                                         : 'bg-slate-700 dark:bg-slate-300 text-white dark:text-slate-950 shadow-2xs'

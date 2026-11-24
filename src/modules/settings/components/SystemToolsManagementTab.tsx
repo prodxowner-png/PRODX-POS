@@ -570,7 +570,7 @@ export const SystemToolsManagementTab: React.FC<SystemToolsManagementTabProps> =
             onClick={() => setActiveSubSection('quick_keys')}
             className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shrink-0 cursor-pointer ${
               activeSubSection === 'quick_keys'
-                ? 'bg-primary text-white shadow-xs'
+                ? 'bg-primary text-primary-foreground shadow-xs'
                 : 'text-text/70 hover:bg-background hover:text-text'
             }`}
           >
@@ -588,7 +588,7 @@ export const SystemToolsManagementTab: React.FC<SystemToolsManagementTabProps> =
             onClick={() => setActiveSubSection('payments')}
             className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shrink-0 cursor-pointer ${
               activeSubSection === 'payments'
-                ? 'bg-primary text-white shadow-xs'
+                ? 'bg-primary text-primary-foreground shadow-xs'
                 : 'text-text/70 hover:bg-background hover:text-text'
             }`}
           >
@@ -606,7 +606,7 @@ export const SystemToolsManagementTab: React.FC<SystemToolsManagementTabProps> =
             onClick={() => setActiveSubSection('discounts')}
             className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shrink-0 cursor-pointer ${
               activeSubSection === 'discounts'
-                ? 'bg-primary text-white shadow-xs'
+                ? 'bg-primary text-primary-foreground shadow-xs'
                 : 'text-text/70 hover:bg-background hover:text-text'
             }`}
           >
@@ -624,7 +624,7 @@ export const SystemToolsManagementTab: React.FC<SystemToolsManagementTabProps> =
             onClick={() => setActiveSubSection('taxes')}
             className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shrink-0 cursor-pointer ${
               activeSubSection === 'taxes'
-                ? 'bg-primary text-white shadow-xs'
+                ? 'bg-primary text-primary-foreground shadow-xs'
                 : 'text-text/70 hover:bg-background hover:text-text'
             }`}
           >
@@ -640,7 +640,7 @@ export const SystemToolsManagementTab: React.FC<SystemToolsManagementTabProps> =
             onClick={() => setActiveSubSection('receipt_builder')}
             className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shrink-0 cursor-pointer ${
               activeSubSection === 'receipt_builder'
-                ? 'bg-primary text-white shadow-xs'
+                ? 'bg-primary text-primary-foreground shadow-xs'
                 : 'text-text/70 hover:bg-background hover:text-text'
             }`}
           >
@@ -657,7 +657,7 @@ export const SystemToolsManagementTab: React.FC<SystemToolsManagementTabProps> =
             onClick={() => setActiveSubSection('diagnostics')}
             className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shrink-0 cursor-pointer ${
               activeSubSection === 'diagnostics'
-                ? 'bg-primary text-white shadow-xs'
+                ? 'bg-primary text-primary-foreground shadow-xs'
                 : 'text-text/70 hover:bg-background hover:text-text'
             }`}
           >

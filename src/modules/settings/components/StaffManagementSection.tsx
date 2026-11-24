@@ -193,19 +193,23 @@ export const StaffManagementSection: React.FC = () => {
               <span className="text-xs font-bold text-text/60">
                 {language === 'th' ? 'มุมมองแสดงผล:' : 'View Mode:'}
               </span>
-              <div className="flex items-center p-0.5 rounded-lg bg-background border border-border">
+              <div role="tablist" aria-label={language === 'th' ? 'มุมมองแสดงผล' : 'View mode'} className="flex items-center p-0.5 rounded-lg bg-background border border-border">
                 <button
                   type="button"
+                  role="tab"
+                  aria-selected={false}
                   onClick={() => setViewMode('cards')}
-                  className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold rounded-md transition-colors cursor-pointer text-text/60 hover:text-text"
+                  className="min-h-[40px] flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold rounded-md transition-colors cursor-pointer text-brand-text-secondary hover:text-text focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-cta"
                 >
                   <LayoutGrid className="w-3.5 h-3.5" />
                   <span>{language === 'th' ? 'การ์ดพนักงาน' : 'Cards'}</span>
                 </button>
                 <button
                   type="button"
+                  role="tab"
+                  aria-selected={true}
                   onClick={() => setViewMode('role_matrix')}
-                  className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold rounded-md transition-colors cursor-pointer bg-primary text-white shadow-2xs"
+                  className="min-h-[40px] flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold rounded-md transition-colors cursor-pointer bg-primary text-primary-foreground shadow-2xs focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-cta"
                 >
                   <ShieldCheck className="w-3.5 h-3.5" />
                   <span>{language === 'th' ? 'ตารางกำหนดบทบาท' : 'Role Matrix'}</span>
@@ -218,7 +222,7 @@ export const StaffManagementSection: React.FC = () => {
               variant="primary"
               size="sm"
               onClick={handleOpenAdd}
-              className="rounded-lg font-bold text-xs"
+              className="min-h-[44px] rounded-lg font-bold text-xs"
               leftIcon={<UserPlus className="h-3.5 w-3.5" />}
             >
               {language === 'th' ? 'เพิ่มพนักงานใหม่' : 'Add Staff Member'}
@@ -238,7 +242,7 @@ export const StaffManagementSection: React.FC = () => {
                 <h3 className="text-sm font-bold text-text">
                   {language === 'th' ? 'รายชื่อและบัญชีพนักงาน (Staff Directory)' : 'Staff & Accounts Directory'}
                 </h3>
-                <p className="text-[11px] text-text/50">
+                <p className="text-[11px] text-brand-text-secondary">
                   {language === 'th'
                     ? 'จัดการข้อมูลพนักงาน กำหนดบทบาทสิทธิ์ และรหัส PIN ส่วนตัว'
                     : 'Manage employee records, role assignments, and authentication PINs.'}
@@ -247,19 +251,23 @@ export const StaffManagementSection: React.FC = () => {
             </div>
 
             <div className="flex items-center gap-2">
-              <div className="flex items-center p-0.5 rounded-lg bg-background border border-border">
+              <div role="tablist" aria-label={language === 'th' ? 'มุมมองแสดงผล' : 'View mode'} className="flex items-center p-0.5 rounded-lg bg-background border border-border">
                 <button
                   type="button"
+                  role="tab"
+                  aria-selected={true}
                   onClick={() => setViewMode('cards')}
-                  className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold rounded-md transition-colors cursor-pointer bg-card text-text shadow-2xs border border-border"
+                  className="min-h-[40px] flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold rounded-md transition-colors cursor-pointer bg-card text-text shadow-2xs border border-border focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-cta"
                 >
                   <LayoutGrid className="w-3.5 h-3.5" />
                   <span className="hidden sm:inline">{language === 'th' ? 'การ์ด' : 'Cards'}</span>
                 </button>
                 <button
                   type="button"
+                  role="tab"
+                  aria-selected={false}
                   onClick={() => setViewMode('role_matrix')}
-                  className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold rounded-md transition-colors cursor-pointer text-text/60 hover:text-text"
+                  className="min-h-[40px] flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold rounded-md transition-colors cursor-pointer text-brand-text-secondary hover:text-text focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-cta"
                 >
                   <ShieldCheck className="w-3.5 h-3.5" />
                   <span>{language === 'th' ? 'ตารางบทบาท' : 'Role Matrix'}</span>
@@ -271,7 +279,7 @@ export const StaffManagementSection: React.FC = () => {
                 variant="primary"
                 size="sm"
                 onClick={handleOpenAdd}
-                className="rounded-lg font-bold text-xs"
+                className="min-h-[44px] rounded-lg font-bold text-xs"
                 leftIcon={<UserPlus className="h-3.5 w-3.5" />}
               >
                 {language === 'th' ? 'เพิ่มพนักงานใหม่' : 'Add Staff Member'}
@@ -283,7 +291,7 @@ export const StaffManagementSection: React.FC = () => {
           {/* Search and Role Filter */}
           <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
             <div className="relative w-full sm:w-72">
-              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-text/40" />
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-brand-text-secondary" />
               <input
                 type="text"
                 value={searchQuery}
@@ -293,11 +301,11 @@ export const StaffManagementSection: React.FC = () => {
                     ? 'ค้นหาชื่อ, รหัสพนักงาน, อีเมล...'
                     : 'Search name, code, email...'
                 }
-                className="w-full pl-9 pr-3 py-1.5 text-xs rounded-lg border border-border bg-background text-text focus:outline-none focus:ring-2 focus:ring-primary"
+                className="w-full min-h-[44px] h-11 pl-9 pr-3 text-base sm:text-sm rounded-lg border border-border bg-background text-text focus:outline-hidden focus:ring-2 focus:ring-cta focus-visible:ring-2 focus-visible:ring-cta"
               />
             </div>
 
-            <div className="flex items-center gap-1.5 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0">
+            <div role="tablist" aria-label={language === 'th' ? 'กรองตามบทบาท' : 'Filter by role'} className="flex items-center gap-1.5 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0">
               {(
                 [
                   { id: 'all', labelTh: 'ทั้งหมด', labelEn: 'All' },
@@ -311,11 +319,13 @@ export const StaffManagementSection: React.FC = () => {
                   <button
                     key={f.id}
                     type="button"
+                    role="tab"
+                    aria-selected={isSelected}
                     onClick={() => setRoleFilter(f.id)}
-                    className={`px-3 py-1.5 text-xs rounded-lg font-bold transition-colors whitespace-nowrap cursor-pointer ${
+                    className={`min-h-[44px] px-3 py-1.5 text-xs rounded-lg font-bold transition-colors whitespace-nowrap cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-cta ${
                       isSelected
-                        ? 'bg-primary text-white shadow-2xs'
-                        : 'bg-background border border-border border-crisp text-text/70 hover:text-text'
+                        ? 'bg-primary text-primary-foreground shadow-2xs'
+                        : 'bg-background border border-border border-crisp text-text/80 hover:text-text'
                     }`}
                   >
                     {language === 'th' ? f.labelTh : f.labelEn}

@@ -305,7 +305,7 @@ export const RoleAssignmentModal: React.FC<RoleAssignmentModalProps> = ({
                     <div className="flex items-center justify-between">
                       <div
                         className={`p-2 rounded-lg ${
-                          isSelected ? 'bg-primary text-white' : 'bg-background border border-border text-text/70'
+                          isSelected ? 'bg-primary text-primary-foreground' : 'bg-background border border-border text-text/70'
                         }`}
                       >
                         <Icon className="w-4 h-4" />

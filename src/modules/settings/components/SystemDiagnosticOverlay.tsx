@@ -948,16 +948,16 @@ Self-Tests: ${testResults.filter((t) => t.status === 'passed').length}/${testRes
                 onClick={() => setActiveTab(tab.id as DiagnosticTab)}
                 className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer active-scale shrink-0 ${
                   isActive
-                    ? 'bg-primary text-white shadow-xs'
-                    : 'text-text/70 hover:text-text hover:bg-background/60'
+                    ? 'bg-primary text-primary-foreground shadow-xs'
+                    : 'text-text/75 hover:text-text hover:bg-background/60'
                 }`}
               >
-                <Icon className={`h-3.5 w-3.5 ${isActive ? 'text-white' : 'text-text/50'}`} />
+                <Icon className={`h-3.5 w-3.5 ${isActive ? 'text-primary-foreground' : 'text-brand-text-secondary'}`} />
                 <span>{tab.label[language]}</span>
                 {tab.badge !== undefined && (
                   <span
-                    className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
-                      isActive ? 'bg-white/20 text-white' : 'bg-primary/10 text-primary'
+                    className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono ${
+                      isActive ? 'bg-primary-foreground/15 text-primary-foreground' : 'bg-primary/10 text-primary'
                     }`}
                   >
                     {tab.badge}
@@ -1041,7 +1041,7 @@ Self-Tests: ${testResults.filter((t) => t.status === 'passed').length}/${testRes
                 <div className="p-4 rounded-xl border border-border/80 bg-card/60 space-y-2">
                   <div className="flex items-center justify-between text-text/60 text-xs">
                     <span className="font-bold flex items-center gap-1.5">
-                      <HardDrive className="h-3.5 w-3.5 text-indigo-500" />
+                      <HardDrive className="h-3.5 w-3.5 text-brand-text-accent" />
                       {language === 'th' ? 'พื้นที่จัดเก็บบราวเซอร์' : 'Browser Storage'}
                     </span>
                     <Badge
@@ -1186,7 +1186,7 @@ Self-Tests: ${testResults.filter((t) => t.status === 'passed').length}/${testRes
                   <div>
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
-                        <Terminal className="h-4 w-4 text-indigo-500" />
+                        <Terminal className="h-4 w-4 text-brand-text-accent" />
                         <h4 className="text-xs font-bold uppercase tracking-wider text-text">
                           {language === 'th' ? 'บันทึกเหตุการณ์การวินิจฉัย (Telemetry Stream)' : 'Real-time Event Stream'}
                         </h4>
@@ -1540,7 +1540,7 @@ Self-Tests: ${testResults.filter((t) => t.status === 'passed').length}/${testRes
               <div className="p-5 rounded-2xl border border-border/80 bg-card space-y-3">
                 <div className="flex items-center justify-between">
                   <h4 className="text-xs font-bold uppercase tracking-wider text-text flex items-center gap-2">
-                    <Sliders className="h-4 w-4 text-indigo-500" />
+                    <Sliders className="h-4 w-4 text-brand-text-accent" />
                     <span>{language === 'th' ? 'แจกแจงการใช้งาน LocalStorage แยกตามหมวดหมู่' : 'LocalStorage Footprint Breakdown'}</span>
                   </h4>
                   <span className="text-[11px] font-mono text-text/50">
@@ -1878,7 +1878,7 @@ Self-Tests: ${testResults.filter((t) => t.status === 'passed').length}/${testRes
               variant="primary"
               size="sm"
               onClick={onClose}
-              className="theme-btn-radius font-bold text-[11px] sm:text-xs px-2 sm:px-4 h-8 min-h-[32px] justify-center truncate bg-primary hover:bg-primary/90 text-white shadow-xs"
+              className="theme-btn-radius font-bold text-[11px] sm:text-xs px-3 sm:px-4 min-h-[40px] justify-center truncate bg-primary hover:bg-primary/90 text-primary-foreground shadow-xs"
             >
               <span className="truncate">{language === 'th' ? 'ปิดหน้าต่าง' : 'Close'}</span>
             </Button>

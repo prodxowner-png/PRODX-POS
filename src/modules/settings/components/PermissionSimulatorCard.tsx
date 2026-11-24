@@ -186,25 +186,29 @@ export const PermissionSimulatorCard: React.FC<PermissionSimulatorCardProps> = (
         </div>
 
         {/* Target Switcher: Permission Set vs Staff User */}
-        <div className="flex items-center gap-1.5 p-1 rounded-lg bg-background border border-border border-crisp">
+        <div role="tablist" aria-label={language === 'th' ? 'ประเภทเป้าหมายการจำลอง' : 'Simulation target type'} className="flex items-center gap-1.5 p-1 rounded-lg bg-background border border-border border-crisp">
           <button
             type="button"
+            role="tab"
+            aria-selected={simulationTargetType === 'set'}
             onClick={() => setSimulationTargetType('set')}
-            className={`px-2.5 py-1 rounded-md text-xs font-bold transition-all cursor-pointer ${
+            className={`min-h-[44px] px-3 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-cta ${
               simulationTargetType === 'set'
-                ? 'bg-primary text-white shadow-2xs'
-                : 'text-text/60 hover:text-text'
+                ? 'bg-primary text-primary-foreground shadow-2xs'
+                : 'text-brand-text-secondary hover:text-text'
             }`}
           >
             {language === 'th' ? 'เลือกตามชุดสิทธิ์' : 'By Permission Set'}
           </button>
           <button
             type="button"
+            role="tab"
+            aria-selected={simulationTargetType === 'staff'}
             onClick={() => setSimulationTargetType('staff')}
-            className={`px-2.5 py-1 rounded-md text-xs font-bold transition-all cursor-pointer ${
+            className={`min-h-[44px] px-3 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-cta ${
               simulationTargetType === 'staff'
-                ? 'bg-primary text-white shadow-2xs'
-                : 'text-text/60 hover:text-text'
+                ? 'bg-primary text-primary-foreground shadow-2xs'
+                : 'text-brand-text-secondary hover:text-text'
             }`}
           >
             {language === 'th' ? 'เลือกตามพนักงาน' : 'By Staff Member'}

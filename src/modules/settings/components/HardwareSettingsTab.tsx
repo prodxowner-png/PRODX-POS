@@ -163,7 +163,7 @@ export const HardwareSettingsTab: React.FC = () => {
                     type: 'info',
                   });
                 }}
-                className="w-full h-9 rounded-md border border-border bg-background px-3 text-xs font-bold text-text focus:outline-none focus:ring-2 focus:ring-primary/20 transition"
+                className="w-full min-h-[44px] h-11 rounded-md border border-border bg-background px-3 text-base sm:text-sm font-bold text-text focus:outline-hidden focus:ring-2 focus:ring-cta focus-visible:ring-2 focus-visible:ring-cta transition"
               >
                 {templates.map((tmpl) => (
                   <option key={tmpl.id} value={tmpl.id}>
@@ -171,7 +171,7 @@ export const HardwareSettingsTab: React.FC = () => {
                   </option>
                 ))}
               </select>
-              <p className="text-[11px] text-text/50">
+              <p className="text-[11px] text-brand-text-secondary">
                 {activeTemplate.description}
               </p>
             </div>
@@ -183,7 +183,7 @@ export const HardwareSettingsTab: React.FC = () => {
               </span>
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="text-[10px] text-text/50 font-bold uppercase block mb-1">
+                  <label className="text-[10px] text-brand-text-secondary font-bold uppercase block mb-1">
                     {language === 'th' ? 'ความกว้าง' : 'Width'}
                   </label>
                   <select
@@ -197,7 +197,7 @@ export const HardwareSettingsTab: React.FC = () => {
                         type: 'info',
                       });
                     }}
-                    className="w-full h-8 px-2 rounded-md border border-border bg-background text-xs font-bold text-text focus:outline-none"
+                    className="w-full min-h-[44px] h-11 px-2 rounded-md border border-border bg-background text-base sm:text-sm font-bold text-text focus:outline-hidden focus:ring-2 focus:ring-cta focus-visible:ring-2 focus-visible:ring-cta"
                   >
                     <option value="80mm">80 mm (Standard)</option>
                     <option value="58mm">58 mm (Compact)</option>
@@ -205,7 +205,7 @@ export const HardwareSettingsTab: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="text-[10px] text-text/50 font-bold uppercase block mb-1">
+                  <label className="text-[10px] text-brand-text-secondary font-bold uppercase block mb-1">
                     {language === 'th' ? 'จำนวนพิมพ์' : 'Copies'}
                   </label>
                   <select
@@ -219,7 +219,7 @@ export const HardwareSettingsTab: React.FC = () => {
                         type: 'info',
                       });
                     }}
-                    className="w-full h-8 px-2 rounded-md border border-border bg-background text-xs font-bold text-text focus:outline-none"
+                    className="w-full min-h-[44px] h-11 px-2 rounded-md border border-border bg-background text-base sm:text-sm font-bold text-text focus:outline-hidden focus:ring-2 focus:ring-cta focus-visible:ring-2 focus-visible:ring-cta"
                   >
                     <option value={1}>1 {language === 'th' ? 'ฉบับ' : 'Copy'}</option>
                     <option value={2}>2 {language === 'th' ? 'ฉบับ (ลูกค้า + ร้าน)' : 'Copies (Merchant + Cust)'}</option>
@@ -227,7 +227,7 @@ export const HardwareSettingsTab: React.FC = () => {
                 </div>
               </div>
 
-              <div className="text-[10px] text-text/50 font-mono pt-1">
+              <div className="text-[10px] text-brand-text-secondary font-mono pt-1">
                 Port: ESC/POS Direct (USB / Raw Socket :9100)
               </div>
             </div>
@@ -238,7 +238,7 @@ export const HardwareSettingsTab: React.FC = () => {
                 <span className="text-xs font-bold text-text/80 uppercase tracking-wide block">
                   {language === 'th' ? 'ทดสอบเครื่องพิมพ์' : 'Hardware Diagnostics'}
                 </span>
-                <p className="text-[11px] text-text/50 mt-0.5">
+                <p className="text-[11px] text-brand-text-secondary mt-0.5">
                   {printerConfig.printerName}
                 </p>
               </div>
@@ -249,7 +249,7 @@ export const HardwareSettingsTab: React.FC = () => {
                 size="sm"
                 onClick={handleQuickTestPrint}
                 isLoading={isPrinting}
-                className="w-full rounded-md font-bold text-xs"
+                className="w-full min-h-[44px] rounded-md font-bold text-xs"
                 leftIcon={<Printer className="h-3.5 w-3.5 text-primary" />}
               >
                 {language === 'th' ? 'ส่งคำสั่งพิมพ์ทดสอบ (Test Print)' : 'Send Test Print'}
@@ -403,7 +403,7 @@ export const HardwareSettingsTab: React.FC = () => {
               variant="secondary"
               size="sm"
               onClick={handleKickDrawer}
-              className="rounded-md font-bold text-xs"
+              className="min-h-[44px] rounded-md font-bold text-xs"
               leftIcon={<DollarSign className="h-3.5 w-3.5 text-emerald-500" />}
             >
               {language === 'th' ? 'ทดสอบเด้งลิ้นชัก (Kick Drawer)' : 'Test Kick Drawer'}
@@ -797,7 +797,7 @@ export const HardwareSettingsTab: React.FC = () => {
                   }}
                   className="flex flex-col items-center justify-center p-2.5 rounded-lg border border-border bg-card/60 hover:bg-background hover:border-primary/50 transition cursor-pointer text-center group active:scale-95 shadow-2xs"
                 >
-                  <Vibrate className="h-4 w-4 text-indigo-500 mb-1 group-hover:scale-110 transition-transform" />
+                  <Vibrate className="h-4 w-4 text-brand-text-accent mb-1 group-hover:scale-110 transition-transform" />
                   <span className="text-xs font-bold text-text">
                     {language === 'th' ? 'แป้นพิมพ์ตัวเลข' : 'Numpad Tick'}
                   </span>

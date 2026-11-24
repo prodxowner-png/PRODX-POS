@@ -213,8 +213,8 @@ export const DataSyncSettingsTab: React.FC = () => {
       {/* 0. Real-time System Diagnostic & Storage Telemetry Hub Card */}
       <div className="p-4 sm:p-5 rounded-xl border border-primary/30 bg-primary/5 dark:bg-primary/10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-start sm:items-center gap-3.5">
-          <div className="p-2.5 rounded-xl bg-primary text-white shadow-xs">
-            <Activity className="h-5 w-5 animate-pulse" />
+          <div className="p-2.5 rounded-xl bg-primary text-primary-foreground shadow-xs">
+            <Activity className="h-5 w-5" />
           </div>
           <div>
             <div className="flex items-center gap-2">

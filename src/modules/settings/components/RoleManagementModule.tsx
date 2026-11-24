@@ -98,7 +98,7 @@ export const RoleManagementModule: React.FC = () => {
       </div>
 
       {/* RoleManagement Sub-Navigation Tabs */}
-      <div className="flex flex-wrap items-center gap-2 p-1.5 rounded-xl bg-card border border-border border-crisp shadow-2xs">
+      <div role="tablist" aria-label={language === 'th' ? 'แท็บจัดการบทบาท' : 'Role management tabs'} className="flex flex-wrap items-center gap-2 p-1.5 rounded-xl bg-card border border-border border-crisp shadow-2xs">
         {[
           {
             id: 'assignments' as RoleManagementSubTab,
@@ -140,16 +140,18 @@ export const RoleManagementModule: React.FC = () => {
             <button
               key={tab.id}
               type="button"
+              role="tab"
+              aria-selected={isSelected}
               onClick={() => setActiveSubTab(tab.id)}
-              className={`flex-1 min-w-[210px] flex items-center gap-2.5 px-3.5 py-2.5 rounded-lg text-left transition-all cursor-pointer ${
+              className={`min-h-[44px] flex-1 min-w-[210px] flex items-center gap-2.5 px-3.5 py-2.5 rounded-lg text-left transition-all cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-cta ${
                 isSelected
-                  ? 'bg-primary text-white shadow-xs font-bold'
-                  : 'text-text/70 hover:text-text hover:bg-background'
+                  ? 'bg-primary text-primary-foreground shadow-xs font-bold'
+                  : 'text-text/75 hover:text-text hover:bg-background'
               }`}
             >
               <div
                 className={`p-1.5 rounded-md ${
-                  isSelected ? 'bg-white/20 text-white' : 'bg-background border border-border text-primary'
+                  isSelected ? 'bg-primary-foreground/15 text-primary-foreground' : 'bg-background border border-border text-primary'
                 }`}
               >
                 <Icon className="w-4 h-4" />
@@ -160,7 +162,7 @@ export const RoleManagementModule: React.FC = () => {
                 </div>
                 <div
                   className={`text-[10px] truncate ${
-                    isSelected ? 'text-white/80' : 'text-text/50'
+                    isSelected ? 'text-primary-foreground/80' : 'text-brand-text-secondary'
                   }`}
                 >
                   {language === 'th' ? tab.descTh : tab.descEn}

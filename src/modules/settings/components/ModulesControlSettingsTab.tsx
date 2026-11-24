@@ -246,7 +246,7 @@ export const ModulesControlSettingsTab: React.FC<ModulesControlSettingsTabProps>
             <div className="text-[11px] font-semibold text-text/60">
               {language === 'th' ? 'ความปลอดภัย (RBAC)' : 'Security Enforced'}
             </div>
-            <div className="text-lg font-black text-indigo-500 mt-0.5 flex items-center gap-1.5">
+            <div className="text-lg font-black text-brand-text-accent mt-0.5 flex items-center gap-1.5">
               <Shield className="h-4 w-4" />
               <span>Protected</span>
             </div>
@@ -258,7 +258,7 @@ export const ModulesControlSettingsTab: React.FC<ModulesControlSettingsTabProps>
       <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
         {/* Search Input */}
         <div className="relative w-full sm:w-80">
-          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-text/40 pointer-events-none" />
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-brand-text-secondary pointer-events-none" />
           <input
             type="text"
             value={searchQuery}
@@ -268,41 +268,47 @@ export const ModulesControlSettingsTab: React.FC<ModulesControlSettingsTabProps>
                 ? 'ค้นหาโมดูล หรือฟีเจอร์ย่อย...'
                 : 'Search modules or features...'
             }
-            className="w-full pl-9 pr-4 py-2 text-xs font-bold rounded-xl border border-border bg-card text-text placeholder:text-text/40 focus:outline-hidden focus:ring-2 focus:ring-primary/20"
+            className="w-full min-h-[44px] h-11 pl-9 pr-4 text-base sm:text-sm font-bold rounded-xl border border-border bg-card text-text placeholder:text-brand-text-secondary focus:outline-hidden focus:ring-2 focus:ring-cta focus-visible:ring-2 focus-visible:ring-cta"
           />
         </div>
 
         {/* Filter Segmented Controls */}
-        <div className="inline-flex p-1 bg-card rounded-xl border border-border self-stretch sm:self-auto">
+        <div role="tablist" aria-label={language === 'th' ? 'ตัวกรองโมดูล' : 'Module filters'} className="inline-flex p-1 bg-card rounded-xl border border-border self-stretch sm:self-auto">
           <button
             type="button"
+            role="tab"
+            aria-selected={filterMode === 'all'}
             onClick={() => setFilterMode('all')}
-            className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+            className={`min-h-[40px] px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-cta ${
               filterMode === 'all'
-                ? 'bg-primary text-white shadow-xs'
-                : 'text-text/60 hover:text-text'
+                ? 'bg-primary text-primary-foreground shadow-xs'
+                : 'text-brand-text-secondary hover:text-text'
             }`}
           >
             {language === 'th' ? 'ทั้งหมด' : 'All'} ({modules.length})
           </button>
           <button
             type="button"
+            role="tab"
+            aria-selected={filterMode === 'enabled'}
             onClick={() => setFilterMode('enabled')}
-            className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+            className={`min-h-[40px] px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-cta ${
               filterMode === 'enabled'
                 ? 'bg-emerald-500 text-white shadow-xs'
-                : 'text-text/60 hover:text-text'
+                : 'text-brand-text-secondary hover:text-text'
             }`}
           >
             {language === 'th' ? 'เปิดใช้งาน' : 'Enabled'} ({activeModulesCount})
           </button>
           <button
             type="button"
+            role="tab"
+            aria-selected={filterMode === 'disabled'}
             onClick={() => setFilterMode('disabled')}
-            className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+            className={`min-h-[40px] px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-cta ${
               filterMode === 'disabled'
                 ? 'bg-rose-500 text-white shadow-xs'
-                : 'text-text/60 hover:text-text'
+                : 'text-brand-text-secondary hover:text-text'
             }`}
           >
             {language === 'th' ? 'ปิดใช้งาน' : 'Disabled'} ({totalModules - activeModulesCount})

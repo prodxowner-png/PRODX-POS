@@ -1215,7 +1215,7 @@ export const SettingsScreen: React.FC = () => {
                 ? (language === 'th' ? 'การสไลด์หน้าจอ: เปิดอยู่ (คลิกเพื่อปิด)' : 'Swipe Navigation: ON (click to disable)')
                 : (language === 'th' ? 'การสไลด์หน้าจอ: ปิดอยู่ (คลิกเพื่อเปิด)' : 'Swipe Navigation: OFF (click to enable)')
             }
-            className={`h-9 px-3 rounded-xl border flex items-center gap-2 text-xs font-semibold transition-all cursor-pointer shadow-2xs ${
+            className={`min-h-[44px] px-3 rounded-xl border flex items-center gap-2 text-xs font-semibold transition-all cursor-pointer shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta ${
               enableSwipeNavigation
                 ? 'bg-primary/10 border-primary/40 text-primary font-bold'
                 : 'border-border/80 bg-card text-text/70 hover:text-text hover:border-border'
@@ -1225,8 +1225,8 @@ export const SettingsScreen: React.FC = () => {
             <span className="hidden sm:inline">
               {language === 'th' ? 'สไลด์หน้าจอ' : 'Swipe Tab'}
             </span>
-            <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold ${
-              enableSwipeNavigation ? 'bg-primary text-white' : 'bg-background border border-border text-text/50'
+            <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold ${
+              enableSwipeNavigation ? 'bg-primary text-primary-foreground' : 'bg-background border border-border text-brand-text-secondary'
             }`}>
               {enableSwipeNavigation ? 'ON' : 'OFF'}
             </span>
@@ -1238,17 +1238,17 @@ export const SettingsScreen: React.FC = () => {
             variant="outline"
             size="sm"
             onClick={() => setIsShortcutsModalOpen(true)}
-            className="h-9 px-3 rounded-xl border-border/80 bg-card text-xs font-semibold hover:text-primary hover:border-primary/40 shadow-2xs"
+            className="min-h-[44px] px-3 rounded-xl border-border/80 bg-card text-xs font-semibold hover:text-primary hover:border-primary/40 shadow-2xs focus-visible:ring-2 focus-visible:ring-cta"
             leftIcon={<Keyboard className="h-3.5 w-3.5 text-text/50" />}
             title={language === 'th' ? 'ดูคีย์ลัด (Alt+?)' : 'Keyboard Shortcuts (Alt+?)'}
           >
             <span className="hidden sm:inline">{language === 'th' ? 'คีย์ลัด' : 'Shortcuts'}</span>
-            <kbd className="ml-1 px-1.5 py-0.5 text-[9px] font-mono bg-background border border-border rounded text-text/60 font-bold">Alt+?</kbd>
+            <kbd className="ml-1 px-1.5 py-0.5 text-[10px] font-mono bg-background border border-border rounded text-brand-text-secondary font-bold">Alt+?</kbd>
           </Button>
 
           {/* Light / Dark / System Mode Switcher */}
           <div
-            className="h-9 p-1 rounded-xl border border-border/80 bg-card flex items-center gap-1 shadow-2xs"
+            className="min-h-[44px] p-1 rounded-xl border border-border/80 bg-card flex items-center gap-1 shadow-2xs"
             role="group"
             aria-label="Theme mode switcher"
           >
@@ -1377,7 +1377,7 @@ export const SettingsScreen: React.FC = () => {
           >
             <Activity className="h-3.5 w-3.5 animate-pulse" />
             <span className="hidden sm:inline">{language === 'th' ? 'วินิจฉัยระบบ' : 'Diagnostics'}</span>
-            <span className="px-1.5 py-0.5 rounded bg-primary text-white text-[10px] font-mono font-bold">
+            <span className="px-1.5 py-0.5 rounded bg-primary text-primary-foreground text-[10px] font-mono font-bold">
               {isOnline ? 'HEALTH' : `${outbox.length} QUEUED`}
             </span>
           </button>

@@ -466,51 +466,49 @@ export const OrderRefundModal: React.FC<OrderRefundModalProps> = ({
                 {itemReturns.map((it) => (
                   <div
                     key={it.lineId}
-                    onClick={() => toggleItemSelection(it.lineId)}
-                    className={`p-2 rounded-lg border text-xs flex items-center justify-between transition-all cursor-pointer ${
+                    className={`min-h-[44px] p-2 rounded-lg border text-xs flex items-center justify-between gap-2 transition-all ${
                       it.isSelected
                         ? 'border-primary/50 bg-primary/5 text-text'
                         : 'border-border bg-card text-text/50 opacity-60'
                     }`}
                   >
-                    <div className="flex items-center gap-2.5 min-w-0">
+                    <label className="flex-1 min-h-[44px] flex items-center gap-2.5 min-w-0 cursor-pointer">
                       <input
                         type="checkbox"
                         checked={it.isSelected}
-                        onChange={() => {}} // Handled by container onClick
-                        className="h-4 w-4 rounded accent-primary cursor-pointer shrink-0"
+                        onChange={() => toggleItemSelection(it.lineId)}
+                        className="h-4 w-4 rounded accent-primary cursor-pointer shrink-0 focus-visible:ring-2 focus-visible:ring-cta"
                       />
                       <div className="min-w-0">
                         <div className="font-bold truncate text-text">{it.productName}</div>
-                        <div className="text-[10px] text-text/60 font-mono">
+                        <div className="text-[10px] text-brand-text-secondary font-mono tabular-nums">
                           {it.sku} · {formatMoney(createMoney(it.unitPriceCents, order.totals.grandTotal.currency))}/ชิ้น
                         </div>
                       </div>
-                    </div>
+                    </label>
 
                     {/* Quantity Stepper */}
-                    <div
-                      className="flex items-center gap-1.5 shrink-0"
-                      onClick={(e) => e.stopPropagation()}
-                    >
+                    <div className="flex items-center gap-1.5 shrink-0">
                       <button
                         type="button"
+                        aria-label={language === 'th' ? `ลดจำนวนคืน ${it.productName}` : `Decrease return quantity for ${it.productName}`}
                         onClick={() => updateItemReturnQty(it.lineId, -1)}
                         disabled={it.returnQty <= 1}
-                        className="h-6 w-6 rounded bg-card border border-border flex items-center justify-center hover:bg-background disabled:opacity-30 cursor-pointer"
+                        className="min-h-[36px] min-w-[36px] rounded bg-card border border-border flex items-center justify-center hover:bg-background disabled:opacity-30 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta"
                       >
-                        <Minus className="h-3 w-3" />
+                        <Minus className="h-3.5 w-3.5" />
                       </button>
-                      <span className="w-8 text-center font-mono font-bold text-xs">
+                      <span className="w-8 text-center font-mono font-bold tabular-nums text-xs">
                         {it.returnQty}/{it.originalQty}
                       </span>
                       <button
                         type="button"
+                        aria-label={language === 'th' ? `เพิ่มจำนวนคืน ${it.productName}` : `Increase return quantity for ${it.productName}`}
                         onClick={() => updateItemReturnQty(it.lineId, 1)}
                         disabled={it.returnQty >= it.originalQty}
-                        className="h-6 w-6 rounded bg-card border border-border flex items-center justify-center hover:bg-background disabled:opacity-30 cursor-pointer"
+                        className="min-h-[36px] min-w-[36px] rounded bg-card border border-border flex items-center justify-center hover:bg-background disabled:opacity-30 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta"
                       >
-                        <Plus className="h-3 w-3" />
+                        <Plus className="h-3.5 w-3.5" />
                       </button>
                     </div>
                   </div>
@@ -522,12 +520,14 @@ export const OrderRefundModal: React.FC<OrderRefundModalProps> = ({
           {/* Custom Amount Input (When Mode is Custom) */}
           {refundMode === 'custom_amount' && (
             <div className="p-3.5 rounded-xl border border-border bg-card space-y-2">
-              <label className="text-xs font-bold text-text block">
+              <label htmlFor="custom-refund-amount-input" className="text-xs font-bold text-text block cursor-pointer">
                 {language === 'th' ? 'ระบุจำนวนเงินคืน (THB):' : 'Specify Refund Amount:'}
               </label>
               <div className="relative">
                 <input
+                  id="custom-refund-amount-input"
                   type="number"
+                  inputMode="decimal"
                   step="0.01"
                   min="0"
                   max={centsToDecimalString(order.totals.grandTotal.amountInCents)}
@@ -535,10 +535,10 @@ export const OrderRefundModal: React.FC<OrderRefundModalProps> = ({
                   onChange={(e) => {
                     setCustomAmountCents(Math.max(0, parseDecimalToCents(e.target.value)));
                   }}
-                  className="w-full h-10 px-3 font-mono font-bold text-base rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary"
+                  className="w-full min-h-[44px] h-11 px-3 font-mono font-bold tabular-nums text-base rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-cta"
                 />
               </div>
-              <div className="text-[11px] text-text/60">
+              <div className="text-[11px] text-brand-text-secondary tabular-nums">
                 {language === 'th'
                   ? `สูงสุดไม่เกินยอดบิล: ${formatMoney(order.totals.grandTotal)}`
                   : `Maximum allowable: ${formatMoney(order.totals.grandTotal)}`}

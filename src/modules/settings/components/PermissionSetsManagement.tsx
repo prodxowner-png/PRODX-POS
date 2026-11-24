@@ -374,7 +374,7 @@ export const PermissionSetsManagement: React.FC = () => {
               onClick={() => setRoleFilter(pill.id)}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
                 roleFilter === pill.id
-                  ? 'bg-primary text-white shadow-2xs'
+                  ? 'bg-primary text-primary-foreground shadow-2xs'
                   : 'bg-card border border-border text-text/70 hover:bg-background'
               }`}
             >

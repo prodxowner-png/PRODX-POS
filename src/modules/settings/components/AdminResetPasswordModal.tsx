@@ -401,7 +401,7 @@ export const AdminResetPasswordModal: React.FC<AdminResetPasswordModalProps> = (
                 type="button"
                 disabled={isVerifyingReauth || !currentPassword.trim()}
                 onClick={() => void handleVerifyCurrentPassword()}
-                className="min-h-[44px] px-3.5 rounded-xl bg-primary text-white text-xs font-bold hover:bg-primary/90 disabled:opacity-40 transition-all cursor-pointer shrink-0 whitespace-nowrap"
+                className="min-h-[44px] px-3.5 rounded-xl bg-primary text-primary-foreground text-xs font-bold hover:bg-primary/90 disabled:opacity-40 transition-all cursor-pointer shrink-0 whitespace-nowrap"
               >
                 {isThai ? 'ตรวจสอบรหัส' : 'Verify'}
               </button>
@@ -520,7 +520,7 @@ export const AdminResetPasswordModal: React.FC<AdminResetPasswordModalProps> = (
             <button
               type="submit"
               disabled={isSubmitting || !isOwner || !analysis.isPolicyCompliant || !passwordsMatch}
-              className="min-h-[44px] px-5 rounded-xl bg-primary hover:bg-primary/90 text-white text-xs font-black flex items-center justify-center gap-2 shadow-md transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
+              className="min-h-[44px] px-5 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-black flex items-center justify-center gap-2 shadow-md transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
             >
               <KeyRound className="w-4 h-4 shrink-0" />
               <span className="truncate">

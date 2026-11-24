@@ -173,8 +173,10 @@ export const SettingsMenuSelector: React.FC<SettingsMenuSelectorProps> = ({
             type="button"
             onClick={() => setViewMode('list')}
             title="List View"
-            className={`p-1.5 rounded-lg transition ${
-              viewMode === 'list' ? 'bg-primary text-white font-bold' : 'text-text/50 hover:text-text'
+            aria-label={language === 'th' ? 'มุมมองรายการ' : 'List View'}
+            aria-pressed={viewMode === 'list'}
+            className={`min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta ${
+              viewMode === 'list' ? 'bg-primary text-primary-foreground font-bold' : 'text-text/60 hover:text-text'
             }`}
           >
             <Sliders className="w-3.5 h-3.5" />
@@ -183,8 +185,10 @@ export const SettingsMenuSelector: React.FC<SettingsMenuSelectorProps> = ({
             type="button"
             onClick={() => setViewMode('grid')}
             title="Grid View"
-            className={`p-1.5 rounded-lg transition ${
-              viewMode === 'grid' ? 'bg-primary text-white font-bold' : 'text-text/50 hover:text-text'
+            aria-label={language === 'th' ? 'มุมมองตาราง' : 'Grid View'}
+            aria-pressed={viewMode === 'grid'}
+            className={`min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta ${
+              viewMode === 'grid' ? 'bg-primary text-primary-foreground font-bold' : 'text-text/60 hover:text-text'
             }`}
           >
             <LayoutGrid className="w-3.5 h-3.5" />
@@ -197,7 +201,7 @@ export const SettingsMenuSelector: React.FC<SettingsMenuSelectorProps> = ({
         <button
           type="button"
           onClick={() => setIsOpen(!isOpen)}
-          className={`w-full p-3.5 rounded-2xl border transition-all cursor-pointer select-none flex items-center justify-between gap-3 shadow-sm active:scale-[0.995] ${
+          className={`w-full p-3.5 rounded-2xl border transition-all cursor-pointer select-none flex items-center justify-between gap-3 shadow-sm active:scale-[0.995] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta ${
             isOpen
               ? 'border-primary ring-2 ring-primary/20 bg-primary/5 text-primary'
               : 'border-border/80 bg-card hover:border-primary/40 text-text'
@@ -217,7 +221,7 @@ export const SettingsMenuSelector: React.FC<SettingsMenuSelectorProps> = ({
                   <span>{currentCatObj ? currentCatObj.label[language === 'th' ? 'th' : 'en'] : ''}</span>
                 </span>
                 {currentTabObj?.badge && (
-                  <Badge variant="neutral" size="sm" className="font-mono text-[9px]">
+                  <Badge variant="neutral" size="sm" className="font-mono text-[10px]">
                     {currentTabObj.badge}
                   </Badge>
                 )}
@@ -235,7 +239,7 @@ export const SettingsMenuSelector: React.FC<SettingsMenuSelectorProps> = ({
             <span className="hidden sm:inline text-xs font-bold px-2.5 py-1 rounded-lg bg-background border border-border text-text/70">
               {language === 'th' ? 'คลิกสลับเมนู' : 'Switch Menu'}
             </span>
-            <div className={`p-2 rounded-xl bg-primary/10 text-primary transition-transform duration-200 ${isOpen ? 'rotate-180 bg-primary text-white' : ''}`}>
+            <div className={`p-2 rounded-xl bg-primary/10 text-primary transition-transform duration-200 ${isOpen ? 'rotate-180 bg-primary text-primary-foreground' : ''}`}>
               <ChevronDown className="w-4 h-4" />
             </div>
           </div>
@@ -341,7 +345,7 @@ export const SettingsMenuSelector: React.FC<SettingsMenuSelectorProps> = ({
                             }}
                             className={`w-full text-left p-3 rounded-xl border transition-all cursor-pointer flex items-center justify-between gap-3 ${
                               isSelected
-                                ? 'bg-primary text-white border-primary shadow-md font-bold'
+                                ? 'bg-primary text-primary-foreground border-primary shadow-md font-bold'
                                 : 'bg-background/80 hover:bg-card hover:border-primary/40 border-border/80 text-text'
                             }`}
                           >
@@ -363,7 +367,7 @@ export const SettingsMenuSelector: React.FC<SettingsMenuSelectorProps> = ({
                                   {tab.badge && (
                                     <span
                                       className={`text-[9px] px-1.5 py-0.2 rounded font-mono font-bold ${
-                                        isSelected ? 'bg-white/25 text-white' : 'bg-primary/15 text-primary'
+                                        isSelected ? 'bg-primary-foreground/15 text-primary-foreground' : 'bg-primary/15 text-primary'
                                       }`}
                                     >
                                       {tab.badge}

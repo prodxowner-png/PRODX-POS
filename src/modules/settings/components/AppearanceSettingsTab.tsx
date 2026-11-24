@@ -335,7 +335,7 @@ export const AppearanceSettingsTab: React.FC<AppearanceSettingsTabProps> = ({
                           {preset.badge}
                         </Badge>
                         {isSelected ? (
-                          <div className="w-6 h-6 rounded-full bg-primary text-white flex items-center justify-center shadow-xs">
+                          <div className="w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center shadow-xs">
                             <Check className="h-3.5 w-3.5 stroke-[3px]" />
                           </div>
                         ) : (
@@ -620,7 +620,7 @@ export const AppearanceSettingsTab: React.FC<AppearanceSettingsTabProps> = ({
                 </div>
 
                 <div className="flex items-center gap-2 pt-1">
-                  <label className="inline-flex items-center justify-center h-8 px-3 rounded-xl bg-primary hover:bg-primary/90 text-white font-bold text-xs cursor-pointer transition shadow-xs gap-1.5 active:scale-95">
+                  <label className="inline-flex items-center justify-center min-h-[40px] px-3.5 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground font-bold text-xs cursor-pointer transition shadow-xs gap-1.5 active:scale-95">
                     <Upload className="h-3.5 w-3.5" />
                     <span>{language === 'th' ? 'อัปโหลดโลโก้ใหม่' : 'Upload Logo'}</span>
                     <input

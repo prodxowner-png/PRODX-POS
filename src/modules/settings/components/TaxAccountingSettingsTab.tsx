@@ -58,7 +58,7 @@ export const TaxAccountingSettingsTab: React.FC<TaxAccountingSettingsTabProps> =
               <h3 className="text-sm font-bold text-text">
                 {language === 'th' ? 'ภาษีมูลค่าเพิ่มและข้อกำหนดทางภาษี (VAT & Taxation)' : 'VAT & Tax Configuration'}
               </h3>
-              <p className="text-[11px] text-text/50">
+              <p className="text-[11px] text-brand-text-secondary">
                 {language === 'th'
                   ? 'กำหนดอัตราภาษีฐาน (Basis Points) และประเภทการคำนวณภาษีในใบเสร็จ'
                   : 'VAT basis point precision, tax calculation modes, and fiscal registration data.'}
@@ -81,6 +81,7 @@ export const TaxAccountingSettingsTab: React.FC<TaxAccountingSettingsTabProps> =
                 <div className="relative flex-1">
                   <input
                     type="number"
+                    inputMode="decimal"
                     step="0.01"
                     min="0"
                     max="100"
@@ -91,9 +92,9 @@ export const TaxAccountingSettingsTab: React.FC<TaxAccountingSettingsTabProps> =
                         onChangeField('defaultTaxRateBps', Math.round(pct * 100));
                       }
                     }}
-                    className="w-full h-9 px-3 rounded-md border border-border bg-background text-xs font-mono font-bold text-text focus:outline-none focus:ring-2 focus:ring-primary/20 transition"
+                    className="w-full min-h-[44px] h-11 px-3 pr-8 rounded-md border border-border bg-background text-base sm:text-sm font-mono tabular-nums font-bold text-text focus:outline-hidden focus:ring-2 focus:ring-cta focus-visible:ring-2 focus-visible:ring-cta transition"
                   />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-text/50">
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-brand-text-secondary">
                     %
                   </span>
                 </div>
@@ -103,10 +104,10 @@ export const TaxAccountingSettingsTab: React.FC<TaxAccountingSettingsTabProps> =
                       key={rate}
                       type="button"
                       onClick={() => onChangeField('defaultTaxRateBps', rate * 100)}
-                      className={`h-9 px-2.5 rounded-md border text-xs font-mono font-bold cursor-pointer transition ${
+                      className={`min-h-[44px] px-3 rounded-md border text-xs font-mono tabular-nums font-bold cursor-pointer transition focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-cta ${
                         formData.defaultTaxRateBps === rate * 100
                           ? 'border-primary bg-primary/10 text-primary'
-                          : 'border-border bg-card hover:bg-background text-text/70'
+                          : 'border-border bg-card hover:bg-background text-brand-text-secondary'
                       }`}
                     >
                       {rate}%
@@ -114,7 +115,7 @@ export const TaxAccountingSettingsTab: React.FC<TaxAccountingSettingsTabProps> =
                   ))}
                 </div>
               </div>
-              <p className="text-[10px] text-text/50 font-mono">
+              <p className="text-[11px] text-brand-text-secondary font-mono tabular-nums">
                 Integer Invariant: {formData.defaultTaxRateBps} bps (Basis Points)
               </p>
             </div>
@@ -128,16 +129,16 @@ export const TaxAccountingSettingsTab: React.FC<TaxAccountingSettingsTabProps> =
                 <button
                   type="button"
                   onClick={() => onChangeField('taxCalculationType', 'inclusive')}
-                  className={`p-2.5 rounded-md border flex flex-col items-start gap-1 cursor-pointer transition ${
+                  className={`min-h-[44px] p-2.5 rounded-md border flex flex-col items-start gap-1 cursor-pointer transition focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-cta ${
                     formData.taxCalculationType === 'inclusive'
                       ? 'border-primary bg-primary/10 text-primary font-bold shadow-xs'
-                      : 'border-border bg-card text-text/70 hover:bg-background'
+                      : 'border-border bg-card text-text/80 hover:bg-background'
                   }`}
                 >
                   <span className="text-xs font-bold">
                     {language === 'th' ? 'ราคารวมภาษีแล้ว' : 'Tax Inclusive'}
                   </span>
-                  <span className="text-[10px] text-text/50">
+                  <span className="text-[10px] text-brand-text-secondary">
                     {language === 'th' ? 'VAT Included' : 'Gross Pricing'}
                   </span>
                 </button>
@@ -145,16 +146,16 @@ export const TaxAccountingSettingsTab: React.FC<TaxAccountingSettingsTabProps> =
                 <button
                   type="button"
                   onClick={() => onChangeField('taxCalculationType', 'exclusive')}
-                  className={`p-2.5 rounded-md border flex flex-col items-start gap-1 cursor-pointer transition ${
+                  className={`min-h-[44px] p-2.5 rounded-md border flex flex-col items-start gap-1 cursor-pointer transition focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-cta ${
                     formData.taxCalculationType === 'exclusive'
                       ? 'border-primary bg-primary/10 text-primary font-bold shadow-xs'
-                      : 'border-border bg-card text-text/70 hover:bg-background'
+                      : 'border-border bg-card text-text/80 hover:bg-background'
                   }`}
                 >
                   <span className="text-xs font-bold">
                     {language === 'th' ? 'ราคาแยกภาษี' : 'Tax Exclusive'}
                   </span>
-                  <span className="text-[10px] text-text/50">
+                  <span className="text-[10px] text-brand-text-secondary">
                     {language === 'th' ? 'Add VAT on Top' : 'Net + Tax'}
                   </span>
                 </button>
@@ -174,9 +175,9 @@ export const TaxAccountingSettingsTab: React.FC<TaxAccountingSettingsTabProps> =
                 value={formData.taxId}
                 onChange={(e) => onChangeField('taxId', e.target.value)}
                 placeholder="e.g. 0105559012345"
-                className="w-full h-9 px-3 rounded-md border border-border bg-background text-xs font-mono font-bold text-text focus:outline-none focus:ring-2 focus:ring-primary/20 transition"
+                className="w-full min-h-[44px] h-11 px-3 rounded-md border border-border bg-background text-base sm:text-sm font-mono font-bold text-text focus:outline-hidden focus:ring-2 focus:ring-cta focus-visible:ring-2 focus-visible:ring-cta transition"
               />
-              <p className="text-[10px] text-text/50">
+              <p className="text-[11px] text-brand-text-secondary">
                 {language === 'th'
                   ? 'เลข 13 หลักสำหรับออกใบกำกับภาษีอย่างย่อและเต็มรูปตามเกณฑ์สรรพากร'
                   : '13-digit official corporate registration number for fiscal tax invoices.'}
@@ -193,9 +194,9 @@ export const TaxAccountingSettingsTab: React.FC<TaxAccountingSettingsTabProps> =
                 value={formData.posMachineId}
                 onChange={(e) => onChangeField('posMachineId', e.target.value)}
                 placeholder="e.g. REG-BKK-001"
-                className="w-full h-9 px-3 rounded-md border border-border bg-background text-xs font-mono font-bold text-text focus:outline-none focus:ring-2 focus:ring-primary/20 transition"
+                className="w-full min-h-[44px] h-11 px-3 rounded-md border border-border bg-background text-base sm:text-sm font-mono font-bold text-text focus:outline-hidden focus:ring-2 focus:ring-cta focus-visible:ring-2 focus-visible:ring-cta transition"
               />
-              <p className="text-[10px] text-text/50">
+              <p className="text-[11px] text-brand-text-secondary">
                 {language === 'th'
                   ? 'รหัสระบุเครื่องที่ได้รับอนุญาตในการพิมพ์หัวใบกำกับภาษี'
                   : 'Authorized fiscal hardware serial code.'}
@@ -464,10 +465,10 @@ export const TaxAccountingSettingsTab: React.FC<TaxAccountingSettingsTabProps> =
                             type: 'info',
                           });
                         }}
-                        className={`text-[10px] font-bold px-2 py-0.5 rounded cursor-pointer transition ${
+                        className={`min-h-[36px] sm:min-h-[40px] px-3 text-xs font-bold rounded-md cursor-pointer transition focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-cta ${
                           isActiveSecondary
-                            ? 'bg-primary text-white'
-                            : 'border border-border text-text/70 hover:bg-background'
+                            ? 'bg-primary text-primary-foreground'
+                            : 'border border-border text-text/80 hover:bg-background'
                         }`}
                       >
                         {isActiveSecondary ? 'ACTIVE' : 'USE'}
@@ -476,11 +477,12 @@ export const TaxAccountingSettingsTab: React.FC<TaxAccountingSettingsTabProps> =
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <span className="text-[11px] text-text/50 font-mono shrink-0">
+                    <span className="text-[11px] text-brand-text-secondary font-mono tabular-nums shrink-0">
                       1 {session.currentStore.currency || 'THB'} =
                     </span>
                     <input
                       type="number"
+                      inputMode="decimal"
                       step="0.0001"
                       disabled={isBase}
                       value={isBase ? 1.0 : rate}
@@ -490,7 +492,7 @@ export const TaxAccountingSettingsTab: React.FC<TaxAccountingSettingsTabProps> =
                           setExchangeRate(cur.code, val);
                         }
                       }}
-                      className="w-full h-8 px-2.5 rounded-md border border-border bg-background text-xs font-mono font-bold text-text focus:outline-none focus:ring-2 focus:ring-primary/20 transition disabled:opacity-50"
+                      className="w-full min-h-[44px] h-11 px-3 rounded-md border border-border bg-background text-base sm:text-sm font-mono tabular-nums font-bold text-text focus:outline-hidden focus:ring-2 focus:ring-cta focus-visible:ring-2 focus-visible:ring-cta transition disabled:opacity-50"
                     />
                   </div>
                 </div>

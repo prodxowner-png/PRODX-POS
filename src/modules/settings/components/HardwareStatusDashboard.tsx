@@ -1063,7 +1063,7 @@ export const HardwareStatusDashboard: React.FC = () => {
                 onClick={() => setLogFilterDevice('all')}
                 className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition-colors cursor-pointer shrink-0 ${
                   logFilterDevice === 'all'
-                    ? 'bg-primary text-white'
+                    ? 'bg-primary text-primary-foreground'
                     : 'bg-card border border-border text-text/70 hover:text-text'
                 }`}
               >

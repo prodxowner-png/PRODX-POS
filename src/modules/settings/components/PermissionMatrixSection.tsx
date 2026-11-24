@@ -369,7 +369,7 @@ export const PermissionMatrixSection: React.FC = () => {
                                   onClick={() => handleToggle('cashier', p.id)}
                                   className={`w-5 h-5 rounded-md border flex items-center justify-center cursor-pointer transition-colors ${
                                     cashierHas
-                                      ? 'bg-primary border-primary text-white shadow-2xs'
+                                      ? 'bg-primary border-primary text-primary-foreground shadow-2xs'
                                       : 'bg-background border-border hover:border-text/40 text-transparent'
                                   }`}
                                   title={

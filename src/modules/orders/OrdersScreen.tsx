@@ -353,7 +353,7 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({ onNavigate }) => {
           </p>
         </div>
         {/* Action button container */}
-        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1 shrink-0">
+        <div className="flex flex-wrap items-center gap-2 py-1 shrink-0">
           <Button
             id="orders-quick-refund-top-btn"
             variant="outline"
@@ -504,16 +504,16 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({ onNavigate }) => {
         {/* Left / Main Table View */}
         <div className={`flex flex-col gap-4 min-h-0 transition-all duration-200 ${selectedOrder ? 'w-full lg:w-[58%] xl:w-[62%]' : 'w-full'}`}>
           <div className="w-full overflow-x-auto rounded-xl border border-border bg-card shadow-2xs flex-1 flex flex-col min-h-0">
-            <table className="w-full min-w-[640px] text-left text-xs border-collapse">
+            <table className={`w-full ${selectedOrder ? 'min-w-[460px] xl:min-w-[640px]' : 'min-w-[640px]'} text-left text-xs border-collapse`}>
               <thead>
                 <tr className="border-b border-border text-text/70 bg-card font-semibold">
-                  <th className="py-3.5 px-5">{t.orders.orderNumber}</th>
-                  <th className="py-3.5 px-4">{t.orders.dateTime}</th>
-                  <th className="py-3.5 px-4">{language === 'th' ? 'เครื่องขาย' : 'Register'}</th>
-                  <th className="py-3.5 px-4">{t.orders.customer}</th>
-                  <th className="py-3.5 px-4">{t.orders.payment}</th>
-                  <th className="py-3.5 px-4">{t.orders.status}</th>
-                  <th className="py-3.5 px-5 text-right">{t.orders.total}</th>
+                  <th scope="col" className="py-3.5 px-5">{t.orders.orderNumber}</th>
+                  <th scope="col" className="py-3.5 px-4">{t.orders.dateTime}</th>
+                  <th scope="col" className={`py-3.5 px-4 ${selectedOrder ? 'hidden xl:table-cell' : ''}`}>{language === 'th' ? 'เครื่องขาย' : 'Register'}</th>
+                  <th scope="col" className="py-3.5 px-4">{t.orders.customer}</th>
+                  <th scope="col" className={`py-3.5 px-4 ${selectedOrder ? 'hidden xl:table-cell' : ''}`}>{t.orders.payment}</th>
+                  <th scope="col" className="py-3.5 px-4">{t.orders.status}</th>
+                  <th scope="col" className="py-3.5 px-5 text-right">{t.orders.total}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -536,11 +536,20 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({ onNavigate }) => {
                     return (
                       <React.Fragment key={order.id}>
                         <tr
+                          tabIndex={0}
+                          aria-selected={isSelected}
                           onClick={() => {
                             setSelectedOrder(order);
                             toggleOrderExpansion(order.id);
                           }}
-                          className={`odd:bg-card even:bg-background/30 hover:bg-primary/5 cursor-pointer transition-colors ${
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              setSelectedOrder(order);
+                              toggleOrderExpansion(order.id);
+                            }
+                          }}
+                          className={`odd:bg-card even:bg-background/30 hover:bg-primary/5 cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cta ${
                             isSelected ? 'bg-primary/10 border-l-4 border-primary font-semibold' : ''
                           }`}
                         >
@@ -549,7 +558,13 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({ onNavigate }) => {
                               <button
                                 type="button"
                                 onClick={(e) => toggleOrderExpansion(order.id, e)}
-                                className={`p-1 rounded-lg transition-colors cursor-pointer ${
+                                aria-expanded={isExpanded}
+                                aria-label={
+                                  isExpanded
+                                    ? language === 'th' ? 'ย่อรายละเอียด' : 'Collapse line items'
+                                    : language === 'th' ? 'ขยายดูสินค้าในใบเสร็จ' : 'Expand line items'
+                                }
+                                className={`p-1 rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta ${
                                   isExpanded
                                     ? 'bg-primary/20 text-primary'
                                     : 'hover:bg-primary/10 text-text/60 hover:text-text'
@@ -569,17 +584,17 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({ onNavigate }) => {
                               <span className="truncate">{order.orderNumber}</span>
                             </div>
                           </td>
-                          <td className="py-3.5 px-4 text-text/70 font-mono">
+                          <td className="py-3.5 px-4 text-text/70 font-mono tabular-nums">
                             {new Date(order.createdAt).toLocaleDateString()} ·{' '}
                             {new Date(order.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </td>
-                          <td className="py-3.5 px-4 font-mono text-text/70">
+                          <td className={`py-3.5 px-4 font-mono text-text/70 ${selectedOrder ? 'hidden xl:table-cell' : ''}`}>
                             {order.registerId}
                           </td>
                           <td className="py-3.5 px-4 font-medium text-text">
                             {order.customer ? order.customer.name : t.pos.walkIn}
                           </td>
-                          <td className="py-3.5 px-4 uppercase text-[10px] font-semibold text-text/70">
+                          <td className={`py-3.5 px-4 uppercase text-[10px] font-semibold text-text/70 ${selectedOrder ? 'hidden xl:table-cell' : ''}`}>
                             {order.payments[0]?.method === 'cash'
                               ? t.checkout.cash
                               : order.payments[0]?.method === 'card'
@@ -605,7 +620,7 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({ onNavigate }) => {
                               </Badge>
                             )}
                           </td>
-                          <td className="py-3.5 px-5 text-right font-mono font-bold text-text">
+                          <td className="py-3.5 px-5 text-right font-mono font-bold tabular-nums text-text">
                             {formatMoney(order.totals.grandTotal)}
                           </td>
                         </tr>
@@ -659,10 +674,10 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({ onNavigate }) => {
                                         <table className="w-full text-left text-xs border-collapse">
                                           <thead>
                                             <tr className="bg-card/80 text-text/70 border-b border-border text-[11px] font-semibold">
-                                              <th className="py-2.5 px-3.5">{language === 'th' ? 'ชื่อสินค้า / รายการ' : 'Product / Description'}</th>
-                                              <th className="py-2.5 px-3 text-center w-20">{language === 'th' ? 'จำนวน' : 'Qty'}</th>
-                                              <th className="py-2.5 px-3 text-right w-28">{language === 'th' ? 'ราคา/หน่วย' : 'Unit Price'}</th>
-                                              <th className="py-2.5 px-3.5 text-right w-32">{language === 'th' ? 'ราคารวม' : 'Line Total'}</th>
+                                              <th scope="col" className="py-2.5 px-3.5">{language === 'th' ? 'ชื่อสินค้า / รายการ' : 'Product / Description'}</th>
+                                              <th scope="col" className="py-2.5 px-3 text-center w-20">{language === 'th' ? 'จำนวน' : 'Qty'}</th>
+                                              <th scope="col" className="py-2.5 px-3 text-right w-28">{language === 'th' ? 'ราคา/หน่วย' : 'Unit Price'}</th>
+                                              <th scope="col" className="py-2.5 px-3.5 text-right w-32">{language === 'th' ? 'ราคารวม' : 'Line Total'}</th>
                                             </tr>
                                           </thead>
                                           <tbody className="divide-y divide-border/60 font-mono text-xs">
