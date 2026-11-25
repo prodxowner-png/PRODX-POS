@@ -66,6 +66,7 @@ interface AuthContextType {
   operationalScope: OperationalScope | null;
   setOperationalScope: (scope: OperationalScope | null) => void;
   isLoading: boolean;
+  isInitializing: boolean;
   isLocked: boolean;
   inactivityTimeoutMinutes: number;
   autoLogoutTimeoutMinutes: number;
@@ -176,6 +177,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     getStoredOperationalScope(),
   );
   const [isLoading, setIsLoading] = useState(true);
+  const [isInitializing, setIsInitializing] = useState(true);
   const [isLocked, setIsLocked] = useState(false);
   const [staffUsers, setStaffUsers] = useState<User[]>(() =>
     IS_DEVELOPMENT ? getStoredStaffDirectory() : [],
@@ -458,6 +460,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } catch {}
       } finally {
         setIsLoading(false);
+        setIsInitializing(false);
       }
     }
     restoreSession();
@@ -1098,6 +1101,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         operationalScope,
         setOperationalScope,
         isLoading,
+        isInitializing,
         isLocked,
         inactivityTimeoutMinutes,
         autoLogoutTimeoutMinutes,
@@ -1155,6 +1159,7 @@ export function useAuth(): AuthContextType {
     operationalScope: null,
     setOperationalScope: () => {},
     isLoading: false,
+    isInitializing: false,
     isLocked: false,
     inactivityTimeoutMinutes: 15,
     autoLogoutTimeoutMinutes: 30,

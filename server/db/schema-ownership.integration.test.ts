@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Pool } from 'pg';
+import { resolveDisposableTestDatabaseUrl } from './test-database-guard';
 
-const databaseUrl = process.env.DATABASE_URL;
-const shouldRun = Boolean(databaseUrl) && process.env.NODE_ENV !== 'production';
+const databaseUrl = resolveDisposableTestDatabaseUrl(process.env.DATABASE_URL, 'server/db/schema-ownership.integration.test.ts');
+const shouldRun = Boolean(databaseUrl);
 
 test('PRODX runtime role cannot access foreign public objects or inherit future grants', { skip: !shouldRun }, async () => {
   const pool = new Pool({ connectionString: databaseUrl, max: 1 });

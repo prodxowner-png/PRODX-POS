@@ -429,7 +429,7 @@ export const PosScreen: React.FC = () => {
             onClick={() => setMobileTab('catalog')}
             className={`min-h-[44px] px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap ${
               mobileTab === 'catalog'
-                ? 'bg-primary text-white shadow-2xs'
+                ? 'bg-primary text-primary-foreground shadow-2xs'
                 : 'bg-background text-text/70 hover:text-text border border-border'
             }`}
           >
@@ -441,7 +441,7 @@ export const PosScreen: React.FC = () => {
             onClick={() => setMobileTab('cart')}
             className={`min-h-[44px] px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 relative cursor-pointer whitespace-nowrap ${
               mobileTab === 'cart'
-                ? 'bg-primary text-white shadow-2xs'
+                ? 'bg-primary text-primary-foreground shadow-2xs'
                 : 'bg-background text-text/70 hover:text-text border border-border'
             }`}
           >
@@ -644,14 +644,15 @@ export const PosScreen: React.FC = () => {
                   value={barcodeInput}
                   onChange={(e) => setBarcodeInput(e.target.value)}
                   placeholder={language === 'th' ? 'สแกน / กรอกรหัสบาร์โค้ดสินค้า...' : 'Scan / Enter Product Barcode...'}
-                  className="w-full min-h-[44px] rounded-xl border-crisp border border-border bg-card text-xs pl-9 pr-3 py-1 font-mono text-text placeholder-text/40 focus:outline-none focus:ring-2 focus:ring-primary transition-colors"
+                  aria-label={language === 'th' ? 'สแกนหรือกรอกรหัสบาร์โค้ดสินค้า' : 'Scan or enter product barcode'}
+                  className="w-full min-h-[44px] rounded-xl border-crisp border border-border bg-card text-base sm:text-xs pl-9 pr-3 py-1 font-mono text-text placeholder-text/40 focus:outline-none focus:ring-2 focus:ring-primary transition-colors"
                 />
                 <Barcode className="h-4 w-4 text-text/40 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
               </div>
               <button
                 type="submit"
                 disabled={!barcodeInput.trim()}
-                className="min-h-[44px] min-w-[64px] px-4 rounded-xl bg-primary hover:bg-primary/90 text-white text-xs font-bold tracking-wide disabled:opacity-40 cursor-pointer transition-all shrink-0 flex items-center justify-center shadow-2xs active:scale-95 whitespace-nowrap"
+                className="min-h-[44px] min-w-[64px] px-4 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold tracking-wide disabled:opacity-40 cursor-pointer transition-all shrink-0 flex items-center justify-center shadow-2xs active:scale-[0.98] whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta"
               >
                 {language === 'th' ? 'สแกน' : 'Scan'}
               </button>
@@ -673,8 +674,8 @@ export const PosScreen: React.FC = () => {
                   }}
                   className={`min-h-[44px] min-w-[44px] flex items-center justify-center gap-1.5 px-3.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all cursor-pointer shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
                     isSelected
-                      ? 'bg-primary text-white border-crisp border border-primary'
-                      : 'bg-card text-text/70 border-crisp border border-border hover:text-text hover:bg-background active:scale-95'
+                      ? 'bg-primary text-primary-foreground border-crisp border border-primary'
+                      : 'bg-card text-text/70 border-crisp border border-border hover:text-text hover:bg-background active:scale-[0.98]'
                   }`}
                 >
                   {cat.color && (

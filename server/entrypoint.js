@@ -497,6 +497,14 @@ var resolveProductionDatabaseUrl = async (vercelOidcToken) => {
   }
   return payload.databaseUrl;
 };
+var DEFAULT_PG_CONNECTION_TIMEOUT_MS = 1e4;
+var DEFAULT_PG_IDLE_TIMEOUT_MS = 3e4;
+var DEFAULT_PG_STATEMENT_TIMEOUT_MS = 3e4;
+var resolveTimeoutEnvMs = (rawValue, fallbackMs) => {
+  if (rawValue === void 0 || rawValue.trim() === "") return fallbackMs;
+  const parsed = Number.parseInt(rawValue, 10);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : fallbackMs;
+};
 var createPostgresPool = (config = {}) => {
   const connectionString = resolveConfiguredDatabaseUrl(config.connectionString ?? process.env.DATABASE_URL);
   if (!connectionString) {
@@ -513,6 +521,9 @@ var createPostgresPool = (config = {}) => {
     ...config,
     connectionString,
     max: config.max ?? (process.env.VERCEL ? 1 : 10),
+    connectionTimeoutMillis: config.connectionTimeoutMillis ?? resolveTimeoutEnvMs(process.env.PG_CONNECTION_TIMEOUT_MS, DEFAULT_PG_CONNECTION_TIMEOUT_MS),
+    idleTimeoutMillis: config.idleTimeoutMillis ?? resolveTimeoutEnvMs(process.env.PG_IDLE_TIMEOUT_MS, DEFAULT_PG_IDLE_TIMEOUT_MS),
+    statement_timeout: config.statement_timeout ?? resolveTimeoutEnvMs(process.env.PG_STATEMENT_TIMEOUT_MS, DEFAULT_PG_STATEMENT_TIMEOUT_MS),
     ssl: config.ssl ?? (isProductionRuntime() ? { rejectUnauthorized: true } : void 0)
   });
 };
@@ -1698,15 +1709,44 @@ var createCheckoutService = (db) => ({
 });
 
 // server/http/createApp.ts
-import crypto8 from "node:crypto";
+import crypto9 from "node:crypto";
 import express from "express";
-var sendError = (response, status, code, message, requestId2, details) => {
-  const body = {
-    error: { code, message, requestId: requestId2, ...details === void 0 ? {} : { details } }
-  };
-  response.status(status).json(body);
+
+// server/observability/logger.ts
+import crypto8 from "node:crypto";
+var SENSITIVE_KEY_PATTERN = /(^|[_-])(authorization|cookie|set-cookie|password|passwd|secret|token|apikey|api_key|access_token|refresh_token|private_key|client_secret|credential|dsn|database_url|connectionstring|ca_cert)($|[_-])|authorization|password|secret|token|cookie|credential|private_key|api_key|apikey/i;
+var BEARER_PATTERN = /\bBearer\s+[A-Za-z0-9._~+/=-]+/gi;
+var POSTGRES_DSN_PATTERN = /\bpostgres(?:ql)?:\/\/[^\s'"]+/gi;
+var MAX_REDACT_DEPTH = 6;
+var redactString = (value) => value.replace(BEARER_PATTERN, "Bearer [REDACTED]").replace(POSTGRES_DSN_PATTERN, "postgresql://[REDACTED]");
+var redactValue = (value, depth = 0, seen = /* @__PURE__ */ new WeakSet()) => {
+  if (value === null || value === void 0) return value;
+  if (typeof value === "string") return redactString(value);
+  if (typeof value === "number" || typeof value === "boolean") return value;
+  if (typeof value === "bigint") return value.toString();
+  if (depth >= MAX_REDACT_DEPTH) return "[TRUNCATED]";
+  if (Array.isArray(value)) {
+    if (seen.has(value)) return "[CIRCULAR]";
+    seen.add(value);
+    return value.map((item) => redactValue(item, depth + 1, seen));
+  }
+  if (typeof value === "object") {
+    if (seen.has(value)) return "[CIRCULAR]";
+    seen.add(value);
+    const result = {};
+    for (const [key, entryValue] of Object.entries(value)) {
+      if (entryValue === void 0) continue;
+      if (SENSITIVE_KEY_PATTERN.test(key)) {
+        result[key] = "[REDACTED]";
+      } else {
+        result[key] = redactValue(entryValue, depth + 1, seen);
+      }
+    }
+    return result;
+  }
+  return String(value);
 };
-var safeReadinessDiagnostic = (error4) => {
+var safeErrorDiagnostic = (error4) => {
   const candidate = error4 && typeof error4 === "object" ? error4 : {};
   const diagnostic = {
     name: typeof candidate.name === "string" && /^[A-Za-z][A-Za-z0-9]*$/.test(candidate.name) ? candidate.name : "unknown"
@@ -1725,9 +1765,75 @@ var safeReadinessDiagnostic = (error4) => {
   }
   return diagnostic;
 };
+var TRACEPARENT_REGEX = /^([0-9a-f]{2})-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$/;
+var ALL_ZERO_TRACE_ID = "00000000000000000000000000000000";
+var ALL_ZERO_SPAN_ID = "0000000000000000";
+var parseTraceparent = (header) => {
+  if (!header) return null;
+  const trimmed = header.trim().toLowerCase();
+  const match = TRACEPARENT_REGEX.exec(trimmed);
+  if (!match) return null;
+  const [, version, traceId, parentId, traceFlags] = match;
+  if (version === "ff") return null;
+  if (traceId === ALL_ZERO_TRACE_ID || parentId === ALL_ZERO_SPAN_ID) return null;
+  return { traceId, parentId, traceFlags };
+};
+var resolveTraceContext = (header) => {
+  const parsed = parseTraceparent(header);
+  const traceId = parsed?.traceId ?? crypto8.randomBytes(16).toString("hex");
+  const spanId = crypto8.randomBytes(8).toString("hex");
+  const traceFlags = parsed?.traceFlags ?? "01";
+  return {
+    traceId,
+    spanId,
+    traceFlags,
+    traceparent: `00-${traceId}-${spanId}-${traceFlags}`
+  };
+};
+var createLogger = (options = {}) => {
+  const writeStdout = options.writeStdout ?? ((line) => {
+    process.stdout.write(`${line}
+`);
+  });
+  const writeStderr = options.writeStderr ?? ((line) => {
+    process.stderr.write(`${line}
+`);
+  });
+  const now = options.now ?? (() => /* @__PURE__ */ new Date());
+  const emit = (level, event, fields = {}) => {
+    const sanitized = redactValue(fields);
+    const entry = {
+      timestamp: now().toISOString(),
+      level,
+      event,
+      ...sanitized
+    };
+    const serialized = JSON.stringify(entry);
+    if (level === "warn" || level === "error") {
+      writeStderr(serialized);
+    } else {
+      writeStdout(serialized);
+    }
+  };
+  return {
+    debug: (event, fields) => emit("debug", event, fields),
+    info: (event, fields) => emit("info", event, fields),
+    warn: (event, fields) => emit("warn", event, fields),
+    error: (event, fields) => emit("error", event, fields)
+  };
+};
+var logger = createLogger();
+
+// server/http/createApp.ts
+var sendError = (response, status, code, message, requestId2, details) => {
+  const body = {
+    error: { code, message, requestId: requestId2, ...details === void 0 ? {} : { details } }
+  };
+  response.status(status).json(body);
+};
 var requestId = (request) => {
   const supplied = request.header("x-request-id");
-  return supplied && supplied.length <= 128 ? supplied : crypto8.randomUUID();
+  return supplied && supplied.length <= 128 ? supplied : crypto9.randomUUID();
 };
 var requirePermission = (permission) => {
   return async (request, response, next) => {
@@ -1748,11 +1854,39 @@ var requirePermission = (permission) => {
     next();
   };
 };
-var attachRequestId = (request, response, next) => {
-  const id = requestId(request);
-  request.id = id;
-  response.setHeader("x-request-id", id);
-  next();
+var attachCorrelationAndAccessLog = (log) => {
+  return (request, response, next) => {
+    const id = requestId(request);
+    const trace = resolveTraceContext(request.header("traceparent"));
+    request.id = id;
+    request.traceId = trace.traceId;
+    request.traceparent = trace.traceparent;
+    response.setHeader("x-request-id", id);
+    response.setHeader("traceparent", trace.traceparent);
+    const startedAt = process.hrtime.bigint();
+    response.on("finish", () => {
+      const durationMs = Math.round(Number(process.hrtime.bigint() - startedAt) / 1e6 * 100) / 100;
+      const status = response.statusCode;
+      const fields = {
+        requestId: request.id,
+        traceId: request.traceId,
+        method: request.method,
+        path: request.path,
+        status,
+        durationMs,
+        organizationId: request.prodxContext?.principal.organizationId,
+        storeId: request.prodxContext?.principal.storeId
+      };
+      if (status >= 500) {
+        log.error("http.request", fields);
+      } else if (status >= 400) {
+        log.warn("http.request", fields);
+      } else {
+        log.info("http.request", fields);
+      }
+    });
+    next();
+  };
 };
 var authenticate = (authenticator) => {
   return async (request, response, next) => {
@@ -1775,6 +1909,7 @@ var authenticate = (authenticator) => {
 };
 var createApp = (options) => {
   const app = express();
+  const log = options.logger ?? logger;
   app.disable("x-powered-by");
   const trustedProxy = process.env.TRUST_PROXY?.trim();
   if (trustedProxy) {
@@ -1788,7 +1923,7 @@ var createApp = (options) => {
       throw new Error("TRUST_PROXY must be a non-negative hop count or true/false.");
     }
   }
-  app.use(attachRequestId);
+  app.use(attachCorrelationAndAccessLog(log));
   app.use(express.json({ limit: "1mb" }));
   app.locals.prodxAuthorize = options.authorizeRequest;
   options.configurePublicRoutes?.(app);
@@ -1804,10 +1939,19 @@ var createApp = (options) => {
       await options.readinessCheck();
       response.json({ status: "ready" });
     } catch (error4) {
+      const diagnostic = safeErrorDiagnostic(error4);
       console.error("PRODX readiness check failed", {
         requestId: request.id,
         status: 503,
-        ...safeReadinessDiagnostic(error4)
+        ...diagnostic
+      });
+      log.error("readiness.check_failed", {
+        requestId: request.id,
+        traceId: request.traceId,
+        method: request.method,
+        path: request.path,
+        status: 503,
+        ...diagnostic
       });
       sendError(response, 503, "NOT_READY", "The service is not ready.", request.id);
     }
@@ -1826,12 +1970,23 @@ var createApp = (options) => {
       sendError(response, 400, "INVALID_JSON", "Request body must be valid JSON.", request.id);
       return;
     }
+    const diagnostic = safeErrorDiagnostic(error4);
     console.error("PRODX unhandled request error", {
       requestId: request.id,
       method: request.method,
       path: request.path,
       status: 500,
-      ...safeReadinessDiagnostic(error4)
+      ...diagnostic
+    });
+    log.error("http.unhandled_error", {
+      requestId: request.id,
+      traceId: request.traceId,
+      method: request.method,
+      path: request.path,
+      status: 500,
+      organizationId: request.prodxContext?.principal.organizationId,
+      storeId: request.prodxContext?.principal.storeId,
+      ...diagnostic
     });
     const details = process.env.NODE_ENV === "production" ? void 0 : error4 instanceof Error ? error4.message : error4;
     sendError(response, 500, "INTERNAL_ERROR", "An unexpected server error occurred.", request.id, details);
@@ -1894,9 +2049,9 @@ var registerCheckoutRoute = (app, db, permission = "pos.sell") => {
 import { timingSafeEqual } from "node:crypto";
 
 // server/auth/login-rate-limit.ts
-import crypto9 from "node:crypto";
+import crypto10 from "node:crypto";
 var WINDOW_MS = 10 * 60 * 1e3;
-var fingerprintClient = (clientAddress) => crypto9.createHash("sha256").update(clientAddress, "utf8").digest("hex");
+var fingerprintClient = (clientAddress) => crypto10.createHash("sha256").update(clientAddress, "utf8").digest("hex");
 var checkLoginThrottle = async (db, clientAddress, now = /* @__PURE__ */ new Date()) => {
   const fingerprint = fingerprintClient(clientAddress);
   const rows = await db.query(
@@ -2317,7 +2472,7 @@ var registerAuthRoutes = (app, db, sessions, options = {}) => {
 };
 
 // server/transactions/refund-service.ts
-import crypto10 from "node:crypto";
+import crypto11 from "node:crypto";
 var supervisorAuthorizationDb = (tx) => ({
   async query(sql, parameters = []) {
     const result = await tx.query(sql, parameters);
@@ -2470,7 +2625,7 @@ var createRefundService = (db) => ({
       const resultStatus = refundedBefore + amount === orderTotal ? "refunded" : "server_confirmed";
       const shift = (await tx.query(`SELECT id FROM prodx_shifts WHERE id=$1 AND store_id=$2 AND status='open' FOR UPDATE`, [order.shift_id, request.storeId])).rows[0];
       if (!shift) throw new RefundConflictError("The originating shift is not open; cash refund cannot be committed.");
-      const refundId = crypto10.randomUUID();
+      const refundId = crypto11.randomUUID();
       const inserted = (await tx.query(`INSERT INTO prodx_refunds
         (id,organization_id,store_id,order_id,amount,currency,result_status,method,reason,authorized_by_user_id,requester_user_id,idempotency_key)
         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT(store_id,idempotency_key) DO NOTHING
@@ -2557,13 +2712,13 @@ var createRefundService = (db) => ({
           `INSERT INTO prodx_refund_items
           (id,organization_id,store_id,refund_id,order_id,order_item_id,product_id,quantity,amount)
           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-          [crypto10.randomUUID(), order.organization_id, request.storeId, refundId, request.orderId, allocation.orderItemId, allocation.productId, allocation.quantity, numeric2(allocation.amount)]
+          [crypto11.randomUUID(), order.organization_id, request.storeId, refundId, request.orderId, allocation.orderItemId, allocation.productId, allocation.quantity, numeric2(allocation.amount)]
         );
         await tx.query(
           `INSERT INTO prodx_inventory_ledger
           (id,organization_id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id)
           VALUES($1,$2,$3,$4,$5,$6,'refund_restock',$7,$8)`,
-          [crypto10.randomUUID(), order.organization_id, request.storeId, allocation.productId, allocation.quantity, stock.current_stock, refundId, supervisorUserId]
+          [crypto11.randomUUID(), order.organization_id, request.storeId, allocation.productId, allocation.quantity, stock.current_stock, refundId, supervisorUserId]
         );
       }
       await tx.query(
@@ -2571,7 +2726,7 @@ var createRefundService = (db) => ({
         (id,organization_id,store_id,shift_id,refund_id,type,amount,reason,performed_by_user_id,currency)
         VALUES($1,$2,$3,$4,$5,'cash_refund',$6,$7,$8,$9)`,
         [
-          crypto10.randomUUID(),
+          crypto11.randomUUID(),
           order.organization_id,
           request.storeId,
           shift.id,
@@ -2589,7 +2744,7 @@ var createRefundService = (db) => ({
         (id,organization_id,store_id,register_id,user_id,action,severity,details)
         VALUES($1,$2,$3,$4,$5,'order_refund_committed','critical',$6::jsonb)`,
         [
-          crypto10.randomUUID(),
+          crypto11.randomUUID(),
           order.organization_id,
           request.storeId,
           order.register_id,
@@ -2681,7 +2836,7 @@ var registerRefundRoute = (app, db, permission = "pos.refund") => {
 };
 
 // server/audit/audit-service.ts
-import crypto11 from "node:crypto";
+import crypto12 from "node:crypto";
 var AuditValidationError = class extends Error {
   constructor() {
     super(...arguments);
@@ -2751,7 +2906,7 @@ var createAuditReadService = (db) => ({
         resolvedRegisterUuid = regCheck.rows[0]?.id ?? null;
       }
     }
-    const id = crypto11.randomUUID();
+    const id = crypto12.randomUUID();
     const inserted = await db.query(
       `INSERT INTO prodx_audit_log(id, organization_id, store_id, register_id, user_id, action, severity, details, source_event_key)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)
@@ -2928,7 +3083,7 @@ var registerAuditRoute = (app, db) => {
 };
 
 // server/http/tasks-route.ts
-import crypto12 from "node:crypto";
+import crypto13 from "node:crypto";
 var uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 var toTask = (row) => ({
   id: row.id,
@@ -2968,7 +3123,7 @@ var registerTasksRoute = (app, db) => {
         return;
       }
       const body = request.body ?? {};
-      const id = typeof body.id === "string" && body.id.trim() ? body.id.trim() : crypto12.randomUUID();
+      const id = typeof body.id === "string" && body.id.trim() ? body.id.trim() : crypto13.randomUUID();
       const title = typeof body.title === "string" ? body.title.trim() : "";
       const description = typeof body.description === "string" ? body.description : "";
       if (!uuidPattern.test(id)) {
@@ -3066,7 +3221,7 @@ var registerTasksRoute = (app, db) => {
 };
 
 // server/shift/shift-service.ts
-import crypto13 from "node:crypto";
+import crypto14 from "node:crypto";
 var ShiftValidationError = class extends Error {
   constructor() {
     super(...arguments);
@@ -3098,7 +3253,7 @@ var toDecimal = (centsValue) => {
   return `${sign}${abs / 100n}.${(abs % 100n).toString().padStart(2, "0")}`;
 };
 var money = (value, currency, label = "Amount") => ({ amountInCents: dbAmountToCents(value, label), currency });
-var hash = (value) => crypto13.createHash("sha256").update(JSON.stringify(value)).digest("hex");
+var hash = (value) => crypto14.createHash("sha256").update(JSON.stringify(value)).digest("hex");
 var mapMovement = (r) => ({ id: r.id, shiftId: r.shift_id, type: r.type, amount: money(r.amount, r.currency), reason: r.reason, performedByUserId: r.performed_by_user_id, timestamp: new Date(r.created_at).toISOString() });
 var loadShift = async (db, shiftId, storeId) => {
   const s = await db.query(`SELECT s.id,s.store_id,s.register_id,s.cashier_id,u.display_name AS cashier_name,s.opened_at,s.closed_at,s.status,s.opening_float_amount,s.actual_counted_cash_amount,s.currency FROM prodx_shifts s JOIN prodx_users u ON u.id=s.cashier_id WHERE s.id=$1 AND s.store_id=$2`, [shiftId, storeId]);
@@ -3129,7 +3284,7 @@ var loadShift = async (db, shiftId, storeId) => {
 var operation = async (tx, context, type, shiftId, key, payload) => {
   if (!key.trim()) throw new ShiftValidationError("Idempotency key is required.");
   const h = hash(payload);
-  const inserted = await tx.query(`INSERT INTO prodx_shift_operations(id,organization_id,store_id,shift_id,operation_type,idempotency_key,payload_hash) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(store_id,operation_type,idempotency_key) DO NOTHING RETURNING id`, [crypto13.randomUUID(), context.organizationId, context.storeId, shiftId, type, key.trim(), h]);
+  const inserted = await tx.query(`INSERT INTO prodx_shift_operations(id,organization_id,store_id,shift_id,operation_type,idempotency_key,payload_hash) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(store_id,operation_type,idempotency_key) DO NOTHING RETURNING id`, [crypto14.randomUUID(), context.organizationId, context.storeId, shiftId, type, key.trim(), h]);
   if (inserted.rows[0]) return { id: inserted.rows[0].id, replay: false };
   const existing = await tx.query(`SELECT id,payload_hash FROM prodx_shift_operations WHERE store_id=$1 AND operation_type=$2 AND idempotency_key=$3 FOR UPDATE`, [context.storeId, type, key.trim()]);
   const row = existing.rows[0];
@@ -3159,12 +3314,12 @@ var createShiftService = (db) => ({
       if (registerRow.currency !== openingFloat.currency) throw new ShiftValidationError("Opening float currency does not match the store currency.");
       const existing = await tx.query(`SELECT id FROM prodx_shifts WHERE register_id=$1 AND store_id=$2 AND status='open' FOR UPDATE`, [registerId, context.storeId]);
       if (existing.rows[0]) throw new ShiftConflictError("Register already has an open shift.");
-      const id = crypto13.randomUUID();
+      const id = crypto14.randomUUID();
       const decAmount = toDecimal(amount);
       await tx.query(`INSERT INTO prodx_shifts(id,organization_id,store_id,register_id,cashier_id,status,opening_float_amount,currency) VALUES($1,$2,$3,$4,$5,'open',$6,$7)`, [id, context.organizationId, context.storeId, registerId, context.userId, decAmount, openingFloat.currency]);
       await tx.query(`UPDATE prodx_shift_operations SET shift_id=$1 WHERE id=$2`, [id, op.id]);
-      await tx.query(`INSERT INTO prodx_cash_movements(id,organization_id,store_id,shift_id,type,amount,reason,performed_by_user_id,currency) VALUES($1,$2,$3,$4,'opening_float',$5,$6,$7,$8)`, [crypto13.randomUUID(), context.organizationId, context.storeId, id, decAmount, "Initial opening cash drawer float", context.userId, openingFloat.currency]);
-      await tx.query(`INSERT INTO prodx_audit_log(id,organization_id,store_id,register_id,user_id,action,severity,details) VALUES($1,$2,$3,$4,$5,'shift_opened','info',$6::jsonb)`, [crypto13.randomUUID(), context.organizationId, context.storeId, registerId, context.userId, JSON.stringify({ shiftId: id, openingFloat: amount })]);
+      await tx.query(`INSERT INTO prodx_cash_movements(id,organization_id,store_id,shift_id,type,amount,reason,performed_by_user_id,currency) VALUES($1,$2,$3,$4,'opening_float',$5,$6,$7,$8)`, [crypto14.randomUUID(), context.organizationId, context.storeId, id, decAmount, "Initial opening cash drawer float", context.userId, openingFloat.currency]);
+      await tx.query(`INSERT INTO prodx_audit_log(id,organization_id,store_id,register_id,user_id,action,severity,details) VALUES($1,$2,$3,$4,$5,'shift_opened','info',$6::jsonb)`, [crypto14.randomUUID(), context.organizationId, context.storeId, registerId, context.userId, JSON.stringify({ shiftId: id, openingFloat: amount })]);
       return loadShift(tx, id, context.storeId);
     });
   },
@@ -3179,7 +3334,7 @@ var createShiftService = (db) => ({
       if (shift.status !== "open") throw new ShiftConflictError("Shift is already closed.");
       if (shift.currency !== actualCountedCash.currency) throw new ShiftValidationError("Counted cash currency does not match the shift.");
       await tx.query(`UPDATE prodx_shifts SET status='closed',closed_at=CURRENT_TIMESTAMP,actual_counted_cash_amount=$1 WHERE id=$2 AND store_id=$3`, [toDecimal(actual), shiftId, context.storeId]);
-      await tx.query(`INSERT INTO prodx_audit_log(id,organization_id,store_id,register_id,user_id,action,severity,details) VALUES($1,$2,$3,$4,$5,'shift_closed','info',$6::jsonb)`, [crypto13.randomUUID(), context.organizationId, context.storeId, shift.register_id, context.userId, JSON.stringify({ shiftId, actualCountedCash: actual, notes: notes ?? "" })]);
+      await tx.query(`INSERT INTO prodx_audit_log(id,organization_id,store_id,register_id,user_id,action,severity,details) VALUES($1,$2,$3,$4,$5,'shift_closed','info',$6::jsonb)`, [crypto14.randomUUID(), context.organizationId, context.storeId, shift.register_id, context.userId, JSON.stringify({ shiftId, actualCountedCash: actual, notes: notes ?? "" })]);
       return loadShift(tx, shiftId, context.storeId);
     });
   },
@@ -3199,10 +3354,10 @@ var createShiftService = (db) => ({
       if (!s) throw new ShiftConflictError("Shift not found in this store.");
       if (s.status !== "open") throw new ShiftConflictError("Shift is closed.");
       if (s.currency !== amount.currency) throw new ShiftValidationError("Cash movement currency does not match the shift.");
-      const id = crypto13.randomUUID();
+      const id = crypto14.randomUUID();
       await tx.query(`INSERT INTO prodx_cash_movements(id,organization_id,store_id,shift_id,type,amount,reason,performed_by_user_id,currency) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, [id, context.organizationId, context.storeId, shiftId, type, toDecimal(value), reason.trim(), context.userId, amount.currency]);
       await tx.query(`UPDATE prodx_shift_operations SET result_id=$1 WHERE id=$2`, [id, op.id]);
-      await tx.query(`INSERT INTO prodx_audit_log(id,organization_id,store_id,user_id,action,severity,details) VALUES($1,$2,$3,$4,$5,'info',$6::jsonb)`, [crypto13.randomUUID(), context.organizationId, context.storeId, context.userId, "cash_movement_recorded", JSON.stringify({ shiftId, type, amount: value, reason })]);
+      await tx.query(`INSERT INTO prodx_audit_log(id,organization_id,store_id,user_id,action,severity,details) VALUES($1,$2,$3,$4,$5,'info',$6::jsonb)`, [crypto14.randomUUID(), context.organizationId, context.storeId, context.userId, "cash_movement_recorded", JSON.stringify({ shiftId, type, amount: value, reason })]);
       const r = await tx.query(`SELECT id,shift_id,type,amount,reason,performed_by_user_id,currency,created_at FROM prodx_cash_movements WHERE id=$1`, [id]);
       return mapMovement(r.rows[0]);
     });
@@ -3283,7 +3438,7 @@ var registerShiftRoute = (app, db) => {
 };
 
 // server/shift/timeclock-service.ts
-import crypto14 from "node:crypto";
+import crypto15 from "node:crypto";
 var TimeclockValidationError = class extends Error {
   constructor() {
     super(...arguments);
@@ -3316,8 +3471,8 @@ var getPinPepper = () => {
   if (!pepper) throw new Error("TIMECLOCK_PIN_PEPPER is required for production timeclock credentials.");
   return pepper;
 };
-var lookupHash = (pin) => crypto14.createHmac("sha256", getPinPepper()).update(pin).digest("hex");
-var hashPayload = (value) => crypto14.createHash("sha256").update(JSON.stringify(value)).digest("hex");
+var lookupHash = (pin) => crypto15.createHmac("sha256", getPinPepper()).update(pin).digest("hex");
+var hashPayload = (value) => crypto15.createHash("sha256").update(JSON.stringify(value)).digest("hex");
 var mapRecord = (row) => ({
   id: row.id,
   userId: row.user_id,
@@ -3429,7 +3584,7 @@ var operation2 = async (tx, context, type, key, payload) => {
        (id,organization_id,store_id,user_id,operation_type,idempotency_key,payload_hash)
      VALUES($1,$2,$3,$4,$5,$6,$7)
      ON CONFLICT(organization_id,store_id,user_id,operation_type,idempotency_key) DO NOTHING RETURNING id`,
-    [crypto14.randomUUID(), context.organizationId, context.storeId, context.userId, type, key.trim(), payloadHash]
+    [crypto15.randomUUID(), context.organizationId, context.storeId, context.userId, type, key.trim(), payloadHash]
   );
   if (inserted.rows[0]) return { id: inserted.rows[0].id, replay: false, resultId: null };
   const existing = await tx.query(
@@ -3467,7 +3622,7 @@ var createTimeclockService = (db) => ({
         [context.storeId, user.user_id]
       );
       if (existing.rows[0]) throw new TimeclockConflictError("User is already clocked in at this store.");
-      const id = crypto14.randomUUID();
+      const id = crypto15.randomUUID();
       await tx.query(
         `INSERT INTO prodx_timeclock_records(id,organization_id,store_id,user_id,status)
          VALUES($1,$2,$3,$4,'clocked_in')`,
@@ -3478,7 +3633,7 @@ var createTimeclockService = (db) => ({
         `INSERT INTO prodx_audit_log(id,organization_id,store_id,user_id,action,severity,details)
          VALUES($1,$2,$3,$4,'timeclock_clocked_in','info',$5::jsonb)`,
         [
-          crypto14.randomUUID(),
+          crypto15.randomUUID(),
           context.organizationId,
           context.storeId,
           context.userId,
@@ -3509,7 +3664,7 @@ var createTimeclockService = (db) => ({
         `INSERT INTO prodx_audit_log(id,organization_id,store_id,user_id,action,severity,details)
          VALUES($1,$2,$3,$4,'timeclock_clocked_out','info',$5::jsonb)`,
         [
-          crypto14.randomUUID(),
+          crypto15.randomUUID(),
           context.organizationId,
           context.storeId,
           context.userId,
@@ -3560,7 +3715,7 @@ var createTimeclockService = (db) => ({
         `INSERT INTO prodx_audit_log(id,organization_id,store_id,user_id,action,severity,details)
          VALUES($1,$2,$3,$4,'timeclock_pin_provisioned','info',$5::jsonb)`,
         [
-          crypto14.randomUUID(),
+          crypto15.randomUUID(),
           context.organizationId,
           context.storeId,
           context.userId,
@@ -3744,7 +3899,7 @@ var registerCatalogRoute = (app, db, permission = "catalog.read") => {
 };
 
 // server/http/catalog-import-route.ts
-import crypto15 from "node:crypto";
+import crypto16 from "node:crypto";
 var dbCents3 = (value) => {
   const match = /^(\d+)(?:\.(\d{1,2}))?$/.exec(String(value ?? "").trim());
   if (!match) throw new Error(`Invalid database monetary value: ${String(value)}`);
@@ -3782,7 +3937,7 @@ var ledgerDto = (row) => ({
   performedByUserId: row.performed_by_user_id,
   timestamp: row.created_at
 });
-var hashPayload2 = (value) => crypto15.createHash("sha256").update(JSON.stringify(value)).digest("hex");
+var hashPayload2 = (value) => crypto16.createHash("sha256").update(JSON.stringify(value)).digest("hex");
 var slugify = (value) => value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "general";
 var registerCatalogImportRoute = (app, db) => {
   app.post("/api/v1/catalog/import", requirePermission("catalog.write"), async (request, response) => {
@@ -3817,7 +3972,7 @@ var registerCatalogImportRoute = (app, db) => {
              (id,organization_id,store_id,actor_user_id,idempotency_key,payload_hash,result)
            VALUES($1,$2,$3,$4,$5,$6,'{}'::jsonb)
            ON CONFLICT(organization_id,store_id,actor_user_id,idempotency_key) DO NOTHING RETURNING id`,
-          [crypto15.randomUUID(), context.principal.organizationId, context.principal.storeId, context.principal.userId, idempotencyKey, payloadHash]
+          [crypto16.randomUUID(), context.principal.organizationId, context.principal.storeId, context.principal.userId, idempotencyKey, payloadHash]
         );
         if (!inserted.rows[0]) {
           const existing = await tx.query(
@@ -3873,7 +4028,7 @@ var registerCatalogImportRoute = (app, db) => {
             )).rows[0];
             if (category) categoryId = category.id;
             else {
-              const createdCategoryId = crypto15.randomUUID();
+              const createdCategoryId = crypto16.randomUUID();
               await tx.query(
                 `INSERT INTO prodx_categories(id,organization_id,store_id,name,slug)
                  VALUES($1,$2,$3,$4,$5)
@@ -3947,7 +4102,7 @@ var registerCatalogImportRoute = (app, db) => {
                 `INSERT INTO prodx_inventory_ledger(id,organization_id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id)
                  VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
                  RETURNING id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id,created_at`,
-                [crypto15.randomUUID(), context.principal.organizationId, context.principal.storeId, existing.id, delta, nextStock, reason, operationId, context.principal.userId]
+                [crypto16.randomUUID(), context.principal.organizationId, context.principal.storeId, existing.id, delta, nextStock, reason, operationId, context.principal.userId]
               )).rows[0];
               ledgerEntries.push(ledgerDto(ledger));
             }
@@ -3959,7 +4114,7 @@ var registerCatalogImportRoute = (app, db) => {
             const initialStock = mode === "stock_replenish" ? Math.max(0, requestedDelta ?? 0) : Math.max(0, requestedStock ?? requestedDelta ?? 0);
             const priceCents = requestedPriceCents ?? 1e3;
             const costCents = requestedCostCents ?? Number((BigInt(priceCents) * 4000n + 5000n) / 10000n);
-            const newId = crypto15.randomUUID();
+            const newId = crypto16.randomUUID();
             const finalBarcode = barcode || `IMPORT-${operationId.slice(0, 8)}-${index + 1}`;
             await tx.query(
               `INSERT INTO prodx_products
@@ -3978,7 +4133,7 @@ var registerCatalogImportRoute = (app, db) => {
                 `INSERT INTO prodx_inventory_ledger(id,organization_id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id)
                  VALUES($1,$2,$3,$4,$5,$6,'purchase_received',$7,$8)
                  RETURNING id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id,created_at`,
-                [crypto15.randomUUID(), context.principal.organizationId, context.principal.storeId, newId, initialStock, initialStock, operationId, context.principal.userId]
+                [crypto16.randomUUID(), context.principal.organizationId, context.principal.storeId, newId, initialStock, initialStock, operationId, context.principal.userId]
               )).rows[0];
               ledgerEntries.push(ledgerDto(ledger));
             }
@@ -3989,7 +4144,7 @@ var registerCatalogImportRoute = (app, db) => {
         await tx.query(
           `INSERT INTO prodx_audit_log(id,organization_id,store_id,user_id,action,severity,details)
            VALUES($1,$2,$3,$4,'catalog_bulk_imported','info',$5::jsonb)`,
-          [crypto15.randomUUID(), context.principal.organizationId, context.principal.storeId, context.principal.userId, JSON.stringify({ batchReference, mode, totalItems: normalizedItems.length, createdCount: createdProducts.length, updatedCount: updatedProducts.length, skippedCount: errors.length, notes })]
+          [crypto16.randomUUID(), context.principal.organizationId, context.principal.storeId, context.principal.userId, JSON.stringify({ batchReference, mode, totalItems: normalizedItems.length, createdCount: createdProducts.length, updatedCount: updatedProducts.length, skippedCount: errors.length, notes })]
         );
         return result2;
       });
@@ -4006,7 +4161,7 @@ var registerCatalogImportRoute = (app, db) => {
 };
 
 // server/http/catalog-pricing-route.ts
-import crypto16 from "node:crypto";
+import crypto17 from "node:crypto";
 var dbCents4 = (value) => {
   const match = /^(\d+)(?:\.(\d{1,2}))?$/.exec(String(value ?? "").trim());
   if (!match) throw new Error(`Invalid database monetary value: ${String(value)}`);
@@ -4028,7 +4183,7 @@ var productDto3 = (row) => ({
   reorderPoint: row.reorder_point,
   unitOfMeasure: row.unit_of_measure
 });
-var hashPayload3 = (value) => crypto16.createHash("sha256").update(JSON.stringify(value)).digest("hex");
+var hashPayload3 = (value) => crypto17.createHash("sha256").update(JSON.stringify(value)).digest("hex");
 var registerCatalogPricingRoute = (app, db) => {
   app.post("/api/v1/catalog/pricing/bulk", requirePermission("catalog.write"), async (request, response) => {
     const context = request.prodxContext;
@@ -4072,7 +4227,7 @@ var registerCatalogPricingRoute = (app, db) => {
           `INSERT INTO prodx_catalog_pricing_operations (id,organization_id,store_id,actor_user_id,idempotency_key,payload_hash,result)
            VALUES($1,$2,$3,$4,$5,$6,'[]'::jsonb)
            ON CONFLICT(organization_id,store_id,actor_user_id,idempotency_key) DO NOTHING RETURNING id`,
-          [crypto16.randomUUID(), context.principal.organizationId, context.principal.storeId, context.principal.userId, idempotencyKey, payloadHash]
+          [crypto17.randomUUID(), context.principal.organizationId, context.principal.storeId, context.principal.userId, idempotencyKey, payloadHash]
         );
         if (!inserted.rows[0]) {
           const existing = await tx.query(
@@ -4102,7 +4257,7 @@ var registerCatalogPricingRoute = (app, db) => {
         await tx.query(
           `INSERT INTO prodx_audit_log(id,organization_id,store_id,user_id,action,severity,details)
            VALUES($1,$2,$3,$4,'catalog_price_bulk_updated','info',$5::jsonb)`,
-          [crypto16.randomUUID(), context.principal.organizationId, context.principal.storeId, context.principal.userId, JSON.stringify({ productIds, priceChangeType, value, idempotencyKey })]
+          [crypto17.randomUUID(), context.principal.organizationId, context.principal.storeId, context.principal.userId, JSON.stringify({ productIds, priceChangeType, value, idempotencyKey })]
         );
         return { idempotencyCached: false, products };
       });
@@ -4326,7 +4481,7 @@ var registerSyncRoute = (app, db, permission = "pos.sell") => {
 };
 
 // server/http/supervisor-authorization-route.ts
-import crypto17 from "node:crypto";
+import crypto18 from "node:crypto";
 var valid = (value) => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const body = value;
@@ -4416,7 +4571,7 @@ var registerSupervisorAuthorizationRoute = (app, db, verifySupervisorToken) => {
         if (body.supervisorAccessToken) {
           if (!verifiedSupervisorIdentity) {
             await tx.query(`SELECT public.prodx_record_security_audit_event($1, $2, $3, 'SUPERVISOR_AUTH_FAILED', $4::jsonb)`, [
-              crypto17.randomUUID(),
+              crypto18.randomUUID(),
               context.principal.organizationId,
               context.principal.userId,
               JSON.stringify({ action: body.action, requestedSupervisorUserId: body.supervisorUserId, reason: "supabase_reauthentication_failed" })
@@ -4430,7 +4585,7 @@ var registerSupervisorAuthorizationRoute = (app, db, verifySupervisorToken) => {
           )).rows[0];
           if (!mappedSupervisor || mappedSupervisor.status !== "active" || mappedSupervisor.userId !== body.supervisorUserId) {
             await tx.query(`SELECT public.prodx_record_security_audit_event($1, $2, $3, 'SUPERVISOR_AUTH_DENIED', $4::jsonb)`, [
-              crypto17.randomUUID(),
+              crypto18.randomUUID(),
               context.principal.organizationId,
               context.principal.userId,
               JSON.stringify({ action: body.action, requestedSupervisorUserId: body.supervisorUserId, reason: "supabase_subject_not_authorized" })
@@ -4462,7 +4617,7 @@ var registerSupervisorAuthorizationRoute = (app, db, verifySupervisorToken) => {
           await tx.query(
             `SELECT public.prodx_record_security_audit_event($1, $2, $3, 'SUPERVISOR_AUTHORIZATION_REQUESTED', $4::jsonb)`,
             [
-              crypto17.randomUUID(),
+              crypto18.randomUUID(),
               context.principal.organizationId,
               context.principal.userId,
               JSON.stringify({ action: "discount", idempotencyKey: checkout.idempotencyKey, payloadHash: checkoutAuthorizationFingerprint(checkout), thresholdBps: Number(policy.max_discount_without_approval_bps) })
@@ -4515,7 +4670,7 @@ var registerSupervisorAuthorizationRoute = (app, db, verifySupervisorToken) => {
 };
 
 // server/http/discount-policy-route.ts
-import crypto18 from "node:crypto";
+import crypto19 from "node:crypto";
 var validPolicy = (value) => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const body = value;
@@ -4563,7 +4718,7 @@ var registerDiscountPolicyRoute = (app, db) => {
       if (!rows.rows[0]) return null;
       await tx.query(
         `SELECT public.prodx_record_security_audit_event($1, $2, $3, 'DISCOUNT_POLICY_UPDATED', $4::jsonb)`,
-        [crypto18.randomUUID(), context.principal.organizationId, context.principal.userId, JSON.stringify({ storeId: context.principal.storeId, requireSupervisorApproval: request.body.requireSupervisorApproval, maxDiscountWithoutApprovalBps: request.body.maxDiscountWithoutApprovalBps })]
+        [crypto19.randomUUID(), context.principal.organizationId, context.principal.userId, JSON.stringify({ storeId: context.principal.storeId, requireSupervisorApproval: request.body.requireSupervisorApproval, maxDiscountWithoutApprovalBps: request.body.maxDiscountWithoutApprovalBps })]
       );
       return rows.rows[0];
     });
@@ -4722,7 +4877,7 @@ var registerOrderReadRoute = (app, db, permission = "pos.sell") => {
 };
 
 // server/transactions/void-service.ts
-import crypto19 from "node:crypto";
+import crypto20 from "node:crypto";
 var VoidValidationError = class extends Error {
   constructor() {
     super(...arguments);
@@ -4800,7 +4955,7 @@ var createVoidService = (db) => ({
       if (paid !== dbCents5(order.grand_total_amount)) throw new VoidConflictError("Recorded cash payments do not match the order total.");
       const shift = (await tx.query("SELECT id FROM prodx_shifts WHERE id=$1 AND store_id=$2 AND status='open' FOR UPDATE", [order.shift_id, request.storeId])).rows[0];
       if (!shift) throw new VoidConflictError("The originating shift is not open; cash reversal cannot be committed.");
-      const voidId = crypto19.randomUUID();
+      const voidId = crypto20.randomUUID();
       const inserted = (await tx.query(
         "INSERT INTO prodx_voids (id,organization_id,store_id,order_id,reason,authorized_by_user_id,requester_user_id,idempotency_key) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING RETURNING id",
         [voidId, order.organization_id, request.storeId, request.orderId, request.reason.trim(), supervisorUserId, request.requesterUserId, request.idempotencyKey]
@@ -4819,19 +4974,19 @@ var createVoidService = (db) => ({
         if (!stock) throw new VoidConflictError(`Product ${item.product_id} is unavailable for void reversal.`);
         await tx.query(
           "INSERT INTO prodx_inventory_ledger (id,organization_id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id) VALUES($1,$2,$3,$4,$5,$6,'void_reversal',$7,$8)",
-          [crypto19.randomUUID(), order.organization_id, request.storeId, item.product_id, item.quantity, stock.current_stock, voidId, supervisorUserId]
+          [crypto20.randomUUID(), order.organization_id, request.storeId, item.product_id, item.quantity, stock.current_stock, voidId, supervisorUserId]
         );
       }
       const amount = dbCents5(order.grand_total_amount);
       await tx.query(
         "INSERT INTO prodx_cash_movements (id,organization_id,store_id,shift_id,type,amount,reason,performed_by_user_id,currency) VALUES($1,$2,$3,$4,'cash_refund',$5,$6,$7,$8)",
-        [crypto19.randomUUID(), order.organization_id, request.storeId, shift.id, numeric3(amount), `Void for Order #${order.order_number}: ${request.reason.trim()}`, supervisorUserId, orderCurrency]
+        [crypto20.randomUUID(), order.organization_id, request.storeId, shift.id, numeric3(amount), `Void for Order #${order.order_number}: ${request.reason.trim()}`, supervisorUserId, orderCurrency]
       );
       await tx.query("UPDATE prodx_orders SET status=$1 WHERE id=$2 AND store_id=$3", ["voided", request.orderId, request.storeId]);
       await tx.query(
         "INSERT INTO prodx_audit_log (id,organization_id,store_id,register_id,user_id,action,severity,details) VALUES($1,$2,$3,$4,$5,'order_void_committed','critical',$6::jsonb)",
         [
-          crypto19.randomUUID(),
+          crypto20.randomUUID(),
           order.organization_id,
           request.storeId,
           order.register_id,
@@ -4897,7 +5052,7 @@ var registerVoidRoute = (app, db) => {
 };
 
 // server/transactions/inventory-adjustment-service.ts
-import crypto20 from "node:crypto";
+import crypto21 from "node:crypto";
 var InventoryAdjustmentValidationError = class extends Error {
   constructor() {
     super(...arguments);
@@ -4927,16 +5082,16 @@ var createInventoryAdjustmentService = (db) => ({
       const products = (await tx.query("SELECT id,current_stock FROM prodx_products WHERE organization_id=$1 AND store_id=$2 AND id=ANY($3::uuid[]) AND active=true ORDER BY id FOR UPDATE", [request.organizationId, request.storeId, productIds])).rows;
       if (products.length !== productIds.length) throw new InventoryAdjustmentValidationError("One or more products do not belong to the authenticated store or are inactive.");
       if (request.quantityDelta < 0 && products.some((p) => p.current_stock + request.quantityDelta < 0)) throw new InventoryAdjustmentConflictError("Inventory adjustment would make stock negative.");
-      const adjustmentId = crypto20.randomUUID();
+      const adjustmentId = crypto21.randomUUID();
       const inserted = (await tx.query("INSERT INTO prodx_inventory_adjustments (id,organization_id,store_id,requester_user_id,idempotency_key,quantity_delta,reason,product_ids,notes) VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9) ON CONFLICT (store_id,idempotency_key) DO NOTHING RETURNING id", [adjustmentId, request.organizationId, request.storeId, request.requesterUserId, request.idempotencyKey.trim(), request.quantityDelta, request.reason, JSON.stringify(productIds), request.notes?.trim() || null])).rows[0];
       if (!inserted) throw new InventoryAdjustmentConflictError("Concurrent inventory adjustment detected; retry with the same idempotency key.");
       const entries = [];
       for (const product of products) {
         const updated = (await tx.query("UPDATE prodx_products SET current_stock=current_stock+$1,updated_at=CURRENT_TIMESTAMP WHERE id=$2 AND store_id=$3 RETURNING current_stock", [request.quantityDelta, product.id, request.storeId])).rows[0];
-        const entry = (await tx.query("INSERT INTO prodx_inventory_ledger (id,organization_id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id,created_at", [crypto20.randomUUID(), request.organizationId, request.storeId, product.id, request.quantityDelta, updated.current_stock, request.reason, adjustmentId, request.requesterUserId])).rows[0];
+        const entry = (await tx.query("INSERT INTO prodx_inventory_ledger (id,organization_id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id,created_at", [crypto21.randomUUID(), request.organizationId, request.storeId, product.id, request.quantityDelta, updated.current_stock, request.reason, adjustmentId, request.requesterUserId])).rows[0];
         entries.push(entry);
       }
-      await tx.query("INSERT INTO prodx_audit_log (id,organization_id,store_id,user_id,action,severity,details) VALUES($1,$2,$3,$4,'inventory_adjustment_committed','critical',$5::jsonb)", [crypto20.randomUUID(), request.organizationId, request.storeId, request.requesterUserId, JSON.stringify({ adjustmentId, productIds, quantityDelta: request.quantityDelta, reason: request.reason, idempotencyKey: request.idempotencyKey.trim() })]);
+      await tx.query("INSERT INTO prodx_audit_log (id,organization_id,store_id,user_id,action,severity,details) VALUES($1,$2,$3,$4,'inventory_adjustment_committed','critical',$5::jsonb)", [crypto21.randomUUID(), request.organizationId, request.storeId, request.requesterUserId, JSON.stringify({ adjustmentId, productIds, quantityDelta: request.quantityDelta, reason: request.reason, idempotencyKey: request.idempotencyKey.trim() })]);
       return { success: true, idempotencyCached: false, adjustmentId, entries };
     });
   }
@@ -7053,6 +7208,65 @@ var AIRequestValidationError = class extends Error {
   }
 };
 
+// server/observability/shutdown.ts
+var DEFAULT_SHUTDOWN_TIMEOUT_MS = 1e4;
+var resolveShutdownTimeoutMs = (rawValue = process.env.PRODX_SHUTDOWN_TIMEOUT_MS) => {
+  if (!rawValue) return DEFAULT_SHUTDOWN_TIMEOUT_MS;
+  const parsed = Number.parseInt(rawValue, 10);
+  return Number.isInteger(parsed) && parsed >= 100 ? parsed : DEFAULT_SHUTDOWN_TIMEOUT_MS;
+};
+var createGracefulShutdownHandler = (options) => {
+  const timeoutMs = options.timeoutMs ?? resolveShutdownTimeoutMs();
+  const log = options.log ?? logger;
+  const exit = options.exit ?? ((code) => process.exit(code));
+  let shuttingDown = false;
+  return async (signal) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    log.info("server.shutdown_started", { signal, timeoutMs });
+    const forceTimer = setTimeout(() => {
+      log.error("server.shutdown_timeout", { signal, timeoutMs });
+      exit(1);
+    }, timeoutMs);
+    forceTimer.unref();
+    try {
+      await new Promise((resolve, reject) => {
+        options.server.close((error4) => {
+          if (error4) reject(error4);
+          else resolve();
+        });
+        options.server.closeIdleConnections?.();
+      });
+      await options.pool.end();
+      clearTimeout(forceTimer);
+      log.info("server.shutdown_completed", { signal });
+      exit(0);
+    } catch (error4) {
+      clearTimeout(forceTimer);
+      log.error("server.shutdown_failed", {
+        signal,
+        ...safeErrorDiagnostic(error4)
+      });
+      exit(1);
+    }
+  };
+};
+var installGracefulShutdown = (options) => {
+  const shutdown = createGracefulShutdownHandler(options);
+  const onSigInt = () => {
+    void shutdown("SIGINT");
+  };
+  const onSigTerm = () => {
+    void shutdown("SIGTERM");
+  };
+  process.once("SIGINT", onSigInt);
+  process.once("SIGTERM", onSigTerm);
+  return () => {
+    process.removeListener("SIGINT", onSigInt);
+    process.removeListener("SIGTERM", onSigTerm);
+  };
+};
+
 // server/http/retryable-initialization.ts
 var createRetryableInitialization = (initialize) => {
   let current;
@@ -7137,16 +7351,9 @@ var startProductionServer = async () => {
     throw new Error("PORT must be a valid TCP port.");
   }
   const server = app.listen(port, host, () => {
-    console.log(`PRODX POS backend listening on ${host}:${port}`);
+    logger.info("server.started", { host, port });
   });
-  const shutdown = async (signal) => {
-    server.close(async () => {
-      await pool.end();
-      console.log(`PRODX POS backend stopped after ${signal}`);
-    });
-  };
-  process.once("SIGINT", () => void shutdown("SIGINT"));
-  process.once("SIGTERM", () => void shutdown("SIGTERM"));
+  installGracefulShutdown({ server, pool });
 };
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   await startProductionServer();
@@ -7154,5 +7361,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 export {
   createProductionApp,
   createRetryableInitialization,
+  logger,
+  safeErrorDiagnostic,
   startProductionServer
 };

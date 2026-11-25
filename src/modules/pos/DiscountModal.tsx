@@ -284,7 +284,7 @@ export const DiscountModal: React.FC<DiscountModalProps> = ({
                     </span>
                   )}
                   {item && item.discountBps > 0 && (
-                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-primary text-white">
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-primary text-primary-foreground">
                       -{item.discountBps / 100}% {language === 'th' ? 'เดิม' : 'Current'}
                     </span>
                   )}
@@ -320,10 +320,10 @@ export const DiscountModal: React.FC<DiscountModalProps> = ({
 
             {/* Base Subtotal */}
             <div className="text-right shrink-0">
-              <span className="text-[10px] uppercase font-bold text-text/50 block">
+              <span className="text-[10px] uppercase font-bold text-brand-text-secondary block">
                 {language === 'th' ? 'ยอดก่อนลด' : 'Base Total'}
               </span>
-              <span className="text-xs sm:text-sm font-mono font-bold text-text">
+              <span className="text-xs sm:text-sm font-mono font-bold tabular-nums text-text">
                 {formatMoney(createMoney(basePriceCents, currency))}
               </span>
             </div>
@@ -333,16 +333,22 @@ export const DiscountModal: React.FC<DiscountModalProps> = ({
         {/* ========================================================================= */}
         {/* MODE SWITCHER: Percentage vs Absolute Currency Amount                     */}
         {/* ========================================================================= */}
-        <div className="flex bg-card p-1 rounded-xl border border-border shadow-2xs">
+        <div
+          role="tablist"
+          aria-label={language === 'th' ? 'รูปแบบส่วนลด' : 'Discount calculation mode'}
+          className="flex bg-card p-1 rounded-xl border border-border shadow-2xs"
+        >
           <button
             type="button"
+            role="tab"
+            aria-selected={mode === 'percentage'}
             onClick={() => {
               setMode('percentage');
               inputRef.current?.focus();
             }}
-            className={`flex-1 flex items-center justify-center gap-2 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer theme-btn-radius active-scale ${
+            className={`flex-1 min-h-[44px] flex items-center justify-center gap-2 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer theme-btn-radius active-scale focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta ${
               mode === 'percentage'
-                ? 'bg-primary text-white shadow-xs'
+                ? 'bg-primary text-primary-foreground shadow-xs'
                 : 'text-text/70 hover:text-text hover:bg-background/50'
             }`}
           >
@@ -351,13 +357,15 @@ export const DiscountModal: React.FC<DiscountModalProps> = ({
           </button>
           <button
             type="button"
+            role="tab"
+            aria-selected={mode === 'fixed'}
             onClick={() => {
               setMode('fixed');
               inputRef.current?.focus();
             }}
-            className={`flex-1 flex items-center justify-center gap-2 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer theme-btn-radius active-scale ${
+            className={`flex-1 min-h-[44px] flex items-center justify-center gap-2 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer theme-btn-radius active-scale focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta ${
               mode === 'fixed'
-                ? 'bg-primary text-white shadow-xs'
+                ? 'bg-primary text-primary-foreground shadow-xs'
                 : 'text-text/70 hover:text-text hover:bg-background/50'
             }`}
           >
@@ -375,7 +383,7 @@ export const DiscountModal: React.FC<DiscountModalProps> = ({
         {/* ========================================================================= */}
         <div className="space-y-2">
           <div className="flex items-center justify-between text-xs font-semibold text-text/70">
-            <span>
+            <label htmlFor="discount-value-input" className="cursor-pointer">
               {mode === 'percentage'
                 ? language === 'th'
                   ? 'ระบุเปอร์เซ็นต์ส่วนลด (0 - 100%)'
@@ -383,9 +391,9 @@ export const DiscountModal: React.FC<DiscountModalProps> = ({
                 : language === 'th'
                 ? `ระบุจำนวนเงินที่ต้องการลด (${currencySymbol})`
                 : `Enter discount amount (${currencySymbol})`}
-            </span>
+            </label>
             {previewPct > 0 && (
-              <span className="font-mono text-primary font-bold">
+              <span className="font-mono tabular-nums text-primary font-bold">
                 {mode === 'percentage'
                   ? `≈ ${formatMoney(createMoney(previewAmountCents, currency))}`
                   : `≈ ${previewPct.toFixed(1)}%`}
@@ -395,13 +403,15 @@ export const DiscountModal: React.FC<DiscountModalProps> = ({
 
           <div className="relative">
             {mode === 'fixed' && (
-              <div className="absolute left-3.5 top-1/2 -translate-y-1/2 font-mono font-bold text-text/50 text-sm">
+              <div className="absolute left-3.5 top-1/2 -translate-y-1/2 font-mono font-bold text-brand-text-secondary text-sm">
                 {currencySymbol}
               </div>
             )}
             <input
+              id="discount-value-input"
               ref={inputRef}
               type="number"
+              inputMode="decimal"
               min="0"
               max={mode === 'percentage' ? '100' : (basePriceCents / 100).toString()}
               step="any"
@@ -413,13 +423,13 @@ export const DiscountModal: React.FC<DiscountModalProps> = ({
               onKeyDown={(e) => {
                 if (e.key === 'Enter') handleApply();
               }}
-              className={`w-full min-h-[46px] text-base font-mono font-bold bg-card border border-border rounded-xl px-3.5 py-2 text-text focus:outline-none focus:ring-2 focus:ring-primary shadow-2xs transition-colors ${
+              className={`w-full min-h-[46px] text-base font-mono font-bold tabular-nums bg-card border border-border rounded-xl px-3.5 py-2 text-text focus:outline-none focus:ring-2 focus:ring-primary shadow-2xs transition-colors ${
                 mode === 'fixed' ? 'pl-9 pr-10' : 'pr-12 pl-3.5'
               }`}
               placeholder="0"
             />
             {mode === 'percentage' && (
-              <div className="absolute right-10 top-1/2 -translate-y-1/2 font-bold text-text/50 text-sm">
+              <div className="absolute right-10 top-1/2 -translate-y-1/2 font-bold text-brand-text-secondary text-sm">
                 %
               </div>
             )}
@@ -431,8 +441,9 @@ export const DiscountModal: React.FC<DiscountModalProps> = ({
                   setFixedInput('');
                   inputRef.current?.focus();
                 }}
-                className="absolute right-3 top-1/2 -translate-y-1/2 h-6 w-6 rounded-md hover:bg-background text-text/40 hover:text-text flex items-center justify-center transition-colors cursor-pointer"
+                className="absolute right-3 top-1/2 -translate-y-1/2 h-6 w-6 rounded-md hover:bg-background text-brand-text-secondary hover:text-text flex items-center justify-center transition-colors cursor-pointer"
                 title="Clear input"
+                aria-label={language === 'th' ? 'ล้างค่าส่วนลด' : 'Clear discount input'}
               >
                 <X className="h-3.5 w-3.5" />
               </button>
@@ -442,7 +453,7 @@ export const DiscountModal: React.FC<DiscountModalProps> = ({
           {/* Quick-Select Presets: 5%, 10%, 15%, 20%, 25%, 50% */}
           {mode === 'percentage' && (
             <div className="space-y-1 pt-1">
-              <span className="text-[11px] font-semibold text-text/60">
+              <span className="text-[11px] font-semibold text-brand-text-secondary">
                 {language === 'th' ? 'ปุ่มเลือกด่วน (Quick Presets):' : 'Quick Presets:'}
               </span>
               <div className="grid grid-cols-6 gap-1.5">
@@ -453,9 +464,9 @@ export const DiscountModal: React.FC<DiscountModalProps> = ({
                       key={pct}
                       type="button"
                       onClick={() => selectPercentagePreset(pct)}
-                      className={`min-h-[38px] py-1.5 px-1 rounded-lg border text-xs font-mono font-bold transition-all cursor-pointer shadow-2xs active-scale theme-btn-radius flex items-center justify-center ${
+                      className={`min-h-[44px] py-1.5 px-1 rounded-lg border text-xs font-mono font-bold tabular-nums transition-all cursor-pointer shadow-2xs active-scale theme-btn-radius flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta ${
                         isActive
-                          ? 'bg-primary text-white border-primary shadow-xs'
+                          ? 'bg-primary text-primary-foreground border-primary shadow-xs'
                           : 'bg-card border-border hover:border-primary/50 text-text hover:bg-background'
                       }`}
                     >
@@ -470,7 +481,7 @@ export const DiscountModal: React.FC<DiscountModalProps> = ({
           {/* Quick-Select Presets for Absolute Amount Mode */}
           {mode === 'fixed' && (
             <div className="space-y-1 pt-1">
-              <span className="text-[11px] font-semibold text-text/60">
+              <span className="text-[11px] font-semibold text-brand-text-secondary">
                 {language === 'th' ? 'ยอดส่วนลดแนะนำ (Quick Presets):' : 'Suggested Amount Presets:'}
               </span>
               <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
@@ -481,9 +492,9 @@ export const DiscountModal: React.FC<DiscountModalProps> = ({
                       key={preset.value}
                       type="button"
                       onClick={() => selectAbsolutePreset(preset.value)}
-                      className={`min-h-[38px] py-1.5 px-1 rounded-lg border text-xs font-mono font-bold transition-all cursor-pointer shadow-2xs active-scale theme-btn-radius flex flex-col items-center justify-center leading-tight ${
+                      className={`min-h-[44px] py-1.5 px-1 rounded-lg border text-xs font-mono font-bold tabular-nums transition-all cursor-pointer shadow-2xs active-scale theme-btn-radius flex flex-col items-center justify-center leading-tight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta ${
                         isActive
-                          ? 'bg-primary text-white border-primary shadow-xs'
+                          ? 'bg-primary text-primary-foreground border-primary shadow-xs'
                           : 'bg-card border-border hover:border-primary/50 text-text hover:bg-background'
                       }`}
                     >
@@ -491,7 +502,7 @@ export const DiscountModal: React.FC<DiscountModalProps> = ({
                         {currencySymbol}{preset.label}
                       </span>
                       {preset.tag && (
-                        <span className={`text-[9px] ${isActive ? 'text-white/80' : 'text-primary'}`}>
+                        <span className={`text-[10px] ${isActive ? 'text-primary-foreground/85' : 'text-primary'}`}>
                           ({preset.tag})
                         </span>
                       )}
@@ -552,9 +563,9 @@ export const DiscountModal: React.FC<DiscountModalProps> = ({
                   </span>
                   {cartItemCount !== undefined && cartItemCount > 0 && (
                     <span
-                      className={`px-1.5 py-0.2 rounded text-[10px] font-mono font-bold transition-colors ${
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition-colors ${
                         applyToAll
-                          ? 'bg-primary text-white shadow-2xs'
+                          ? 'bg-primary text-primary-foreground shadow-2xs'
                           : 'bg-background border border-border text-text/60'
                       }`}
                     >
@@ -582,7 +593,7 @@ export const DiscountModal: React.FC<DiscountModalProps> = ({
             <div
               className={`h-5 px-2 rounded-md text-[10px] font-bold flex items-center gap-1 shrink-0 transition-colors ${
                 applyToAll
-                  ? 'bg-primary text-white shadow-2xs'
+                  ? 'bg-primary text-primary-foreground shadow-2xs'
                   : 'bg-background border border-border text-text/40'
               }`}
             >
