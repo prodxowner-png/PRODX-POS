@@ -183,10 +183,10 @@ export const AdminSyncStatusIndicator: React.FC<AdminSyncStatusIndicatorProps> =
         data-testid="admin-sync-status-banner"
         className={`rounded-2xl border p-4 transition-all ${
           hasConflicts
-            ? 'bg-rose-950/95 border-rose-500/60 text-white shadow-lg shadow-rose-950/25'
+            ? 'bg-rose-950/95 border-rose-500/60 text-brand-primary-text shadow-lg shadow-rose-950/25'
             : hasPendingQueue
-            ? 'bg-amber-950/90 border-amber-500/40 text-white'
-            : 'bg-slate-900 border-slate-800 text-slate-100'
+            ? 'bg-amber-950/90 border-amber-500/40 text-brand-primary-text'
+            : 'bg-brand-primary border-brand-border-strong text-brand-primary-text'
         }`}
       >
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
@@ -240,20 +240,20 @@ export const AdminSyncStatusIndicator: React.FC<AdminSyncStatusIndicatorProps> =
                 </span>
               </div>
 
-              <div className="text-xs text-slate-300 mt-1 flex items-center gap-4 flex-wrap">
+              <div className="text-xs text-brand-primary-text/80 mt-1 flex items-center gap-4 flex-wrap">
                 <span>
                   {isThai ? 'คิวแก้ไขโครงสร้างองค์กร:' : 'Entity Write Queue:'}{' '}
-                  <strong className="font-mono text-white">
+                  <strong className="font-mono text-brand-primary-text">
                     {snapshot.FirestoreWriteQueueCount}
                   </strong>
                 </span>
                 <span>
                   {isThai ? 'บัฟเฟอร์ Diagnostic Logs:' : 'Diagnostic Batch Buffer:'}{' '}
-                  <strong className="font-mono text-white">{diagTelemetry.bufferedCount}</strong>
+                  <strong className="font-mono text-brand-primary-text">{diagTelemetry.bufferedCount}</strong>
                 </span>
                 <span>
                   {isThai ? 'คิวธุรกรรมออฟไลน์:' : 'POS Offline Outbox:'}{' '}
-                  <strong className="font-mono text-white">{posOutboxPendingCount}</strong>
+                  <strong className="font-mono text-brand-primary-text">{posOutboxPendingCount}</strong>
                 </span>
                 <span className="text-rose-300 font-bold">
                   {isThai ? 'รายการที่ขัดแย้งกัน (Conflicts):' : 'Sync Conflicts:'}{' '}
@@ -278,7 +278,7 @@ export const AdminSyncStatusIndicator: React.FC<AdminSyncStatusIndicatorProps> =
               type="button"
               onClick={() => void handleFlushAllWrites()}
               disabled={isFlushing || totalPendingWrites === 0}
-              className="h-9 px-3.5 rounded-xl bg-[#ff6b1a] hover:bg-[#e55a0d] disabled:opacity-40 text-white text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer"
+              className="h-9 px-3.5 rounded-xl bg-cta hover:bg-cta-hover disabled:opacity-40 text-cta-text text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${isFlushing ? 'animate-spin' : ''}`} />
               <span>{isThai ? 'ซิงค์คิวทั้งหมดทันที' : 'Flush Pending Writes'}</span>
@@ -293,13 +293,13 @@ export const AdminSyncStatusIndicator: React.FC<AdminSyncStatusIndicatorProps> =
               <div
                 key={conflict.id}
                 data-testid={`sync-conflict-card-${conflict.documentId}`}
-                className="rounded-xl bg-slate-950/90 border border-rose-500/50 p-4 space-y-3"
+                className="rounded-xl bg-brand-primary/95 border border-rose-500/50 p-4 space-y-3"
               >
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div>
                     <div className="flex items-center gap-2">
                       <AlertTriangle className="h-4 w-4 text-rose-400 shrink-0" />
-                      <span className="text-xs font-black text-white">
+                      <span className="text-xs font-black text-brand-primary-text">
                         {conflict.entityName}
                       </span>
                       <span className="px-2 py-0.5 rounded bg-rose-500/20 border border-rose-500/40 font-mono text-[10px] text-rose-300">
@@ -313,7 +313,7 @@ export const AdminSyncStatusIndicator: React.FC<AdminSyncStatusIndicatorProps> =
                     <button
                       type="button"
                       onClick={() => void handleResolveConflict(conflict.writeItemId, 'keep_local')}
-                      className="px-2.5 py-1.5 rounded-lg bg-[#ff6b1a] hover:bg-[#e55a0d] text-white text-[11px] font-black transition-all cursor-pointer"
+                      className="px-2.5 py-1.5 rounded-lg bg-cta hover:bg-cta-hover text-cta-text text-[11px] font-black transition-all cursor-pointer"
                     >
                       {isThai ? 'ใช้ค่าในเครื่อง (Force Local)' : 'Keep Local Buffer'}
                     </button>
@@ -328,7 +328,7 @@ export const AdminSyncStatusIndicator: React.FC<AdminSyncStatusIndicatorProps> =
                     <button
                       type="button"
                       onClick={() => void handleResolveConflict(conflict.writeItemId, 'keep_cloud')}
-                      className="px-2.5 py-1.5 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-bold transition-all cursor-pointer"
+                      className="px-2.5 py-1.5 rounded-lg border border-white/20 bg-white/10 hover:bg-white/20 text-brand-primary-text text-[11px] font-bold transition-all cursor-pointer"
                     >
                       {isThai ? 'ใช้ค่าบน Cloud' : 'Keep Cloud'}
                     </button>
@@ -337,14 +337,14 @@ export const AdminSyncStatusIndicator: React.FC<AdminSyncStatusIndicatorProps> =
 
                 {/* Diff Preview of Conflicting Fields */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 text-[11px] font-mono">
-                  <div className="rounded-lg bg-slate-900/90 border border-slate-800 p-2.5">
-                    <div className="text-[10px] font-sans font-black uppercase text-amber-400 mb-1">
+                  <div className="rounded-lg bg-black/25 border border-white/15 p-2.5">
+                    <div className="text-[10px] font-sans font-black uppercase text-amber-300 mb-1">
                       {isThai ? 'ข้อมูลใน Local Offline Buffer' : 'Local Offline Buffer Version'}
                     </div>
-                    <div className="space-y-0.5 text-slate-300">
+                    <div className="space-y-0.5 text-brand-primary-text/85">
                       {conflict.conflictingFields.map((field) => (
                         <div key={field} className="truncate">
-                          <span className="text-slate-400">{field}:</span>{' '}
+                          <span className="text-brand-primary-text/60">{field}:</span>{' '}
                           <span className="text-amber-300 font-bold">
                             {JSON.stringify(conflict.localPayload[field])}
                           </span>
@@ -353,14 +353,14 @@ export const AdminSyncStatusIndicator: React.FC<AdminSyncStatusIndicatorProps> =
                     </div>
                   </div>
 
-                  <div className="rounded-lg bg-slate-900/90 border border-slate-800 p-2.5">
-                    <div className="text-[10px] font-sans font-black uppercase text-sky-400 mb-1">
+                  <div className="rounded-lg bg-black/25 border border-white/15 p-2.5">
+                    <div className="text-[10px] font-sans font-black uppercase text-sky-300 mb-1">
                       {isThai ? 'ข้อมูลปัจจุบันบน Cloud Firestore' : 'Cloud Firestore Version'}
                     </div>
-                    <div className="space-y-0.5 text-slate-300">
+                    <div className="space-y-0.5 text-brand-primary-text/85">
                       {conflict.conflictingFields.map((field) => (
                         <div key={field} className="truncate">
-                          <span className="text-slate-400">{field}:</span>{' '}
+                          <span className="text-brand-primary-text/60">{field}:</span>{' '}
                           <span className="text-sky-300 font-bold">
                             {conflict.remotePayload
                               ? JSON.stringify(conflict.remotePayload[field])
@@ -394,7 +394,7 @@ export const AdminSyncStatusIndicator: React.FC<AdminSyncStatusIndicatorProps> =
             ? 'bg-amber-500/20 border-amber-500/50 text-amber-300 hover:bg-amber-500/30'
             : hasPendingQueue
             ? 'bg-amber-500/15 border-amber-500/40 text-amber-200 hover:bg-amber-500/25'
-            : 'bg-slate-900 border-slate-800 text-emerald-300 hover:bg-slate-800'
+            : 'bg-black/20 border-white/15 text-emerald-300 hover:bg-black/30'
         }`}
       >
         {hasConflicts ? (
@@ -446,29 +446,29 @@ export const AdminSyncStatusIndicator: React.FC<AdminSyncStatusIndicatorProps> =
       {isOpen && (
         <div
           data-testid="admin-sync-status-popover"
-          className="fixed sm:absolute right-3 sm:right-0 top-16 sm:top-11 z-50 w-[calc(100vw-1.5rem)] sm:w-[460px] rounded-2xl border border-slate-700 bg-slate-950 text-white shadow-2xl overflow-hidden"
+          className="fixed sm:absolute right-3 sm:right-0 top-16 sm:top-11 z-50 w-[calc(100vw-1.5rem)] sm:w-[460px] rounded-2xl border border-brand-border-strong bg-brand-primary text-brand-primary-text shadow-2xl overflow-hidden"
         >
           {/* Popover Header */}
           <div
             className={`px-4 py-3.5 border-b flex items-center justify-between ${
               hasConflicts
                 ? 'bg-rose-950/90 border-rose-500/40'
-                : 'bg-slate-900 border-slate-800'
+                : 'bg-black/20 border-white/15'
             }`}
           >
             <div className="flex items-center gap-2.5">
               {hasConflicts ? (
                 <ShieldAlert className="h-5 w-5 text-rose-400 shrink-0" />
               ) : (
-                <Database className="h-5 w-5 text-[#ff6b1a] shrink-0" />
+                <Database className="h-5 w-5 text-brand-gold-500 shrink-0" />
               )}
               <div>
-                <h3 className="text-xs font-black uppercase tracking-wider text-white">
+                <h3 className="text-xs font-black uppercase tracking-wider text-brand-primary-text">
                   {isThai
                     ? 'สถานะคิวเขียนข้อมูล Firestore & ข้อขัดแย้งออฟไลน์'
                     : 'Firestore Write Queue & Conflict Monitor'}
                 </h3>
-                <p className="text-[11px] text-slate-400">
+                <p className="text-[11px] text-brand-primary-text/75">
                   {hasConflicts
                     ? isThai
                       ? `ตรวจพบความขัดแย้งใน Local Offline Buffer ${totalConflicts} รายการ`
@@ -482,7 +482,7 @@ export const AdminSyncStatusIndicator: React.FC<AdminSyncStatusIndicatorProps> =
             <button
               type="button"
               onClick={() => setIsOpen(false)}
-              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+              className="p-1.5 rounded-lg text-brand-primary-text/75 hover:text-brand-primary-text hover:bg-white/10 transition-colors cursor-pointer"
             >
               <X className="h-4 w-4" />
             </button>
@@ -491,28 +491,28 @@ export const AdminSyncStatusIndicator: React.FC<AdminSyncStatusIndicatorProps> =
           {/* Queue Metrics Grid */}
           <div className="p-4 space-y-4 max-h-[78vh] overflow-y-auto">
             <div className="grid grid-cols-3 gap-2.5">
-              <div className="rounded-xl border border-slate-800 bg-slate-900/90 p-3">
-                <div className="flex items-center justify-between text-[10px] font-bold uppercase text-slate-400">
+              <div className="rounded-xl border border-white/15 bg-black/20 p-3">
+                <div className="flex items-center justify-between text-[10px] font-bold uppercase text-brand-primary-text/75">
                   <span>{isThai ? 'คิว Entity' : 'Entity Writes'}</span>
-                  <Layers className="h-3.5 w-3.5 text-[#ff6b1a]" />
+                  <Layers className="h-3.5 w-3.5 text-brand-gold-500" />
                 </div>
-                <div className="text-xl font-black font-mono text-white mt-1">
+                <div className="text-xl font-black font-mono text-brand-primary-text mt-1">
                   {snapshot.FirestoreWriteQueueCount}
                 </div>
-                <div className="text-[10px] text-slate-400 mt-0.5">
+                <div className="text-[10px] text-brand-primary-text/65 mt-0.5">
                   Org / Branch / POS
                 </div>
               </div>
 
-              <div className="rounded-xl border border-slate-800 bg-slate-900/90 p-3">
-                <div className="flex items-center justify-between text-[10px] font-bold uppercase text-slate-400">
+              <div className="rounded-xl border border-white/15 bg-black/20 p-3">
+                <div className="flex items-center justify-between text-[10px] font-bold uppercase text-brand-primary-text/75">
                   <span>{isThai ? 'บัฟเฟอร์ Log' : 'Log Buffer'}</span>
-                  <HardDrive className="h-3.5 w-3.5 text-sky-400" />
+                  <HardDrive className="h-3.5 w-3.5 text-sky-300" />
                 </div>
-                <div className="text-xl font-black font-mono text-white mt-1">
+                <div className="text-xl font-black font-mono text-brand-primary-text mt-1">
                   {diagTelemetry.bufferedCount}
                 </div>
-                <div className="text-[10px] text-slate-400 mt-0.5">
+                <div className="text-[10px] text-brand-primary-text/65 mt-0.5">
                   Diagnostic Batch
                 </div>
               </div>
@@ -521,10 +521,10 @@ export const AdminSyncStatusIndicator: React.FC<AdminSyncStatusIndicatorProps> =
                 className={`rounded-xl border p-3 ${
                   hasConflicts
                     ? 'border-rose-500/60 bg-rose-950/60'
-                    : 'border-slate-800 bg-slate-900/90'
+                    : 'border-white/15 bg-black/20'
                 }`}
               >
-                <div className="flex items-center justify-between text-[10px] font-bold uppercase text-slate-300">
+                <div className="flex items-center justify-between text-[10px] font-bold uppercase text-brand-primary-text/85">
                   <span>{isThai ? 'ข้อขัดแย้ง' : 'Conflicts'}</span>
                   <AlertTriangle
                     className={`h-3.5 w-3.5 ${
@@ -539,7 +539,7 @@ export const AdminSyncStatusIndicator: React.FC<AdminSyncStatusIndicatorProps> =
                 >
                   {totalConflicts}
                 </div>
-                <div className="text-[10px] text-slate-400 mt-0.5">
+                <div className="text-[10px] text-brand-primary-text/65 mt-0.5">
                   {hasConflicts ? 'Action Required' : 'Zero Conflicts'}
                 </div>
               </div>
@@ -573,7 +573,7 @@ export const AdminSyncStatusIndicator: React.FC<AdminSyncStatusIndicatorProps> =
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div>
-                        <div className="text-xs font-black text-white flex items-center gap-1.5">
+                        <div className="text-xs font-black text-brand-primary-text flex items-center gap-1.5">
                           <AlertTriangle className="h-3.5 w-3.5 text-rose-400 shrink-0" />
                           <span>{conflict.entityName}</span>
                         </div>
@@ -587,15 +587,15 @@ export const AdminSyncStatusIndicator: React.FC<AdminSyncStatusIndicatorProps> =
                       </span>
                     </div>
 
-                    <p className="text-[11px] text-slate-300 leading-relaxed">
+                    <p className="text-[11px] text-brand-primary-text/85 leading-relaxed">
                       {conflict.summary}
                     </p>
 
                     {/* Field-level diff */}
-                    <div className="rounded-lg bg-slate-950/90 border border-slate-800 p-2.5 space-y-1.5 text-[10px] font-mono">
+                    <div className="rounded-lg bg-black/25 border border-white/15 p-2.5 space-y-1.5 text-[10px] font-mono">
                       {conflict.conflictingFields.slice(0, 4).map((field) => (
                         <div key={field} className="grid grid-cols-1 gap-0.5">
-                          <span className="text-slate-400 font-bold">{field}:</span>
+                          <span className="text-brand-primary-text/70 font-bold">{field}:</span>
                           <div className="flex items-center justify-between gap-2 pl-2">
                             <span className="text-amber-300 truncate">
                               Local: {JSON.stringify(conflict.localPayload[field])}
@@ -617,7 +617,7 @@ export const AdminSyncStatusIndicator: React.FC<AdminSyncStatusIndicatorProps> =
                         onClick={() =>
                           void handleResolveConflict(conflict.writeItemId, 'keep_local')
                         }
-                        className="flex-1 h-8 rounded-lg bg-[#ff6b1a] hover:bg-[#e55a0d] text-white text-[11px] font-black transition-colors cursor-pointer"
+                        className="flex-1 h-8 rounded-lg bg-cta hover:bg-cta-hover text-cta-text text-[11px] font-black transition-colors cursor-pointer"
                       >
                         {isThai ? 'ใช้ค่าในเครื่อง (Keep Local)' : 'Keep Local'}
                       </button>
@@ -634,7 +634,7 @@ export const AdminSyncStatusIndicator: React.FC<AdminSyncStatusIndicatorProps> =
                         onClick={() =>
                           void handleResolveConflict(conflict.writeItemId, 'keep_cloud')
                         }
-                        className="flex-1 h-8 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-bold transition-colors cursor-pointer"
+                        className="flex-1 h-8 rounded-lg border border-white/20 bg-white/10 hover:bg-white/20 text-brand-primary-text text-[11px] font-bold transition-colors cursor-pointer"
                       >
                         {isThai ? 'ใช้ค่า Cloud' : 'Keep Cloud'}
                       </button>
@@ -647,7 +647,7 @@ export const AdminSyncStatusIndicator: React.FC<AdminSyncStatusIndicatorProps> =
             {/* Pending Write Queue List */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-[11px] font-black uppercase tracking-wider text-slate-400">
+                <span className="text-[11px] font-black uppercase tracking-wider text-brand-primary-text/75">
                   {isThai
                     ? `คิวรอเขียนข้อมูลลง Firestore (${snapshot.queue.length})`
                     : `Pending Firestore Write Queue (${snapshot.queue.length})`}
@@ -656,7 +656,7 @@ export const AdminSyncStatusIndicator: React.FC<AdminSyncStatusIndicatorProps> =
                   <button
                     type="button"
                     onClick={() => firestoreSyncStatusService.clearQueue()}
-                    className="text-[10px] font-bold text-slate-400 hover:text-rose-400 flex items-center gap-1 cursor-pointer"
+                    className="text-[10px] font-bold text-brand-primary-text/75 hover:text-rose-300 flex items-center gap-1 cursor-pointer"
                   >
                     <Trash2 className="h-3 w-3" />
                     <span>{isThai ? 'ล้างคิว' : 'Clear'}</span>
@@ -665,7 +665,7 @@ export const AdminSyncStatusIndicator: React.FC<AdminSyncStatusIndicatorProps> =
               </div>
 
               {snapshot.queue.length === 0 ? (
-                <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4 text-center text-xs text-slate-400">
+                <div className="rounded-xl border border-white/15 bg-black/20 p-4 text-center text-xs text-brand-primary-text/75">
                   {isThai
                     ? 'ไม่มีรายการแก้ไขค้างในคิว Local Offline Buffer'
                     : 'No uncommitted entity writes in the local offline buffer.'}
@@ -678,12 +678,12 @@ export const AdminSyncStatusIndicator: React.FC<AdminSyncStatusIndicatorProps> =
                       className={`rounded-xl border p-2.5 flex items-center justify-between gap-2 text-xs ${
                         item.status === 'conflict'
                           ? 'border-rose-500/40 bg-rose-950/30'
-                          : 'border-slate-800 bg-slate-900/80'
+                          : 'border-white/15 bg-black/20'
                       }`}
                     >
                       <div className="min-w-0">
-                        <div className="font-bold text-white truncate">{item.entityName}</div>
-                        <div className="text-[10px] font-mono text-slate-400 truncate">
+                        <div className="font-bold text-brand-primary-text truncate">{item.entityName}</div>
+                        <div className="text-[10px] font-mono text-brand-primary-text/70 truncate">
                           {item.operation.toUpperCase()} • {item.collection}/{item.documentId}
                         </div>
                       </div>
@@ -705,7 +705,7 @@ export const AdminSyncStatusIndicator: React.FC<AdminSyncStatusIndicatorProps> =
             </div>
 
             {/* Footer Controls */}
-            <div className="pt-2 border-t border-slate-800 flex items-center justify-between gap-2">
+            <div className="pt-2 border-t border-white/15 flex items-center justify-between gap-2">
               <button
                 type="button"
                 data-testid="popover-simulate-conflict-btn"
@@ -720,7 +720,7 @@ export const AdminSyncStatusIndicator: React.FC<AdminSyncStatusIndicatorProps> =
                 type="button"
                 onClick={() => void handleFlushAllWrites()}
                 disabled={isFlushing || totalPendingWrites === 0}
-                className="h-9 px-3.5 rounded-xl bg-[#ff6b1a] hover:bg-[#e55a0d] disabled:opacity-40 text-white text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer"
+                className="h-9 px-3.5 rounded-xl bg-cta hover:bg-cta-hover disabled:opacity-40 text-cta-text text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer"
               >
                 <RefreshCw className={`h-3.5 w-3.5 ${isFlushing ? 'animate-spin' : ''}`} />
                 <span>{isThai ? 'ซิงค์ลง Firestore' : 'Flush Writes Now'}</span>

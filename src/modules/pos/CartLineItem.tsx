@@ -143,7 +143,7 @@ export const CartLineItem = React.memo<CartLineItemProps>(({
               {/* Visual Indicator Badges using Theme's Primary Color */}
               {hasDiscount && (
                 <span
-                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold tracking-tight bg-primary text-white shadow-2xs"
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold tracking-tight bg-primary text-primary-foreground shadow-2xs"
                   title={`${language === 'th' ? 'ส่วนลดรายการ' : 'Line Discount'}: ${item.discountBps / 100}%`}
                 >
                   <Tag className="h-2.5 w-2.5" />
@@ -250,7 +250,7 @@ export const CartLineItem = React.memo<CartLineItemProps>(({
               }}
               className={`min-h-[40px] flex items-center gap-1.5 text-xs px-3 py-1.5 theme-btn-radius active-scale border-crisp border transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
                 item.discountBps > 0
-                  ? 'border-primary bg-primary text-white font-bold shadow-xs'
+                  ? 'border-primary bg-primary text-primary-foreground font-bold shadow-xs'
                   : 'border-border bg-transparent text-text/70 hover:text-text hover:border-primary/50'
               }`}
             >
@@ -275,7 +275,7 @@ export const CartLineItem = React.memo<CartLineItemProps>(({
                 triggerHaptic('tap');
                 onUpdateQuantity(item.lineId, -1);
               }}
-              className="min-h-[40px] min-w-[40px] h-10 w-10 theme-btn-radius active-scale border-crisp border border-border bg-card text-text flex items-center justify-center hover:bg-background cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              className="min-h-[44px] min-w-[44px] h-11 w-11 theme-btn-radius active-scale border-crisp border border-border bg-card text-text flex items-center justify-center hover:bg-background cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               aria-label="Decrease quantity"
             >
               <Minus className="h-4 w-4" />
@@ -287,7 +287,7 @@ export const CartLineItem = React.memo<CartLineItemProps>(({
                 triggerHaptic('tap');
                 setNumpadMode('quantity');
               }}
-              className="min-h-[40px] min-w-[36px] h-10 px-2 flex items-center justify-center font-mono text-sm font-bold text-text hover:bg-background theme-btn-radius active-scale transition-colors cursor-pointer"
+              className="min-h-[44px] min-w-[36px] h-11 px-2 flex items-center justify-center font-mono text-sm font-bold text-text hover:bg-background theme-btn-radius active-scale transition-colors cursor-pointer"
             >
               {item.quantity}
             </button>
@@ -298,7 +298,7 @@ export const CartLineItem = React.memo<CartLineItemProps>(({
                 triggerHaptic('tap');
                 onUpdateQuantity(item.lineId, 1);
               }}
-              className="min-h-[40px] min-w-[40px] h-10 w-10 theme-btn-radius active-scale border-crisp border border-border bg-card text-text flex items-center justify-center hover:bg-background cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              className="min-h-[44px] min-w-[44px] h-11 w-11 theme-btn-radius active-scale border-crisp border border-border bg-card text-text flex items-center justify-center hover:bg-background cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               aria-label="Increase quantity"
             >
               <Plus className="h-4 w-4" />
@@ -310,7 +310,7 @@ export const CartLineItem = React.memo<CartLineItemProps>(({
                 triggerHaptic('medium');
                 onRemove(item.lineId);
               }}
-              className="min-h-[40px] min-w-[40px] h-10 w-10 ml-0.5 theme-btn-radius border border-transparent text-text/50 hover:border-rose-200 dark:hover:border-rose-900 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20 flex items-center justify-center cursor-pointer transition-colors active-scale focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
+              className="min-h-[44px] min-w-[44px] h-11 w-11 ml-0.5 theme-btn-radius border border-transparent text-text/50 hover:border-rose-200 dark:hover:border-rose-900 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20 flex items-center justify-center cursor-pointer transition-colors active-scale focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
               aria-label="Remove item from cart"
             >
               <Trash2 className="h-4 w-4" />
