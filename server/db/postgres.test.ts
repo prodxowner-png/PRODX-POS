@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { classifyProductionDatabaseTarget, createProductionPostgresPool, resolveConfiguredDatabaseUrl, resolveProductionDatabaseUrl } from './postgres';
+import { assertDisposableTestDatabaseUrl } from './test-database-guard';
 
 const APPROVED_DATABASE_URL = 'postgresql://prodx_app.wcyqyiewbzpmrekoljfw:test-only-password@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres?sslmode=require';
 
@@ -252,7 +253,7 @@ test('createPostgresPool applies safe default timeouts and respects explicit con
 
   await withEnvironment(
     {
-      DATABASE_URL: 'postgresql://postgres@127.0.0.1:5432/prodx_test',
+      DATABASE_URL: assertDisposableTestDatabaseUrl('postgresql://postgres@127.0.0.1:5432/prodx_test', 'server/db/postgres.test.ts', { NODE_ENV: 'test' }),
       PG_CONNECTION_TIMEOUT_MS: undefined,
       PG_IDLE_TIMEOUT_MS: undefined,
       PG_STATEMENT_TIMEOUT_MS: undefined,
@@ -286,7 +287,7 @@ test('createPostgresPool applies safe default timeouts and respects explicit con
 
   await withEnvironment(
     {
-      DATABASE_URL: 'postgresql://postgres@127.0.0.1:5432/prodx_test',
+      DATABASE_URL: assertDisposableTestDatabaseUrl('postgresql://postgres@127.0.0.1:5432/prodx_test', 'server/db/postgres.test.ts', { NODE_ENV: 'test' }),
       PG_CONNECTION_TIMEOUT_MS: '4000',
       PG_IDLE_TIMEOUT_MS: '12000',
       PG_STATEMENT_TIMEOUT_MS: '15000',
