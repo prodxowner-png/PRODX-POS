@@ -193,10 +193,11 @@ export const CartPanel: React.FC<CartPanelProps> = ({ onOpenQuickPay }) => {
                   setIsHoldModalOpen(true);
                 }}
                 title={language === 'th' ? `บิลที่พักไว้ (${heldCarts.length})` : `Parked Orders (${heldCarts.length})`}
-                className="min-h-[44px] px-2.5 py-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors active-scale"
+                aria-label={language === 'th' ? `เปิดบิลที่พักไว้ (${heldCarts.length} รายการ)` : `Open parked orders (${heldCarts.length})`}
+                className="min-h-[44px] px-2.5 py-1.5 rounded-lg border border-warning/30 bg-warning-subtle text-warning-text hover:opacity-90 text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta active-scale"
               >
                 <PauseCircle className="h-3.5 w-3.5" />
-                <span className="font-mono text-[11px]">{heldCarts.length}</span>
+                <span className="font-mono text-[11px] tabular-nums">{heldCarts.length}</span>
               </button>
             )}
 
@@ -280,7 +281,7 @@ export const CartPanel: React.FC<CartPanelProps> = ({ onOpenQuickPay }) => {
                   </span>
                 </div>
                 {totalItemSavingsCents > 0 && (
-                  <span className="shrink-0 font-mono font-bold text-[11px] px-2 py-0.5 rounded-full bg-primary text-white shadow-2xs">
+                  <span className="shrink-0 font-mono font-bold tabular-nums text-[11px] px-2 py-0.5 rounded-full bg-primary text-primary-foreground shadow-2xs">
                     {language === 'th' ? 'ประหยัด ' : 'Saved '}
                     {formatMoney(createMoney(totalItemSavingsCents, items[0]?.unitPrice.currency || 'THB'))}
                   </span>
@@ -564,7 +565,7 @@ export const CartPanel: React.FC<CartPanelProps> = ({ onOpenQuickPay }) => {
               }}
               className={`flex-1 min-h-[44px] h-11 sm:h-11.5 flex items-center justify-between px-4 rounded-xl font-bold text-sm tracking-wide shadow-sm transition-all theme-btn-radius active-scale ${
                 hasItems
-                  ? 'bg-cta hover:bg-cta-hover active:bg-cta-pressed text-cta-text cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40'
+                  ? 'bg-cta hover:bg-cta-hover active:bg-cta-pressed text-cta-text cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2'
                   : 'bg-border/60 text-text/40 cursor-not-allowed'
               }`}
             >

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createPostgresPool, resolveConfiguredDatabaseUrl } from '../db/postgres';
+import { createPostgresPool } from '../db/postgres';
+import { resolveDisposableTestDatabaseUrl } from '../db/test-database-guard';
 import { createTransactionalPostgresExecutor } from '../db/transaction';
 import {
   createTimeclockService,
@@ -9,7 +10,7 @@ import {
   TimeclockLockedError,
 } from './timeclock-service';
 
-const databaseUrl = resolveConfiguredDatabaseUrl(process.env.DATABASE_URL);
+const databaseUrl = resolveDisposableTestDatabaseUrl(process.env.DATABASE_URL, 'server/shift/timeclock-service.postgres.test.ts');
 const pepper = 'integration-test-pepper';
 
 const ids = {
@@ -34,7 +35,7 @@ test('timeclock PostgreSQL integration proves idempotency, lockout persistence, 
 
   process.env.TIMECLOCK_PIN_PEPPER = pepper;
 
-  const pool = createPostgresPool();
+  const pool = createPostgresPool({ connectionString: databaseUrl });
   const db = createTransactionalPostgresExecutor(pool);
   const service = createTimeclockService(db);
 

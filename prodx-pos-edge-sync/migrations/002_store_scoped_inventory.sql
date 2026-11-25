@@ -1,0 +1,400 @@
+-- Store-scoped inventory and database-enforced negative-stock policy.
+-- Apply only after reviewing/backing up the target database. The previous Edge schema
+-- did not retain historical Store identity, so legacy rows must be explicitly mapped by
+-- an operator before this migration; this migration never guesses a physical Store.
+BEGIN;
+
+CREATE TABLE IF NOT EXISTS pos_stores (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id uuid NOT NULL,
+  name text NOT NULL,
+  is_default boolean NOT NULL DEFAULT false,
+  active boolean NOT NULL DEFAULT true,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (tenant_id, id),
+  UNIQUE (tenant_id, name)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_pos_stores_one_default_per_tenant
+  ON pos_stores(tenant_id) WHERE is_default;
+
+CREATE TABLE IF NOT EXISTS store_inventory_settings (
+  tenant_id uuid NOT NULL,
+  store_id uuid NOT NULL,
+  allow_negative_stock boolean NOT NULL DEFAULT false,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  updated_by uuid,
+  last_change_hash char(64) CHECK (last_change_hash ~ '^[0-9a-f]{64}$'),
+  last_change_id uuid,
+  PRIMARY KEY (tenant_id, store_id),
+  FOREIGN KEY (tenant_id, store_id) REFERENCES pos_stores(tenant_id, id)
+);
+
+CREATE OR REPLACE FUNCTION initialize_store_inventory_settings()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
+SET search_path=pg_catalog,public,pg_temp AS $$
+BEGIN
+  INSERT INTO public.store_inventory_settings(tenant_id,store_id,allow_negative_stock)
+  VALUES(NEW.tenant_id,NEW.id,false)
+  ON CONFLICT (tenant_id,store_id) DO NOTHING;
+  RETURN NEW;
+END;
+$$;
+REVOKE ALL ON FUNCTION initialize_store_inventory_settings() FROM PUBLIC;
+DROP TRIGGER IF EXISTS trg_initialize_store_inventory_settings ON pos_stores;
+CREATE TRIGGER trg_initialize_store_inventory_settings
+AFTER INSERT ON pos_stores
+FOR EACH ROW EXECUTE FUNCTION initialize_store_inventory_settings();
+
+-- Add Store identity columns before preflight so an operator may stage explicit,
+-- reviewed mappings before running this migration. Never infer historical Store identity.
+ALTER TABLE terminal_devices ADD COLUMN IF NOT EXISTS store_id uuid;
+ALTER TABLE terminal_sync_state ADD COLUMN IF NOT EXISTS store_id uuid;
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS store_id uuid;
+ALTER TABLE sale_lines ADD COLUMN IF NOT EXISTS store_id uuid;
+ALTER TABLE inventory_ledger ADD COLUMN IF NOT EXISTS store_id uuid;
+ALTER TABLE inventory_balances ADD COLUMN IF NOT EXISTS store_id uuid;
+
+DO $$
+DECLARE
+  unmapped_tables text[] := ARRAY[]::text[];
+BEGIN
+  IF EXISTS (SELECT 1 FROM terminal_devices WHERE store_id IS NULL) THEN
+    unmapped_tables := array_append(unmapped_tables, 'terminal_devices');
+  END IF;
+  IF EXISTS (SELECT 1 FROM terminal_sync_state WHERE store_id IS NULL) THEN
+    unmapped_tables := array_append(unmapped_tables, 'terminal_sync_state');
+  END IF;
+  IF EXISTS (SELECT 1 FROM sales WHERE store_id IS NULL) THEN
+    unmapped_tables := array_append(unmapped_tables, 'sales');
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM sale_lines l
+    LEFT JOIN sales s ON s.tenant_id=l.tenant_id AND s.sale_id=l.sale_id
+    WHERE l.store_id IS NULL AND s.store_id IS NULL
+  ) THEN
+    unmapped_tables := array_append(unmapped_tables, 'sale_lines_without_parent_sale_mapping');
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM inventory_ledger l
+    LEFT JOIN sales s ON s.tenant_id=l.tenant_id AND s.sale_id=l.sale_id
+    WHERE l.store_id IS NULL AND (l.sale_id IS NULL OR s.store_id IS NULL)
+  ) THEN
+    unmapped_tables := array_append(unmapped_tables, 'non-sale_inventory_ledger_without_mapping');
+  END IF;
+  IF EXISTS (SELECT 1 FROM inventory_balances WHERE store_id IS NULL) THEN
+    unmapped_tables := array_append(unmapped_tables, 'inventory_balances');
+  END IF;
+
+  IF cardinality(unmapped_tables) > 0 THEN
+    RAISE EXCEPTION
+      'STORE_MIGRATION_BLOCKED: legacy_store_mapping_required; unmapped rows exist in %',
+      array_to_string(unmapped_tables, ', ');
+  END IF;
+END $$;
+
+-- A Default Store is created only for a tenant with no existing Store rows. Historical
+-- parent records and non-sale stock movements are never attributed to it automatically;
+-- child identities are derived only from their trusted parent.
+WITH tenant_ids AS (
+  SELECT tenant_id FROM products
+  UNION SELECT tenant_id FROM sales
+  UNION SELECT tenant_id FROM terminal_devices
+  UNION SELECT tenant_id FROM inventory_ledger
+  UNION SELECT tenant_id FROM inventory_balances
+  UNION SELECT tenant_id FROM terminal_sync_state
+), missing AS (
+  SELECT t.tenant_id
+    FROM tenant_ids t
+   WHERE NOT EXISTS (SELECT 1 FROM pos_stores s WHERE s.tenant_id=t.tenant_id)
+)
+INSERT INTO pos_stores(tenant_id,name,is_default)
+SELECT tenant_id,'Default Store',true FROM missing
+ON CONFLICT (tenant_id,name) DO NOTHING;
+
+INSERT INTO store_inventory_settings(tenant_id,store_id,allow_negative_stock)
+SELECT tenant_id,id,false FROM pos_stores
+ON CONFLICT (tenant_id,store_id) DO NOTHING;
+
+-- Sale lines and POS ledger rows inherit identity only from the authoritative parent
+-- sale. Terminal checkpoints, opening/receipt/adjustment ledger rows, and aggregate
+-- balances require explicit operator mappings because their Store identity is not
+-- otherwise retained in the previous schema.
+UPDATE sale_lines l SET store_id=s.store_id
+  FROM sales s
+ WHERE s.tenant_id=l.tenant_id AND s.sale_id=l.sale_id
+   AND l.store_id IS DISTINCT FROM s.store_id;
+UPDATE inventory_ledger l SET store_id=s.store_id
+  FROM sales s
+ WHERE s.tenant_id=l.tenant_id AND s.sale_id=l.sale_id
+   AND l.store_id IS DISTINCT FROM s.store_id;
+
+-- Do not silently bless historical negative stock or a pre-existing ledger/balance
+-- mismatch with the new default-false Store policy. The whole migration rolls back.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM inventory_balances WHERE quantity < 0) THEN
+    RAISE EXCEPTION 'STORE_MIGRATION_BLOCKED: legacy_negative_balance_requires_policy_review';
+  END IF;
+  IF EXISTS (
+    WITH ledger AS (
+      SELECT tenant_id,store_id,product_id,SUM(quantity_delta::bigint) AS ledger_qty
+        FROM inventory_ledger GROUP BY tenant_id,store_id,product_id
+    ), keys AS (
+      SELECT tenant_id,store_id,product_id FROM ledger
+      UNION SELECT tenant_id,store_id,product_id FROM inventory_balances
+    )
+    SELECT 1 FROM keys k
+      LEFT JOIN ledger l USING (tenant_id,store_id,product_id)
+      LEFT JOIN inventory_balances b USING (tenant_id,store_id,product_id)
+     WHERE COALESCE(l.ledger_qty,0) <> COALESCE(b.quantity,0)
+  ) THEN
+    RAISE EXCEPTION 'STORE_MIGRATION_BLOCKED: legacy_ledger_balance_mismatch';
+  END IF;
+END $$;
+
+DO $$
+DECLARE t text;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['terminal_devices','terminal_sync_state','sales','sale_lines','inventory_ledger','inventory_balances'] LOOP
+    EXECUTE format('ALTER TABLE %I ALTER COLUMN store_id SET NOT NULL',t);
+  END LOOP;
+END $$;
+
+ALTER TABLE terminal_devices
+  ADD CONSTRAINT terminal_devices_tenant_store_fk
+  FOREIGN KEY (tenant_id,store_id) REFERENCES pos_stores(tenant_id,id);
+ALTER TABLE terminal_sync_state
+  ADD CONSTRAINT terminal_sync_state_tenant_store_fk
+  FOREIGN KEY (tenant_id,store_id) REFERENCES pos_stores(tenant_id,id);
+ALTER TABLE sales
+  ADD CONSTRAINT sales_tenant_store_fk
+  FOREIGN KEY (tenant_id,store_id) REFERENCES pos_stores(tenant_id,id);
+ALTER TABLE sale_lines
+  ADD CONSTRAINT sale_lines_tenant_store_fk
+  FOREIGN KEY (tenant_id,store_id) REFERENCES pos_stores(tenant_id,id);
+ALTER TABLE inventory_ledger
+  ADD CONSTRAINT inventory_ledger_tenant_store_fk
+  FOREIGN KEY (tenant_id,store_id) REFERENCES pos_stores(tenant_id,id);
+ALTER TABLE inventory_balances
+  ADD CONSTRAINT inventory_balances_tenant_store_fk
+  FOREIGN KEY (tenant_id,store_id) REFERENCES pos_stores(tenant_id,id);
+ALTER TABLE inventory_ledger
+  ADD CONSTRAINT inventory_ledger_store_policy_fk
+  FOREIGN KEY (tenant_id,store_id) REFERENCES store_inventory_settings(tenant_id,store_id);
+ALTER TABLE inventory_balances
+  ADD CONSTRAINT inventory_balances_store_policy_fk
+  FOREIGN KEY (tenant_id,store_id) REFERENCES store_inventory_settings(tenant_id,store_id);
+
+-- A sale line and its POS ledger rows must remain attached to the exact store
+-- recorded on the parent sale, not merely to another store in the same tenant.
+ALTER TABLE sales ADD CONSTRAINT sales_tenant_sale_store_uq
+  UNIQUE (tenant_id,sale_id,store_id);
+ALTER TABLE sale_lines ADD CONSTRAINT sale_lines_parent_sale_store_fk
+  FOREIGN KEY (tenant_id,sale_id,store_id)
+  REFERENCES sales(tenant_id,sale_id,store_id);
+ALTER TABLE inventory_ledger ADD CONSTRAINT inventory_ledger_parent_sale_store_fk
+  FOREIGN KEY (tenant_id,sale_id,store_id)
+  REFERENCES sales(tenant_id,sale_id,store_id);
+
+ALTER TABLE inventory_balances DROP CONSTRAINT inventory_balances_pkey;
+ALTER TABLE inventory_balances ADD CONSTRAINT inventory_balances_pkey
+  PRIMARY KEY (tenant_id,store_id,product_id);
+
+-- A retry must reuse an explicit reference_id. The base migration's random default
+-- would turn an omitted ID into a fresh stock movement on every retry. Preserve the
+-- reason-sensitive unique index so a sale can be followed by its void/return movement.
+ALTER TABLE inventory_ledger ALTER COLUMN reference_id DROP DEFAULT;
+
+CREATE INDEX IF NOT EXISTS idx_inventory_ledger_store_product
+  ON inventory_ledger(tenant_id,store_id,product_id,id);
+
+-- The BEFORE INSERT trigger creates a zero balance row with conflict serialization,
+-- then performs a conditional UPDATE. The row lock prevents concurrent oversell even
+-- when the balance row is absent at statement start. If the ledger insert later fails,
+-- PostgreSQL rolls both balance operations back with the ledger statement.
+CREATE OR REPLACE FUNCTION apply_inventory_ledger_delta()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
+SET search_path=pg_catalog,public,pg_temp AS $$
+DECLARE
+  allow_negative boolean;
+  resulting_quantity bigint;
+  audit_actor_id uuid;
+  audit_payload_hash text;
+  audit_action text;
+BEGIN
+  IF NEW.reference_id IS NULL THEN
+    RAISE EXCEPTION 'INVENTORY_REFERENCE_ID_REQUIRED'
+      USING ERRCODE='23502';
+  END IF;
+
+  IF NEW.reason <> 'POS_SALE'
+     AND session_user NOT IN ('prodx_inventory_admin','postgres') THEN
+    RAISE EXCEPTION 'INVENTORY_ADMIN_ROLE_REQUIRED'
+      USING ERRCODE='42501';
+  END IF;
+
+  IF NEW.reason <> 'POS_SALE' THEN
+    audit_actor_id := NULLIF(current_setting('app.inventory_actor_id',true),'')::uuid;
+    audit_payload_hash := lower(NULLIF(current_setting('app.inventory_payload_hash',true),''));
+    IF audit_actor_id IS NULL OR audit_payload_hash IS NULL
+       OR audit_payload_hash !~ '^[0-9a-f]{64}$' THEN
+      RAISE EXCEPTION 'INVENTORY_AUDIT_CONTEXT_REQUIRED'
+        USING ERRCODE='23514';
+    END IF;
+  END IF;
+
+  SELECT cfg.allow_negative_stock
+    INTO allow_negative
+    FROM public.store_inventory_settings cfg
+   WHERE cfg.tenant_id=NEW.tenant_id AND cfg.store_id=NEW.store_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'STORE_INVENTORY_POLICY_MISSING'
+      USING ERRCODE='23514';
+  END IF;
+
+  -- Ensure the key exists first. ON CONFLICT waits for any concurrent creator;
+  -- the following UPDATE is a new READ COMMITTED command and sees its committed value.
+  INSERT INTO public.inventory_balances(tenant_id,store_id,product_id,quantity,updated_at)
+  VALUES(NEW.tenant_id,NEW.store_id,NEW.product_id,0,now())
+  ON CONFLICT (tenant_id,store_id,product_id) DO NOTHING;
+
+  UPDATE public.inventory_balances
+     SET quantity=quantity+NEW.quantity_delta,updated_at=now()
+   WHERE tenant_id=NEW.tenant_id
+     AND store_id=NEW.store_id
+     AND product_id=NEW.product_id
+     AND (allow_negative OR NEW.quantity_delta >= 0 OR quantity+NEW.quantity_delta >= 0)
+  RETURNING quantity INTO resulting_quantity;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'INSUFFICIENT_STOCK'
+      USING ERRCODE='23514',
+            DETAIL=format('tenant=%s store=%s product=%s delta=%s',
+              NEW.tenant_id,NEW.store_id,NEW.product_id,NEW.quantity_delta);
+  END IF;
+
+  -- Every non-POS stock movement is audited by the database, not merely by an
+  -- operator script. This shares the ledger/balance transaction and cannot be bypassed
+  -- by a direct INSERT using prodx_inventory_admin.
+  IF NEW.reason <> 'POS_SALE' THEN
+    audit_action := CASE NEW.reason
+      WHEN 'OPENING_BALANCE' THEN 'OPENING_BALANCE_RECORDED'
+      ELSE 'INVENTORY_ADJUSTMENT_RECORDED'
+    END;
+    INSERT INTO public.audit_logs(
+      tenant_id,actor_type,actor_id,action,entity_type,entity_id,
+      payload_hash,catalog_version,metadata
+    ) VALUES (
+      NEW.tenant_id,'USER',audit_actor_id,audit_action,'INVENTORY_ADJUSTMENT',
+      NEW.reference_id,audit_payload_hash,NULL,
+      jsonb_build_object(
+        'store_id',NEW.store_id,
+        'product_id',NEW.product_id,
+        'quantity_delta',NEW.quantity_delta,
+        'reason',NEW.reason,
+        'reference_id',NEW.reference_id
+      )
+    );
+  END IF;
+  RETURN NEW;
+END;
+$$;
+REVOKE ALL ON FUNCTION apply_inventory_ledger_delta() FROM PUBLIC;
+
+DROP TRIGGER IF EXISTS trg_enforce_store_inventory_policy ON inventory_ledger;
+DROP TRIGGER IF EXISTS trg_apply_inventory_ledger_delta ON inventory_ledger;
+CREATE TRIGGER trg_apply_inventory_ledger_delta
+BEFORE INSERT ON inventory_ledger
+FOR EACH ROW EXECUTE FUNCTION apply_inventory_ledger_delta();
+
+-- A POS sale cannot be inserted for a Store other than its enrolled terminal's
+-- recorded Store, even if a caller bypasses the TypeScript checkout orchestration. The
+-- active/revoked certificate check remains at Edge ingress so already-accepted Queue
+-- sales can finish after a later revocation, provided the terminal/store binding is unchanged.
+CREATE OR REPLACE FUNCTION enforce_sale_terminal_store()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
+SET search_path=pg_catalog,public,pg_temp AS $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+      FROM public.terminal_devices d
+      JOIN public.pos_stores st ON st.tenant_id=d.tenant_id AND st.id=d.store_id
+     WHERE d.tenant_id=NEW.tenant_id
+       AND d.terminal_id=NEW.terminal_id
+       AND d.store_id=NEW.store_id
+  ) THEN
+    RAISE EXCEPTION 'TERMINAL_STORE_MAPPING_MISMATCH'
+      USING ERRCODE='23514';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+REVOKE ALL ON FUNCTION enforce_sale_terminal_store() FROM PUBLIC;
+DROP TRIGGER IF EXISTS trg_enforce_sale_terminal_store ON sales;
+CREATE TRIGGER trg_enforce_sale_terminal_store
+BEFORE INSERT ON sales
+FOR EACH ROW EXECUTE FUNCTION enforce_sale_terminal_store();
+
+-- Store policy changes require an actor and payload hash and automatically append
+-- an immutable audit event in the same transaction.
+CREATE OR REPLACE FUNCTION require_store_inventory_policy_audit()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF NEW.updated_by IS NULL
+     OR NEW.last_change_hash IS NULL
+     OR NEW.last_change_id IS NULL
+     OR (OLD.last_change_id IS NOT NULL AND NEW.last_change_id IS NOT DISTINCT FROM OLD.last_change_id) THEN
+    RAISE EXCEPTION 'STORE_INVENTORY_POLICY_CHANGE_REQUIRES_AUDIT_CONTEXT'
+      USING ERRCODE='23514';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+REVOKE ALL ON FUNCTION require_store_inventory_policy_audit() FROM PUBLIC;
+DROP TRIGGER IF EXISTS trg_require_store_inventory_policy_audit ON store_inventory_settings;
+CREATE TRIGGER trg_require_store_inventory_policy_audit
+BEFORE UPDATE ON store_inventory_settings
+FOR EACH ROW EXECUTE FUNCTION require_store_inventory_policy_audit();
+
+CREATE OR REPLACE FUNCTION audit_store_inventory_policy_change()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
+SET search_path=pg_catalog,public,pg_temp AS $$
+BEGIN
+  INSERT INTO public.audit_logs(
+      tenant_id,actor_type,actor_id,action,entity_type,entity_id,
+      payload_hash,catalog_version,metadata
+    ) VALUES (
+      NEW.tenant_id,'USER',NEW.updated_by,'STORE_INVENTORY_POLICY_UPDATED',
+      'STORE_INVENTORY_SETTINGS',NEW.store_id,NEW.last_change_hash,NULL,
+      jsonb_build_object(
+        'store_id',NEW.store_id,
+        'previous_allow_negative_stock',OLD.allow_negative_stock,
+        'allow_negative_stock',NEW.allow_negative_stock,
+        'change_id',NEW.last_change_id
+      )
+    );
+  RETURN NEW;
+END;
+$$;
+REVOKE ALL ON FUNCTION audit_store_inventory_policy_change() FROM PUBLIC;
+DROP TRIGGER IF EXISTS trg_audit_store_inventory_policy_change ON store_inventory_settings;
+CREATE TRIGGER trg_audit_store_inventory_policy_change
+AFTER UPDATE ON store_inventory_settings
+FOR EACH ROW EXECUTE FUNCTION audit_store_inventory_policy_change();
+
+ALTER TABLE pos_stores ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pos_stores FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON pos_stores;
+CREATE POLICY tenant_isolation ON pos_stores
+  USING (tenant_id=NULLIF(current_setting('app.current_tenant_id',true),'')::uuid)
+  WITH CHECK (tenant_id=NULLIF(current_setting('app.current_tenant_id',true),'')::uuid);
+
+ALTER TABLE store_inventory_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE store_inventory_settings FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON store_inventory_settings;
+CREATE POLICY tenant_isolation ON store_inventory_settings
+  USING (tenant_id=NULLIF(current_setting('app.current_tenant_id',true),'')::uuid)
+  WITH CHECK (tenant_id=NULLIF(current_setting('app.current_tenant_id',true),'')::uuid);
+
+COMMIT;

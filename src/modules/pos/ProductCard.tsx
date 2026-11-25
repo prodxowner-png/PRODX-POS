@@ -88,7 +88,7 @@ export const ProductCard = React.memo<ProductCardProps>(({ product, onAddToCart,
           {formatMoney(product.price)}
         </div>
 
-        <div className="min-h-[38px] min-w-[38px] h-9 w-9 theme-btn-radius bg-background border-crisp border border-border text-text/70 flex items-center justify-center group-hover:bg-primary group-hover:text-white group-hover:border-primary transition-all shrink-0 shadow-2xs">
+        <div className="h-10 w-10 theme-btn-radius bg-background border-crisp border border-border text-text/70 flex items-center justify-center group-hover:bg-primary group-hover:text-primary-foreground group-hover:border-primary transition-all shrink-0 shadow-2xs">
           <Plus className="h-4 w-4" />
         </div>
       </div>
