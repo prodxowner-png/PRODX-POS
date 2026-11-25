@@ -306,7 +306,7 @@ export const PosMobileSwipeDrawer: React.FC<PosMobileSwipeDrawerProps> = ({
               animate={{ height: '58dvh', opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
               transition={{ type: 'spring', bounce: 0.12, duration: 0.32 }}
-              drag="x"
+              drag={activeTab === 'cart' ? false : 'x'}
               dragConstraints={{ left: 0, right: 0 }}
               dragElastic={0.15}
               onDragEnd={handleHorizontalDragEnd}
@@ -332,7 +332,7 @@ export const PosMobileSwipeDrawer: React.FC<PosMobileSwipeDrawerProps> = ({
                         setIsExpanded(false);
                         onOpenScanner();
                       }}
-                      className="min-h-[46px] px-3 rounded-xl border border-border bg-background hover:border-primary text-xs font-bold text-text flex items-center justify-center gap-2 transition-all active:scale-95 cursor-pointer whitespace-nowrap"
+                      className="min-h-[46px] px-3 rounded-xl border border-border bg-background hover:border-primary text-xs font-bold text-text flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta"
                     >
                       <Barcode className="h-4 w-4 text-primary shrink-0" />
                       <span className="truncate">
@@ -346,9 +346,9 @@ export const PosMobileSwipeDrawer: React.FC<PosMobileSwipeDrawerProps> = ({
                         setIsExpanded(false);
                         onOpenAiAssistant();
                       }}
-                      className="min-h-[46px] px-3 rounded-xl bg-[var(--chart-purple)] text-white text-xs font-bold flex items-center justify-center gap-2 transition-all active:scale-95 cursor-pointer whitespace-nowrap shadow-xs"
+                      className="min-h-[46px] px-3 rounded-xl bg-brand-primary hover:bg-brand-primary-hover text-brand-primary-text text-xs font-bold flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer whitespace-nowrap shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta"
                     >
-                      <Sparkles className="h-4 w-4 text-yellow-300 shrink-0" />
+                      <Sparkles className="h-4 w-4 text-cta shrink-0" />
                       <span className="truncate">
                         {isThai ? 'ผู้ช่วย AI แนะนำ' : 'AI Upsell Assist'}
                       </span>
@@ -370,9 +370,9 @@ export const PosMobileSwipeDrawer: React.FC<PosMobileSwipeDrawerProps> = ({
                             onChangeView('catalog');
                             setIsExpanded(false);
                           }}
-                          className={`min-h-[46px] px-3 rounded-xl border text-xs font-bold flex items-center gap-2 transition-all active:scale-95 cursor-pointer whitespace-nowrap ${
+                          className={`min-h-[46px] px-3 rounded-xl border text-xs font-bold flex items-center gap-2 transition-all active:scale-[0.98] cursor-pointer whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta ${
                             isSelected
-                              ? 'border-primary bg-primary text-white shadow-xs'
+                              ? 'border-primary bg-primary text-primary-foreground shadow-xs'
                               : 'border-border bg-background text-text/80 hover:border-primary/50'
                           }`}
                         >
@@ -408,13 +408,13 @@ export const PosMobileSwipeDrawer: React.FC<PosMobileSwipeDrawerProps> = ({
                   <div className="rounded-xl border border-border bg-background p-3.5 space-y-2">
                     <div className="flex items-center justify-between text-xs text-text/60">
                       <span>{isThai ? 'จำนวนสินค้าในตะกร้า' : 'Items in Cart'}</span>
-                      <span className="font-mono font-bold text-text">
+                      <span className="font-mono font-bold tabular-nums text-text">
                         {totals.totalItemsCount} {t.pos.itemCount}
                       </span>
                     </div>
                     <div className="flex items-center justify-between text-xs text-text/60">
                       <span>{isThai ? 'ยอดรวมก่อนภาษี (Subtotal)' : 'Subtotal'}</span>
-                      <span className="font-mono font-semibold text-text">
+                      <span className="font-mono font-semibold tabular-nums text-text">
                         {formatMoney(totals.netSubtotal)}
                       </span>
                     </div>
@@ -422,7 +422,7 @@ export const PosMobileSwipeDrawer: React.FC<PosMobileSwipeDrawerProps> = ({
                       <span className="text-xs font-black uppercase tracking-wider text-text">
                         {isThai ? 'ยอดสุทธิที่ต้องชำระ' : 'Grand Total'}
                       </span>
-                      <span className="text-xl font-black font-mono text-primary">
+                      <span className="text-xl font-black font-mono tabular-nums text-primary">
                         {formatMoney(totals.grandTotal)}
                       </span>
                     </div>
@@ -436,7 +436,7 @@ export const PosMobileSwipeDrawer: React.FC<PosMobileSwipeDrawerProps> = ({
                         setIsExpanded(false);
                         onOpenQuickPay();
                       }}
-                      className="min-h-[48px] px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs flex items-center justify-center gap-2 shadow-md transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer whitespace-nowrap"
+                      className="min-h-[48px] px-4 rounded-xl bg-cta hover:bg-cta-hover active:bg-cta-pressed text-cta-text font-black text-xs flex items-center justify-center gap-2 shadow-md transition-all active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2"
                     >
                       <Zap className="h-4 w-4 fill-current shrink-0" />
                       <span className="truncate">
@@ -453,7 +453,7 @@ export const PosMobileSwipeDrawer: React.FC<PosMobileSwipeDrawerProps> = ({
                         setIsExpanded(false);
                         onOpenFullPayment();
                       }}
-                      className="min-h-[48px] px-4 rounded-xl bg-primary hover:bg-primary-dark text-white font-black text-xs flex items-center justify-center gap-2 shadow-md transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer whitespace-nowrap"
+                      className="min-h-[48px] px-4 rounded-xl bg-primary hover:bg-primary-dark text-primary-foreground font-black text-xs flex items-center justify-center gap-2 shadow-md transition-all active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2"
                     >
                       <CreditCard className="h-4 w-4 shrink-0" />
                       <span className="truncate">
@@ -470,18 +470,18 @@ export const PosMobileSwipeDrawer: React.FC<PosMobileSwipeDrawerProps> = ({
               {activeTab === 'shift' && (
                 <div className="flex-1 overflow-y-auto p-4 space-y-3.5">
                   {!currentShift ? (
-                    <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-black text-amber-600 dark:text-amber-400">
+                    <div className="rounded-xl border border-warning/30 bg-warning-subtle text-warning-text p-3.5 space-y-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-black text-warning-text">
                           {isThai
                             ? 'ยังไม่ได้เปิดกะแคชเชียร์ (Shift Closed)'
                             : 'Cashier Shift Currently Closed'}
                         </span>
-                        <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-amber-500/20 text-amber-700 dark:text-amber-300">
+                        <span className="text-[10px] font-mono font-bold uppercase px-2 py-0.5 rounded border border-warning/30 bg-warning-subtle text-warning-text shrink-0">
                           Action Required
                         </span>
                       </div>
-                      <p className="text-xs text-text/70 leading-relaxed">
+                      <p className="text-xs text-text/80 leading-relaxed">
                         {isThai
                           ? 'เลือกจำนวนเงินทอนเริ่มต้นในลิ้นชักเพื่อเปิดกะขายสินค้าได้ทันที'
                           : 'Select an opening cash float preset below to open your register shift immediately.'}
@@ -493,7 +493,7 @@ export const PosMobileSwipeDrawer: React.FC<PosMobileSwipeDrawerProps> = ({
                             type="button"
                             disabled={isShiftLoading || isSubmittingShift}
                             onClick={() => void handleQuickOpenShift(preset)}
-                            className="min-h-[46px] px-2 rounded-xl bg-card border border-border hover:border-primary text-xs font-black font-mono text-text hover:text-primary flex items-center justify-center transition-all active:scale-95 cursor-pointer whitespace-nowrap"
+                            className="min-h-[46px] px-2 rounded-xl bg-card border border-border hover:border-primary text-xs font-black font-mono tabular-nums text-text hover:text-primary flex items-center justify-center transition-all active:scale-[0.98] cursor-pointer whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta"
                           >
                             ฿{preset.toLocaleString()}
                           </button>
@@ -503,7 +503,7 @@ export const PosMobileSwipeDrawer: React.FC<PosMobileSwipeDrawerProps> = ({
                         type="button"
                         disabled={isShiftLoading || isSubmittingShift}
                         onClick={() => void handleQuickOpenShift(2000)}
-                        className="w-full min-h-[46px] px-4 rounded-xl bg-primary text-white text-xs font-black flex items-center justify-center gap-2 transition-all active:scale-95 cursor-pointer whitespace-nowrap"
+                        className="w-full min-h-[46px] px-4 rounded-xl bg-primary text-primary-foreground text-xs font-black flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta"
                       >
                         <LockOpen className="h-4 w-4 shrink-0" />
                         <span className="truncate">
@@ -522,33 +522,52 @@ export const PosMobileSwipeDrawer: React.FC<PosMobileSwipeDrawerProps> = ({
                             <div className="text-xs font-black text-text truncate">
                               {isThai ? 'กะแคชเชียร์กำลังทำงาน' : 'Active Register Shift'}
                             </div>
-                            <div className="text-[11px] font-mono text-text/60 truncate">
+                            <div className="text-[11px] font-mono tabular-nums text-text/60 truncate">
                               {isThai ? 'เงินทอนตั้งต้น:' : 'Opening Float:'}{' '}
                               {formatMoney(currentShift.openingFloat)}
                             </div>
                           </div>
                         </div>
-                        <span className="shrink-0 whitespace-nowrap font-mono text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-600 dark:text-emerald-300">
+                        <span className="shrink-0 whitespace-nowrap font-mono text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-800 dark:text-emerald-300">
                           ACTIVE
                         </span>
                       </div>
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        <input
-                          type="number"
-                          min="1"
-                          value={cashAmountInput}
-                          onChange={(e) => setCashAmountInput(e.target.value)}
-                          placeholder={isThai ? 'จำนวนเงิน (บาท)' : 'Amount'}
-                          className="min-h-[44px] px-3 rounded-xl border border-border bg-background text-xs font-mono font-bold text-text outline-none focus:border-primary"
-                        />
-                        <input
-                          type="text"
-                          value={cashReasonInput}
-                          onChange={(e) => setCashReasonInput(e.target.value)}
-                          placeholder={isThai ? 'หมายเหตุ (เช่น เติมเงินทอน)' : 'Reason / Note'}
-                          className="min-h-[44px] px-3 rounded-xl border border-border bg-background text-xs text-text outline-none focus:border-primary"
-                        />
+                        <div className="space-y-1">
+                          <label
+                            htmlFor="mobile-shift-cash-amount"
+                            className="block text-[11px] font-bold text-brand-text-secondary cursor-pointer"
+                          >
+                            {isThai ? 'จำนวนเงิน (บาท)' : 'Cash Amount'}
+                          </label>
+                          <input
+                            id="mobile-shift-cash-amount"
+                            type="number"
+                            inputMode="decimal"
+                            min="1"
+                            value={cashAmountInput}
+                            onChange={(e) => setCashAmountInput(e.target.value)}
+                            placeholder={isThai ? 'จำนวนเงิน (บาท)' : 'Amount'}
+                            className="w-full min-h-[44px] px-3 rounded-xl border border-border bg-background text-base sm:text-sm font-mono font-bold tabular-nums text-text outline-none focus:border-primary focus:ring-2 focus:ring-cta/30"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label
+                            htmlFor="mobile-shift-cash-reason"
+                            className="block text-[11px] font-bold text-brand-text-secondary cursor-pointer"
+                          >
+                            {isThai ? 'หมายเหตุรายการเงินสด' : 'Reason / Note'}
+                          </label>
+                          <input
+                            id="mobile-shift-cash-reason"
+                            type="text"
+                            value={cashReasonInput}
+                            onChange={(e) => setCashReasonInput(e.target.value)}
+                            placeholder={isThai ? 'หมายเหตุ (เช่น เติมเงินทอน)' : 'Reason / Note'}
+                            className="w-full min-h-[44px] px-3 rounded-xl border border-border bg-background text-base sm:text-sm text-text outline-none focus:border-primary focus:ring-2 focus:ring-cta/30"
+                          />
+                        </div>
                       </div>
 
                       <div className="grid grid-cols-2 gap-2">
@@ -556,7 +575,7 @@ export const PosMobileSwipeDrawer: React.FC<PosMobileSwipeDrawerProps> = ({
                           type="button"
                           disabled={isSubmittingShift}
                           onClick={() => void handleQuickCashMovement('paid_in')}
-                          className="min-h-[46px] px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer whitespace-nowrap"
+                          className="min-h-[46px] px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black flex items-center justify-center gap-1.5 transition-all active:scale-[0.98] cursor-pointer whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta"
                         >
                           <PlusCircle className="h-4 w-4 shrink-0" />
                           <span className="truncate">
@@ -567,7 +586,7 @@ export const PosMobileSwipeDrawer: React.FC<PosMobileSwipeDrawerProps> = ({
                           type="button"
                           disabled={isSubmittingShift}
                           onClick={() => void handleQuickCashMovement('paid_out')}
-                          className="min-h-[46px] px-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-black flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer whitespace-nowrap"
+                          className="min-h-[46px] px-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-black flex items-center justify-center gap-1.5 transition-all active:scale-[0.98] cursor-pointer whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
                         >
                           <MinusCircle className="h-4 w-4 shrink-0" />
                           <span className="truncate">
@@ -587,7 +606,7 @@ export const PosMobileSwipeDrawer: React.FC<PosMobileSwipeDrawerProps> = ({
         <div
           role="tablist"
           aria-label="POS Mobile Quick Actions"
-          className="p-2 grid grid-cols-4 gap-1.5 bg-card"
+          className="px-2 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] grid grid-cols-4 gap-1.5 bg-card"
         >
           {/* 1. Products Action Button */}
           <button
@@ -598,10 +617,10 @@ export const PosMobileSwipeDrawer: React.FC<PosMobileSwipeDrawerProps> = ({
               (isExpanded && activeTab === 'products')
             }
             onClick={() => handleSelectAction('products')}
-            className={`min-h-[48px] min-w-[44px] px-2 py-1.5 rounded-xl flex flex-col items-center justify-center gap-1 transition-all cursor-pointer active:scale-95 whitespace-nowrap ${
+            className={`min-h-[48px] min-w-[44px] px-2 py-1.5 rounded-xl flex flex-col items-center justify-center gap-1 transition-all cursor-pointer active:scale-[0.98] whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta ${
               (!isExpanded && activeView === 'catalog') ||
               (isExpanded && activeTab === 'products')
-                ? 'bg-primary text-white font-black shadow-xs'
+                ? 'bg-primary text-primary-foreground font-black shadow-xs'
                 : 'bg-background text-text/75 hover:text-text border border-border/70 font-bold'
             }`}
           >
@@ -617,16 +636,16 @@ export const PosMobileSwipeDrawer: React.FC<PosMobileSwipeDrawerProps> = ({
             role="tab"
             aria-selected={isExpanded && activeTab === 'cart'}
             onClick={() => handleSelectAction('cart')}
-            className={`relative min-h-[48px] min-w-[44px] px-2 py-1.5 rounded-xl flex flex-col items-center justify-center gap-1 transition-all cursor-pointer active:scale-95 whitespace-nowrap ${
+            className={`relative min-h-[48px] min-w-[44px] px-2 py-1.5 rounded-xl flex flex-col items-center justify-center gap-1 transition-all cursor-pointer active:scale-[0.98] whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta ${
               isExpanded && activeTab === 'cart'
-                ? 'bg-primary text-white font-black shadow-xs'
+                ? 'bg-primary text-primary-foreground font-black shadow-xs'
                 : 'bg-background text-text/75 hover:text-text border border-border/70 font-bold'
             }`}
           >
             <div className="relative flex items-center justify-center">
               <ShoppingCart className="h-4 w-4 shrink-0" />
               {totals.totalItemsCount > 0 && (
-                <span className="absolute -top-1.5 -right-3 bg-rose-500 text-white text-[9px] font-black h-4 min-w-[16px] px-1 rounded-full flex items-center justify-center shadow-2xs">
+                <span className="absolute -top-1.5 -right-3 bg-rose-500 text-white text-[10px] font-black tabular-nums h-4 min-w-[16px] px-1 rounded-full flex items-center justify-center shadow-2xs">
                   {totals.totalItemsCount}
                 </span>
               )}
@@ -642,11 +661,11 @@ export const PosMobileSwipeDrawer: React.FC<PosMobileSwipeDrawerProps> = ({
             role="tab"
             aria-selected={isExpanded && activeTab === 'payment'}
             onClick={() => handleSelectAction('payment')}
-            className={`min-h-[48px] min-w-[44px] px-2 py-1.5 rounded-xl flex flex-col items-center justify-center gap-1 transition-all cursor-pointer active:scale-95 whitespace-nowrap ${
+            className={`min-h-[48px] min-w-[44px] px-2 py-1.5 rounded-xl flex flex-col items-center justify-center gap-1 transition-all cursor-pointer active:scale-[0.98] whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta ${
               isExpanded && activeTab === 'payment'
-                ? 'bg-amber-500 text-slate-950 font-black shadow-xs'
+                ? 'bg-cta hover:bg-cta-hover active:bg-cta-pressed text-cta-text font-black shadow-xs'
                 : totals.totalItemsCount > 0
-                ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/40 font-black'
+                ? 'bg-cta-subtle text-brand-text-accent border border-cta/40 font-black'
                 : 'bg-background text-text/75 hover:text-text border border-border/70 font-bold'
             }`}
           >
@@ -662,9 +681,9 @@ export const PosMobileSwipeDrawer: React.FC<PosMobileSwipeDrawerProps> = ({
             role="tab"
             aria-selected={isExpanded && activeTab === 'shift'}
             onClick={() => handleSelectAction('shift')}
-            className={`min-h-[48px] min-w-[44px] px-2 py-1.5 rounded-xl flex flex-col items-center justify-center gap-1 transition-all cursor-pointer active:scale-95 whitespace-nowrap ${
+            className={`min-h-[48px] min-w-[44px] px-2 py-1.5 rounded-xl flex flex-col items-center justify-center gap-1 transition-all cursor-pointer active:scale-[0.98] whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta ${
               isExpanded && activeTab === 'shift'
-                ? 'bg-primary text-white font-black shadow-xs'
+                ? 'bg-primary text-primary-foreground font-black shadow-xs'
                 : 'bg-background text-text/75 hover:text-text border border-border/70 font-bold'
             }`}
           >

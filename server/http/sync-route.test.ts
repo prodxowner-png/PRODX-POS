@@ -1,14 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { randomUUID } from 'node:crypto';
-import { createPostgresPool, resolveConfiguredDatabaseUrl } from '../db/postgres';
+import { createPostgresPool } from '../db/postgres';
+import { resolveDisposableTestDatabaseUrl } from '../db/test-database-guard';
 import { createTransactionalPostgresExecutor } from '../db/transaction';
 import { createApp } from './createApp';
 import { registerSyncRoute } from './sync-route';
 import type { CheckoutRequest } from '../../src/adapters/types';
 import type { TransactionalSqlExecutor } from '../db/transaction';
 
-const url = resolveConfiguredDatabaseUrl(process.env.DATABASE_URL);
+const url = resolveDisposableTestDatabaseUrl(process.env.DATABASE_URL, 'server/http/sync-route.test.ts');
 const pool = url ? createPostgresPool({ connectionString: url, max: 8 }) : null;
 const db = pool ? createTransactionalPostgresExecutor(pool) : null;
 // Append-only audit events are retained; each integration run owns isolated fixtures.

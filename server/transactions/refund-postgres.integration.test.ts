@@ -2,17 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { randomUUID } from 'node:crypto';
 import { runWithRequestContext } from '../http/request-context-storage';
-import { createPostgresPool, resolveConfiguredDatabaseUrl } from '../db/postgres';
+import { createPostgresPool } from '../db/postgres';
+import { resolveDisposableTestDatabaseUrl } from '../db/test-database-guard';
 import { createTransactionalPostgresExecutor } from '../db/transaction';
-import { assertDisposableTestDatabaseUrl } from '../db/test-database-guard';
 import { createCheckoutService } from './checkout-service';
 import { createRefundService } from './refund-service';
 import type { CheckoutRequest } from '../../src/adapters/types';
 
-const url = resolveConfiguredDatabaseUrl(process.env.DATABASE_URL);
-if (url) {
-  assertDisposableTestDatabaseUrl(url);
-}
+const url = resolveDisposableTestDatabaseUrl(process.env.DATABASE_URL, 'server/transactions/refund-postgres.integration.test.ts');
 const pool = url ? createPostgresPool({ connectionString: url, max: 8 }) : null;
 const db = pool ? createTransactionalPostgresExecutor(pool) : null;
 

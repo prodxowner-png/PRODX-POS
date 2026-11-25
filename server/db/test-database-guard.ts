@@ -10,6 +10,8 @@ const DISPOSABLE_TEST_HOSTNAMES = new Set([
 ]);
 
 const FORBIDDEN_TARGET_QUERY_PARAMETERS = new Set(['host', 'port']);
+const SAFE_TEST_DATABASE_NAME = /^prodx_(?:[a-z0-9]+_)*(?:test|tests|ci|integration)$/i;
+const FORBIDDEN_DATABASE_NAME_SEGMENTS = new Set(['prod', 'production', 'staging', 'live']);
 
 export type TestDatabaseEnvironment = {
   NODE_ENV?: string;
@@ -90,11 +92,21 @@ export const assertDisposableTestDatabaseUrl = (
 
   // 7. Forbid production-like database names
   const lowerDb = database.toLowerCase();
-  if (lowerDb === 'production' || lowerDb === 'prod') {
+  if (lowerDb.split('_').some((segment) => FORBIDDEN_DATABASE_NAME_SEGMENTS.has(segment)) || !SAFE_TEST_DATABASE_NAME.test(lowerDb)) {
     throw new Error(
-      `${contextName}: Integration tests must never target a database named "${database}".`,
+      `${contextName}: DATABASE_URL must target an explicitly named disposable PRODX test database ending in _test, _tests, _ci, or _integration; received: "${database}".`,
     );
   }
 
   return trimmed;
+};
+
+/** Resolve only an explicitly configured disposable test database. Never use the local runtime fallback. */
+export const resolveDisposableTestDatabaseUrl = (
+  rawUrl: string | undefined,
+  contextName = 'Integration test',
+  env: TestDatabaseEnvironment = process.env,
+): string | undefined => {
+  if (rawUrl === undefined) return undefined;
+  return assertDisposableTestDatabaseUrl(rawUrl, contextName, env);
 };

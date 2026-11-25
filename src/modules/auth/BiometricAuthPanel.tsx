@@ -83,13 +83,13 @@ export const BiometricAuthPanel: React.FC<BiometricAuthPanelProps> = ({
             </span>
           </div>
           <div className="min-w-0">
-            <div className="text-xs font-bold text-white flex items-center gap-1.5 truncate">
+            <div className="text-xs font-bold text-brand-primary-text flex items-center gap-1.5 truncate">
               <span>{isThai ? 'เซ็นเซอร์ชีวมิติพร้อมทำงาน' : 'Biometric Sensor Ready'}</span>
-              <span className="rounded bg-emerald-500/20 px-1 py-0.2 text-[9px] font-mono font-bold text-emerald-300">
+              <span className="rounded bg-emerald-500/20 px-1 py-0.5 text-[9px] font-mono font-bold text-emerald-300">
                 FIDO2
               </span>
             </div>
-            <div className="text-[10px] text-slate-300 truncate">
+            <div className="text-[10px] text-brand-primary-text/80 truncate">
               {webauthnCapability?.biometricLabel || 'Touch ID / Fingerprint / Face ID'}
             </div>
           </div>
@@ -100,7 +100,7 @@ export const BiometricAuthPanel: React.FC<BiometricAuthPanelProps> = ({
             playClick();
             onOpenEnrollModal();
           }}
-          className="shrink-0 inline-flex items-center gap-1 rounded-lg bg-white/10 hover:bg-white/20 border border-white/15 px-2.5 py-1.5 text-[11px] font-bold text-white focus-visible:ring-2 focus-visible:ring-cta transition-all cursor-pointer"
+          className="shrink-0 inline-flex items-center gap-1 rounded-lg bg-white/10 hover:bg-white/20 border border-white/15 px-2.5 py-1.5 min-h-[36px] text-[11px] font-bold text-brand-primary-text focus-visible:ring-2 focus-visible:ring-cta transition-all cursor-pointer"
         >
           <Plus className="w-3.5 h-3.5 text-cta" />
           <span>{isThai ? 'จัดการ Passkey' : 'Passkeys'}</span>
@@ -144,7 +144,7 @@ export const BiometricAuthPanel: React.FC<BiometricAuthPanelProps> = ({
             <div className="inline-flex items-center gap-1.5 text-xs font-black text-brand-text">
               <UserCheck className="w-3.5 h-3.5 text-emerald-600" />
               <span>{activePasskey.userName}</span>
-              <span className="rounded-md bg-brand-surface border border-brand-border px-1.5 py-0.2 text-[10px] font-bold uppercase text-brand-text-secondary">
+              <span className="rounded-md bg-brand-surface border border-brand-border px-1.5 py-0.5 text-[10px] font-bold uppercase text-brand-text-secondary">
                 {activePasskey.userRole}
               </span>
             </div>
@@ -211,7 +211,7 @@ export const BiometricAuthPanel: React.FC<BiometricAuthPanelProps> = ({
                     onSelectPasskey(pk.id);
                     handleTriggerScan(pk);
                   }}
-                  className={`h-7.5 px-3 rounded-lg text-xs font-black transition-all cursor-pointer disabled:opacity-40 ${
+                  className={`min-h-[40px] px-3 rounded-lg text-xs font-black transition-all cursor-pointer disabled:opacity-40 ${
                     isSelected
                       ? 'bg-cta text-cta-text hover:bg-cta-hover'
                       : 'bg-brand-primary text-brand-primary-text hover:bg-brand-primary-hover'
@@ -246,9 +246,9 @@ export const BiometricAuthPanel: React.FC<BiometricAuthPanelProps> = ({
             playClick();
             onSwitchMode('pin');
           }}
-          className="text-xs font-bold text-brand-text-secondary hover:text-brand-primary focus-visible:ring-2 focus-visible:ring-cta rounded-lg p-1.5 transition-colors cursor-pointer inline-flex items-center gap-1.5"
+          className="min-h-[44px] px-3 text-xs font-bold text-brand-text-secondary hover:text-brand-text-accent focus-visible:ring-2 focus-visible:ring-cta rounded-lg transition-colors cursor-pointer inline-flex items-center gap-1.5"
         >
-          <KeyRound className="w-4 h-4 text-blue-700" />
+          <KeyRound className="w-4 h-4 text-brand-text-accent" />
           <span>{isThai ? 'กลับไปใช้แป้น PIN' : 'Switch to PIN Pad'}</span>
         </button>
       </div>
