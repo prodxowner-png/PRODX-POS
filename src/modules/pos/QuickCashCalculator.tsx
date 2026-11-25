@@ -165,21 +165,23 @@ export const QuickCashCalculator: React.FC<QuickCashCalculatorProps> = ({
       {/* Header */}
       <button
         type="button"
+        aria-expanded={isExpanded}
+        aria-controls="quick-cash-calculator-panel"
         onClick={() => {
           playClick();
           setIsExpanded(!isExpanded);
         }}
-        className="w-full flex items-center justify-between px-3.5 py-2.5 bg-card border-b border-border border-crisp text-xs font-bold text-text cursor-pointer focus:outline-none active-scale"
+        className="w-full min-h-[44px] flex items-center justify-between px-3.5 py-2.5 bg-card border-b border-border border-crisp text-xs font-bold text-text cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta active-scale"
       >
         <span className="flex items-center gap-1.5">
-          <Banknote className="h-4 w-4 text-primary" />
+          <Banknote className="h-4 w-4 text-brand-text-accent" />
           <span>
             {language === 'th' ? 'เครื่องคำนวณเงินทอนด่วน (Quick Cash)' : 'Quick Cash Calculator'}
           </span>
         </span>
         <div className="flex items-center gap-2">
           {Object.keys(accumulatedBills).length > 0 && (
-            <span className="px-1.5 py-0.5 rounded-full bg-primary text-[9px] text-white font-bold uppercase shadow-2xs">
+            <span className="px-2 py-0.5 rounded-full bg-primary text-[10px] text-primary-foreground font-bold uppercase shadow-2xs tabular-nums">
               {language === 'th' ? 'มีเงินสะสม' : 'Stacked'}
             </span>
           )}
@@ -189,16 +191,16 @@ export const QuickCashCalculator: React.FC<QuickCashCalculatorProps> = ({
 
       {/* Expanded panel */}
       {isExpanded && (
-        <div className="p-3.5 space-y-3.5">
+        <div id="quick-cash-calculator-panel" className="p-3.5 space-y-3.5">
           {/* Quick Total Bills Input Tray */}
           <div>
-            <div className="text-[10px] font-bold text-text/50 uppercase tracking-wider mb-2 flex justify-between items-center">
+            <div className="text-[10px] font-bold text-brand-text-secondary uppercase tracking-wider mb-2 flex justify-between items-center">
               <span>{language === 'th' ? 'รับเงินสดมา (แตะเพื่อเพิ่มจำนวน)' : 'Cash Received Tray (Tap to accumulate)'}</span>
               {Object.keys(accumulatedBills).length > 0 && (
                 <button
                   type="button"
                   onClick={handleClearAccumulated}
-                  className="text-rose-500 hover:text-rose-600 transition-colors flex items-center gap-1 normal-case cursor-pointer font-bold text-[10px] active-scale"
+                  className="text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 transition-colors flex items-center gap-1 normal-case cursor-pointer font-bold text-[10px] active-scale"
                 >
                   <Trash2 className="h-3 w-3" />
                   <span>{language === 'th' ? 'ล้างถาด' : 'Reset tray'}</span>
@@ -207,7 +209,7 @@ export const QuickCashCalculator: React.FC<QuickCashCalculatorProps> = ({
             </div>
 
             {/* Bills & Coins Grid */}
-            <div className="grid grid-cols-4 gap-1.5">
+            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
               {denominations.map((denom) => {
                 const count = accumulatedBills[denom.value] || 0;
                 return (
@@ -215,16 +217,16 @@ export const QuickCashCalculator: React.FC<QuickCashCalculatorProps> = ({
                     key={denom.value}
                     type="button"
                     onClick={() => handleAddDenomination(denom)}
-                    className={`relative min-h-[48px] p-2 theme-btn-radius active-scale border-crisp border flex flex-col items-center justify-center transition-all cursor-pointer select-none shadow-2xs ${denom.colorClass} ${denom.darkColorClass} ${
+                    className={`relative min-h-[48px] p-2 theme-btn-radius active-scale border-crisp border flex flex-col items-center justify-center transition-all cursor-pointer select-none shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta ${denom.colorClass} ${denom.darkColorClass} ${
                       count > 0 ? 'ring-2 ring-primary border-primary font-bold' : 'hover:scale-[0.98]'
                     }`}
                   >
-                    <span className="text-xs font-mono font-bold">{denom.label}</span>
-                    <span className="text-[8px] text-text/50 mt-0.5 font-sans font-medium">
+                    <span className="text-xs font-mono font-bold tabular-nums">{denom.label}</span>
+                    <span className="text-[10px] text-brand-text-secondary mt-0.5 font-sans font-medium">
                       {denom.type === 'bill' ? (language === 'th' ? 'ธนบัตร' : 'Bill') : (language === 'th' ? 'เหรียญ' : 'Coin')}
                     </span>
                     {count > 0 && (
-                      <span className="absolute -top-1.5 -right-1.5 bg-primary text-white font-mono text-[9px] font-bold h-4 min-w-[16px] px-1 rounded-full flex items-center justify-center border border-border shadow-2xs">
+                      <span className="absolute -top-1.5 -right-1.5 bg-primary text-primary-foreground font-mono tabular-nums text-[10px] font-bold h-4.5 min-w-[18px] px-1 rounded-full flex items-center justify-center border border-border shadow-2xs">
                         x{count}
                       </span>
                     )}
@@ -236,16 +238,16 @@ export const QuickCashCalculator: React.FC<QuickCashCalculatorProps> = ({
 
           {/* Quick Preset Buttons */}
           <div className="space-y-1.5">
-            <div className="text-[10px] font-bold text-text/50 uppercase tracking-wider">
+            <div className="text-[10px] font-bold text-brand-text-secondary uppercase tracking-wider">
               {language === 'th' ? 'ทางลัดจำนวนเงินที่จ่ายบ่อย' : 'Fast Pay Shortcuts'}
             </div>
-            <div className="flex flex-wrap gap-1.5">
+            <div className="flex flex-wrap gap-2">
               <button
                 type="button"
                 onClick={handleSetExact}
-                className="min-h-[36px] px-3 py-1.5 text-xs theme-btn-radius active-scale border-crisp border border-border text-text hover:bg-background transition font-bold cursor-pointer bg-card shadow-2xs"
+                className="min-h-[44px] px-3 py-1.5 text-xs theme-btn-radius active-scale border-crisp border border-border text-text hover:bg-background transition font-bold tabular-nums cursor-pointer bg-card shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta"
               >
-                {language === 'th' ? 'พอดีเป๊ะ' : 'Exact'} (<span className="font-mono">{formatMoney(createMoney(totalDueCents, currency))}</span>)
+                {language === 'th' ? 'พอดีเป๊ะ' : 'Exact'} (<span className="font-mono tabular-nums">{formatMoney(createMoney(totalDueCents, currency))}</span>)
               </button>
               {calculateChangeShortcuts().map((cents) => {
                 if (cents === totalDueCents) return null; // exact handled above
@@ -258,9 +260,9 @@ export const QuickCashCalculator: React.FC<QuickCashCalculatorProps> = ({
                       setAccumulatedBills({});
                       onTenderedChange(cents);
                     }}
-                    className={`min-h-[36px] px-3 py-1.5 text-xs theme-btn-radius active-scale border-crisp border font-mono font-bold transition cursor-pointer shadow-2xs ${
+                    className={`min-h-[44px] px-3 py-1.5 text-xs theme-btn-radius active-scale border-crisp border font-mono font-bold tabular-nums transition cursor-pointer shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta ${
                       tenderedCents === cents
-                        ? 'bg-primary border-primary text-white'
+                        ? 'bg-primary border-primary text-primary-foreground'
                         : 'border-border bg-card text-text hover:bg-background'
                     }`}
                   >

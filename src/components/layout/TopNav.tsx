@@ -189,7 +189,7 @@ export const TopNav: React.FC<TopNavProps> = ({
 
           {/* Active Shift Indicator */}
           <div className="hidden 2xl:flex items-center gap-2 px-2.5 py-1.5 min-h-[44px] rounded-xl border border-border border-crisp bg-background/80 shrink-0">
-             <div className={`w-2 h-2 rounded-full ${currentShift ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+             <div className={`w-2 h-2 rounded-full ${currentShift ? 'bg-success' : 'bg-warning'}`} />
              <span className="text-[10px] font-bold text-text/70 uppercase">
                 {currentShift ? t.topNav.shiftOpen : t.topNav.noShift}
              </span>
@@ -326,7 +326,7 @@ export const TopNav: React.FC<TopNavProps> = ({
             className="hidden lg:flex min-w-[44px] min-h-[44px] items-center justify-center p-2 rounded-xl border border-border border-crisp hover:bg-background text-text/70 transition-all duration-150 cursor-pointer active:scale-95"
             aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
           >
-            {theme === 'dark' ? <Sun className="h-4 w-4 text-amber-400" /> : <Moon className="h-4 w-4 text-primary" />}
+            {theme === 'dark' ? <Sun className="h-4 w-4 text-warning" /> : <Moon className="h-4 w-4 text-primary" />}
           </button>
 
           {/* OfflineProvider Real-Time Connectivity Status Indicator (Online/Offline) */}

@@ -82,7 +82,7 @@ interface OfflineContextType {
   clearSyncActivityHistory: () => void;
 }
 
-const OfflineContext = createContext<OfflineContextType | undefined>(undefined);
+export const OfflineContext = createContext<OfflineContextType | undefined>(undefined);
 
 const OUTBOX_STORAGE_KEY = 'prodx_pos_outbox';
 const LAST_SYNCED_STORAGE_KEY = 'prodx_pos_last_synced';

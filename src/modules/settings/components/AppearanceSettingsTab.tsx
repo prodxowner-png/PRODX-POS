@@ -29,6 +29,7 @@ import { Button } from '../../../components/common/Button';
 import { GraphicIcon } from '../../../components/common/GraphicIcon';
 import { useLanguage } from '../../../context/LanguageContext';
 import { useTheme, THEME_PRESETS, ThemePreset } from '../../../context/ThemeContext';
+import { buildThemeVariables } from '../../../context/themeTokenAdapter';
 import { useToast } from '../../../context/ToastContext';
 import { CustomerDisplayConfigState } from '../types';
 import { CustomerDisplayLauncherModal } from '../../../components/customerDisplay/CustomerDisplayLauncherModal';
@@ -67,19 +68,29 @@ export const AppearanceSettingsTab: React.FC<AppearanceSettingsTabProps> = ({
   const [previewPresetId, setPreviewPresetId] = useState<string | null>(null);
 
   React.useEffect(() => {
-    const presetToApply = THEME_PRESETS.find((p) => p.id === (previewPresetId || activePresetId)) || currentPreset;
+    if (!previewPresetId) {
+      return;
+    }
+
+    const presetToApply = THEME_PRESETS.find((p) => p.id === previewPresetId) || currentPreset;
     const root = document.documentElement;
-    root.style.setProperty('--primary-color', presetToApply.primary);
-    root.style.setProperty('--primary-dark', presetToApply.primaryDark);
-    root.style.setProperty('--primary-light', presetToApply.primaryLight);
-    root.style.setProperty('--primary-glow', presetToApply.primaryGlow);
-    root.style.setProperty('--bg-color', presetToApply.background);
-    root.style.setProperty('--card-color', presetToApply.card);
-    root.style.setProperty('--card-hover', presetToApply.cardHover);
-    root.style.setProperty('--text-color', presetToApply.text);
-    root.style.setProperty('--text-muted', presetToApply.textMuted);
-    root.style.setProperty('--border-color', presetToApply.border);
-  }, [previewPresetId, activePresetId, currentPreset]);
+    const previewVars = buildThemeVariables(
+      presetToApply,
+      theme,
+      previewPresetId ? null : customAccentColor
+    );
+
+    for (const [property, value] of Object.entries(previewVars)) {
+      root.style.setProperty(property, value);
+    }
+
+    return () => {
+      const restoredVars = buildThemeVariables(currentPreset, theme, customAccentColor);
+      for (const [property, value] of Object.entries(restoredVars)) {
+        root.style.setProperty(property, value);
+      }
+    };
+  }, [previewPresetId, currentPreset, theme, customAccentColor]);
 
   const handleLaunchDualMonitor = () => {
     const url = `${window.location.origin}${window.location.pathname}?view=customer-display`;
@@ -827,17 +838,17 @@ export const AppearanceSettingsTab: React.FC<AppearanceSettingsTabProps> = ({
       </Card>
 
       {/* Live Multi-Display Simulation (Enterprise Grade) */}
-      <Card className="border border-border/80 shadow-lg rounded-2xl overflow-hidden bg-[#07111f] text-white">
-        <CardHeader className="bg-white/5 border-b border-white/10 py-5 px-6">
+      <Card className="border border-brand-border-strong shadow-lg rounded-2xl overflow-hidden bg-brand-primary text-brand-primary-text">
+        <CardHeader className="bg-black/15 border-b border-white/15 py-5 px-6">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-primary text-white shadow-glow">
+            <div className="p-2 rounded-xl bg-cta text-cta-text shadow-glow">
               <Monitor className="h-5 w-5" />
             </div>
             <div>
               <h3 className="text-base font-black tracking-tight">
                 {language === 'th' ? 'จำลองการแสดงผลข้ามอุปกรณ์ (Live Multi-Display Simulation)' : 'Live Multi-Display Simulation'}
               </h3>
-              <p className="text-xs text-white/50 mt-0.5">
+              <p className="text-xs text-brand-primary-text/75 mt-0.5">
                 {language === 'th' ? 'ตรวจสอบสไตล์และแบรนด์ของคุณบนหน้าจอ POS ทุกรูปแบบ' : 'Audit your brand and theme harmony across all hardware form factors.'}
               </p>
             </div>
@@ -847,11 +858,11 @@ export const AppearanceSettingsTab: React.FC<AppearanceSettingsTabProps> = ({
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
             {/* 1. Desktop POS Mockup */}
             <div className="space-y-3">
-              <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-white/40 mb-1">
+              <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-brand-primary-text/70 mb-1">
                 <Monitor className="h-3 w-3" />
                 <span>Stationary Desktop POS</span>
               </div>
-              <div className="aspect-video w-full rounded-2xl border-4 border-[#1e293b] bg-[#0f172a] relative overflow-hidden shadow-2xl group">
+              <div className="aspect-video w-full rounded-2xl border-4 border-brand-border-strong bg-brand-bg relative overflow-hidden shadow-2xl group">
                 <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent pointer-events-none" />
                 {/* Mock Desktop UI */}
                 <div className="absolute inset-0 flex flex-col scale-[0.3] origin-top-left w-[333%] h-[333%] pointer-events-none">

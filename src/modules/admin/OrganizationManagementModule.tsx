@@ -534,12 +534,12 @@ export const OrganizationManagementModule: React.FC<OrganizationManagementModule
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
         <div>
           <div className="flex items-center gap-2 text-xs font-bold text-slate-500 uppercase tracking-wider">
-            <span className="text-[#ff6b1a]">PRODX ADMIN</span>
+            <span className="text-brand-text-accent">PRODX ADMIN</span>
             <ChevronRight className="h-3 w-3" />
             <span>{isThai ? 'การจัดการองค์กร' : 'Organization Management'}</span>
           </div>
           <h1 className="text-2xl font-black text-slate-900 tracking-tight mt-1 flex items-center gap-2.5">
-            <Building2 className="h-7 w-7 text-[#ff6b1a]" />
+            <Building2 className="h-7 w-7 text-brand-primary" />
             {isThai ? 'ระบบบริหารโครงสร้างองค์กรและเครือข่ายสาขา' : 'Organization & Multi-Store Hierarchy'}
           </h1>
           <p className="text-xs text-slate-500 mt-1 max-w-2xl">
@@ -601,7 +601,7 @@ export const OrganizationManagementModule: React.FC<OrganizationManagementModule
             <span className="text-[11px] font-black uppercase tracking-wider text-slate-500">
               {isThai ? 'องค์กรทั้งหมด' : 'Total Organizations'}
             </span>
-            <Building2 className="h-4 w-4 text-[#ff6b1a]" />
+            <Building2 className="h-4 w-4 text-brand-primary" />
           </div>
           <div className="text-3xl font-black text-slate-900 mt-2">{organizations.length}</div>
           <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-1">
@@ -657,7 +657,7 @@ export const OrganizationManagementModule: React.FC<OrganizationManagementModule
         <div className="space-y-6">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-black text-slate-900 flex items-center gap-2">
-              <Layers className="h-5 w-5 text-[#ff6b1a]" />
+              <Layers className="h-5 w-5 text-brand-primary" />
               {isThai ? 'ผังโครงสร้างแบบลำดับชั้น (Hierarchical View)' : 'Organizational Hierarchy Flow'}
             </h2>
             <Button size="sm" onClick={openCreateOrgModal} className="flex items-center gap-1.5 font-bold">
@@ -675,13 +675,13 @@ export const OrganizationManagementModule: React.FC<OrganizationManagementModule
                 <div
                   key={org.id}
                   className={`bg-white border rounded-2xl p-5 shadow-xs transition-all ${
-                    isSelected ? 'border-[#ff6b1a] ring-2 ring-[#ff6b1a]/10' : 'border-slate-200'
+                    isSelected ? 'border-brand-primary ring-2 ring-brand-primary/15' : 'border-slate-200'
                   }`}
                 >
                   {/* Organization Level Card Header */}
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
                     <div className="flex items-start sm:items-center gap-3">
-                      <div className="h-12 w-12 rounded-xl bg-[#ff6b1a]/10 text-[#ff6b1a] flex items-center justify-center font-black">
+                      <div className="h-12 w-12 rounded-xl bg-brand-surface-selected text-brand-primary flex items-center justify-center font-black">
                         <Building2 className="h-6 w-6" />
                       </div>
                       <div>
@@ -868,7 +868,7 @@ export const OrganizationManagementModule: React.FC<OrganizationManagementModule
                 onClick={() => setActiveTab('organizations')}
                 className={`px-4 py-2 text-xs font-black rounded-xl transition-all flex items-center gap-2 ${
                   activeTab === 'organizations'
-                    ? 'bg-[#ff6b1a] text-white shadow-xs'
+                    ? 'bg-brand-primary text-brand-primary-text shadow-xs'
                     : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
                 }`}
               >
@@ -937,7 +937,7 @@ export const OrganizationManagementModule: React.FC<OrganizationManagementModule
                 placeholder={isThai ? 'ค้นหาชื่อ รหัส หรือ ID...' : 'Search by name, code, or ID...'}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:outline-hidden focus:border-[#ff6b1a] text-slate-900"
+                className="w-full pl-9 pr-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:outline-hidden focus:border-brand-primary text-slate-900"
               />
             </div>
           </div>
@@ -978,13 +978,13 @@ export const OrganizationManagementModule: React.FC<OrganizationManagementModule
                       onClick={() => setSelectedOrgId(org.id)}
                       className={`bg-white border rounded-2xl p-5 cursor-pointer transition-all space-y-4 shadow-2xs hover:shadow-xs ${
                         isSelected
-                          ? 'border-[#ff6b1a] ring-2 ring-[#ff6b1a]/15'
+                          ? 'border-brand-primary ring-2 ring-brand-primary/15'
                           : 'border-slate-200 hover:border-slate-300'
                       }`}
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex items-center gap-3">
-                          <div className="h-10 w-10 rounded-xl bg-[#ff6b1a]/10 text-[#ff6b1a] flex items-center justify-center font-black">
+                          <div className="h-10 w-10 rounded-xl bg-brand-surface-selected text-brand-primary flex items-center justify-center font-black">
                             <Building2 className="h-5 w-5" />
                           </div>
                           <div>
@@ -1085,7 +1085,7 @@ export const OrganizationManagementModule: React.FC<OrganizationManagementModule
                             setSelectedOrgId(org.id);
                             setActiveTab('branches');
                           }}
-                          className="text-[11px] font-bold text-[#ff6b1a] hover:bg-[#ff6b1a]/10 flex items-center gap-1"
+                          className="text-[11px] font-bold text-brand-text-accent hover:bg-brand-surface-hover flex items-center gap-1"
                         >
                           {isThai ? 'ดูสาขา' : 'View Branches'}
                           <ChevronRight className="h-3 w-3" />
@@ -1428,7 +1428,7 @@ export const OrganizationManagementModule: React.FC<OrganizationManagementModule
                         <button
                           type="button"
                           onClick={() => copyToClipboard(term.id, 'Terminal Registration Token')}
-                          className="text-[#ff6b1a] hover:underline flex items-center gap-1 font-sans font-bold"
+                          className="text-brand-text-accent hover:underline flex items-center gap-1 font-sans font-bold cursor-pointer"
                         >
                           <Copy className="h-3 w-3" />
                           {isThai ? 'คัดลอก Token' : 'Copy ID'}
