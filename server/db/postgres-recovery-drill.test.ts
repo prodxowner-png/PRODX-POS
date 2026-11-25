@@ -200,7 +200,7 @@ test('dedicated PostgreSQL 17 workflow runs the guarded recovery drill on a PG17
   assert.match(workflow, /uses: actions\/setup-node@[0-9a-f]{40}/);
   assert.doesNotMatch(workflow, /uses: actions\/(?:checkout|setup-node)@v[0-9]+/);
   assert.match(workflow, /PRODX_DR_TEST_PG17:\s*["']1["']/);
-  assert.match(workflow, /DATABASE_URL:.*drill_test/);
+  assert.match(workflow, /DATABASE_URL:.*prodx_drill_test/);
   assert.match(workflow, /POSTGRES_HOST_AUTH_METHOD:\s*trust/);
   assert.doesNotMatch(workflow, /POSTGRES_PASSWORD/);
   assert.match(workflow, /node --import tsx --test --test-concurrency=1 server\/db\/postgres-recovery-drill\.test\.ts/);
