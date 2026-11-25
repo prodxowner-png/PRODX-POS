@@ -458,8 +458,8 @@ export const SecurityRolesSettingsTab: React.FC<SecurityRolesSettingsTabProps> =
                       <FileX className="h-4 w-4 text-rose-500" />
                       <span>
                         {language === 'th'
-                          ? 'บังคับใส่ PIN ผู้จัดการเมื่อยกเลิกบิล (Require PIN for Order Void)'
-                          : 'Require Manager PIN for Order Void'}
+                          ? 'ต้องยืนยันตัวตนบัญชีผู้จัดการเมื่อยกเลิกบิล (Supervisor Reauthentication for Order Void)'
+                          : 'Require Supervisor Reauthentication for Order Void'}
                       </span>
                     </div>
                     <div className="text-[11px] text-text/50 mt-0.5 pl-6">
@@ -492,8 +492,8 @@ export const SecurityRolesSettingsTab: React.FC<SecurityRolesSettingsTabProps> =
                       <BadgePercent className="h-4 w-4 text-amber-500" />
                       <span>
                         {language === 'th'
-                          ? 'บังคับใส่ PIN เมื่อให้ส่วนลดพิเศษเกิน 15% (Require PIN for Discount > 15%)'
-                          : 'Require Manager PIN for Custom Discounts > 15%'}
+                          ? 'ต้องยืนยันบัญชีผู้จัดการเมื่อให้ส่วนลดเกิน 15% (Supervisor Reauthentication for Discount > 15%)'
+                          : 'Require Supervisor Reauthentication for Custom Discounts > 15%'}
                       </span>
                     </div>
                     <div className="text-[11px] text-text/50 mt-0.5 pl-6">

@@ -4,6 +4,7 @@ import './i18n';
 import App from './App.tsx';
 import './index.css';
 import './premium-design-system.css';
+import './prodx-brand-tokens.css';
 import { registerSW } from 'virtual:pwa-register';
 import { SpeedInsights } from '@vercel/speed-insights/react';
 

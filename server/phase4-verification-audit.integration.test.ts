@@ -2,22 +2,24 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import test from 'node:test';
 import { hashPassword } from './auth/password';
-import { resolveConfiguredDatabaseUrl } from './db/postgres';
+import { resolveDisposableTestDatabaseUrl } from './db/test-database-guard';
 import { createProductionApp } from './entrypoint';
 
-const databaseUrl = resolveConfiguredDatabaseUrl(process.env.DATABASE_URL);
+const databaseUrl = resolveDisposableTestDatabaseUrl(process.env.DATABASE_URL, 'server/phase4-verification-audit.integration.test.ts');
 
 const ids = {
-  org: '00000000-0000-4000-8000-000000009401',
-  store: '00000000-0000-4000-8000-000000009402',
-  register: '00000000-0000-4000-8000-000000009403',
-  device: '00000000-0000-4000-8000-000000009404',
-  adminUser: '00000000-0000-4000-8000-000000009405',
-  cashierUser: '00000000-0000-4000-8000-000000009406',
-  adminRole: '00000000-0000-4000-8000-000000009407',
-  cashierRole: '00000000-0000-4000-8000-000000009408',
-  category: '00000000-0000-4000-8000-000000009409',
+  org: crypto.randomUUID(),
+  store: crypto.randomUUID(),
+  register: crypto.randomUUID(),
+  device: crypto.randomUUID(),
+  adminUser: crypto.randomUUID(),
+  cashierUser: crypto.randomUUID(),
+  adminRole: crypto.randomUUID(),
+  cashierRole: crypto.randomUUID(),
+  category: crypto.randomUUID(),
 };
+
+const runSuffix = ids.org.replaceAll('-', '').slice(0, 12);
 
 const requiredPermissions = [
   'pos.sell',
@@ -47,82 +49,33 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
     checkCompromisedPassword: async () => ({ compromised: false, count: 0 }),
   });
   const passwordHash = await hashPassword('Phase4-Pass!99');
-
-  const cleanup = async () => {
-    await pool.query('ALTER TABLE prodx_audit_log DISABLE TRIGGER prodx_audit_log_immutable_guard');
-    await pool.query('ALTER TABLE prodx_refunds DISABLE TRIGGER prodx_refund_immutable_guard');
-    await pool.query('ALTER TABLE prodx_refund_items DISABLE TRIGGER prodx_refund_item_immutable_guard');
-    await pool.query('ALTER TABLE prodx_voids DISABLE TRIGGER prodx_void_immutable_guard');
-    try {
-      await pool.query('DELETE FROM prodx_supervisor_authorizations WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_cash_movements WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_inventory_ledger WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_refund_items WHERE store_id = $1', [ids.store]);
-      await pool.query('DELETE FROM prodx_refunds WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_voids WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_payment_attempts WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_payments WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_order_items WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_orders WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_inventory_adjustments WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_catalog_import_operations WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_catalog_pricing_operations WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_products WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_categories WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_shift_operations WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_shifts WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_security_audit_events WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_audit_log WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_sessions WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_user_roles WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_role_permissions WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_roles WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_user_credentials WHERE user_id IN ($1, $2)', [ids.adminUser, ids.cashierUser]);
-      await pool.query('DELETE FROM prodx_store_memberships WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_devices WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_registers WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_users WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_stores WHERE organization_id = $1', [ids.org]);
-      await pool.query('DELETE FROM prodx_organizations WHERE id = $1', [ids.org]);
-    } finally {
-      await pool.query('ALTER TABLE prodx_voids ENABLE TRIGGER prodx_void_immutable_guard');
-      await pool.query('ALTER TABLE prodx_refund_items ENABLE TRIGGER prodx_refund_item_immutable_guard');
-      await pool.query('ALTER TABLE prodx_refunds ENABLE TRIGGER prodx_refund_immutable_guard');
-      await pool.query('ALTER TABLE prodx_audit_log ENABLE TRIGGER prodx_audit_log_immutable_guard');
-    }
-  };
-
-  await cleanup();
-  t.after(async () => {
-    await cleanup();
-    await pool.end();
-  });
+  t.after(async () => { await pool.end(); });
 
   // Seed organization, store, register, device, users, roles, and permissions
   await pool.query('INSERT INTO prodx_organizations (id, code, name) VALUES ($1, $2, $3)', [
     ids.org,
-    'phase4-org',
+    `phase4-${runSuffix}`,
     'Phase 4 Verification Org',
   ]);
   await pool.query(
     `INSERT INTO prodx_stores (id, organization_id, code, name, business_timezone)
-     VALUES ($1, $2, 'store-p4', 'Phase 4 Store', 'Asia/Bangkok')`,
+     VALUES ($1, $2, 'store-p4-${runSuffix}', 'Phase 4 Store', 'Asia/Bangkok')`,
     [ids.store, ids.org],
   );
   await pool.query(
     `INSERT INTO prodx_registers (id, organization_id, store_id, code, name, status)
-     VALUES ($1, $2, $3, 'REG-P4', 'Phase 4 Register', 'active')`,
+     VALUES ($1, $2, $3, 'REG-P4-${runSuffix}', 'Phase 4 Register', 'active')`,
     [ids.register, ids.org, ids.store],
   );
   await pool.query(
     `INSERT INTO prodx_devices (id, organization_id, store_id, device_key, name, status)
-     VALUES ($1, $2, $3, 'REG-P4', 'Phase 4 Device', 'active')`,
+     VALUES ($1, $2, $3, 'REG-P4-${runSuffix}', 'Phase 4 Device', 'active')`,
     [ids.device, ids.org, ids.store],
   );
   await pool.query(
     `INSERT INTO prodx_users (id, organization_id, username, display_name, status)
-     VALUES ($1, $3, 'p4-admin', 'Phase 4 Admin', 'active'),
-            ($2, $3, 'p4-cashier', 'Phase 4 Cashier', 'active')`,
+     VALUES ($1, $3, 'p4-admin-${runSuffix}', 'Phase 4 Admin', 'active'),
+            ($2, $3, 'p4-cashier-${runSuffix}', 'Phase 4 Cashier', 'active')`,
     [ids.adminUser, ids.cashierUser, ids.org],
   );
   await pool.query(
@@ -143,23 +96,18 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
   );
 
   for (const permKey of requiredPermissions) {
-    await pool.query(
-      `INSERT INTO prodx_permissions (id, permission_key, description)
-       VALUES ($1, $2, $2)
-       ON CONFLICT (permission_key) DO NOTHING`,
-      [crypto.randomUUID(), permKey],
-    );
     const permRow = await pool.query<{ id: string }>(
       'SELECT id FROM prodx_permissions WHERE permission_key = $1 LIMIT 1',
       [permKey],
     );
+    assert.equal(permRow.rowCount, 1, `Canonical permission ${permKey} must be seeded by migrations.`);
     await pool.query(
       `INSERT INTO prodx_role_permissions (organization_id, role_id, permission_id)
        VALUES ($1, $2, $3)
        ON CONFLICT DO NOTHING`,
       [ids.org, ids.adminRole, permRow.rows[0].id],
     );
-    if (permKey.startsWith('pos.') || permKey.startsWith('cash.shift.') || permKey === 'inventory.read') {
+    if (['pos.sell', 'cash.shift.open', 'cash.shift.close', 'inventory.read', 'customer.read', 'customer.write'].includes(permKey)) {
       await pool.query(
         `INSERT INTO prodx_role_permissions (organization_id, role_id, permission_id)
          VALUES ($1, $2, $3)
@@ -199,11 +147,11 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-request-id': 'req-p4-admin-deny' },
     body: JSON.stringify({
-      organizationSlug: 'phase4-org',
-      storeCode: 'store-p4',
-      emailOrPin: 'p4-cashier',
+      organizationSlug: `phase4-${runSuffix}`,
+      storeCode: `store-p4-${runSuffix}`,
+      emailOrPin: `p4-cashier-${runSuffix}`,
       passwordOrPin: 'Phase4-Pass!99',
-      registerId: 'REG-P4',
+      registerId: `REG-P4-${runSuffix}`,
     }),
   });
   assert.equal(cashierAdminLogin.status, 403);
@@ -216,11 +164,11 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-request-id': 'req-p4-admin-ok' },
     body: JSON.stringify({
-      organizationSlug: 'phase4-org',
-      storeCode: 'store-p4',
-      emailOrPin: 'p4-admin',
+      organizationSlug: `phase4-${runSuffix}`,
+      storeCode: `store-p4-${runSuffix}`,
+      emailOrPin: `p4-admin-${runSuffix}`,
       passwordOrPin: 'Phase4-Pass!99',
-      registerId: 'REG-P4',
+      registerId: `REG-P4-${runSuffix}`,
     }),
   });
   assert.equal(adminLogin.status, 200);
@@ -231,16 +179,95 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
     Authorization: `Bearer ${adminSession.token}`,
   };
 
+  // Cashier has pos.sell but no pos.discount; both online checkout and offline replay must fail closed.
+  const cashierLogin = await fetch(`${baseUrl}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      organizationSlug: `phase4-${runSuffix}`,
+      storeCode: `store-p4-${runSuffix}`,
+      emailOrPin: `p4-cashier-${runSuffix}`,
+      passwordOrPin: 'Phase4-Pass!99',
+      registerId: `REG-P4-${runSuffix}`,
+    }),
+  });
+  assert.equal(cashierLogin.status, 200);
+  const cashierSession = (await cashierLogin.json()) as { token: string; currentUser: { permissions: string[] } };
+  assert.equal(cashierSession.currentUser.permissions.includes('pos:checkout'), true);
+  assert.equal(cashierSession.currentUser.permissions.includes('pos:discount'), false);
+  const cashierHeaders = {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${cashierSession.token}`,
+  };
+  const cashierDiscountPayload = {
+    idempotencyKey: 'idem-p4-cashier-discount-denied',
+    storeId: ids.store,
+    registerId: ids.register,
+    cashierId: ids.cashierUser,
+    orderDiscountBps: 1000,
+    items: [{
+      lineId: 'line-p4-cashier-discount',
+      product: { id: '00000000-0000-4000-8000-000000009410' },
+      quantity: 1,
+      unitPrice: { amountInCents: 2199, currency: 'THB' },
+      discountBps: 0,
+      lineSubtotal: { amountInCents: 2055, currency: 'THB' },
+      lineTax: { amountInCents: 144, currency: 'THB' },
+      lineTotal: { amountInCents: 2199, currency: 'THB' },
+    }],
+    totals: {
+      grossSubtotal: { amountInCents: 2199, currency: 'THB' },
+      itemDiscounts: { amountInCents: 0, currency: 'THB' },
+      orderDiscount: { amountInCents: 220, currency: 'THB' },
+      netSubtotal: { amountInCents: 1849, currency: 'THB' },
+      totalTax: { amountInCents: 130, currency: 'THB' },
+      grandTotal: { amountInCents: 1979, currency: 'THB' },
+      totalItemsCount: 1,
+    },
+    payments: [{
+      id: crypto.randomUUID(),
+      method: 'cash',
+      amount: { amountInCents: 1979, currency: 'THB' },
+      tenderedCash: { amountInCents: 2000, currency: 'THB' },
+      changeGiven: { amountInCents: 21, currency: 'THB' },
+      timestamp: new Date().toISOString(),
+    }],
+  };
+  const cashierDiscountDenied = await fetch(`${baseUrl}/api/v1/orders/checkout`, {
+    method: 'POST',
+    headers: cashierHeaders,
+    body: JSON.stringify(cashierDiscountPayload),
+  });
+  assert.equal(cashierDiscountDenied.status, 403);
+  assert.equal(((await cashierDiscountDenied.json()) as { error: { code: string } }).error.code, 'DISCOUNT_NOT_AUTHORIZED');
+  const cashierSyncDiscountDenied = await fetch(`${baseUrl}/api/v1/sync/commands`, {
+    method: 'POST',
+    headers: cashierHeaders,
+    body: JSON.stringify({
+      item: {
+        id: 'sync-p4-discount-denied',
+        type: 'order_transaction',
+        idempotencyKey: cashierDiscountPayload.idempotencyKey,
+        payload: cashierDiscountPayload,
+        createdAt: new Date().toISOString(),
+        attempts: 0,
+        syncState: 'queued',
+      },
+    }),
+  });
+  assert.equal(cashierSyncDiscountDenied.status, 403);
+  assert.equal(((await cashierSyncDiscountDenied.json()) as { error: { code: string } }).error.code, 'DISCOUNT_NOT_AUTHORIZED');
+
   // 3. Phase 3 Gate: Bulk Catalog Import with exact BigInt decimal money + idempotency
   const importRes1 = await fetch(`${baseUrl}/api/v1/catalog/import`, {
     method: 'POST',
     headers: { ...authHeaders, 'x-request-id': 'req-p4-import-1' },
     body: JSON.stringify({
-      idempotencyKey: 'idem-p4-import-1',
+      idempotencyKey: `idem-p4-${runSuffix}-import-1`,
       mode: 'upsert',
       items: [
         {
-          sku: 'P4-COFFEE-01',
+          sku: `P4-COFFEE-${runSuffix}`,
           barcode: '8859999000011',
           name: 'Phase 4 Signature Roast',
           categoryId: ids.category,
@@ -269,11 +296,11 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
     method: 'POST',
     headers: authHeaders,
     body: JSON.stringify({
-      idempotencyKey: 'idem-p4-import-1',
+      idempotencyKey: `idem-p4-${runSuffix}-import-1`,
       mode: 'upsert',
       items: [
         {
-          sku: 'P4-COFFEE-01',
+          sku: `P4-COFFEE-${runSuffix}`,
           barcode: '8859999000011',
           name: 'Phase 4 Signature Roast',
           categoryId: ids.category,
@@ -296,7 +323,7 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
     method: 'POST',
     headers: authHeaders,
     body: JSON.stringify({
-      idempotencyKey: 'idem-p4-pricing-1',
+      idempotencyKey: `idem-p4-${runSuffix}-pricing-1`,
       productIds: [productId],
       priceChangeType: 'percent_markup',
       value: 10,
@@ -314,7 +341,7 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
     method: 'POST',
     headers: authHeaders,
     body: JSON.stringify({
-      idempotencyKey: 'idem-p4-inv-1',
+      idempotencyKey: `idem-p4-${runSuffix}-inv-1`,
       productIds: [productId],
       quantityDelta: 5,
       reason: 'purchase_received',
@@ -332,7 +359,7 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
     method: 'POST',
     headers: authHeaders,
     body: JSON.stringify({
-      idempotencyKey: 'idem-p4-shift-open',
+      idempotencyKey: `idem-p4-${runSuffix}-shift-open`,
       registerId: ids.register,
       openingFloat: { amountInCents: 100000, currency: 'THB' },
     }),
@@ -348,7 +375,7 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
     method: 'POST',
     headers: authHeaders,
     body: JSON.stringify({
-      idempotencyKey: 'idem-p4-checkout-1',
+      idempotencyKey: `idem-p4-${runSuffix}-checkout-1`,
       storeId: ids.store,
       registerId: ids.register,
       cashierId: ids.adminUser,
@@ -358,7 +385,7 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
           product: {
             id: productId,
             storeId: ids.store,
-            sku: 'P4-COFFEE-01',
+            sku: `P4-COFFEE-${runSuffix}`,
             barcode: '8859999000011',
             name: 'Phase 4 Signature Roast',
             categoryId: ids.category,
@@ -407,7 +434,7 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
     method: 'POST',
     headers: authHeaders,
     body: JSON.stringify({
-      supervisorUsername: 'p4-admin',
+      supervisorUsername: `p4-admin-${runSuffix}`,
       supervisorSecret: 'Phase4-Pass!99',
       action: 'refund',
       orderId: order1Id,
@@ -425,7 +452,7 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
       reason: 'Customer returned 1 item',
       refundMethod: 'cash',
       itemsToRestock: [{ productId, quantity: 1 }],
-      idempotencyKey: 'idem-p4-refund-1',
+      idempotencyKey: `idem-p4-${runSuffix}-refund-1`,
       supervisorAuthorizationToken: supAuthRefundBody.authorizationToken,
     }),
   });
@@ -436,7 +463,7 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
     method: 'POST',
     headers: authHeaders,
     body: JSON.stringify({
-      idempotencyKey: 'idem-p4-checkout-2',
+      idempotencyKey: `idem-p4-${runSuffix}-checkout-2`,
       storeId: ids.store,
       registerId: ids.register,
       cashierId: ids.adminUser,
@@ -446,7 +473,7 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
           product: {
             id: productId,
             storeId: ids.store,
-            sku: 'P4-COFFEE-01',
+            sku: `P4-COFFEE-${runSuffix}`,
             barcode: '8859999000011',
             name: 'Phase 4 Signature Roast',
             categoryId: ids.category,
@@ -493,7 +520,7 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
     method: 'POST',
     headers: authHeaders,
     body: JSON.stringify({
-      supervisorUsername: 'p4-admin',
+      supervisorUsername: `p4-admin-${runSuffix}`,
       supervisorSecret: 'Phase4-Pass!99',
       action: 'void',
       orderId: order2Id,
@@ -508,21 +535,73 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
     body: JSON.stringify({
       orderId: order2Id,
       reason: 'Cashier entry mistake',
-      idempotencyKey: 'idem-p4-void-1',
+      idempotencyKey: `idem-p4-${runSuffix}-void-1`,
       supervisorAuthorizationToken: supAuthVoidBody.authorizationToken,
     }),
   });
   assert.equal(voidRes.status, 201);
 
-  // 10. Shift Close + Idempotent Replay
-  // Expected cash in drawer: 100000 (start) + 4398 (order 1) - 2199 (refund 1) + 2199 (order 2) - 2199 (void 2) = 102199 cents
+  // 10. Production RBAC discount authorization through the real PostgreSQL permission catalog.
+  const discountedCheckoutRes = await fetch(`${baseUrl}/api/v1/orders/checkout`, {
+    method: 'POST',
+    headers: authHeaders,
+    body: JSON.stringify({
+      idempotencyKey: 'idem-p4-checkout-discount',
+      storeId: ids.store,
+      registerId: ids.register,
+      cashierId: ids.adminUser,
+      orderDiscountBps: 1000,
+      items: [{
+        lineId: 'line-discount-1',
+        product: {
+          id: productId, storeId: ids.store, sku: 'P4-COFFEE-01', barcode: '8859999000011',
+          name: 'Phase 4 Signature Roast', categoryId: ids.category,
+          price: { amountInCents: 2199, currency: 'THB' },
+          costPrice: { amountInCents: 850, currency: 'THB' }, taxRateBps: 700,
+          currentStock: 25, reorderPoint: 5, unitOfMeasure: 'cup',
+        },
+        quantity: 1,
+        unitPrice: { amountInCents: 2199, currency: 'THB' },
+        discountBps: 0,
+        lineSubtotal: { amountInCents: 2055, currency: 'THB' },
+        lineTax: { amountInCents: 144, currency: 'THB' },
+        lineTotal: { amountInCents: 2199, currency: 'THB' },
+      }],
+      totals: {
+        grossSubtotal: { amountInCents: 2199, currency: 'THB' },
+        itemDiscounts: { amountInCents: 0, currency: 'THB' },
+        orderDiscount: { amountInCents: 220, currency: 'THB' },
+        netSubtotal: { amountInCents: 1849, currency: 'THB' },
+        totalTax: { amountInCents: 130, currency: 'THB' },
+        grandTotal: { amountInCents: 1979, currency: 'THB' },
+        totalItemsCount: 1,
+      },
+      payments: [{
+        id: crypto.randomUUID(), method: 'cash',
+        amount: { amountInCents: 1979, currency: 'THB' },
+        tenderedCash: { amountInCents: 2000, currency: 'THB' },
+        changeGiven: { amountInCents: 21, currency: 'THB' },
+        timestamp: new Date().toISOString(),
+      }],
+    }),
+  });
+  const discountedCheckoutResponseBody = await discountedCheckoutRes.text();
+  assert.equal(discountedCheckoutRes.status, 201, discountedCheckoutResponseBody);
+  const discountedCheckoutBody = JSON.parse(discountedCheckoutResponseBody) as {
+    order: { totals: { orderDiscount: { amountInCents: number }; grandTotal: { amountInCents: number } } };
+  };
+  assert.equal(discountedCheckoutBody.order.totals.orderDiscount.amountInCents, 220);
+  assert.equal(discountedCheckoutBody.order.totals.grandTotal.amountInCents, 1979);
+
+  // 11. Shift Close + Idempotent Replay
+  // Expected cash in drawer: 100000 (start) + 4398 (order 1) - 2199 (refund 1) + 2199 (order 2) - 2199 (void 2) + 1979 (discounted order 3) = 104178 cents
   const shiftClose1Res = await fetch(`${baseUrl}/api/v1/shifts/${shiftId}/close`, {
     method: 'POST',
     headers: authHeaders,
     body: JSON.stringify({
-      idempotencyKey: 'idem-p4-shift-close',
+      idempotencyKey: `idem-p4-${runSuffix}-shift-close`,
       shiftId,
-      actualCountedCash: { amountInCents: 102199, currency: 'THB' },
+      actualCountedCash: { amountInCents: 104178, currency: 'THB' },
       notes: 'Exact drawer count',
     }),
   });
@@ -538,9 +617,9 @@ test('Phase 4 End-to-End Verification & Audit Trail: Auth RBAC Separation, Shift
     method: 'POST',
     headers: authHeaders,
     body: JSON.stringify({
-      idempotencyKey: 'idem-p4-shift-close',
+      idempotencyKey: `idem-p4-${runSuffix}-shift-close`,
       shiftId,
-      actualCountedCash: { amountInCents: 102199, currency: 'THB' },
+      actualCountedCash: { amountInCents: 104178, currency: 'THB' },
       notes: 'Exact drawer count',
     }),
   });

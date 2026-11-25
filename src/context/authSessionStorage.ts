@@ -32,3 +32,34 @@ export function writePersistedSession(storage: SessionStorageLike, token: string
 export function clearPersistedSession(storage: SessionStorageLike): void {
   storage.removeItem(AUTH_SESSION_STORAGE_KEY);
 }
+
+export async function restoreVerifiedSession<TSession>(
+  verifySession: (token: string) => Promise<TSession | null>,
+  sessionStorage: SessionStorageLike,
+  localStorage?: Pick<SessionStorageLike, 'removeItem'>,
+  onError?: (error: unknown) => void,
+): Promise<TSession | null> {
+  try {
+    localStorage?.removeItem(AUTH_SESSION_STORAGE_KEY);
+    const persisted = readPersistedSession(sessionStorage);
+    if (!persisted) {
+      clearPersistedSession(sessionStorage);
+      return null;
+    }
+    const verified = await verifySession(persisted.token);
+    if (!verified) {
+      clearPersistedSession(sessionStorage);
+      return null;
+    }
+    return verified;
+  } catch (err) {
+    onError?.(err);
+    try {
+      clearPersistedSession(sessionStorage);
+      localStorage?.removeItem(AUTH_SESSION_STORAGE_KEY);
+    } catch {
+      // Fail closed even if storage cleanup throws.
+    }
+    return null;
+  }
+}

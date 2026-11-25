@@ -1,7 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "bun run build && bun build ./server/entrypoint.ts --outfile ./server-bundle.js --target node --format esm --packages external",
-  "installCommand": "npm ci",
+  "installCommand": "npm install --global npm@11.21.2 --no-fund --no-audit && test \"$(npm --version)\" = \"11.21.2\" && test \"$(npm config get strict-allow-scripts)\" = \"true\" && npm ci --include=dev --no-fund --no-audit",
   "outputDirectory": "dist",
   "rewrites": [
     {
@@ -19,6 +19,10 @@
     {
       "source": "/organizations/:path*",
       "destination": "/api/index.ts"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
     }
   ]
 }

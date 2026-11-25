@@ -228,12 +228,12 @@ export const OrderRefundModal: React.FC<OrderRefundModalProps> = ({
     }
   };
 
-  const handleSupervisorAuthorized = async (supervisor: User, _notes?: string, secret?: string) => {
+  const handleSupervisorAuthorized = async (supervisor: User, _notes?: string, proof?: string) => {
     setIsSupervisorModalOpen(false);
-    await executeRefundProcess(supervisor, secret);
+    await executeRefundProcess(supervisor, proof);
   };
 
-  const executeRefundProcess = async (authorizedUser: User, supervisorSecret?: string) => {
+  const executeRefundProcess = async (authorizedUser: User, supervisorProof?: string) => {
     if (!session) return;
     setIsProcessing(true);
 
@@ -259,7 +259,7 @@ export const OrderRefundModal: React.FC<OrderRefundModalProps> = ({
           itemsToRestockPayload
         );
       } else {
-        if (!supervisorSecret?.trim()) {
+        if (!supervisorProof) {
           throw new Error(language === 'th'
             ? 'ต้องยืนยันรหัสผ่านผู้อนุมัติผ่านเซิร์ฟเวอร์ก่อนคืนเงิน'
             : 'A supervisor secret is required for server authorization.');
@@ -267,8 +267,8 @@ export const OrderRefundModal: React.FC<OrderRefundModalProps> = ({
         const authorization = await createProductionSupervisorAuthorizationApi(session.token).authorize({
           action: 'refund',
           orderId: order.id,
-          supervisorUsername: authorizedUser.email,
-          supervisorSecret,
+          supervisorUserId: authorizedUser.id,
+          supervisorAccessToken: supervisorProof,
         });
         const result = await refundApi.refund({
           orderId: order.id,
@@ -360,7 +360,7 @@ export const OrderRefundModal: React.FC<OrderRefundModalProps> = ({
                         ? 'สิทธิ์ผู้จัดการพร้อมใช้งาน (Manager Ready)'
                         : 'Manager Authorization Active'
                       : language === 'th'
-                      ? 'ต้องใช้รหัส PIN ผู้จัดการ (Manager PIN Required)'
+                      ? 'ต้องยืนยันตัวตนบัญชีผู้จัดการ (Supervisor Account Reauthentication Required)'
                       : 'Supervisor / Manager Authorization Required'}
                   </span>
                   {isCurrentUserManager && (
@@ -754,7 +754,7 @@ export const OrderRefundModal: React.FC<OrderRefundModalProps> = ({
         <SupervisorAuthModal
           isOpen={isSupervisorModalOpen}
           onClose={() => setIsSupervisorModalOpen(false)}
-          title={language === 'th' ? 'อนุมัติการคืนเงิน (Manager PIN)' : 'Authorize Refund (Manager PIN)'}
+          title={language === 'th' ? 'อนุมัติการคืนเงิน (บัญชีผู้จัดการ)' : 'Authorize Refund (Supervisor Account)'}
           actionDescription={`${
             language === 'th' ? 'อนุมัติคืนเงินคำสั่งซื้อ' : 'Refund Authorization for Order'
           } #${order.orderNumber} (${formatMoney(effectiveRefundAmount)})`}

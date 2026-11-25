@@ -23,7 +23,7 @@ const DEFAULT_CONFIG: AppConfiguration = {
   },
   theme: {
     mode: 'system',
-    presetId: 'enterprise_obsidian',
+    presetId: 'prodx_signature',
   },
   hardware: {
     keyboardFocusCapture: true,

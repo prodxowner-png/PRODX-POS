@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useShift } from '../../context/ShiftContext';
 import { useOffline } from '../../context/OfflineContext';
@@ -37,12 +37,33 @@ import { HourlyVelocityChart } from './components/HourlyVelocityChart';
 import { DashboardQuickActions } from './components/DashboardQuickActions';
 import { RecentTransactionsSection } from './components/RecentTransactionsSection';
 import { AiDashboardInsightsWidget } from './components/AiDashboardInsightsWidget';
+import { getStoreDateCarrier, getStoreDateParts, getStoreDayBounds, storeWallTimeToUtc } from './utils/storeTime';
 
 export interface DashboardScreenProps {
   onNavigate: (route: NavRoute) => void;
 }
 
 const DEFAULT_WIDGET_ORDER = ['ai_insights', 'low_stock', 'kpis', 'hourly_chart', 'quick_actions', 'recent_orders'];
+
+const normalizeWidgetOrder = (saved: string | null): string[] => {
+  if (!saved) return [...DEFAULT_WIDGET_ORDER];
+  try {
+    const parsed: unknown = JSON.parse(saved);
+    if (!Array.isArray(parsed) || parsed.length !== DEFAULT_WIDGET_ORDER.length) {
+      return [...DEFAULT_WIDGET_ORDER];
+    }
+    const knownIds = new Set(DEFAULT_WIDGET_ORDER);
+    const normalized = parsed.filter(
+      (id): id is string => typeof id === 'string' && knownIds.has(id)
+    );
+    return normalized.length === DEFAULT_WIDGET_ORDER.length
+      && new Set(normalized).size === DEFAULT_WIDGET_ORDER.length
+      ? normalized
+      : [...DEFAULT_WIDGET_ORDER];
+  } catch {
+    return [...DEFAULT_WIDGET_ORDER];
+  }
+};
 
 const WIDGET_TITLES: Record<string, { th: string; en: string }> = {
   ai_insights: { th: 'PRODX AI สรุปวิเคราะห์ยอดขายและกลยุทธ์', en: 'PRODX AI Executive Sales Insights' },
@@ -55,6 +76,8 @@ const WIDGET_TITLES: Record<string, { th: string; en: string }> = {
 
 export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) => {
   const { session } = useAuth();
+  const currentStoreId = session?.currentStore?.id;
+  const storeTimeZone = session?.currentStore?.timezone?.trim() || 'UTC';
   const { currentShift } = useShift();
   const { pendingCount } = useOffline();
   const { t, language } = useLanguage();
@@ -67,46 +90,55 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
   const [orders, setOrders] = useState<readonly Order[]>([]);
   const [products, setProducts] = useState<readonly Product[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [dataLoadError, setDataLoadError] = useState(false);
+  const loadRequestIdRef = useRef(0);
   const [lowStockThreshold, setLowStockThreshold] = useState<number>(() => {
     const cached = localStorage.getItem('prodx_low_stock_threshold');
     return cached ? parseInt(cached, 10) : 15;
   });
 
-  // Drag-and-drop widget layout state
-  const [widgetOrder, setWidgetOrder] = useState<string[]>(() => {
-    const storeId = session?.currentStore?.id || 'default';
-    const saved = localStorage.getItem(`prodx_dashboard_widget_order_${storeId}`);
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length === 5) return parsed;
-      } catch (e) {}
-    }
-    return DEFAULT_WIDGET_ORDER;
-  });
+  // Drag-and-drop widget layout state, loaded after the active store is known.
+  const [widgetOrder, setWidgetOrder] = useState<string[]>([...DEFAULT_WIDGET_ORDER]);
+  const [widgetOrderStoreId, setWidgetOrderStoreId] = useState<string | null>(null);
   const [isCustomizeMode, setIsCustomizeMode] = useState(false);
   const [draggedWidgetId, setDraggedWidgetId] = useState<string | null>(null);
   const [dragOverWidgetId, setDragOverWidgetId] = useState<string | null>(null);
 
   // Custom report date range filter state (Defaults to Today)
   const [dateRange, setDateRange] = useState<DateRange>(() => {
-    const now = new Date();
-    const start = new Date(now);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(now);
+    const today = getStoreDateCarrier(new Date(), storeTimeZone);
+    const end = new Date(today);
     end.setHours(23, 59, 59, 999);
-    return { startDate: start, endDate: end };
+    return { startDate: today, endDate: end };
   });
 
-  // Filter orders matching the selected date range window [startDate 00:00:00 - endDate 23:59:59]
+  useEffect(() => {
+    if (!session?.currentStore?.timezone) return;
+    const today = getStoreDateCarrier(new Date(), storeTimeZone);
+    const end = new Date(today);
+    end.setHours(23, 59, 59, 999);
+    setDateRange({ startDate: today, endDate: end });
+  }, [currentStoreId, storeTimeZone, session?.currentStore?.timezone]);
+
+  // Filter orders by the selected calendar dates in the store's configured timezone.
   const filteredOrders = useMemo(() => {
-    const startMs = new Date(dateRange.startDate).setHours(0, 0, 0, 0);
-    const endMs = new Date(dateRange.endDate).setHours(23, 59, 59, 999);
+    const startMs = getStoreDayBounds(dateRange.startDate, storeTimeZone).start.getTime();
+    const endMs = getStoreDayBounds(dateRange.endDate, storeTimeZone).end.getTime();
     return orders.filter((order) => {
       const orderTime = new Date(order.createdAt).getTime();
       return orderTime >= startMs && orderTime <= endMs;
     });
-  }, [orders, dateRange]);
+  }, [orders, dateRange, storeTimeZone]);
+
+  const confirmedStoreOrders = useMemo(
+    () => orders.filter((order) => order.status === 'server_confirmed'),
+    [orders]
+  );
+
+  const confirmedOrders = useMemo(
+    () => filteredOrders.filter((order) => order.status === 'server_confirmed'),
+    [filteredOrders]
+  );
 
   // Re-read low stock threshold from localStorage on render / navigation
   useEffect(() => {
@@ -119,32 +151,84 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
     }
   }, [products]);
 
-  useEffect(() => {
-    async function loadDashboardData() {
-      if (!session || !catalogApi || !orderReadApi) return;
-      setIsLoading(true);
-      try {
-        const [loadedOrders, loadedProducts] = await Promise.all([
-          orderReadApi.getOrders(session.currentStore.id, 200, session.registerId),
-          catalogApi!.getProducts(session.currentStore.id),
-        ]);
-        setOrders(loadedOrders);
-        setProducts(loadedProducts);
-      } catch (err) {
-        console.error('[Dashboard] Error loading data:', err);
-      } finally {
-        setIsLoading(false);
-      }
+  const loadDashboardData = useCallback(async () => {
+    const requestId = ++loadRequestIdRef.current;
+    if (!session || !catalogApi || !orderReadApi) {
+      setOrders([]);
+      setProducts([]);
+      setDataLoadError(false);
+      setIsLoading(false);
+      return;
     }
-    loadDashboardData();
-  }, [session, catalogApi, orderReadApi]);
 
-  // Save widget order when changed
-  useEffect(() => {
-    if (session?.currentStore?.id) {
-      localStorage.setItem(`prodx_dashboard_widget_order_${session.currentStore.id}`, JSON.stringify(widgetOrder));
+    setIsLoading(true);
+    setDataLoadError(false);
+    // Clear previous store data before loading the newly active store.
+    setOrders([]);
+    setProducts([]);
+
+    try {
+      const now = new Date();
+      const storeToday = getStoreDateCarrier(now, storeTimeZone);
+      const priorMonthStart = new Date(storeToday.getFullYear(), storeToday.getMonth() - 1, 1);
+      const selectedStart = getStoreDayBounds(dateRange.startDate, storeTimeZone).start;
+      const selectedEnd = getStoreDayBounds(dateRange.endDate, storeTimeZone).end;
+      const priorMonthStartUtc = getStoreDayBounds(priorMonthStart, storeTimeZone).start;
+      const shiftStart = currentShift?.openedAt ? new Date(currentShift.openedAt) : now;
+      const from = new Date(Math.min(selectedStart.getTime(), priorMonthStartUtc.getTime(), shiftStart.getTime())).toISOString();
+      const to = new Date(Math.max(selectedEnd.getTime(), now.getTime())).toISOString();
+      const loadedOrders: Order[] = [];
+      const pageSize = 200;
+      const maxPages = 51;
+
+      for (let page = 0; page < maxPages; page += 1) {
+        const batch = await orderReadApi.getOrders(session.currentStore.id, pageSize, undefined, {
+          from,
+          to,
+          offset: page * pageSize,
+        });
+        if (page === maxPages - 1 && batch.length > 0) {
+          throw new Error('Dashboard order history exceeds 10,000 records. Narrow the selected date range.');
+        }
+        loadedOrders.push(...batch);
+        if (batch.length < pageSize) break;
+      }
+
+      const loadedProducts = await catalogApi.getProducts(session.currentStore.id);
+      if (requestId !== loadRequestIdRef.current) return;
+      setOrders(loadedOrders);
+      setProducts(loadedProducts);
+    } catch (err) {
+      if (requestId !== loadRequestIdRef.current) return;
+      console.error('[Dashboard] Error loading data:', err);
+      setDataLoadError(true);
+    } finally {
+      if (requestId === loadRequestIdRef.current) setIsLoading(false);
     }
-  }, [widgetOrder, session]);
+  }, [session, catalogApi, orderReadApi, dateRange.startDate, dateRange.endDate, currentShift?.openedAt, storeTimeZone]);
+
+  useEffect(() => {
+    void loadDashboardData();
+    return () => {
+      loadRequestIdRef.current += 1;
+    };
+  }, [loadDashboardData]);
+
+  // Load and persist widget order only for the active store.
+  useEffect(() => {
+    if (!currentStoreId) {
+      setWidgetOrderStoreId(null);
+      return;
+    }
+    const saved = localStorage.getItem(`prodx_dashboard_widget_order_${currentStoreId}`);
+    setWidgetOrder(normalizeWidgetOrder(saved));
+    setWidgetOrderStoreId(currentStoreId);
+  }, [currentStoreId]);
+
+  useEffect(() => {
+    if (!currentStoreId || widgetOrderStoreId !== currentStoreId) return;
+    localStorage.setItem(`prodx_dashboard_widget_order_${currentStoreId}`, JSON.stringify(widgetOrder));
+  }, [widgetOrder, currentStoreId, widgetOrderStoreId]);
 
   const handleDragStart = (e: React.DragEvent, id: string) => {
     setDraggedWidgetId(id);
@@ -208,9 +292,9 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
     let digitalOrdersCount = 0;
     const currency = session?.currentStore.currency || 'THB';
 
-    for (const order of filteredOrders) {
-      if (order.status !== 'voided') {
-        const orderTotal = order.totals.grandTotal.amountInCents;
+    for (const order of confirmedOrders) {
+        const refundCents = order.refundedAmount?.amountInCents ?? 0;
+        const orderTotal = Math.max(0, order.totals.grandTotal.amountInCents - refundCents);
         netSalesCents += orderTotal;
         grossSalesCents += order.totals.grossSubtotal.amountInCents;
         ordersCount += 1;
@@ -219,7 +303,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
         let hasDigital = false;
 
         for (const item of order.items) {
-          totalItemsSold += item.quantity;
+          totalItemsSold += Math.max(0, item.quantity - (item.restockedQuantity ?? 0));
         }
 
         for (const payment of order.payments) {
@@ -232,9 +316,10 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
           }
         }
 
+        // Refund core currently commits cash refunds only; non-cash refunds fail closed.
+        cashSalesCents -= refundCents;
         if (hasCash) cashOrdersCount += 1;
         if (hasDigital) digitalOrdersCount += 1;
-      }
     }
 
     const netSales = createMoney(netSalesCents, currency);
@@ -265,11 +350,28 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
       outOfStockCount,
       totalInventoryCount,
     };
-  }, [filteredOrders, products, session, lowStockThreshold]);
+  }, [confirmedOrders, products, session, lowStockThreshold]);
 
   const lowStockProducts = useMemo(() => {
     return products.filter((p) => p.currentStock <= lowStockThreshold && p.currentStock > 0);
   }, [products, lowStockThreshold]);
+
+  const topProductsSummary = useMemo(() => {
+    const quantities = new Map<string, { name: string; qty: number }>();
+    for (const order of confirmedOrders) {
+      for (const item of order.items) {
+        const existing = quantities.get(item.product.id);
+        quantities.set(item.product.id, {
+          name: item.product.name,
+          qty: (existing?.qty ?? 0) + Math.max(0, item.quantity - (item.restockedQuantity ?? 0)),
+        });
+      }
+    }
+    return Array.from(quantities.values())
+      .filter((product) => product.qty > 0)
+      .sort((a, b) => b.qty - a.qty)
+      .slice(0, 5);
+  }, [confirmedOrders]);
 
   // Dynamically calculate hourly sales volume for the current shift
   const shiftHourlyData: readonly HourlyDataPoint[] = useMemo(() => {
@@ -284,16 +386,15 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
       }
     } else {
       // Fallback: default to today 8:00 AM or 4 hours ago
-      shiftStart = new Date(now);
-      shiftStart.setHours(8, 0, 0, 0);
+      const storeToday = getStoreDateParts(now, storeTimeZone);
+      shiftStart = storeWallTimeToUtc({ ...storeToday, hour: 8, minute: 0, second: 0 }, storeTimeZone);
       if (now.getTime() < shiftStart.getTime()) {
         shiftStart = new Date(now.getTime() - 4 * 3600 * 1000);
       }
     }
 
-    // Filter non-voided orders belonging to the current shift window and register
-    const shiftOrders = orders.filter((order) => {
-      if (order.status === 'voided') return false;
+    // Filter server-confirmed orders belonging to the current shift window and register
+    const shiftOrders = confirmedStoreOrders.filter((order) => {
       const orderTime = new Date(order.createdAt).getTime();
       const afterStart = orderTime >= shiftStart.getTime();
       const beforeEnd = orderTime <= shiftEnd.getTime() + 60000;
@@ -301,8 +402,8 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
       return afterStart && beforeEnd && matchesRegister;
     });
 
-    const startHour = shiftStart.getHours();
-    const currentHour = now.getHours();
+    const startHour = getStoreDateParts(shiftStart, storeTimeZone).hour;
+    const currentHour = getStoreDateParts(now, storeTimeZone).hour;
     const elapsedHours = Math.max(0, currentHour - startHour + 1);
     const hoursSpan = Math.max(6, Math.min(12, Math.max(elapsedHours, 6)));
 
@@ -320,8 +421,8 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
 
       // Aggregate all orders belonging to this hour
       const matchingOrders = shiftOrders.filter((o) => {
-        const d = new Date(o.createdAt);
-        return d.getHours() === h;
+        const d = getStoreDateParts(new Date(o.createdAt), storeTimeZone);
+        return d.hour === h;
       });
 
       let amount = 0;
@@ -329,10 +430,10 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
       let units = 0;
 
       for (const ord of matchingOrders) {
-        amount += ord.totals.grandTotal.amountInCents / 100;
+        amount += Math.max(0, ord.totals.grandTotal.amountInCents - (ord.refundedAmount?.amountInCents ?? 0)) / 100;
         orderCount += 1;
         for (const item of ord.items) {
-          units += item.quantity;
+          units += Math.max(0, item.quantity - (item.restockedQuantity ?? 0));
         }
       }
 
@@ -347,41 +448,18 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
       });
     }
 
-    // If shift has recorded cash sales but individual order items were initialized prior to local storage,
-    // distribute realistic volume across active shift hours:
-    const totalAmount = buckets.reduce((acc, b) => acc + b.amount, 0);
-    if (totalAmount === 0 && currentShift && currentShift.totalCashSales.amountInCents > 0) {
-      const totalShiftAmt = currentShift.totalCashSales.amountInCents / 100;
-      const hoursToDistribute = Math.min(buckets.length, Math.max(2, elapsedHours));
-      const weights = [0.18, 0.42, 0.28, 0.12];
-      for (let i = 0; i < hoursToDistribute && i < buckets.length; i++) {
-        const w = weights[i % weights.length];
-        const amt = Math.round(totalShiftAmt * w * 100) / 100;
-        const ords = Math.max(1, Math.round(amt / 150));
-        const unts = Math.max(ords, Math.round(ords * 1.8));
-        buckets[i] = {
-          ...buckets[i],
-          amount: amt,
-          orders: ords,
-          units: unts,
-        };
-      }
-    }
-
     return buckets;
-  }, [currentShift, orders]);
+  }, [currentShift, confirmedStoreOrders, storeTimeZone]);
 
   const handleResetToday = () => {
-    const now = new Date();
-    const start = new Date(now);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(now);
+    const start = getStoreDateCarrier(new Date(), storeTimeZone);
+    const end = new Date(start);
     end.setHours(23, 59, 59, 999);
     setDateRange({ startDate: start, endDate: end });
   };
 
   return (
-    <div id="dashboard-screen-root" className="flex-1 flex flex-col min-h-0 overflow-y-auto p-4 sm:p-6 lg:p-8 space-y-6 bg-background text-text no-scrollbar">
+    <div id="dashboard-screen-root" aria-busy={isLoading} className="flex-1 flex flex-col min-h-0 overflow-y-auto p-4 sm:p-6 lg:p-8 space-y-6 bg-background text-text no-scrollbar">
       {/* 1. Header & Store Context Banner */}
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between pb-4 sm:pb-6 border-b border-border/50">
         <div className="min-w-0 flex-1">
@@ -479,10 +557,10 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
           </div>
           <div>
             <div className="text-[10px] font-black uppercase tracking-widest text-text/40">{language === 'th' ? 'สถานะการเชื่อมต่อ' : 'Connectivity & Sync'}</div>
-            <div className="text-sm font-black text-text mt-0.5">{pendingCount > 0 ? `${pendingCount} Items Pending` : 'Fully Synchronized'}</div>
+            <div className="text-sm font-black text-text mt-0.5">{pendingCount > 0 ? `${pendingCount} รายการรอซิงก์` : 'ไม่มีรายการรอซิงก์'}</div>
             <div className="flex items-center gap-1.5 mt-1">
                <span className={`w-1.5 h-1.5 rounded-full ${pendingCount > 0 ? 'bg-amber-500' : 'bg-emerald-500'}`} />
-               <span className={`text-[10px] font-bold ${pendingCount > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>{pendingCount > 0 ? 'Awaiting Upload' : 'Cloud Ledger Verified'}</span>
+               <span className={`text-[10px] font-bold ${pendingCount > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>{pendingCount > 0 ? 'Awaiting Upload' : 'No Pending Sync'}</span>
             </div>
           </div>
         </div>
@@ -557,6 +635,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
               value={dateRange}
               onChange={setDateRange}
               id="dashboard-report-date-range-picker"
+              timeZone={storeTimeZone}
             />
           </div>
         </div>
@@ -567,18 +646,26 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
             id="dashboard-telemetry-badge"
             className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-background border-border border-crisp text-xs font-mono tabular-nums"
           >
-            <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
-            <span className="font-bold text-text">{filteredOrders.length}</span>
-            <span className="text-text/70 whitespace-nowrap">
-              {language === 'th' ? 'บิลที่ตรงเกณฑ์' : 'bills in range'}
-            </span>
-            <span className="text-text/30">·</span>
-            {isFinancialAuthorized ? (
-              <span className="font-bold text-primary whitespace-nowrap">{formatMoney(metrics.netSales)}</span>
+            {isLoading ? (
+              <span className="text-text/70">{language === 'th' ? 'กำลังโหลดข้อมูล...' : 'Loading data...'}</span>
+            ) : dataLoadError ? (
+              <span className="text-rose-600 dark:text-rose-400">{language === 'th' ? 'ข้อมูลยังไม่พร้อม' : 'Data unavailable'}</span>
             ) : (
-              <span className="font-bold text-primary whitespace-nowrap">
-                {metrics.totalItemsSold} {language === 'th' ? 'ชิ้นที่ขาย' : 'items sold'}
-              </span>
+              <>
+                <span className="w-2 h-2 rounded-full bg-primary" />
+                <span className="font-bold text-text">{confirmedOrders.length}</span>
+                <span className="text-text/70 whitespace-nowrap">
+                  {language === 'th' ? 'บิลที่ยืนยันแล้ว' : 'confirmed bills'}
+                </span>
+                <span className="text-text/30">·</span>
+                {isFinancialAuthorized ? (
+                  <span className="font-bold text-primary whitespace-nowrap">{formatMoney(metrics.netSales)}</span>
+                ) : (
+                  <span className="font-bold text-primary whitespace-nowrap">
+                    {metrics.totalItemsSold} {language === 'th' ? 'ชิ้นที่ขาย' : 'items sold'}
+                  </span>
+                )}
+              </>
             )}
           </div>
 
@@ -595,7 +682,28 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
         </div>
       </div>
 
-      {/* 4. Draggable Dashboard Widgets Container */}
+      {/* 4. Dashboard data states and verified widgets */}
+      {isLoading ? (
+        <div role="status" aria-live="polite" className="rounded-2xl border border-border bg-card p-6 text-sm text-text/70">
+          {language === 'th' ? 'กำลังโหลดข้อมูลของสาขา...' : 'Loading store data...'}
+        </div>
+      ) : dataLoadError ? (
+        <div role="alert" className="rounded-2xl border border-rose-300 bg-rose-50 dark:bg-rose-950/20 dark:border-rose-900 p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h2 className="font-bold text-rose-800 dark:text-rose-200">
+              {language === 'th' ? 'ไม่สามารถโหลดข้อมูล Dashboard ได้' : 'Dashboard data could not be loaded'}
+            </h2>
+            <p className="text-sm text-rose-700 dark:text-rose-300 mt-1">
+              {language === 'th'
+                ? 'ระบบจะไม่แสดงตัวเลขสรุปแทนข้อมูลที่โหลดไม่สำเร็จ กรุณาลองใหม่'
+                : 'Summary metrics are hidden rather than presenting failed data as zero. Please retry.'}
+            </p>
+          </div>
+          <Button type="button" variant="outline" size="md" onClick={() => void loadDashboardData()} className="min-h-[44px] shrink-0">
+            {language === 'th' ? 'ลองโหลดอีกครั้ง' : 'Retry loading'}
+          </Button>
+        </div>
+      ) : (
       <div className="space-y-6">
         {widgetOrder.map((widgetId, index) => {
           if (widgetId === 'low_stock' && lowStockProducts.length === 0 && !isCustomizeMode) {
@@ -605,12 +713,6 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
           let widgetContent = null;
 
           if (widgetId === 'ai_insights') {
-            const topProductsSummary = products.slice(0, 5).map((p) => ({
-              name: p.name || 'Product',
-              qty: 12,
-              revenue: formatMoney(createMoney(p.price.amountInCents * 12, p.price.currency)),
-            }));
-
             widgetContent = (
               <AiDashboardInsightsWidget
                 totalRevenue={formatMoney(metrics.netSales)}
@@ -697,8 +799,9 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
                 currentShift={currentShift}
                 pendingCount={pendingCount}
                 isLoading={isLoading}
-                orders={orders}
+                orders={confirmedStoreOrders}
                 storeId={session?.currentStore?.id}
+                timeZone={storeTimeZone}
               />
             ) : (
               <StaffOperationalKPIs
@@ -715,7 +818,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
                 hourlyData={shiftHourlyData}
                 currentShift={currentShift}
                 currency={session?.currentStore?.currency || 'THB'}
-                orders={orders}
+                orders={confirmedStoreOrders}
                 storeId={session?.currentStore?.id}
               />
             );
@@ -764,8 +867,9 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
                       type="button"
                       onClick={() => moveWidgetDirection(widgetId, 'up')}
                       disabled={index === 0}
-                      className="p-1.5 rounded-lg border border-border bg-card hover:bg-background disabled:opacity-30 transition-colors text-text text-xs cursor-pointer"
-                      title="Move Up"
+                      aria-label={language === 'th' ? 'ย้ายวิดเจ็ทขึ้น' : 'Move widget up'}
+                      className="min-h-[44px] min-w-[44px] rounded-lg border border-border bg-card hover:bg-background disabled:opacity-30 transition-colors text-text text-xs cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                      title={language === 'th' ? 'ย้ายขึ้น' : 'Move Up'}
                     >
                       <ArrowUp className="h-3.5 w-3.5" />
                     </button>
@@ -773,8 +877,9 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
                       type="button"
                       onClick={() => moveWidgetDirection(widgetId, 'down')}
                       disabled={index === widgetOrder.length - 1}
-                      className="p-1.5 rounded-lg border border-border bg-card hover:bg-background disabled:opacity-30 transition-colors text-text text-xs cursor-pointer"
-                      title="Move Down"
+                      aria-label={language === 'th' ? 'ย้ายวิดเจ็ทลง' : 'Move widget down'}
+                      className="min-h-[44px] min-w-[44px] rounded-lg border border-border bg-card hover:bg-background disabled:opacity-30 transition-colors text-text text-xs cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                      title={language === 'th' ? 'ย้ายลง' : 'Move Down'}
                     >
                       <ArrowDown className="h-3.5 w-3.5" />
                     </button>
@@ -787,6 +892,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
           );
         })}
       </div>
+      )}
     </div>
   );
 };

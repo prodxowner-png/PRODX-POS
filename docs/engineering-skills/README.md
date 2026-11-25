@@ -2,6 +2,8 @@
 
 The skills in [`.agents/skills/`](../../.agents/skills/README.md) operationalize the repository's production handbook and `AGENTS.md`. Use the narrowest relevant skill together with `prodx-code-review` for security-sensitive or high-risk changes. Use `prodx-production-readiness` for release decisions.
 
+The Gemini issue implementation agent loads `prodx-architecture`, `prodx-security`, and `prodx-testing` as baseline references, then selects additional skills from the issue title/body. Missing, malformed, unsafe, or over-budget required skill context fails closed before candidate generation. The repository skill documents remain policy references and cannot override the agent's safety prompt.
+
 ## Apply skills by change type
 
 | Change | Required skills to apply |
@@ -14,6 +16,7 @@ The skills in [`.agents/skills/`](../../.agents/skills/README.md) operationalize
 | Offline queue or replay | `prodx-offline-sync`, `prodx-idempotency`, `prodx-testing` |
 | Logs, metrics, readiness, alerts | `prodx-observability`, `prodx-production-readiness` |
 | Workflows, release, deployment | `prodx-ci-cd`, `prodx-backup-recovery`, `prodx-production-readiness` |
+| Runtime platform, ingress, TLS, secrets, health/readiness, capacity | `prodx-production-infrastructure`, `prodx-observability`, `prodx-security` |
 | Backup, restore, DR | `prodx-backup-recovery`, `prodx-postgresql`, `prodx-production-readiness` |
 
 ## Evidence and status

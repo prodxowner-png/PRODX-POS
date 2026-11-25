@@ -42,6 +42,7 @@ export interface CartLineItem {
   readonly lineId: string;
   readonly product: Product;
   readonly quantity: number;
+  readonly restockedQuantity?: number; // Quantity restored to inventory through committed refund events.
   readonly unitPrice: Money;
   readonly discountBps: number; // Item discount (e.g. 1000 = 10%)
   readonly lineSubtotal: Money; // (unitPrice * qty) - lineDiscount
@@ -83,6 +84,7 @@ export interface Order {
   readonly items: readonly CartLineItem[];
   readonly totals: CartTotals;
   readonly payments: readonly TenderPayment[];
+  readonly refundedAmount?: Money; // Sum of immutable, server-committed refund events.
   readonly status: TransactionStatus;
   readonly serverCommittedAt?: string; // Only present if server_confirmed
   readonly createdAt: string; // ISO 8601 UTC

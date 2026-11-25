@@ -2,23 +2,23 @@ import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
 import test from 'node:test';
 import { hashPassword } from '../auth/password';
-import { resolveConfiguredDatabaseUrl } from '../db/postgres';
+import { resolveDisposableTestDatabaseUrl } from '../db/test-database-guard';
 import { createProductionApp } from '../entrypoint';
 
-const databaseUrl = resolveConfiguredDatabaseUrl(process.env.DATABASE_URL);
+const databaseUrl = resolveDisposableTestDatabaseUrl(process.env.DATABASE_URL, 'server/http/auth-route.integration.test.ts');
 const localClientFingerprints = ['127.0.0.1', '::ffff:127.0.0.1', '::1'].map((address) =>
   createHash('sha256').update(address).digest('hex'),
 );
 
 const ids = {
-  organizationA: '00000000-0000-4000-8000-000000000301',
-  organizationB: '00000000-0000-4000-8000-000000000302',
-  storeA: '00000000-0000-4000-8000-000000000311',
-  storeB: '00000000-0000-4000-8000-000000000312',
-  userA: '00000000-0000-4000-8000-000000000321',
-  userB: '00000000-0000-4000-8000-000000000322',
-  deviceA: '00000000-0000-4000-8000-000000000331',
-  deviceB: '00000000-0000-4000-8000-000000000332',
+  organizationA: randomUUID(),
+  organizationB: randomUUID(),
+  storeA: randomUUID(),
+  storeB: randomUUID(),
+  userA: randomUUID(),
+  userB: randomUUID(),
+  deviceA: randomUUID(),
+  deviceB: randomUUID(),
 };
 
 test('production auth HTTP boundary enforces login scope, session revocation, malformed bearer rejection, and store isolation', async (t) => {
@@ -42,7 +42,6 @@ test('production auth HTTP boundary enforces login scope, session revocation, ma
   const cleanup = async () => {
     globalThis.fetch = originalFetch;
     await pool.query('DELETE FROM prodx_auth_login_throttles WHERE client_fingerprint = ANY($1::text[])', [localClientFingerprints]);
-    await pool.query('DELETE FROM prodx_security_audit_events WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
     await pool.query('DELETE FROM prodx_sessions WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
     await pool.query('DELETE FROM prodx_user_roles WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
     await pool.query('DELETE FROM prodx_role_permissions WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
@@ -57,7 +56,6 @@ test('production auth HTTP boundary enforces login scope, session revocation, ma
   };
 
   await pool.query('DELETE FROM prodx_auth_login_throttles WHERE client_fingerprint = ANY($1::text[])', [localClientFingerprints]);
-  await pool.query('DELETE FROM prodx_security_audit_events WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
   await pool.query('DELETE FROM prodx_sessions WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
   await pool.query('DELETE FROM prodx_user_roles WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
   await pool.query('DELETE FROM prodx_role_permissions WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);

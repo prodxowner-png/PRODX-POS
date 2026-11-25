@@ -1,5 +1,11 @@
 import crypto from 'node:crypto';
 import express, { type NextFunction, type Request, type Response } from 'express';
+import {
+  logger as defaultLogger,
+  resolveTraceContext,
+  safeErrorDiagnostic,
+  type StructuredLogger,
+} from '../observability/logger.ts';
 import { runWithRequestContext } from './request-context-storage.ts';
 import type {
   ApiErrorBody,
@@ -13,6 +19,8 @@ declare global {
   namespace Express {
     interface Request {
       id: string;
+      traceId: string;
+      traceparent: string;
       prodxContext?: RequestContext;
     }
   }
@@ -24,6 +32,7 @@ export type BackendBoundaryOptions = {
   configurePublicRoutes?: (app: express.Express) => void;
   readinessCheck?: () => Promise<void>;
   configureRoutes?: (app: express.Express) => void;
+  logger?: StructuredLogger;
 };
 
 const sendError = (
@@ -38,35 +47,6 @@ const sendError = (
     error: { code, message, requestId, ...(details === undefined ? {} : { details }) },
   };
   response.status(status).json(body);
-};
-
-const safeReadinessDiagnostic = (error: unknown): Record<string, string | number> => {
-  const candidate = error && typeof error === 'object'
-    ? error as { name?: unknown; code?: unknown; syscall?: unknown; port?: unknown; stage?: unknown }
-    : {};
-  const diagnostic: Record<string, string | number> = {
-    name: typeof candidate.name === 'string' && /^[A-Za-z][A-Za-z0-9]*$/.test(candidate.name)
-      ? candidate.name
-      : 'unknown',
-  };
-
-  if (typeof candidate.code === 'string' && /^[A-Z0-9_]{1,40}$/.test(candidate.code)) {
-    diagnostic.code = candidate.code;
-  }
-  if (candidate.syscall === 'getaddrinfo' || candidate.syscall === 'connect' ||
-      candidate.syscall === 'read' || candidate.syscall === 'write') {
-    diagnostic.syscall = candidate.syscall;
-  }
-  if (typeof candidate.port === 'number' && Number.isInteger(candidate.port) &&
-      candidate.port >= 1 && candidate.port <= 65535) {
-    diagnostic.port = candidate.port;
-  }
-  if (candidate.stage === 'database_query' || candidate.stage === 'broker_fetch' ||
-      candidate.stage === 'broker_http' || candidate.stage === 'broker_response') {
-    diagnostic.stage = candidate.stage;
-  }
-
-  return diagnostic;
 };
 
 const requestId = (request: Request): string => {
@@ -97,11 +77,41 @@ export const requirePermission = (permission: string) => {
   };
 };
 
-const attachRequestId = (request: Request, response: Response, next: NextFunction): void => {
-  const id = requestId(request);
-  request.id = id;
-  response.setHeader('x-request-id', id);
-  next();
+const attachCorrelationAndAccessLog = (log: StructuredLogger) => {
+  return (request: Request, response: Response, next: NextFunction): void => {
+    const id = requestId(request);
+    const trace = resolveTraceContext(request.header('traceparent'));
+    request.id = id;
+    request.traceId = trace.traceId;
+    request.traceparent = trace.traceparent;
+    response.setHeader('x-request-id', id);
+    response.setHeader('traceparent', trace.traceparent);
+
+    const startedAt = process.hrtime.bigint();
+    response.on('finish', () => {
+      const durationMs = Math.round((Number(process.hrtime.bigint() - startedAt) / 1_000_000) * 100) / 100;
+      const status = response.statusCode;
+      const fields = {
+        requestId: request.id,
+        traceId: request.traceId,
+        method: request.method,
+        path: request.path,
+        status,
+        durationMs,
+        organizationId: request.prodxContext?.principal.organizationId,
+        storeId: request.prodxContext?.principal.storeId,
+      };
+      if (status >= 500) {
+        log.error('http.request', fields);
+      } else if (status >= 400) {
+        log.warn('http.request', fields);
+      } else {
+        log.info('http.request', fields);
+      }
+    });
+
+    next();
+  };
 };
 
 const authenticate = (authenticator: AuthenticateRequest) => {
@@ -127,6 +137,7 @@ const authenticate = (authenticator: AuthenticateRequest) => {
 
 export const createApp = (options: BackendBoundaryOptions) => {
   const app = express();
+  const log = options.logger ?? defaultLogger;
   app.disable('x-powered-by');
 
   // Client IPs are security-sensitive input for login throttling. Only trust
@@ -145,8 +156,9 @@ export const createApp = (options: BackendBoundaryOptions) => {
     }
   }
 
+  // Attach correlation and access logging before parsing so malformed JSON receives request & trace ids too.
+  app.use(attachCorrelationAndAccessLog(log));
   app.use(express.json({ limit: '1mb' }));
-  app.use(attachRequestId);
   app.locals.prodxAuthorize = options.authorizeRequest;
   options.configurePublicRoutes?.(app);
   app.get('/api/v1/healthz', (_request, response) => {
@@ -162,10 +174,19 @@ export const createApp = (options: BackendBoundaryOptions) => {
       await options.readinessCheck();
       response.json({ status: 'ready' });
     } catch (error: unknown) {
+      const diagnostic = safeErrorDiagnostic(error);
       console.error('PRODX readiness check failed', {
         requestId: request.id,
         status: 503,
-        ...safeReadinessDiagnostic(error),
+        ...diagnostic,
+      });
+      log.error('readiness.check_failed', {
+        requestId: request.id,
+        traceId: request.traceId,
+        method: request.method,
+        path: request.path,
+        status: 503,
+        ...diagnostic,
       });
       sendError(response, 503, 'NOT_READY', 'The service is not ready.', request.id);
     }
@@ -183,12 +204,35 @@ export const createApp = (options: BackendBoundaryOptions) => {
   });
 
   app.use((error: unknown, request: Request, response: Response, _next: NextFunction) => {
+    const parserError = error && typeof error === 'object'
+      ? error as { type?: unknown; status?: unknown }
+      : undefined;
+    if (
+      error instanceof SyntaxError &&
+      parserError?.type === 'entity.parse.failed' &&
+      parserError.status === 400
+    ) {
+      sendError(response, 400, 'INVALID_JSON', 'Request body must be valid JSON.', request.id);
+      return;
+    }
+
+    const diagnostic = safeErrorDiagnostic(error);
     console.error('PRODX unhandled request error', {
       requestId: request.id,
       method: request.method,
       path: request.path,
       status: 500,
-      ...safeReadinessDiagnostic(error),
+      ...diagnostic,
+    });
+    log.error('http.unhandled_error', {
+      requestId: request.id,
+      traceId: request.traceId,
+      method: request.method,
+      path: request.path,
+      status: 500,
+      organizationId: request.prodxContext?.principal.organizationId,
+      storeId: request.prodxContext?.principal.storeId,
+      ...diagnostic,
     });
     const details = process.env.NODE_ENV === 'production'
       ? undefined
