@@ -31,7 +31,10 @@ import { registerVoidRoute } from './http/void-route.ts';
 import { registerInventoryAdjustmentRoute } from './http/inventory-adjustment-route.ts';
 import { registerInfrastructureRoutes, registerPublicInfrastructureRoutes } from './http/infrastructureRoutes.ts';
 import { installAIHttpRoute } from './ai/http-route.ts';
+import { logger, safeErrorDiagnostic } from './observability/logger.ts';
+import { installGracefulShutdown } from './observability/shutdown.ts';
 export { createRetryableInitialization } from './http/retryable-initialization.ts';
+export { logger, safeErrorDiagnostic };
 
 export type ProductionAppOptions = {
   vercelOidcToken?: string;
@@ -113,18 +116,10 @@ export const startProductionServer = async (): Promise<void> => {
   }
 
   const server = app.listen(port, host, () => {
-    console.log(`PRODX POS backend listening on ${host}:${port}`);
+    logger.info('server.started', { host, port });
   });
 
-  const shutdown = async (signal: string) => {
-    server.close(async () => {
-      await pool.end();
-      console.log(`PRODX POS backend stopped after ${signal}`);
-    });
-  };
-
-  process.once('SIGINT', () => void shutdown('SIGINT'));
-  process.once('SIGTERM', () => void shutdown('SIGTERM'));
+  installGracefulShutdown({ server, pool });
 };
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

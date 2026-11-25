@@ -29,6 +29,7 @@ interface ManagerFinancialKPIsProps {
   isLoading: boolean;
   orders?: readonly Order[];
   storeId?: string;
+  timeZone?: string;
 }
 
 export const ManagerFinancialKPIs: React.FC<ManagerFinancialKPIsProps> = ({
@@ -38,12 +39,13 @@ export const ManagerFinancialKPIs: React.FC<ManagerFinancialKPIsProps> = ({
   isLoading,
   orders = [],
   storeId = 'default',
+  timeZone = 'UTC',
 }) => {
   const { t, language } = useLanguage();
 
   const { metrics: momMetrics } = useMemo(() => {
-    return calculateMonthOverMonthMetrics(orders, storeId, language as any);
-  }, [orders, storeId, language]);
+    return calculateMonthOverMonthMetrics(orders, storeId, language as any, 'actual', new Date(), timeZone);
+  }, [orders, storeId, language, timeZone]);
 
   return (
     <div id="dashboard-manager-kpi-container" className="space-y-4 sm:space-y-5">
@@ -70,19 +72,25 @@ export const ManagerFinancialKPIs: React.FC<ManagerFinancialKPIsProps> = ({
             <div className="mt-3 pt-3 border-t border-border text-[11px] text-text/70 font-medium flex items-center justify-between">
               <span
                 className={`flex items-center gap-1 font-semibold ${
-                  momMetrics.isGrowth
-                    ? 'text-emerald-600 dark:text-emerald-400'
-                    : 'text-rose-600 dark:text-rose-400'
+                  !momMetrics.hasComparablePriorPeriod
+                    ? 'text-text/50'
+                    : momMetrics.isGrowth
+                      ? 'text-emerald-600 dark:text-emerald-400'
+                      : 'text-rose-600 dark:text-rose-400'
                 }`}
+                aria-label={momMetrics.hasComparablePriorPeriod ? 'Verified month-over-month comparison' : 'Insufficient verified prior-period data'}
               >
-                {momMetrics.isGrowth ? (
-                  <ArrowUp className="h-3.5 w-3.5 stroke-[2.5]" />
+                {momMetrics.hasComparablePriorPeriod ? (
+                  momMetrics.isGrowth
+                    ? <ArrowUp className="h-3.5 w-3.5 stroke-[2.5]" />
+                    : <ArrowDown className="h-3.5 w-3.5 stroke-[2.5]" />
                 ) : (
-                  <ArrowDown className="h-3.5 w-3.5 stroke-[2.5]" />
+                  <AlertTriangle className="h-3.5 w-3.5" />
                 )}
                 <span>
-                  {momMetrics.variancePercentage > 0 ? '+' : ''}
-                  {momMetrics.variancePercentage}% MoM
+                  {momMetrics.hasComparablePriorPeriod
+                    ? `${momMetrics.variancePercentage > 0 ? '+' : ''}${momMetrics.variancePercentage}% MoM`
+                    : '—'}
                 </span>
               </span>
               <span className="truncate">{language === 'th' ? 'เทียบเดือนก่อน' : 'vs prior month'}</span>
