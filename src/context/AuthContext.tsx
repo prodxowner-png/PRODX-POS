@@ -46,7 +46,7 @@ import {
 import {
   AUTH_SESSION_STORAGE_KEY,
   clearPersistedSession,
-  readPersistedSession,
+  restoreVerifiedSession,
   writePersistedSession,
 } from './authSessionStorage';
 import { shouldReadMock } from '../adapters/env';
@@ -66,6 +66,7 @@ interface AuthContextType {
   operationalScope: OperationalScope | null;
   setOperationalScope: (scope: OperationalScope | null) => void;
   isLoading: boolean;
+  isInitializing: boolean;
   isLocked: boolean;
   inactivityTimeoutMinutes: number;
   autoLogoutTimeoutMinutes: number;
@@ -176,6 +177,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     getStoredOperationalScope(),
   );
   const [isLoading, setIsLoading] = useState(true);
+  const [isInitializing, setIsInitializing] = useState(true);
   const [isLocked, setIsLocked] = useState(false);
   const [staffUsers, setStaffUsers] = useState<User[]>(() =>
     IS_DEVELOPMENT ? getStoredStaffDirectory() : [],
@@ -432,15 +434,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     async function restoreSession() {
       try {
-        localStorage.removeItem(STORAGE_KEY);
-        const persisted = readPersistedSession(sessionStorage);
-        if (!persisted) {
-          clearPersistedSession(sessionStorage);
-          return;
-        }
-        const verified = await authApi.verifySession(persisted.token);
+        const verified = await restoreVerifiedSession(
+          (token) => authApi.verifySession(token),
+          sessionStorage,
+          localStorage,
+          (err) => console.error('[AuthContext] Session restore error:', err),
+        );
         if (!verified) {
-          clearPersistedSession(sessionStorage);
           return;
         }
         const storedScope = verified.operationalScope ?? getStoredOperationalScope();
@@ -460,6 +460,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } catch {}
       } finally {
         setIsLoading(false);
+        setIsInitializing(false);
       }
     }
     restoreSession();
@@ -1100,6 +1101,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         operationalScope,
         setOperationalScope,
         isLoading,
+        isInitializing,
         isLocked,
         inactivityTimeoutMinutes,
         autoLogoutTimeoutMinutes,
@@ -1157,6 +1159,7 @@ export function useAuth(): AuthContextType {
     operationalScope: null,
     setOperationalScope: () => {},
     isLoading: false,
+    isInitializing: false,
     isLocked: false,
     inactivityTimeoutMinutes: 15,
     autoLogoutTimeoutMinutes: 30,

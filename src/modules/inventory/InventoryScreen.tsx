@@ -714,8 +714,8 @@ export const InventoryScreen: React.FC = () => {
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-y-auto p-4 sm:p-6 lg:p-8 space-y-6 bg-background text-text no-scrollbar">
       {/* 1. Header & Navigation Tabs */}
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between pb-4 sm:pb-6 border-b border-border/50">
-        <div className="min-w-0 flex-1">
+      <div className="flex flex-col gap-3 pb-4 sm:pb-6 border-b border-border/50">
+        <div className="min-w-0">
           <h1 className="text-heading-1 text-text">
             {t.inventory.title}
           </h1>
@@ -724,7 +724,7 @@ export const InventoryScreen: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1 shrink-0">
+        <div className="flex flex-wrap items-center gap-2 py-1">
           <Button
             id="btn-restock-needed-report-trigger"
             variant="secondary"

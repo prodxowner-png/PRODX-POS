@@ -69,7 +69,7 @@ export const BiometricAuthPanel: React.FC<BiometricAuthPanelProps> = ({
   return (
     <div className="space-y-3.5 max-w-[360px] mx-auto select-none">
       {/* Sensor Status Banner */}
-      <div className="rounded-xl border border-slate-800 bg-slate-900 text-white px-3.5 py-2.5 flex items-center justify-between gap-2.5 shadow-xs">
+      <div className="rounded-xl border border-brand-border-strong bg-brand-primary text-brand-primary-text px-3.5 py-2.5 flex items-center justify-between gap-2.5 shadow-xs">
         <div className="flex items-center gap-2.5 min-w-0">
           <div className="relative h-8 w-8 rounded-lg bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center shrink-0">
             {activePasskey?.authenticatorType === 'face_id' ? (
@@ -83,13 +83,13 @@ export const BiometricAuthPanel: React.FC<BiometricAuthPanelProps> = ({
             </span>
           </div>
           <div className="min-w-0">
-            <div className="text-xs font-bold text-white flex items-center gap-1.5 truncate">
+            <div className="text-xs font-bold text-brand-primary-text flex items-center gap-1.5 truncate">
               <span>{isThai ? 'เซ็นเซอร์ชีวมิติพร้อมทำงาน' : 'Biometric Sensor Ready'}</span>
-              <span className="rounded bg-emerald-500/20 px-1 py-0.2 text-[9px] font-mono font-bold text-emerald-300">
+              <span className="rounded bg-emerald-500/20 px-1 py-0.5 text-[9px] font-mono font-bold text-emerald-300">
                 FIDO2
               </span>
             </div>
-            <div className="text-[10px] text-slate-300 truncate">
+            <div className="text-[10px] text-brand-primary-text/80 truncate">
               {webauthnCapability?.biometricLabel || 'Touch ID / Fingerprint / Face ID'}
             </div>
           </div>
@@ -100,15 +100,15 @@ export const BiometricAuthPanel: React.FC<BiometricAuthPanelProps> = ({
             playClick();
             onOpenEnrollModal();
           }}
-          className="shrink-0 inline-flex items-center gap-1 rounded-lg bg-white/10 hover:bg-white/20 border border-white/10 px-2.5 py-1.5 text-[11px] font-bold text-white focus-visible:ring-2 focus-visible:ring-[#ff6b1a] transition-all cursor-pointer"
+          className="shrink-0 inline-flex items-center gap-1 rounded-lg bg-white/10 hover:bg-white/20 border border-white/15 px-2.5 py-1.5 min-h-[36px] text-[11px] font-bold text-brand-primary-text focus-visible:ring-2 focus-visible:ring-cta transition-all cursor-pointer"
         >
-          <Plus className="w-3.5 h-3.5 text-[#ff6b1a]" />
+          <Plus className="w-3.5 h-3.5 text-cta" />
           <span>{isThai ? 'จัดการ Passkey' : 'Passkeys'}</span>
         </button>
       </div>
 
       {/* Tactile Biometric Interactive Target */}
-      <div className="rounded-2xl border-2 border-slate-200 bg-gradient-to-b from-slate-50 to-white p-4 text-center shadow-xs space-y-3">
+      <div className="rounded-2xl border-2 border-brand-border bg-brand-surface-muted p-4 text-center shadow-xs space-y-3">
         <div className="flex flex-col items-center justify-center">
           <button
             type="button"
@@ -118,8 +118,8 @@ export const BiometricAuthPanel: React.FC<BiometricAuthPanelProps> = ({
             className={`relative w-20 h-20 rounded-full flex items-center justify-center transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
               isBiometricVerifying
                 ? 'bg-emerald-500 text-white shadow-xl shadow-emerald-500/30 scale-105'
-                : 'bg-slate-900 text-white hover:bg-[#ea580c] hover:scale-105 active:scale-95 shadow-lg shadow-slate-900/20'
-            } focus-visible:ring-2 focus-visible:ring-[#ff6b1a] focus-visible:ring-offset-2`}
+                : 'bg-brand-primary text-brand-primary-text hover:bg-cta hover:text-cta-text hover:scale-105 active:scale-95 shadow-lg shadow-brand-primary/20'
+            } focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2`}
           >
             {/* Animated Laser Sweep & Glow effect */}
             {isBiometricVerifying ? (
@@ -131,9 +131,9 @@ export const BiometricAuthPanel: React.FC<BiometricAuthPanelProps> = ({
             {isBiometricVerifying ? (
               <Loader2 className="w-9 h-9 animate-spin text-white" />
             ) : activePasskey?.authenticatorType === 'face_id' ? (
-              <ScanFace className="w-9 h-9 text-[#ff782e] transition-transform hover:scale-110" />
+              <ScanFace className="w-9 h-9 text-cta transition-transform hover:scale-110" />
             ) : (
-              <Fingerprint className="w-9 h-9 text-[#ff782e] transition-transform hover:scale-110" />
+              <Fingerprint className="w-9 h-9 text-cta transition-transform hover:scale-110" />
             )}
           </button>
         </div>
@@ -141,14 +141,14 @@ export const BiometricAuthPanel: React.FC<BiometricAuthPanelProps> = ({
         {/* Selected Cashier Identity Preview */}
         {activePasskey && (
           <div className="space-y-0.5">
-            <div className="inline-flex items-center gap-1.5 text-xs font-black text-slate-900">
+            <div className="inline-flex items-center gap-1.5 text-xs font-black text-brand-text">
               <UserCheck className="w-3.5 h-3.5 text-emerald-600" />
               <span>{activePasskey.userName}</span>
-              <span className="rounded-md bg-slate-100 border border-slate-300 px-1.5 py-0.2 text-[10px] font-bold uppercase text-slate-700">
+              <span className="rounded-md bg-brand-surface border border-brand-border px-1.5 py-0.5 text-[10px] font-bold uppercase text-brand-text-secondary">
                 {activePasskey.userRole}
               </span>
             </div>
-            <p className="text-[11px] text-slate-600 font-medium">
+            <p className="text-[11px] text-brand-text-secondary font-medium">
               {isThai
                 ? 'แตะเซ็นเซอร์สแกนลายนิ้วมือหรือมองกล้องเพื่อเข้ากะทันที'
                 : 'Touch sensor or look at camera for instant shift sign-in'}
@@ -159,9 +159,9 @@ export const BiometricAuthPanel: React.FC<BiometricAuthPanelProps> = ({
 
       {/* Cashier Quick-Selector Switcher */}
       <div className="space-y-1.5">
-        <div className="flex items-center justify-between text-[11px] font-black uppercase text-slate-700 px-1">
+        <div className="flex items-center justify-between text-[11px] font-black uppercase text-brand-text-secondary px-1">
           <span>{isThai ? 'เลือกพนักงานแคชเชียร์ (1-Tap Switch)' : 'Enrolled Cashiers'}</span>
-          <span className="text-[10px] text-slate-500 font-bold font-mono">
+          <span className="text-[10px] text-brand-text-muted font-bold font-mono">
             {enrolledPasskeys.length} {isThai ? 'คีย์' : 'keys'}
           </span>
         </div>
@@ -178,14 +178,14 @@ export const BiometricAuthPanel: React.FC<BiometricAuthPanelProps> = ({
                 }}
                 className={`rounded-xl border-2 px-3 py-2 flex items-center justify-between gap-2.5 transition-all cursor-pointer ${
                   isSelected
-                    ? 'border-[#ea580c] bg-primary/10 shadow-xs'
-                    : 'border-slate-300 bg-white hover:border-slate-400 hover:bg-slate-50'
+                    ? 'border-cta bg-brand-surface-selected shadow-xs'
+                    : 'border-brand-border bg-brand-surface hover:border-brand-border-strong hover:bg-brand-surface-hover'
                 }`}
               >
                 <div className="flex items-center gap-2 min-w-0 flex-1">
                   <div
                     className={`h-8 w-8 rounded-lg flex items-center justify-center shrink-0 ${
-                      isSelected ? 'bg-[#ea580c] text-white' : 'bg-slate-100 text-slate-700'
+                      isSelected ? 'bg-cta text-cta-text' : 'bg-brand-surface-muted text-brand-text-secondary'
                     }`}
                   >
                     {pk.authenticatorType === 'face_id' ? (
@@ -195,11 +195,11 @@ export const BiometricAuthPanel: React.FC<BiometricAuthPanelProps> = ({
                     )}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="text-xs font-black text-slate-900 truncate flex items-center gap-1.5">
+                    <div className="text-xs font-black text-brand-text truncate flex items-center gap-1.5">
                       <span>{pk.userName}</span>
-                      {isSelected && <CheckCircle2 className="w-3.5 h-3.5 text-[#ea580c]" />}
+                      {isSelected && <CheckCircle2 className="w-3.5 h-3.5 text-cta" />}
                     </div>
-                    <div className="text-[10px] text-slate-600 truncate">{pk.deviceLabel}</div>
+                    <div className="text-[10px] text-brand-text-secondary truncate">{pk.deviceLabel}</div>
                   </div>
                 </div>
 
@@ -211,11 +211,11 @@ export const BiometricAuthPanel: React.FC<BiometricAuthPanelProps> = ({
                     onSelectPasskey(pk.id);
                     handleTriggerScan(pk);
                   }}
-                  className={`h-7.5 px-3 rounded-lg text-xs font-black transition-all cursor-pointer disabled:opacity-40 ${
+                  className={`min-h-[40px] px-3 rounded-lg text-xs font-black transition-all cursor-pointer disabled:opacity-40 ${
                     isSelected
-                      ? 'bg-[#ea580c] text-white hover:bg-[#c2410c]'
-                      : 'bg-slate-900 text-white hover:bg-[#ea580c]'
-                  } focus-visible:ring-2 focus-visible:ring-[#ff6b1a]`}
+                      ? 'bg-cta text-cta-text hover:bg-cta-hover'
+                      : 'bg-brand-primary text-brand-primary-text hover:bg-brand-primary-hover'
+                  } focus-visible:ring-2 focus-visible:ring-cta`}
                 >
                   {isThai ? 'สแกน' : 'Scan'}
                 </button>
@@ -231,9 +231,9 @@ export const BiometricAuthPanel: React.FC<BiometricAuthPanelProps> = ({
           type="checkbox"
           checked={rememberTerminal}
           onChange={(e) => handleToggleRemember(e.target.checked)}
-          className="h-4 w-4 rounded border-slate-300 text-[#ea580c] focus:ring-[#ea580c] cursor-pointer"
+          className="h-4 w-4 rounded border-brand-border text-brand-primary focus:ring-cta cursor-pointer"
         />
-        <span className="text-[11px] font-bold text-slate-700">
+        <span className="text-[11px] font-bold text-brand-text-secondary">
           {isThai ? 'เปิดโหมดชีวมิติเป็นค่าเริ่มต้นบนเครื่อง POS นี้' : 'Default to biometrics on this terminal'}
         </span>
       </label>
@@ -246,9 +246,9 @@ export const BiometricAuthPanel: React.FC<BiometricAuthPanelProps> = ({
             playClick();
             onSwitchMode('pin');
           }}
-          className="text-xs font-bold text-slate-700 hover:text-blue-700 focus-visible:ring-2 focus-visible:ring-[#ff6b1a] rounded-lg p-1.5 transition-colors cursor-pointer inline-flex items-center gap-1.5"
+          className="min-h-[44px] px-3 text-xs font-bold text-brand-text-secondary hover:text-brand-text-accent focus-visible:ring-2 focus-visible:ring-cta rounded-lg transition-colors cursor-pointer inline-flex items-center gap-1.5"
         >
-          <KeyRound className="w-4 h-4 text-blue-700" />
+          <KeyRound className="w-4 h-4 text-brand-text-accent" />
           <span>{isThai ? 'กลับไปใช้แป้น PIN' : 'Switch to PIN Pad'}</span>
         </button>
       </div>

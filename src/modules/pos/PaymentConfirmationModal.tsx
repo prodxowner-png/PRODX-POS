@@ -646,7 +646,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
             onClose();
           }}
           disabled={isProcessing}
-          className="min-h-[48px] h-12 w-full px-4 rounded-xl border border-border bg-card hover:bg-background text-text/80 hover:text-text font-bold text-xs sm:text-sm flex items-center justify-center gap-2.5 transition-all theme-btn-radius active-scale cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-2xs hover:border-rose-500/40 hover:text-rose-600 dark:hover:text-rose-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/30"
+          className="group min-h-[48px] h-12 w-full px-4 rounded-xl border border-border bg-card hover:bg-background text-text/80 hover:text-text font-bold text-xs sm:text-sm flex items-center justify-center gap-2.5 transition-all theme-btn-radius active-scale cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-2xs hover:border-rose-500/40 hover:text-rose-600 dark:hover:text-rose-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/30"
         >
           <X className="h-4.5 w-4.5 shrink-0 text-text/50 group-hover:text-rose-500" />
           <span className="truncate">
@@ -665,10 +665,10 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
             handleConfirmPayment();
           }}
           disabled={isConfirmDisabled}
-          className={`min-h-[48px] h-12 w-full px-4 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-between gap-3 transition-all theme-btn-radius active-scale shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40 ${
+          className={`min-h-[48px] h-12 w-full px-4 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-between gap-3 transition-all theme-btn-radius active-scale shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta/40 ${
             isConfirmDisabled
               ? 'bg-border/60 text-text/40 border border-border/50 cursor-not-allowed opacity-60'
-              : 'bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white cursor-pointer ring-2 ring-emerald-600/30 hover:shadow-emerald-600/25 shadow-md'
+              : 'bg-cta hover:bg-cta-hover active:bg-cta-pressed text-cta-text cursor-pointer ring-2 ring-cta/30 hover:shadow-cta/25 shadow-md'
           }`}
         >
           <div className="flex items-center gap-2 truncate">
@@ -916,14 +916,20 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
             {/* ======================================================= */}
             <div className="lg:col-span-7 space-y-4">
               {/* 1. Tender Mode Selector (Single vs Split) */}
-              <div className="flex items-center p-1 bg-background rounded-xl border border-border shadow-2xs">
+              <div
+                role="tablist"
+                aria-label={language === 'th' ? 'รูปแบบการชำระเงิน' : 'Payment tender mode'}
+                className="flex items-center p-1 bg-background rounded-xl border border-border shadow-2xs"
+              >
                 <button
                   type="button"
+                  role="tab"
+                  aria-selected={!isSplitMode}
                   onClick={() => {
                     playScannerSound('click');
                     setIsSplitMode(false);
                   }}
-                  className={`flex-1 min-h-[40px] py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-2 theme-btn-radius active-scale ${
+                  className={`flex-1 min-h-[44px] py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-2 theme-btn-radius active-scale focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta ${
                     !isSplitMode
                       ? 'bg-card text-text border border-border shadow-xs'
                       : 'text-text/60 hover:text-text transparent border border-transparent'
@@ -935,20 +941,22 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
 
                 <button
                   type="button"
+                  role="tab"
+                  aria-selected={isSplitMode}
                   onClick={() => {
                     playScannerSound('click');
                     setIsSplitMode(true);
                   }}
-                  className={`flex-1 min-h-[40px] py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-2 theme-btn-radius active-scale ${
+                  className={`flex-1 min-h-[44px] py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-2 theme-btn-radius active-scale focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta ${
                     isSplitMode
-                      ? 'bg-primary text-white border border-primary shadow-xs'
+                      ? 'bg-primary text-primary-foreground border border-primary shadow-xs'
                       : 'text-text/60 hover:text-text transparent border border-transparent'
                   }`}
                 >
                   <Split className="h-3.5 w-3.5" />
                   <span>{language === 'th' ? 'แบ่งชำระหลายช่องทาง' : 'Split Multi-Tender'}</span>
                   {stagedPayments.length > 0 && (
-                    <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-white/25 text-white font-mono font-bold">
+                    <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-white/25 text-primary-foreground font-mono font-bold">
                       {stagedPayments.length}
                     </span>
                   )}
@@ -1156,14 +1164,14 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
                       </div>
 
                       {/* Dynamic QR Display Graphic */}
-                      <div className="p-4 max-w-[210px] mx-auto bg-white rounded-2xl border-2 border-purple-600/30 shadow-md space-y-2">
+                      <div className="p-4 max-w-[210px] mx-auto bg-white text-slate-900 rounded-2xl border-2 border-purple-600/30 shadow-md space-y-2">
                         <div className="aspect-square bg-slate-900 rounded-xl flex flex-col items-center justify-center p-3 text-white">
                           <QrCode className="h-28 w-28 text-white" />
-                          <span className="text-[9px] font-mono tracking-wider mt-1 text-slate-300">
+                          <span className="text-[10px] font-mono tracking-wider mt-1 text-slate-300">
                             THAI QR • PROMPTPAY
                           </span>
                         </div>
-                        <div className="text-slate-800 font-mono font-black text-sm">
+                        <div className="text-slate-900 font-mono font-black text-sm tabular-nums">
                           {formatMoney(grandTotal)}
                         </div>
                       </div>
@@ -1186,9 +1194,9 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
 
                   {/* 3.3 CREDIT / DEBIT CARD FLOW */}
                   {method === 'card' && (
-                    <div className="p-4 rounded-xl border border-blue-500/30 bg-card text-center space-y-3.5 shadow-2xs">
-                      <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-100 dark:bg-blue-950/50 border border-blue-300 dark:border-blue-800 text-blue-800 dark:text-blue-200 text-xs font-bold">
-                        <CardIcon className="h-3.5 w-3.5 text-blue-600" />
+                    <div className="p-4 rounded-xl border border-brand-border bg-card text-center space-y-3.5 shadow-2xs">
+                      <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-brand-surface-selected border border-brand-border-strong text-brand-text text-xs font-bold">
+                        <CardIcon className="h-3.5 w-3.5 text-brand-text-accent" />
                         <span>
                           {language === 'th'
                             ? 'เครื่องรูดบัตร EDC: TRM-VERIFONE-01'
@@ -1197,7 +1205,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
                       </div>
 
                       {/* Card Illustration */}
-                      <div className="p-4 max-w-[280px] mx-auto rounded-2xl bg-gradient-to-r from-blue-700 to-indigo-900 text-white shadow-md text-left space-y-3">
+                      <div className="p-4 max-w-[280px] mx-auto rounded-2xl bg-brand-primary text-brand-primary-text shadow-md text-left space-y-3">
                         <div className="flex justify-between items-center">
                           <div className="h-7 w-9 rounded bg-amber-400/80 border border-amber-300 flex items-center justify-center">
                             <div className="h-4 w-6 border border-amber-600/40 rounded-sm" />
@@ -1206,17 +1214,17 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
                             PRODX PAY
                           </span>
                         </div>
-                        <div className="font-mono text-sm tracking-widest">
+                        <div className="font-mono text-sm tracking-widest tabular-nums">
                           •••• •••• •••• 4242
                         </div>
                         <div className="flex justify-between items-end text-[10px]">
                           <div>
-                            <div className="opacity-60 text-[8px]">CARDHOLDER</div>
+                            <div className="opacity-75 text-[10px]">CARDHOLDER</div>
                             <div className="font-bold">
                               {customer ? customer.name.toUpperCase() : 'VALUED CUSTOMER'}
                             </div>
                           </div>
-                          <div className="font-mono font-bold">12/28</div>
+                          <div className="font-mono font-bold tabular-nums">12/28</div>
                         </div>
                       </div>
 
