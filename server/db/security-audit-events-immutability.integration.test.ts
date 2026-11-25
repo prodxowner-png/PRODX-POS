@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test from 'node:test';
-import { createPostgresPool, resolveConfiguredDatabaseUrl } from '../db/postgres';
+import { createPostgresPool } from '../db/postgres';
+import { resolveDisposableTestDatabaseUrl } from './test-database-guard';
 
-const databaseUrl = resolveConfiguredDatabaseUrl(process.env.DATABASE_URL);
+const databaseUrl = resolveDisposableTestDatabaseUrl(process.env.DATABASE_URL, 'server/db/security-audit-events-immutability.integration.test.ts');
 const pool = databaseUrl ? createPostgresPool({ connectionString: databaseUrl, max: 1 }) : null;
 
 test('security audit events reject UPDATE, DELETE, and TRUNCATE, including for the database owner', async (t) => {

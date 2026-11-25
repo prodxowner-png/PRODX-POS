@@ -133,7 +133,7 @@ export interface RefundItemRestock {
 
 export interface IOrderApi {
   createOrder(req: CheckoutRequest): Promise<CheckoutResponse>;
-  getOrders(storeId: string, limit?: number, registerId?: string): Promise<readonly Order[]>;
+  getOrders(storeId: string, limit?: number, registerId?: string, options?: { from?: string; to?: string; offset?: number }): Promise<readonly Order[]>;
   getOrderById(storeId: string, orderId: string): Promise<Order | null>;
   voidOrder(storeId: string, orderId: string, reason: string, authorizedByUserId: string): Promise<Order>;
   refundOrder(

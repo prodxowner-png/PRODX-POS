@@ -2,11 +2,12 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 import { Pool } from 'pg';
+import { resolveDisposableTestDatabaseUrl } from './test-database-guard';
 import { createTransactionalPostgresExecutor } from './transaction.ts';
 import { runWithRequestContext } from '../http/request-context-storage.ts';
 
-const databaseUrl = process.env.DATABASE_URL;
-const shouldRun = Boolean(databaseUrl) && process.env.NODE_ENV !== 'production';
+const databaseUrl = resolveDisposableTestDatabaseUrl(process.env.DATABASE_URL, 'server/db/tenant-context-postgres.integration.test.ts');
+const shouldRun = Boolean(databaseUrl);
 
 test('transaction-local tenant context is isolated and cleared on pooled connection reuse', { skip: !shouldRun }, async () => {
   const pool = new Pool({ connectionString: databaseUrl, max: 1 });

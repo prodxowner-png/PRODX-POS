@@ -185,7 +185,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   onOpenAdminConsole();
                   if (onCloseMobile) onCloseMobile();
                 }}
-                className="w-full px-3 py-2 rounded-xl border border-primary/35 dark:border-brand-border-strong bg-primary/10 dark:bg-brand-surface-selected hover:bg-primary/15 dark:hover:bg-brand-surface-raised text-primary dark:text-brand-text flex items-center justify-between gap-2 text-xs font-bold transition-all cursor-pointer active:scale-95"
+                className="w-full min-h-[44px] px-3 py-2 rounded-xl border border-primary/35 dark:border-brand-border-strong bg-primary/10 dark:bg-brand-surface-selected hover:bg-primary/15 dark:hover:bg-brand-surface-raised text-primary dark:text-brand-text flex items-center justify-between gap-2 text-xs font-bold transition-all cursor-pointer active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta"
               >
                 <span className="flex items-center gap-2 truncate">
                   <Building2 className="w-4 h-4 shrink-0" />
@@ -212,7 +212,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   type="button"
                   aria-current={isActive ? 'page' : undefined}
                   onClick={() => handleNav(item.id)}
-                  className={`w-full flex items-center justify-between px-3 py-2.5 min-h-[48px] rounded-xl text-sm transition-all duration-150 cursor-pointer active:scale-95 focus-visible:ring-2 focus-visible:outline-none ${
+                  className={`w-full flex items-center justify-between px-3 py-2.5 min-h-[48px] rounded-xl text-sm transition-all duration-150 cursor-pointer active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-cta focus-visible:outline-none ${
                     isActive
                       ? 'bg-primary/10 dark:bg-brand-surface-selected border border-primary/40 dark:border-brand-border-strong text-primary dark:text-brand-text font-black shadow-xs'
                       : 'border border-transparent text-text/70 hover:text-text hover:bg-background/80 font-semibold'

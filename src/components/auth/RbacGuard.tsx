@@ -200,6 +200,7 @@ export interface RbacGuardProps {
   hideMode?: 'hidden' | 'denied-card';
   fallback?: React.ReactNode;
   onRedirectToPos?: () => void;
+  onNavigateToAdminLogin?: () => void;
   allowSupervisorOverride?: boolean;
   children: React.ReactNode;
 }
@@ -218,6 +219,7 @@ export const RbacGuard: React.FC<RbacGuardProps> = ({
   hideMode = 'denied-card',
   fallback = null,
   onRedirectToPos,
+  onNavigateToAdminLogin,
   allowSupervisorOverride = true,
   children,
 }) => {
@@ -373,14 +375,14 @@ export const RbacGuard: React.FC<RbacGuardProps> = ({
       : 'Unauthenticated';
 
   return (
-    <div className="flex-1 min-h-0 flex items-center justify-center p-4 sm:p-6 lg:p-8 bg-background select-none overflow-y-auto">
-      <div className="w-full max-w-lg rounded-2xl border border-border border-crisp bg-card p-6 sm:p-8 shadow-sm text-center space-y-5">
+    <div className="flex-1 min-h-0 flex items-center justify-center p-4 sm:p-6 lg:p-8 bg-brand-bg text-brand-text select-none overflow-y-auto">
+      <div className="w-full max-w-lg rounded-2xl border border-brand-border border-crisp bg-brand-surface p-6 sm:p-8 shadow-sm text-center space-y-5">
         {/* Security Shield Icon Header */}
         <div
           className={`w-14 h-14 rounded-2xl flex items-center justify-center mx-auto border ${
             isStrictAdminOnly || isOrgScope
-              ? 'bg-rose-500/10 border-rose-500/25 text-rose-600 dark:text-rose-400'
-              : 'bg-amber-500/10 border-amber-500/25 text-amber-600 dark:text-amber-400'
+              ? 'bg-danger-subtle border-danger/30 text-danger'
+              : 'bg-amber-500/15 border-amber-500/30 text-amber-800 dark:text-amber-300'
           }`}
         >
           {isStrictAdminOnly || isOrgScope ? (
@@ -432,11 +434,11 @@ export const RbacGuard: React.FC<RbacGuardProps> = ({
 
         {/* Feature Title & Explanation */}
         <div className="space-y-2">
-          <h2 className="text-xl font-black text-text tracking-tight">
+          <h2 className="text-xl font-black text-brand-text tracking-tight">
             {effectiveName ||
               (language === 'th' ? 'โมดูลที่ต้องได้รับการอนุมัติสิทธิ์' : 'Protected Enterprise Module')}
           </h2>
-          <p className="text-xs sm:text-sm text-text/75 max-w-md mx-auto leading-relaxed">
+          <p className="text-xs sm:text-sm text-brand-text-secondary max-w-md mx-auto leading-relaxed">
             {isGeneralUserBlocked
               ? language === 'th'
                 ? 'ตามนโยบายความปลอดภัย RBAC บัญชีผู้ใช้งานทั่วไป (Cashier / Staff) ได้รับอนุญาตให้เข้าถึงเฉพาะหน้าจอขายหน้าร้าน (POS Cash Register) เท่านั้น ไม่สามารถเข้าถึงเมนูจัดการหรือการตั้งค่าระดับองค์กรได้'
@@ -450,59 +452,55 @@ export const RbacGuard: React.FC<RbacGuardProps> = ({
               : `This module is restricted to ${requiredRolesDisplay} roles.`}
           </p>
           {effectiveDesc && (
-            <p className="text-[11px] text-text/50 italic max-w-sm mx-auto">"{effectiveDesc}"</p>
+            <p className="text-[11px] text-brand-text-secondary italic max-w-sm mx-auto">"{effectiveDesc}"</p>
           )}
         </div>
 
         {/* Active Session Context Breakdown */}
-        <div className="border-y border-border border-crisp py-3.5 my-3 divide-y divide-border/60 text-xs text-left">
+        <div className="border-y border-brand-border border-crisp py-3.5 my-3 divide-y divide-brand-border/60 text-xs text-left">
           <div className="flex items-center justify-between py-1.5">
-            <span className="text-text/60 font-medium">
+            <span className="text-brand-text-secondary font-medium">
               {language === 'th' ? 'ผู้ใช้งานปัจจุบัน (Active User):' : 'Current Session User:'}
             </span>
-            <span className="font-bold text-text truncate max-w-[230px]">
+            <span className="font-bold text-brand-text truncate max-w-[230px]">
               {currentUser?.name || 'Unknown User'}{' '}
-              <span className="text-text/50 font-mono text-[11px]">
+              <span className="text-brand-text-secondary font-mono text-[11px]">
                 ({currentUser?.employeeCode})
               </span>
             </span>
           </div>
           <div className="flex items-center justify-between py-1.5">
-            <span className="text-text/60 font-medium">
+            <span className="text-brand-text-secondary font-medium">
               {language === 'th' ? 'ระดับสิทธิ์ปัจจุบัน (Current Role):' : 'Assigned Role:'}
             </span>
-            <Badge
-              variant={currentUser?.role === 'cashier' ? 'neutral' : 'warning'}
-              size="sm"
-              className="font-mono font-bold uppercase"
-            >
+            <span className="rounded-md bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 font-mono text-[11px] font-bold uppercase text-amber-800 dark:text-amber-300">
               {currentRoleDisplay}
-            </Badge>
+            </span>
           </div>
           <div className="flex items-center justify-between py-1.5">
-            <span className="text-text/60 font-medium">
+            <span className="text-brand-text-secondary font-medium">
               {language === 'th' ? 'สิทธิ์ที่จำเป็น (Required Role):' : 'Required Role Level:'}
             </span>
-            <span className="font-mono font-bold text-primary text-right">
+            <span className="rounded-md bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 font-mono text-[11px] font-bold uppercase text-emerald-800 dark:text-emerald-300 text-right">
               {requiredRolesDisplay}
             </span>
           </div>
           {effectivePermissions.length > 0 && (
             <div className="flex items-center justify-between py-1.5">
-              <span className="text-text/60 font-medium">
+              <span className="text-brand-text-secondary font-medium">
                 {language === 'th' ? 'พอร์ตสิทธิ์ RBAC (Permissions):' : 'Required Permissions:'}
               </span>
-              <span className="font-mono text-[10px] font-semibold text-text/70">
+              <span className="font-mono text-[10px] font-semibold text-brand-text-secondary">
                 {effectivePermissions.join(', ')}
               </span>
             </div>
           )}
           <div className="flex items-center justify-between py-1.5">
-            <span className="text-text/60 font-medium">
+            <span className="text-brand-text-secondary font-medium">
               {language === 'th' ? 'สถานะ Middleware Guard:' : 'RBAC Middleware Policy:'}
             </span>
-            <span className="text-text/60 font-mono text-[11px] flex items-center gap-1">
-              <Shield className="w-3.5 h-3.5 text-emerald-500" />
+            <span className="text-brand-text-secondary font-mono text-[11px] flex items-center gap-1">
+              <Shield className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
               {isGeneralUserBlocked
                 ? language === 'th'
                   ? 'ล็อกเฉพาะหน้า POS (POS-Only Enforced)'
@@ -552,10 +550,10 @@ export const RbacGuard: React.FC<RbacGuardProps> = ({
         </div>
 
         {/* Dedicated Admin Console Authentication Path */}
-        <div className="pt-3 border-t border-border/60">
-          <div className="flex items-center justify-between gap-2 text-[11px] font-medium text-text/60">
+        <div className="pt-3 border-t border-brand-border/60">
+          <div className="flex items-center justify-between gap-2 text-[11px] font-medium text-brand-text-secondary">
             <span className="flex items-center gap-1.5">
-              <UserCheck className="w-3.5 h-3.5 text-primary shrink-0" />
+              <UserCheck className="w-3.5 h-3.5 text-brand-text-accent shrink-0" />
               <span>
                 {language === 'th'
                   ? 'ต้องการเข้าใช้งานในฐานะผู้ดูแลระบบระดับองค์กร?'
@@ -565,12 +563,16 @@ export const RbacGuard: React.FC<RbacGuardProps> = ({
             <button
               type="button"
               onClick={() => {
+                if (onNavigateToAdminLogin) {
+                  onNavigateToAdminLogin();
+                  return;
+                }
                 if (typeof window !== 'undefined') {
                   window.history.pushState({}, '', '/admin/login');
                   window.dispatchEvent(new PopStateEvent('popstate'));
                 }
               }}
-              className="px-3 py-1.5 text-[11px] rounded-lg font-bold bg-slate-900 text-white hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
+              className="min-h-[44px] px-3 py-1.5 text-[11px] rounded-lg font-bold bg-brand-primary text-brand-primary-text hover:bg-brand-primary-hover focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2 transition-colors cursor-pointer shrink-0"
             >
               {language === 'th' ? 'เข้าสู่ระบบ Admin (/admin/login)' : 'Admin Login (/admin/login)'}
             </button>

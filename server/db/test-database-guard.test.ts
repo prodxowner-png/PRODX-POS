@@ -1,11 +1,16 @@
 import assert from 'node:assert/strict';
+import { readdirSync, readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { assertDisposableTestDatabaseUrl } from './test-database-guard';
+import { assertDisposableTestDatabaseUrl, resolveDisposableTestDatabaseUrl } from './test-database-guard';
 
 test('test-database-guard accepts valid local loopback PostgreSQL URLs', () => {
   const localUrls = [
     'postgresql://prodx:prodx@127.0.0.1:5432/prodx_test',
-    'postgresql://postgres@localhost:5432/prodx_pos',
+    'postgresql://prodx:prodx@localhost:5432/prodx_bootstrap_test',
+    'postgresql://prodx:prodx@127.0.0.1:5432/prodx_migration_runner_test',
+    'postgresql://postgres@[::1]:5432/prodx_pos_ci',
     'postgres://postgres@[::1]:5432/prodx_test',
     'postgresql://postgres@postgres:5432/prodx_test',
   ];
@@ -92,17 +97,59 @@ test('test-database-guard rejects non-postgres protocols', () => {
   }
 });
 
-test('test-database-guard rejects missing database name or production-named databases', () => {
+test('test-database-guard rejects missing database name, runtime databases, and production-like names', () => {
   assert.throws(
     () => assertDisposableTestDatabaseUrl('postgresql://127.0.0.1:5432/', 'test-suite', { NODE_ENV: 'test' }),
     /must specify a database name/,
   );
   assert.throws(
     () => assertDisposableTestDatabaseUrl('postgresql://127.0.0.1:5432/production', 'test-suite', { NODE_ENV: 'test' }),
-    /must never target a database named "production"/,
+    /must target an explicitly named disposable PRODX test database/,
   );
   assert.throws(
     () => assertDisposableTestDatabaseUrl('postgresql://127.0.0.1:5432/prod', 'test-suite', { NODE_ENV: 'test' }),
-    /must never target a database named "prod"/,
+    /must target an explicitly named disposable PRODX test database/,
   );
+});
+
+test('test-database-guard rejects the local POS runtime database even on loopback', () => {
+  assert.throws(
+    () => assertDisposableTestDatabaseUrl('postgresql://postgres@127.0.0.1:5432/prodx_pos', 'test-suite', { NODE_ENV: 'test' }),
+    /must target an explicitly named disposable PRODX test database/,
+  );
+  assert.throws(
+    () => assertDisposableTestDatabaseUrl('postgresql://prodx@127.0.0.1:5432/prodx_production_test', 'test-suite', { NODE_ENV: 'test' }),
+    /must target an explicitly named disposable PRODX test database/,
+  );
+});
+
+test('resolveDisposableTestDatabaseUrl never falls back when DATABASE_URL is absent', () => {
+  assert.equal(resolveDisposableTestDatabaseUrl(undefined, 'test-suite', { NODE_ENV: 'test' }), undefined);
+  assert.throws(
+    () => resolveDisposableTestDatabaseUrl('', 'test-suite', { NODE_ENV: 'test' }),
+    /DATABASE_URL must be provided/,
+  );
+  assert.equal(
+    resolveDisposableTestDatabaseUrl('postgresql://prodx:prodx@127.0.0.1:5432/prodx_test', 'test-suite', { NODE_ENV: 'test' }),
+    'postgresql://prodx:prodx@127.0.0.1:5432/prodx_test',
+  );
+});
+
+test('every server test that creates a PostgreSQL pool validates an explicit disposable database URL', () => {
+  const serverRoot = fileURLToPath(new URL('../', import.meta.url));
+  const collectTestFiles = (directory: string): string[] =>
+    readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+      const entryPath = path.join(directory, entry.name);
+      if (entry.isDirectory()) return collectTestFiles(entryPath);
+      return entry.isFile() && entry.name.endsWith('.test.ts') ? [entryPath] : [];
+    });
+
+  const unguardedFiles = collectTestFiles(serverRoot).filter((filePath) => {
+    const source = readFileSync(filePath, 'utf8');
+    const createsPostgresPool = /\b(?:new\s+Pool|createPostgresPool)\s*\(/.test(source);
+    const validatesTestDatabase = /\b(?:resolveDisposableTestDatabaseUrl|assertDisposableTestDatabaseUrl)\s*\(/.test(source);
+    return createsPostgresPool && !validatesTestDatabase;
+  }).map((filePath) => path.relative(serverRoot, filePath));
+
+  assert.deepEqual(unguardedFiles, [], 'PostgreSQL test connections must be guarded by the disposable test database validator');
 });
