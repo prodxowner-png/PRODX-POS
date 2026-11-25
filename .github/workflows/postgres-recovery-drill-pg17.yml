@@ -28,16 +28,16 @@ jobs:
         env:
           POSTGRES_USER: drill
           POSTGRES_HOST_AUTH_METHOD: trust
-          POSTGRES_DB: drill_test
+          POSTGRES_DB: prodx_drill_test
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U drill -d drill_test"
+          --health-cmd "pg_isready -U drill -d prodx_drill_test"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
     env:
-      DATABASE_URL: postgresql://drill@127.0.0.1:5432/drill_test
+      DATABASE_URL: postgresql://drill@127.0.0.1:5432/prodx_drill_test
       NODE_ENV: test
       PRODX_DR_TEST_PG17: "1"
     steps:
