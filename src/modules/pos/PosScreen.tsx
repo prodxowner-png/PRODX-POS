@@ -483,9 +483,9 @@ export const PosScreen: React.FC = () => {
                   setIsAiModalOpen(true);
                 }}
                 title={language === 'th' ? 'ผู้ช่วย AI แคชเชียร์ (แนะนำสินค้า & อัพเซลล์)' : 'AI Cashier Assistant & Upselling'}
-                className="min-h-[44px] min-w-[44px] px-3 rounded-xl bg-[var(--chart-purple)] hover:brightness-110 text-white font-bold text-xs transition-all shrink-0 active:scale-95 shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
+                className="min-h-[44px] min-w-[44px] px-3 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground font-bold text-xs transition-all shrink-0 active:scale-95 shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta"
               >
-                <Sparkles className="h-4 w-4 text-yellow-300 animate-pulse shrink-0" />
+                <Sparkles className="h-4 w-4 text-cta shrink-0" aria-hidden="true" />
                 <span className="hidden sm:inline font-bold whitespace-nowrap">
                   {language === 'th' ? 'AI ผู้ช่วย' : 'AI Assistant'}
                 </span>
@@ -567,7 +567,7 @@ export const PosScreen: React.FC = () => {
                         !isScannerEnabled
                           ? 'bg-border dark:bg-background'
                           : !isWindowFocused
-                          ? 'bg-amber-500 animate-pulse'
+                          ? 'bg-amber-500'
                           : isScanning
                           ? 'bg-primary animate-ping'
                           : 'bg-emerald-500'
@@ -940,7 +940,7 @@ export const PosScreen: React.FC = () => {
             className="fixed top-6 left-1/2 -translate-x-1/2 z-[10000] bg-card text-text shadow-2xl border-crisp border border-border rounded-lg px-4 py-3 flex items-center gap-3 backdrop-blur-md w-full max-w-xs sm:max-w-sm"
           >
             <div className="h-8 w-8 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/30">
-              <CheckCircle2 className="h-5 w-5 animate-bounce" />
+              <CheckCircle2 className="h-5 w-5" aria-hidden="true" />
             </div>
             <div className="flex-1 min-w-0">
               <div className="text-[11px] font-bold truncate text-text leading-tight">{activeIndicator.name}</div>
