@@ -8,7 +8,7 @@ const route = readFileSync(join(process.cwd(), 'server/http/webauthn-route.ts'),
 
 test('0060 stores credentials and single-use challenges under forced RLS without direct runtime grants', () => {
   for (const table of ['prodx_webauthn_credentials', 'prodx_webauthn_challenges']) {
-    assert.match(migration, new RegExp(`CREATE TABLE public\\.${table}`, 'i'));
+    assert.match(migration, new RegExp(`CREATE TABLE IF NOT EXISTS public\\.${table}`, 'i'));
     assert.match(migration, new RegExp(`ALTER TABLE public\\.${table} ENABLE ROW LEVEL SECURITY`, 'i'));
     assert.match(migration, new RegExp(`ALTER TABLE public\\.${table} FORCE ROW LEVEL SECURITY`, 'i'));
   }

@@ -2,7 +2,7 @@
 -- Credential/challenge tables are inaccessible to API roles and prodx_app directly;
 -- all operations are exposed through narrow SECURITY DEFINER functions.
 
-CREATE TABLE public.prodx_webauthn_credentials (
+CREATE TABLE IF NOT EXISTS public.prodx_webauthn_credentials (
   id uuid PRIMARY KEY,
   organization_id uuid NOT NULL REFERENCES public.prodx_organizations(id) ON DELETE RESTRICT,
   store_id uuid NOT NULL,
@@ -25,11 +25,11 @@ CREATE TABLE public.prodx_webauthn_credentials (
   CONSTRAINT prodx_webauthn_credentials_store_scope_fk
     FOREIGN KEY (store_id, organization_id) REFERENCES public.prodx_stores(id, organization_id) ON DELETE RESTRICT
 );
-CREATE INDEX prodx_webauthn_credentials_user_active_idx
+CREATE INDEX IF NOT EXISTS prodx_webauthn_credentials_user_active_idx
   ON public.prodx_webauthn_credentials (organization_id, store_id, user_id, created_at DESC)
   WHERE revoked_at IS NULL;
 
-CREATE TABLE public.prodx_webauthn_challenges (
+CREATE TABLE IF NOT EXISTS public.prodx_webauthn_challenges (
   id uuid PRIMARY KEY,
   challenge text NOT NULL UNIQUE CHECK (challenge ~ '^[A-Za-z0-9_-]{43,128}$'),
   purpose text NOT NULL CHECK (purpose IN ('authentication', 'registration')),
@@ -50,7 +50,7 @@ CREATE TABLE public.prodx_webauthn_challenges (
     FOREIGN KEY (store_id, organization_id) REFERENCES public.prodx_stores(id, organization_id) ON DELETE RESTRICT,
   CONSTRAINT prodx_webauthn_challenges_expiry_valid CHECK (expires_at > created_at)
 );
-CREATE INDEX prodx_webauthn_challenges_expiry_idx ON public.prodx_webauthn_challenges (expires_at);
+CREATE INDEX IF NOT EXISTS prodx_webauthn_challenges_expiry_idx ON public.prodx_webauthn_challenges (expires_at);
 
 ALTER TABLE public.prodx_webauthn_credentials ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.prodx_webauthn_credentials FORCE ROW LEVEL SECURITY;
