@@ -41,7 +41,7 @@ export const GeneralSettingsTab: React.FC<GeneralSettingsTabProps> = ({
               <h3 className="text-sm font-bold text-text truncate">
                 {language === 'th' ? 'ข้อมูลสาขาและโปรไฟล์ร้านค้า (Store Profile & Identity)' : 'Store Profile & Identity'}
               </h3>
-              <p className="text-[11px] text-text/50 truncate">
+              <p className="text-[11px] text-brand-text-secondary truncate">
                 {language === 'th' ? 'ข้อมูลที่แสดงในเอกสารขาย หัวใบเสร็จ และระบบบัญชี' : 'Business identity printed on thermal receipts and export documents.'}
               </p>
             </div>
@@ -67,7 +67,7 @@ export const GeneralSettingsTab: React.FC<GeneralSettingsTabProps> = ({
                       value={formData.storeName}
                       onChange={(e) => onChangeField('storeName', e.target.value)}
                       placeholder="e.g. PRODX Flagship CentralWorld"
-                      className="w-full h-10 px-3.5 rounded-xl border border-border bg-background text-xs font-semibold text-text focus:outline-hidden focus:ring-2 focus:ring-primary/20 transition shadow-2xs"
+                      className="w-full min-h-[44px] h-11 px-3.5 rounded-xl border border-brand-border-strong bg-background text-base sm:text-sm font-semibold text-text focus:outline-hidden focus-visible:ring-2 focus-visible:ring-cta transition shadow-2xs"
                       required
                     />
                   </div>
@@ -83,7 +83,7 @@ export const GeneralSettingsTab: React.FC<GeneralSettingsTabProps> = ({
                     value={formData.storeCode}
                     onChange={(e) => onChangeField('storeCode', e.target.value)}
                     placeholder="e.g. BKK-01"
-                    className="w-full h-10 px-3.5 rounded-xl border border-border bg-background text-xs font-mono font-semibold text-text focus:outline-hidden focus:ring-2 focus:ring-primary/20 transition shadow-2xs"
+                    className="w-full min-h-[44px] h-11 px-3.5 rounded-xl border border-brand-border-strong bg-background text-base sm:text-sm font-mono font-semibold text-text focus:outline-hidden focus-visible:ring-2 focus-visible:ring-cta transition shadow-2xs"
                     required
                   />
                 </div>
@@ -98,7 +98,7 @@ export const GeneralSettingsTab: React.FC<GeneralSettingsTabProps> = ({
                     value={formData.branchName}
                     onChange={(e) => onChangeField('branchName', e.target.value)}
                     placeholder="e.g. สาขาเซ็นทรัลเวิลด์ ชั้น 4"
-                    className="w-full h-10 px-3.5 rounded-xl border border-border bg-background text-xs font-semibold text-text focus:outline-hidden focus:ring-2 focus:ring-primary/20 transition shadow-2xs"
+                    className="w-full min-h-[44px] h-11 px-3.5 rounded-xl border border-brand-border-strong bg-background text-base sm:text-sm font-semibold text-text focus:outline-hidden focus-visible:ring-2 focus-visible:ring-cta transition shadow-2xs"
                   />
                 </div>
 
@@ -113,7 +113,7 @@ export const GeneralSettingsTab: React.FC<GeneralSettingsTabProps> = ({
                       value={formData.storePhone}
                       onChange={(e) => onChangeField('storePhone', e.target.value)}
                       placeholder="e.g. 02-123-4567, 089-999-8888"
-                      className="w-full h-10 px-3.5 rounded-xl border border-border bg-background text-xs font-semibold text-text focus:outline-hidden focus:ring-2 focus:ring-primary/20 transition shadow-2xs"
+                      className="w-full min-h-[44px] h-11 px-3.5 rounded-xl border border-brand-border-strong bg-background text-base sm:text-sm font-semibold text-text focus:outline-hidden focus-visible:ring-2 focus-visible:ring-cta transition shadow-2xs"
                     />
                   </div>
                 </div>
@@ -129,7 +129,7 @@ export const GeneralSettingsTab: React.FC<GeneralSettingsTabProps> = ({
                   value={formData.taxId}
                   onChange={(e) => onChangeField('taxId', e.target.value)}
                   placeholder="e.g. 0105559012345"
-                  className="w-full h-10 px-3.5 rounded-xl border border-border bg-background text-xs font-mono font-semibold text-text focus:outline-hidden focus:ring-2 focus:ring-primary/20 transition shadow-2xs"
+                  className="w-full min-h-[44px] h-11 px-3.5 rounded-xl border border-brand-border-strong bg-background text-base sm:text-sm font-mono font-semibold text-text focus:outline-hidden focus-visible:ring-2 focus-visible:ring-cta transition shadow-2xs"
                 />
               </div>
 
@@ -143,7 +143,7 @@ export const GeneralSettingsTab: React.FC<GeneralSettingsTabProps> = ({
                   value={formData.storeAddress}
                   onChange={(e) => onChangeField('storeAddress', e.target.value)}
                   placeholder="e.g. 999/9 ถนนพระราม 1 แขวงปทุมวัน เขตปทุมวัน กรุงเทพฯ 10330"
-                  className="w-full p-3 rounded-xl border border-border bg-background text-xs text-text focus:outline-hidden focus:ring-2 focus:ring-primary/20 transition resize-none shadow-2xs"
+                  className="w-full p-3 rounded-xl border border-brand-border-strong bg-background text-base sm:text-sm text-text focus:outline-hidden focus-visible:ring-2 focus-visible:ring-cta transition resize-none shadow-2xs"
                 />
               </div>
 
@@ -158,7 +158,7 @@ export const GeneralSettingsTab: React.FC<GeneralSettingsTabProps> = ({
                     value={formData.receiptHeaderMsg}
                     onChange={(e) => onChangeField('receiptHeaderMsg', e.target.value)}
                     placeholder="e.g. ยินดีต้อนรับสู่ PRODX Flagship"
-                    className="w-full h-10 px-3.5 rounded-xl border border-border bg-background text-xs text-text focus:outline-hidden focus:ring-2 focus:ring-primary/20 transition shadow-2xs"
+                    className="w-full min-h-[44px] h-11 px-3.5 rounded-xl border border-brand-border-strong bg-background text-base sm:text-sm text-text focus:outline-hidden focus-visible:ring-2 focus-visible:ring-cta transition shadow-2xs"
                   />
                 </div>
                 <div className="space-y-1.5">
@@ -170,7 +170,7 @@ export const GeneralSettingsTab: React.FC<GeneralSettingsTabProps> = ({
                     value={formData.receiptFooterMsg}
                     onChange={(e) => onChangeField('receiptFooterMsg', e.target.value)}
                     placeholder="e.g. ขอบคุณที่ใช้บริการ / สินค้าซื้อแล้วไม่รับเปลี่ยนคืน"
-                    className="w-full h-10 px-3.5 rounded-xl border border-border bg-background text-xs text-text focus:outline-hidden focus:ring-2 focus:ring-primary/20 transition shadow-2xs"
+                    className="w-full min-h-[44px] h-11 px-3.5 rounded-xl border border-brand-border-strong bg-background text-base sm:text-sm text-text focus:outline-hidden focus-visible:ring-2 focus-visible:ring-cta transition shadow-2xs"
                   />
                 </div>
               </div>
@@ -180,7 +180,7 @@ export const GeneralSettingsTab: React.FC<GeneralSettingsTabProps> = ({
             <div className="xl:col-span-5 bg-slate-900/5 dark:bg-black/30 p-4 rounded-2xl border border-border/80 flex flex-col items-center space-y-3">
               <div className="w-full flex items-center justify-between px-1">
                 <div className="flex items-center gap-1.5 text-xs font-bold text-text/80 uppercase tracking-wider">
-                  <Printer className="w-4 h-4 text-primary animate-pulse" />
+                  <Printer className="w-4 h-4 text-primary" />
                   <span>{language === 'th' ? 'ตัวอย่างใบเสร็จจริง (Live Receipt Preview)' : 'Live Receipt Preview'}</span>
                 </div>
                 <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
@@ -277,7 +277,7 @@ export const GeneralSettingsTab: React.FC<GeneralSettingsTabProps> = ({
               <h3 className="text-sm font-bold text-text truncate">
                 {language === 'th' ? 'การตั้งค่าภาษาระบบ (System Interface Language)' : 'System Interface Language'}
               </h3>
-              <p className="text-[11px] text-text/50 truncate">
+              <p className="text-[11px] text-brand-text-secondary truncate">
                 {language === 'th' ? 'เลือกภาษาหลักสำหรับการแสดงผลส่วนติดต่อผู้ใช้ (UI) เมนู ปุ่มคำสั่ง และรายงานทั้งระบบ' : 'Select system-wide interface language for POS screens, menus, and real-time reports.'}
               </p>
             </div>
@@ -303,7 +303,7 @@ export const GeneralSettingsTab: React.FC<GeneralSettingsTabProps> = ({
               <h3 className="text-sm font-bold text-text truncate">
                 {language === 'th' ? 'การแสดงผลภาษาส่วนภูมิภาค (Regional Language & Locale Display)' : 'Regional Language & Locale Display'}
               </h3>
-              <p className="text-[11px] text-text/50 truncate">
+              <p className="text-[11px] text-brand-text-secondary truncate">
                 {language === 'th' ? 'การแสดงผลรหัสภูมิภาค รูปแบบวันที่ สกุลเงินท้องถิ่น และตัวเลขแยกตามประเทศ' : 'Regional format alignment for local date, currency symbols, and country codes.'}
               </p>
             </div>
@@ -390,11 +390,11 @@ export const GeneralSettingsTab: React.FC<GeneralSettingsTabProps> = ({
                       <span className="text-xl sm:text-2xl leading-none shrink-0">{reg.flag}</span>
                       <div className="min-w-0">
                         <div className="text-xs font-bold text-text truncate">{reg.title}</div>
-                        <div className="text-[10px] text-text/50 font-medium truncate">{reg.titleEn}</div>
+                        <div className="text-[10px] text-brand-text-secondary font-medium truncate">{reg.titleEn}</div>
                       </div>
                     </div>
                     {isSelected ? (
-                      <span className="flex items-center gap-0.5 px-1.5 sm:px-2 py-0.5 rounded-full bg-primary text-white text-[9px] sm:text-[10px] font-black uppercase shadow-xs shrink-0">
+                      <span className="flex items-center gap-0.5 px-1.5 sm:px-2 py-0.5 rounded-full bg-primary text-primary-foreground text-[9px] sm:text-[10px] font-black uppercase shadow-xs shrink-0">
                         <Check className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
                         <span>Active</span>
                       </span>
@@ -407,16 +407,16 @@ export const GeneralSettingsTab: React.FC<GeneralSettingsTabProps> = ({
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 pt-2 border-t border-border/60 text-[10px] text-text/60">
                     <div className="min-w-0">
-                      <span className="text-[9px] sm:text-[10px] text-text/40 block font-medium truncate">วันที่ (Date Format)</span>
+                      <span className="text-[9px] sm:text-[10px] text-brand-text-secondary block font-medium truncate">วันที่ (Date Format)</span>
                       <span className="font-mono text-text/80 text-[9px] sm:text-[10px] font-bold block truncate">{reg.dateFormat}</span>
                     </div>
                     <div className="min-w-0">
-                      <span className="text-[9px] sm:text-[10px] text-text/40 block font-medium truncate">สกุลเงิน (Currency)</span>
+                      <span className="text-[9px] sm:text-[10px] text-brand-text-secondary block font-medium truncate">สกุลเงิน (Currency)</span>
                       <span className="font-mono text-text/80 text-[9px] sm:text-[10px] font-bold block truncate">{reg.numberFormat}</span>
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between pt-1 text-[9px] sm:text-[10px] text-text/50 font-mono gap-1">
+                  <div className="flex items-center justify-between pt-1 text-[9px] sm:text-[10px] text-brand-text-secondary font-mono gap-1">
                     <span className="truncate">TZ: {reg.timezone}</span>
                     <span className="text-primary font-bold shrink-0">{reg.currency}</span>
                   </div>
@@ -435,7 +435,7 @@ export const GeneralSettingsTab: React.FC<GeneralSettingsTabProps> = ({
               <select
                 value={formData.timezone}
                 onChange={(e) => onChangeField('timezone', e.target.value)}
-                className="w-full h-9 px-3 rounded-md border border-border bg-background text-xs font-semibold text-text focus:outline-none focus:ring-2 focus:ring-primary/20 transition"
+                className="w-full min-h-[44px] h-11 px-3 rounded-xl border border-brand-border-strong bg-background text-base sm:text-sm tabular-nums font-semibold text-text focus:outline-none focus-visible:ring-2 focus-visible:ring-cta transition"
               >
                 <option value="Asia/Bangkok">Asia/Bangkok (UTC+07:00 Indochina Time)</option>
                 <option value="Asia/Singapore">Asia/Singapore (UTC+08:00 Singapore Standard Time)</option>
@@ -453,7 +453,7 @@ export const GeneralSettingsTab: React.FC<GeneralSettingsTabProps> = ({
               </label>
               <select
                 defaultValue="DD/MM/YYYY"
-                className="w-full h-9 px-3 rounded-md border border-border bg-background text-xs font-semibold text-text focus:outline-none focus:ring-2 focus:ring-primary/20 transition"
+                className="w-full min-h-[44px] h-11 px-3 rounded-xl border border-brand-border-strong bg-background text-base sm:text-sm tabular-nums font-semibold text-text focus:outline-none focus-visible:ring-2 focus-visible:ring-cta transition"
               >
                 <option value="DD/MM/YYYY">DD/MM/YYYY (e.g. 25/10/2026)</option>
                 <option value="YYYY-MM-DD">YYYY-MM-DD (ISO 8601)</option>
@@ -470,7 +470,7 @@ export const GeneralSettingsTab: React.FC<GeneralSettingsTabProps> = ({
                 <label className="block text-[11px] font-bold text-text/80 uppercase tracking-wide">
                   {language === 'th' ? 'สกุลเงินหลักประจำเครื่อง (Base Currency)' : 'Store Base Currency'}
                 </label>
-                <span className="text-[11px] text-text/50">
+                <span className="text-[11px] text-brand-text-secondary">
                   {language === 'th' ? 'สกุลเงินที่ใช้ลงบัญชีและคำนวณราคาสินค้าในแคตตาล็อก' : 'All catalog prices and shift drawer balances are tracked in this currency.'}
                 </span>
               </div>
@@ -498,7 +498,7 @@ export const GeneralSettingsTab: React.FC<GeneralSettingsTabProps> = ({
                         type: 'success',
                       });
                     }}
-                    className={`p-2.5 rounded-lg border flex flex-col items-center justify-center gap-1 cursor-pointer transition-all duration-150 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${
+                    className={`p-2.5 rounded-lg border flex flex-col items-center justify-center gap-1 cursor-pointer transition-all duration-150 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2 ${
                       isActive
                         ? 'border-primary bg-primary/10 text-primary font-bold shadow-xs'
                         : 'border-border bg-card text-text hover:bg-background'
@@ -506,7 +506,7 @@ export const GeneralSettingsTab: React.FC<GeneralSettingsTabProps> = ({
                   >
                     <span className="text-xl">{cur.flag}</span>
                     <span className="text-xs font-bold">{cur.code} ({cur.symbol})</span>
-                    <span className="text-[10px] text-text/50">{cur.label}</span>
+                    <span className="text-[10px] text-brand-text-secondary">{cur.label}</span>
                   </button>
                 );
               })}
@@ -525,7 +525,7 @@ export const GeneralSettingsTab: React.FC<GeneralSettingsTabProps> = ({
               <h3 className="text-sm font-bold text-text truncate">
                 {language === 'th' ? 'การตั้งค่าช่องทางชำระเงินและเครื่องรูดบัตร (Payments & Terminals)' : 'Financial & Payment Terminals'}
               </h3>
-              <p className="text-[11px] text-text/50 truncate">
+              <p className="text-[11px] text-brand-text-secondary truncate">
                 {language === 'th' ? 'จัดการรหัส PromptPay ID และหมายเลขเครื่องรูดบัตร EDC ประจำร้าน' : 'Manage PromptPay ID and EDC terminal identification for this register.'}
               </p>
             </div>
@@ -540,7 +540,7 @@ export const GeneralSettingsTab: React.FC<GeneralSettingsTabProps> = ({
                 {language === 'th' ? 'หมายเลข PromptPay (Phone / Tax ID)' : 'PromptPay ID'}
               </label>
               <div className="relative group">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-text/40 group-focus-within:text-primary transition-colors">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-brand-text-secondary group-focus-within:text-primary transition-colors">
                   <Phone className="h-3.5 w-3.5" />
                 </div>
                 <input
@@ -548,10 +548,10 @@ export const GeneralSettingsTab: React.FC<GeneralSettingsTabProps> = ({
                   value={formData.promptPayId}
                   onChange={(e) => onChangeField('promptPayId', e.target.value)}
                   placeholder="e.g. 0812345678"
-                  className="w-full h-10 pl-9 pr-3.5 rounded-xl border border-border bg-background text-xs font-mono font-bold text-text focus:outline-hidden focus:ring-2 focus:ring-primary/20 transition shadow-2xs"
+                  className="w-full min-h-[44px] h-11 pl-9 pr-3.5 rounded-xl border border-brand-border-strong bg-background text-base sm:text-sm font-mono font-bold text-text focus:outline-hidden focus-visible:ring-2 focus-visible:ring-cta transition shadow-2xs"
                 />
               </div>
-              <p className="text-[10px] text-text/40">
+              <p className="text-[10px] text-brand-text-secondary">
                 {language === 'th' ? 'หมายเลขนี้จะใช้สำหรับสร้าง QR Code รับเงินอัตโนมัติ' : 'This ID is used to generate dynamic payment QR codes for customers.'}
               </p>
             </div>
@@ -562,7 +562,7 @@ export const GeneralSettingsTab: React.FC<GeneralSettingsTabProps> = ({
                 {language === 'th' ? 'รหัสอ้างอิงเครื่องรูดบัตร (Terminal ID)' : 'EDC Terminal ID'}
               </label>
               <div className="relative group">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-text/40 group-focus-within:text-primary transition-colors">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-brand-text-secondary group-focus-within:text-primary transition-colors">
                   <CreditCard className="h-3.5 w-3.5" />
                 </div>
                 <input
@@ -570,10 +570,10 @@ export const GeneralSettingsTab: React.FC<GeneralSettingsTabProps> = ({
                   value={formData.terminalId}
                   onChange={(e) => onChangeField('terminalId', e.target.value)}
                   placeholder="e.g. TRM-EDC-01"
-                  className="w-full h-10 pl-9 pr-3.5 rounded-xl border border-border bg-background text-xs font-mono font-bold text-text focus:outline-hidden focus:ring-2 focus:ring-primary/20 transition shadow-2xs"
+                  className="w-full min-h-[44px] h-11 pl-9 pr-3.5 rounded-xl border border-brand-border-strong bg-background text-base sm:text-sm font-mono font-bold text-text focus:outline-hidden focus-visible:ring-2 focus-visible:ring-cta transition shadow-2xs"
                 />
               </div>
-              <p className="text-[10px] text-text/40">
+              <p className="text-[10px] text-brand-text-secondary">
                 {language === 'th' ? 'ชื่อหรือรหัสประจำเครื่อง EDC สำหรับบันทึกในใบเสร็จ' : 'Hardware identifier recorded on transactions for terminal reconciliation.'}
               </p>
             </div>

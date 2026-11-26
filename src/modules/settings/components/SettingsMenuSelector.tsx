@@ -173,21 +173,25 @@ export const SettingsMenuSelector: React.FC<SettingsMenuSelectorProps> = ({
             type="button"
             onClick={() => setViewMode('list')}
             title="List View"
-            className={`p-1.5 rounded-lg transition ${
-              viewMode === 'list' ? 'bg-primary text-white font-bold' : 'text-text/50 hover:text-text'
+            aria-label={language === 'th' ? 'มุมมองรายการ' : 'List View'}
+            aria-pressed={viewMode === 'list'}
+            className={`min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta ${
+              viewMode === 'list' ? 'bg-primary text-primary-foreground font-bold' : 'text-brand-text-secondary hover:text-text'
             }`}
           >
-            <Sliders className="w-3.5 h-3.5" />
+            <Sliders className="w-4 h-4" />
           </button>
           <button
             type="button"
             onClick={() => setViewMode('grid')}
             title="Grid View"
-            className={`p-1.5 rounded-lg transition ${
-              viewMode === 'grid' ? 'bg-primary text-white font-bold' : 'text-text/50 hover:text-text'
+            aria-label={language === 'th' ? 'มุมมองตาราง' : 'Grid View'}
+            aria-pressed={viewMode === 'grid'}
+            className={`min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta ${
+              viewMode === 'grid' ? 'bg-primary text-primary-foreground font-bold' : 'text-brand-text-secondary hover:text-text'
             }`}
           >
-            <LayoutGrid className="w-3.5 h-3.5" />
+            <LayoutGrid className="w-4 h-4" />
           </button>
         </div>
       </div>
@@ -235,7 +239,7 @@ export const SettingsMenuSelector: React.FC<SettingsMenuSelectorProps> = ({
             <span className="hidden sm:inline text-xs font-bold px-2.5 py-1 rounded-lg bg-background border border-border text-text/70">
               {language === 'th' ? 'คลิกสลับเมนู' : 'Switch Menu'}
             </span>
-            <div className={`p-2 rounded-xl bg-primary/10 text-primary transition-transform duration-200 ${isOpen ? 'rotate-180 bg-primary text-white' : ''}`}>
+            <div className={`p-2 rounded-xl bg-primary/10 text-primary transition-transform duration-200 ${isOpen ? 'rotate-180 bg-primary text-primary-foreground' : ''}`}>
               <ChevronDown className="w-4 h-4" />
             </div>
           </div>
@@ -260,20 +264,20 @@ export const SettingsMenuSelector: React.FC<SettingsMenuSelectorProps> = ({
 
               {/* Instant Search input */}
               <div className="relative w-full sm:w-64">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text/40 pointer-events-none" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-brand-text-secondary pointer-events-none" />
                 <input
                   type="text"
                   value={navSearchQuery}
                   onChange={(e) => setNavSearchQuery(e.target.value)}
                   placeholder={language === 'th' ? 'พิมพ์ค้นหาเมนู...' : 'Type to search...'}
-                  className="w-full pl-8 pr-8 py-1.5 text-xs rounded-xl border border-border bg-background text-text placeholder:text-text/40 focus:outline-hidden focus:ring-2 focus:ring-primary/20"
+                  className="w-full pl-8 pr-8 py-1.5 text-xs rounded-xl border border-border bg-background text-text placeholder:text-brand-text-secondary focus:outline-hidden focus-visible:ring-2 focus-visible:ring-cta"
                   autoFocus
                 />
                 {navSearchQuery && (
                   <button
                     type="button"
                     onClick={() => setNavSearchQuery('')}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text/40 hover:text-text"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-brand-text-secondary hover:text-text"
                   >
                     <X className="w-3.5 h-3.5" />
                   </button>
@@ -341,7 +345,7 @@ export const SettingsMenuSelector: React.FC<SettingsMenuSelectorProps> = ({
                             }}
                             className={`w-full text-left p-3 rounded-xl border transition-all cursor-pointer flex items-center justify-between gap-3 ${
                               isSelected
-                                ? 'bg-primary text-white border-primary shadow-md font-bold'
+                                ? 'bg-primary text-primary-foreground border-primary shadow-md font-bold'
                                 : 'bg-background/80 hover:bg-card hover:border-primary/40 border-border/80 text-text'
                             }`}
                           >
@@ -370,7 +374,7 @@ export const SettingsMenuSelector: React.FC<SettingsMenuSelectorProps> = ({
                                     </span>
                                   )}
                                   {hasDirty && (
-                                    <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" title="Unsaved changes" />
+                                    <span className="w-2 h-2 rounded-full bg-cta" title="Unsaved changes" />
                                   )}
                                 </div>
                                 <p

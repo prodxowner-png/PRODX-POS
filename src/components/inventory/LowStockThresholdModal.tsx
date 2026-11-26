@@ -115,7 +115,7 @@ export const LowStockThresholdModal: React.FC<LowStockThresholdModalProps> = ({
               type="button"
               variant="primary"
               onClick={handleApply}
-              className="text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white border-amber-600 cursor-pointer shadow-xs flex items-center gap-1.5"
+              className="text-xs font-bold bg-cta hover:bg-cta-hover text-cta-text border-cta/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta cursor-pointer shadow-xs flex items-center gap-1.5"
             >
               <Check className="h-4 w-4" />
               <span>{language === 'th' ? 'บันทึกและใช้งาน' : 'Apply Threshold'}</span>
@@ -132,7 +132,7 @@ export const LowStockThresholdModal: React.FC<LowStockThresholdModalProps> = ({
               <SlidersHorizontal className="h-3.5 w-3.5 text-amber-500" />
               <span>{language === 'th' ? 'เกณฑ์แจ้งเตือนสต็อก (Alert Threshold)' : 'Alert Threshold Quantity'}</span>
             </label>
-            <span className="font-mono text-xl font-black text-amber-500">
+            <span className="font-mono tabular-nums text-xl font-black text-amber-500">
               ≤ {tempThreshold} {language === 'th' ? 'ชิ้น' : 'units'}
             </span>
           </div>
@@ -157,6 +157,7 @@ export const LowStockThresholdModal: React.FC<LowStockThresholdModalProps> = ({
             <div className="flex-1 relative">
               <input
                 type="number"
+                inputMode="numeric"
                 min="0"
                 max="5000"
                 value={tempThreshold}
@@ -164,9 +165,9 @@ export const LowStockThresholdModal: React.FC<LowStockThresholdModalProps> = ({
                   const val = parseInt(e.target.value, 10);
                   setTempThreshold(isNaN(val) ? 0 : Math.max(0, val));
                 }}
-                className="w-full text-center font-mono font-black text-lg text-primary bg-card border border-border border-crisp rounded-xl py-2 px-3 focus:outline-none focus:ring-2 focus:ring-amber-500/40"
+                className="w-full text-center font-mono tabular-nums font-black text-lg text-primary bg-card border border-border border-crisp rounded-xl py-2 px-3 focus:outline-none focus:ring-2 focus:ring-amber-500/40"
               />
-              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-text/40 pointer-events-none">
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-brand-text-secondary pointer-events-none">
                 {language === 'th' ? 'ชิ้น' : 'units'}
               </span>
             </div>
@@ -202,7 +203,7 @@ export const LowStockThresholdModal: React.FC<LowStockThresholdModalProps> = ({
                     onClick={() => setTempThreshold(preset)}
                     className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                       isSelected
-                        ? 'bg-amber-500 text-white shadow-xs'
+                        ? 'bg-warning-subtle text-warning-text border border-warning/30 shadow-xs'
                         : 'bg-card border border-border border-crisp text-text/70 hover:text-text hover:border-amber-400'
                     }`}
                   >
@@ -224,7 +225,7 @@ export const LowStockThresholdModal: React.FC<LowStockThresholdModalProps> = ({
               onChange={(e) => setTempThreshold(parseInt(e.target.value, 10))}
               className="w-full accent-amber-500 cursor-pointer h-2 bg-muted rounded-lg"
             />
-            <div className="flex justify-between text-[10px] text-text/40 font-mono mt-1">
+            <div className="flex justify-between text-[10px] text-brand-text-secondary font-mono tabular-nums mt-1">
               <span>0</span>
               <span>25</span>
               <span>50</span>
@@ -237,7 +238,7 @@ export const LowStockThresholdModal: React.FC<LowStockThresholdModalProps> = ({
         {/* Highlighting Toggle Control */}
         <div className="p-4 rounded-2xl bg-card border border-border border-crisp flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className={`p-2.5 rounded-xl shrink-0 ${isHighlightActive ? 'bg-amber-500/10 text-amber-500' : 'bg-muted text-text/40'}`}>
+            <div className={`p-2.5 rounded-xl shrink-0 ${isHighlightActive ? 'bg-amber-500/10 text-amber-500' : 'bg-muted text-brand-text-secondary'}`}>
               <AlertTriangle className="h-4 w-4" />
             </div>
             <div>
@@ -257,7 +258,7 @@ export const LowStockThresholdModal: React.FC<LowStockThresholdModalProps> = ({
             onClick={onToggleHighlight}
             className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer flex items-center gap-1.5 shrink-0 ${
               isHighlightActive
-                ? 'bg-amber-500 hover:bg-amber-600 text-white border-amber-600 shadow-2xs'
+                ? 'bg-cta hover:bg-cta-hover text-cta-text border-cta/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta shadow-2xs'
                 : 'bg-muted border-border border-crisp text-text/70 hover:text-text'
             }`}
           >
@@ -285,7 +286,7 @@ export const LowStockThresholdModal: React.FC<LowStockThresholdModalProps> = ({
           </div>
 
           {/* Quick breakdown metrics */}
-          <div className="grid grid-cols-3 gap-2 pt-1 text-center font-mono">
+          <div className="grid grid-cols-3 gap-2 pt-1 text-center font-mono tabular-nums">
             <div className="p-2 rounded-xl bg-card border border-border border-crisp">
               <div className="text-[10px] text-text/60 font-sans">{language === 'th' ? 'พร้อมขาย (>เกณฑ์)' : 'In Stock'}</div>
               <div className="text-base font-black text-emerald-600 dark:text-emerald-400 mt-0.5">{inStockCount}</div>
@@ -329,10 +330,10 @@ export const LowStockThresholdModal: React.FC<LowStockThresholdModalProps> = ({
                   >
                     <div className="min-w-0 pr-2">
                       <div className="font-bold text-text truncate">{p.name}</div>
-                      <div className="text-[10px] font-mono text-text/50">{p.sku}</div>
+                      <div className="text-[10px] font-mono tabular-nums text-brand-text-secondary">{p.sku}</div>
                     </div>
                     <div className="text-right shrink-0">
-                      <span className="font-mono font-black text-amber-600 dark:text-amber-400">
+                      <span className="font-mono tabular-nums font-black text-amber-600 dark:text-amber-400">
                         {p.currentStock} {p.unitOfMeasure}
                       </span>
                       <div className="text-[9.5px] text-amber-800 dark:text-amber-300 font-bold">
@@ -342,7 +343,7 @@ export const LowStockThresholdModal: React.FC<LowStockThresholdModalProps> = ({
                   </div>
                 ))}
                 {lowStockItems.length > 5 && (
-                  <div className="text-[10.5px] text-center text-text/50 font-medium pt-1">
+                  <div className="text-[10.5px] text-center text-brand-text-secondary font-medium pt-1">
                     {language === 'th'
                       ? `และอีก ${lowStockItems.length - 5} รายการ...`
                       : `and ${lowStockItems.length - 5} more items...`}
