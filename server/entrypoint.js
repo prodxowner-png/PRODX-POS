@@ -245,9 +245,9 @@ var createSessionIssuer = (repository, verifySecret, now = () => /* @__PURE__ */
     await repository.resetFailedAttempts(credential.userId, credential.organizationId);
     const token = newBearerToken();
     const sessionId = crypto3.randomUUID();
-    const expiresAt = new Date(current.getTime() + SESSION_TTL_MS);
-    await repository.createSession({ id: sessionId, organizationId: credential.organizationId, userId: credential.userId, deviceId: device.id, tokenHash: hashSessionToken(token), expiresAt });
-    return { token, sessionId, expiresAt };
+    const expiresAt2 = new Date(current.getTime() + SESSION_TTL_MS);
+    await repository.createSession({ id: sessionId, organizationId: credential.organizationId, userId: credential.userId, deviceId: device.id, tokenHash: hashSessionToken(token), expiresAt: expiresAt2 });
+    return { token, sessionId, expiresAt: expiresAt2 };
   },
   authenticateSupabaseToken: async ({ token: supabaseToken, deviceId }) => {
     const verified = await verifySupabaseIdentity(supabaseToken);
@@ -261,16 +261,16 @@ var createSessionIssuer = (repository, verifySecret, now = () => /* @__PURE__ */
     const localToken = newBearerToken();
     const sessionId = crypto3.randomUUID();
     const maxExpiry = new Date(nowValue.getTime() + SESSION_TTL_MS);
-    const expiresAt = verified.expiresAt < maxExpiry ? verified.expiresAt : maxExpiry;
+    const expiresAt2 = verified.expiresAt < maxExpiry ? verified.expiresAt : maxExpiry;
     await repository.createSession({
       id: sessionId,
       organizationId: principal.organizationId,
       userId: principal.userId,
       deviceId: device.id,
       tokenHash: hashSessionToken(localToken),
-      expiresAt
+      expiresAt: expiresAt2
     });
-    return { token: localToken, sessionId, expiresAt };
+    return { token: localToken, sessionId, expiresAt: expiresAt2 };
   },
   authenticateBearer: async (token) => {
     if (!token) return null;
@@ -1266,7 +1266,7 @@ var createSupervisorAuthorizationService = (db, now = () => /* @__PURE__ */ new 
       );
     }
     const token = crypto6.randomBytes(32).toString("base64url");
-    const expiresAt = new Date(current.getTime() + TTL_MS);
+    const expiresAt2 = new Date(current.getTime() + TTL_MS);
     await db.query(
       `INSERT INTO prodx_supervisor_authorizations
         (id, organization_id, store_id, requester_user_id, requester_session_id,
@@ -1287,7 +1287,7 @@ var createSupervisorAuthorizationService = (db, now = () => /* @__PURE__ */ new 
         input.policyThresholdBps ?? null,
         input.policyRequiresApproval ?? null,
         hashAuthorizationToken(token),
-        expiresAt
+        expiresAt2
       ]
     );
     await recordSecurityEvent(db, {
@@ -1295,9 +1295,9 @@ var createSupervisorAuthorizationService = (db, now = () => /* @__PURE__ */ new 
       storeId: input.storeId,
       userId: supervisorUserId,
       eventType: "SUPERVISOR_AUTHORIZATION_GRANTED",
-      metadata: { action: input.action, orderId: input.orderId, requesterUserId: input.requesterUserId, requesterSessionId: input.requesterSessionId, expiresAt: expiresAt.toISOString() }
+      metadata: { action: input.action, orderId: input.orderId, requesterUserId: input.requesterUserId, requesterSessionId: input.requesterSessionId, expiresAt: expiresAt2.toISOString() }
     });
-    return { authorizationToken: token, supervisorUserId, expiresAt: expiresAt.toISOString() };
+    return { authorizationToken: token, supervisorUserId, expiresAt: expiresAt2.toISOString() };
   },
   async consume(input) {
     if (!input.token.trim()) throw new SupervisorAuthorizationError("AUTHORIZATION_EXPIRED");
@@ -2185,7 +2185,7 @@ var mapStore = (row) => ({
   timezone: row.business_timezone,
   defaultTaxRateBps: DEFAULT_STORE_TAX_RATE_BPS
 });
-var loadSessionContext = async (db, principal, token, expiresAt) => {
+var loadSessionContext = async (db, principal, token, expiresAt2) => {
   const rows = await db.query(
     `SELECT o.id AS organization_id, o.code AS organization_code, o.name AS organization_name,
             s.id AS store_id, s.code AS store_code, s.name AS store_name, s.business_timezone,
@@ -2237,7 +2237,7 @@ var loadSessionContext = async (db, principal, token, expiresAt) => {
       permissions: toUiPermissions(permissions.map((p) => p.permission_key), resolvedRole)
     },
     token,
-    expiresAt: expiresAt.toISOString()
+    expiresAt: expiresAt2.toISOString()
   };
 };
 var registerAuthRoutes = (app, db, sessions, options = {}) => {
@@ -2440,9 +2440,9 @@ var registerAuthRoutes = (app, db, sessions, options = {}) => {
         `SELECT expires_at FROM public.prodx_sessions WHERE id = $1 AND revoked_at IS NULL LIMIT 1`,
         [principal.sessionId]
       );
-      const expiresAt = sessionRows[0]?.expires_at;
-      if (!expiresAt) return null;
-      return loadSessionContext(db, principal, token, expiresAt);
+      const expiresAt2 = sessionRows[0]?.expires_at;
+      if (!expiresAt2) return null;
+      return loadSessionContext(db, principal, token, expiresAt2);
     });
     if (!context) {
       sendUnauthenticated(request, response, "Authentication session is invalid.");
@@ -2468,6 +2468,470 @@ var registerAuthRoutes = (app, db, sessions, options = {}) => {
       [request.params.orgSlug]
     ));
     response.json(rows.map(mapStore));
+  }));
+};
+
+// server/http/webauthn-route.ts
+import { randomBytes, randomUUID } from "node:crypto";
+import {
+  generateAuthenticationOptions,
+  generateRegistrationOptions,
+  verifyAuthenticationResponse,
+  verifyRegistrationResponse
+} from "@simplewebauthn/server";
+var jsonError = (request, response, status, code, message) => response.status(status).json({ error: { code, message, requestId: request.id } });
+var asyncRoute2 = (handler) => (request, response, next) => {
+  handler(request, response).catch(next);
+};
+var readObject = (value) => value && typeof value === "object" && !Array.isArray(value) ? value : null;
+var readString = (value, max = 256) => typeof value === "string" && value.trim().length > 0 && value.length <= max ? value.trim() : null;
+var readLabel = (value) => {
+  const label = readString(value, 80);
+  return label && !/[\u0000-\u001f\u007f]/.test(label) ? label : null;
+};
+var bearerToken2 = (request) => {
+  const header = request.header("authorization");
+  if (!header?.startsWith("Bearer ")) return null;
+  const token = header.slice(7).trim();
+  return token.length > 0 ? token : null;
+};
+var resolveConfig = (env = process.env) => {
+  const rpId = env.WEBAUTHN_RP_ID?.trim().toLowerCase();
+  const rpName = env.WEBAUTHN_RP_NAME?.trim() || "PRODX POS";
+  const origins = (env.WEBAUTHN_ORIGIN ?? "").split(",").map((origin) => origin.trim()).filter(Boolean);
+  if (!rpId || !origins.length || !/^(?=.{1,253}$)[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(rpId) || rpId.includes("..")) {
+    return { config: null, error: "WebAuthn RP ID and exact allowed origins are not configured." };
+  }
+  try {
+    const normalized = [...new Set(origins.map((origin) => {
+      const url = new URL(origin);
+      const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+      if (url.origin !== origin || url.protocol !== "https:" && !(loopback && url.protocol === "http:") || !(url.hostname === rpId || url.hostname.endsWith(`.${rpId}`))) throw new Error("Invalid WebAuthn origin configuration.");
+      return url.origin;
+    }))];
+    if (normalized.length !== origins.length) return { config: null, error: "WebAuthn origins must be unique exact origins." };
+    return { config: { rpId, rpName, origins: normalized } };
+  } catch {
+    return { config: null, error: "WebAuthn origin configuration is invalid." };
+  }
+};
+var requestOriginAllowed = (request, config, allowMissing = false) => {
+  const origin = request.header("origin");
+  return origin ? config.origins.includes(origin) : allowMissing;
+};
+var uuidBytes = (id) => new Uint8Array(Buffer.from(id.replace(/-/g, ""), "hex"));
+var challengeValue = () => randomBytes(32).toString("base64url");
+var isUuid = (value) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+var expiresAt = () => new Date(Date.now() + 2 * 6e4);
+var isStringArray = (value) => Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
+var registerWebAuthnRoutes = (app, db, sessions) => {
+  app.get("/auth/webauthn/status", (_request, response) => {
+    const { config, error: error4 } = resolveConfig();
+    response.json({ enabled: Boolean(config), rpId: config?.rpId ?? null, error: config ? null : error4 });
+  });
+  app.post("/auth/webauthn/login/options", asyncRoute2(async (request, response) => {
+    const { config } = resolveConfig();
+    if (!config) {
+      jsonError(request, response, 503, "WEBAUTHN_UNAVAILABLE", "Passkey authentication is not configured.");
+      return;
+    }
+    if (!requestOriginAllowed(request, config)) {
+      jsonError(request, response, 403, "WEBAUTHN_ORIGIN_REJECTED", "Request origin is not allowed.");
+      return;
+    }
+    const body = readObject(request.body);
+    const organizationSlug = readString(body?.organizationSlug);
+    const storeCode = readString(body?.storeCode);
+    const registerId = readString(body?.registerId);
+    const username = readString(body?.username);
+    if (!organizationSlug || !storeCode || !registerId || !username) {
+      jsonError(request, response, 400, "WEBAUTHN_REQUEST_INVALID", "organizationSlug, storeCode, registerId and username are required.");
+      return;
+    }
+    const throttle = await checkLoginThrottle(db, request.ip || "unknown");
+    if (!throttle.allowed) {
+      response.setHeader("retry-after", String(throttle.retryAfterSeconds ?? 60));
+      jsonError(request, response, 429, "AUTH_RATE_LIMITED", "Too many authentication attempts.");
+      return;
+    }
+    const identities = await db.query(
+      "SELECT * FROM public.prodx_webauthn_resolve_login($1, $2, $3, $4)",
+      [organizationSlug, storeCode, registerId, username]
+    );
+    const identity = identities[0];
+    if (!identity) {
+      await recordLoginFailure(db, request.ip || "unknown");
+      jsonError(request, response, 401, "AUTHENTICATION_FAILED", "Invalid credentials or store scope.");
+      return;
+    }
+    const requireAdmin = body?.requireAdminRole === true || ["ADMIN-CONSOLE", "ADMIN_CONSOLE", "TERM-ADMIN"].includes(registerId.toUpperCase());
+    const registered = await db.query(
+      "SELECT * FROM public.prodx_webauthn_list_login_credentials($1::uuid, $2::uuid, $3::uuid)",
+      [identity.organization_id, identity.store_id, identity.user_id]
+    );
+    if (!registered.length) {
+      await recordLoginFailure(db, request.ip || "unknown");
+      jsonError(request, response, 401, "AUTHENTICATION_FAILED", "Authentication failed. Check your account and store details.");
+      return;
+    }
+    const challenge = challengeValue();
+    const challengeId = randomUUID();
+    const expiry = expiresAt();
+    const options = await generateAuthenticationOptions({
+      rpID: config.rpId,
+      challenge,
+      allowCredentials: registered.map((item) => ({ id: item.credential_id, transports: item.transports })),
+      userVerification: "required",
+      timeout: 6e4
+    });
+    await db.query(
+      "SELECT public.prodx_webauthn_issue_challenge($1::uuid,$2,$3,$4::uuid,$5::uuid,$6::uuid,$7::uuid,$8::uuid,$9,$10::timestamptz)",
+      [challengeId, challenge, "authentication", identity.organization_id, identity.store_id, identity.user_id, identity.device_id, null, requireAdmin, expiry.toISOString()]
+    );
+    response.setHeader("Cache-Control", "no-store");
+    response.json({ challengeId, options });
+  }));
+  app.post("/auth/webauthn/login/verify", asyncRoute2(async (request, response) => {
+    const { config } = resolveConfig();
+    if (!config) {
+      jsonError(request, response, 503, "WEBAUTHN_UNAVAILABLE", "Passkey authentication is not configured.");
+      return;
+    }
+    if (!requestOriginAllowed(request, config)) {
+      jsonError(request, response, 403, "WEBAUTHN_ORIGIN_REJECTED", "Request origin is not allowed.");
+      return;
+    }
+    const body = readObject(request.body);
+    const challengeId = readString(body?.challengeId, 64);
+    if (!challengeId || !isUuid(challengeId)) {
+      jsonError(request, response, 400, "WEBAUTHN_REQUEST_INVALID", "A valid challengeId is required.");
+      return;
+    }
+    const assertion = readObject(body?.response);
+    if (!assertion || typeof assertion.id !== "string" || !assertion.response || typeof assertion.response !== "object") {
+      jsonError(request, response, 400, "WEBAUTHN_REQUEST_INVALID", "A challengeId and WebAuthn assertion are required.");
+      return;
+    }
+    const throttle = await checkLoginThrottle(db, request.ip || "unknown");
+    if (!throttle.allowed) {
+      response.setHeader("retry-after", String(throttle.retryAfterSeconds ?? 60));
+      jsonError(request, response, 429, "AUTH_RATE_LIMITED", "Too many authentication attempts.");
+      return;
+    }
+    const challenges = await db.query(
+      "SELECT * FROM public.prodx_webauthn_get_challenge($1::uuid, 'authentication')",
+      [challengeId]
+    );
+    const challenge = challenges[0];
+    if (!challenge) {
+      await recordLoginFailure(db, request.ip || "unknown");
+      jsonError(request, response, 401, "WEBAUTHN_CHALLENGE_INVALID", "Passkey challenge is invalid or expired.");
+      return;
+    }
+    const credentials = await db.query(
+      "SELECT * FROM public.prodx_webauthn_get_auth_credential($1::uuid, $2)",
+      [challengeId, assertion.id]
+    );
+    const stored = credentials[0];
+    if (!stored || stored.user_id !== challenge.user_id) {
+      await db.query("SELECT public.prodx_webauthn_record_failed_attempt($1::uuid)", [challengeId]);
+      await recordLoginFailure(db, request.ip || "unknown");
+      jsonError(request, response, 401, "WEBAUTHN_CREDENTIAL_INVALID", "Passkey is not registered for this account.");
+      return;
+    }
+    let verified = false;
+    let newCounter = Number(stored.sign_count);
+    try {
+      const result = await verifyAuthenticationResponse({
+        response: assertion,
+        expectedChallenge: challenge.challenge,
+        expectedOrigin: config.origins,
+        expectedRPID: config.rpId,
+        requireUserVerification: true,
+        credential: { id: assertion.id, publicKey: new Uint8Array(stored.public_key), counter: Number(stored.sign_count), transports: stored.transports }
+      });
+      verified = result.verified && result.authenticationInfo.userVerified && result.authenticationInfo.credentialID === assertion.id;
+      newCounter = result.authenticationInfo.newCounter;
+    } catch {
+      verified = false;
+    }
+    if (!verified) {
+      await db.query("SELECT public.prodx_webauthn_record_failed_attempt($1::uuid)", [challengeId]);
+      await recordLoginFailure(db, request.ip || "unknown");
+      jsonError(request, response, 401, "WEBAUTHN_VERIFICATION_FAILED", "Passkey verification failed.");
+      return;
+    }
+    const token = randomBytes(32).toString("base64url");
+    const sessionId = randomUUID();
+    const sessionExpiry = new Date(Date.now() + 8 * 60 * 6e4);
+    try {
+      await db.query(
+        "SELECT * FROM public.prodx_webauthn_complete_authentication($1::uuid,$2,$3::bigint,$4::uuid,$5,$6::timestamptz)",
+        [challengeId, assertion.id, newCounter, sessionId, hashSessionToken(token), sessionExpiry.toISOString()]
+      );
+    } catch (error4) {
+      const databaseCode = error4 && typeof error4 === "object" && "code" in error4 ? String(error4.code ?? "") : "";
+      if (databaseCode === "28000") {
+        await db.query("SELECT public.prodx_webauthn_record_failed_attempt($1::uuid)", [challengeId]);
+        await recordLoginFailure(db, request.ip || "unknown");
+        jsonError(request, response, 401, "WEBAUTHN_VERIFICATION_FAILED", "Passkey verification failed.");
+        return;
+      }
+      if (databaseCode === "42501") {
+        jsonError(request, response, 403, "WEBAUTHN_SCOPE_REJECTED", "Passkey is not authorized for this account, store, or terminal.");
+        return;
+      }
+      throw error4;
+    }
+    const principal = await sessions.authenticateBearer(token);
+    if (!principal) {
+      await sessions.revokeBearer(token);
+      jsonError(request, response, 401, "WEBAUTHN_SESSION_REJECTED", "Passkey session could not be established.");
+      return;
+    }
+    response.setHeader("Cache-Control", "no-store");
+    response.status(200).json({ token, sessionId, expiresAt: sessionExpiry.toISOString() });
+  }));
+  app.post("/auth/webauthn/registration/options", asyncRoute2(async (request, response) => {
+    const { config } = resolveConfig();
+    if (!config) {
+      jsonError(request, response, 503, "WEBAUTHN_UNAVAILABLE", "Passkey registration is not configured.");
+      return;
+    }
+    if (!requestOriginAllowed(request, config)) {
+      jsonError(request, response, 403, "WEBAUTHN_ORIGIN_REJECTED", "Request origin is not allowed.");
+      return;
+    }
+    const token = bearerToken2(request);
+    if (!token) {
+      jsonError(request, response, 401, "UNAUTHENTICATED", "Authentication is required.");
+      return;
+    }
+    const principal = await sessions.authenticateBearer(token);
+    if (!principal) {
+      jsonError(request, response, 401, "UNAUTHENTICATED", "Authentication session is invalid.");
+      return;
+    }
+    const label = readLabel(readObject(request.body)?.label) ?? "Passkey";
+    const rows = await runWithRequestContext({ requestId: request.id, principal }, async () => {
+      const identities = await db.query(
+        "SELECT * FROM public.prodx_webauthn_resolve_registration($1::uuid)",
+        [principal.sessionId]
+      );
+      const identity = identities[0];
+      if (!identity) return null;
+      const registered = await db.query(
+        "SELECT * FROM public.prodx_webauthn_list_login_credentials($1::uuid, $2::uuid, $3::uuid)",
+        [principal.organizationId, principal.storeId, principal.userId]
+      );
+      return { deviceId: identity.device_id, username: identity.username, displayName: identity.display_name, registered };
+    });
+    if (!rows) {
+      jsonError(request, response, 401, "UNAUTHENTICATED", "Authentication session is invalid.");
+      return;
+    }
+    const challenge = challengeValue();
+    const challengeId = randomUUID();
+    const expiry = expiresAt();
+    const options = await generateRegistrationOptions({
+      rpName: config.rpName,
+      rpID: config.rpId,
+      userID: uuidBytes(principal.userId),
+      userName: rows.username,
+      userDisplayName: rows.displayName,
+      challenge,
+      timeout: 6e4,
+      attestationType: "none",
+      excludeCredentials: rows.registered.map((item) => ({ id: item.credential_id, transports: item.transports })),
+      authenticatorSelection: { authenticatorAttachment: "platform", residentKey: "preferred", userVerification: "required" }
+    });
+    await runWithRequestContext({ requestId: request.id, principal }, () => db.query(
+      "SELECT public.prodx_webauthn_issue_challenge($1::uuid,$2,$3,$4::uuid,$5::uuid,$6::uuid,$7::uuid,$8::uuid,false,$9::timestamptz)",
+      [challengeId, challenge, "registration", principal.organizationId, principal.storeId, principal.userId, rows.deviceId, principal.sessionId, expiry.toISOString()]
+    ));
+    response.setHeader("Cache-Control", "no-store");
+    response.json({ challengeId, options, label });
+  }));
+  app.post("/auth/webauthn/registration/verify", asyncRoute2(async (request, response) => {
+    const { config } = resolveConfig();
+    if (!config) {
+      jsonError(request, response, 503, "WEBAUTHN_UNAVAILABLE", "Passkey registration is not configured.");
+      return;
+    }
+    if (!requestOriginAllowed(request, config)) {
+      jsonError(request, response, 403, "WEBAUTHN_ORIGIN_REJECTED", "Request origin is not allowed.");
+      return;
+    }
+    const token = bearerToken2(request);
+    if (!token) {
+      jsonError(request, response, 401, "UNAUTHENTICATED", "Authentication is required.");
+      return;
+    }
+    const principal = await sessions.authenticateBearer(token);
+    if (!principal) {
+      jsonError(request, response, 401, "UNAUTHENTICATED", "Authentication session is invalid.");
+      return;
+    }
+    const body = readObject(request.body);
+    const challengeId = readString(body?.challengeId, 64);
+    if (!challengeId || !isUuid(challengeId)) {
+      jsonError(request, response, 400, "WEBAUTHN_REQUEST_INVALID", "A valid challengeId is required.");
+      return;
+    }
+    const label = readLabel(body?.label) ?? "Passkey";
+    const attestation = readObject(body?.response);
+    if (!challengeId || !attestation || typeof attestation.id !== "string" || typeof attestation.response !== "object") {
+      jsonError(request, response, 400, "WEBAUTHN_REQUEST_INVALID", "A challengeId and WebAuthn registration response are required.");
+      return;
+    }
+    const challengeRows = await runWithRequestContext({ requestId: request.id, principal }, () => db.query(
+      "SELECT * FROM public.prodx_webauthn_get_challenge($1::uuid, 'registration')",
+      [challengeId]
+    ));
+    const challenge = challengeRows[0];
+    if (!challenge || challenge.organization_id !== principal.organizationId || challenge.store_id !== principal.storeId || challenge.user_id !== principal.userId) {
+      jsonError(request, response, 401, "WEBAUTHN_CHALLENGE_INVALID", "Registration challenge is invalid or expired.");
+      return;
+    }
+    let result;
+    try {
+      result = await verifyRegistrationResponse({ response: attestation, expectedChallenge: challenge.challenge, expectedOrigin: config.origins, expectedRPID: config.rpId, requireUserVerification: true });
+    } catch {
+      await runWithRequestContext({ requestId: request.id, principal }, () => db.query(
+        "SELECT public.prodx_webauthn_fail_registration($1::uuid,$2::uuid)",
+        [challengeId, principal.sessionId]
+      ));
+      jsonError(request, response, 400, "WEBAUTHN_VERIFICATION_FAILED", "Passkey registration verification failed.");
+      return;
+    }
+    if (!result.verified || !result.registrationInfo.userVerified) {
+      await runWithRequestContext({ requestId: request.id, principal }, () => db.query(
+        "SELECT public.prodx_webauthn_fail_registration($1::uuid,$2::uuid)",
+        [challengeId, principal.sessionId]
+      ));
+      jsonError(request, response, 400, "WEBAUTHN_VERIFICATION_FAILED", "Passkey registration verification failed.");
+      return;
+    }
+    const info = result.registrationInfo;
+    try {
+      await runWithRequestContext({ requestId: request.id, principal }, () => db.query(
+        "SELECT public.prodx_webauthn_complete_registration($1::uuid,$2::uuid,$3::uuid,$4,$5::bytea,$6::bigint,$7::text[],$8,$9,$10)",
+        [challengeId, principal.sessionId, randomUUID(), info.credential.id, Buffer.from(info.credential.publicKey), info.credential.counter, isStringArray(info.credential.transports), info.credentialDeviceType, info.credentialBackedUp, label]
+      ));
+    } catch {
+      await runWithRequestContext({ requestId: request.id, principal }, () => db.query(
+        "SELECT public.prodx_webauthn_fail_registration($1::uuid,$2::uuid)",
+        [challengeId, principal.sessionId]
+      ));
+      jsonError(request, response, 409, "WEBAUTHN_REGISTRATION_REJECTED", "Passkey could not be registered. It may already exist or the credential limit was reached.");
+      return;
+    }
+    response.status(201).json({ registered: true });
+  }));
+  app.get("/auth/webauthn/credentials", asyncRoute2(async (request, response) => {
+    const { config } = resolveConfig();
+    if (!config) {
+      jsonError(request, response, 503, "WEBAUTHN_UNAVAILABLE", "Passkey management is not configured.");
+      return;
+    }
+    if (!requestOriginAllowed(request, config, true)) {
+      jsonError(request, response, 403, "WEBAUTHN_ORIGIN_REJECTED", "Request origin is not allowed.");
+      return;
+    }
+    const token = bearerToken2(request);
+    if (!token) {
+      jsonError(request, response, 401, "UNAUTHENTICATED", "Authentication is required.");
+      return;
+    }
+    const principal = await sessions.authenticateBearer(token);
+    if (!principal) {
+      jsonError(request, response, 401, "UNAUTHENTICATED", "Authentication session is invalid.");
+      return;
+    }
+    const rows = await runWithRequestContext({ requestId: request.id, principal }, () => db.query(
+      "SELECT * FROM public.prodx_webauthn_list_credentials()"
+    ));
+    response.setHeader("Cache-Control", "no-store");
+    response.json(rows.map(({ credential_id: _credentialId, ...row }) => row));
+  }));
+  app.patch("/auth/webauthn/credentials/:credentialId", asyncRoute2(async (request, response) => {
+    const { config } = resolveConfig();
+    if (!config) {
+      jsonError(request, response, 503, "WEBAUTHN_UNAVAILABLE", "Passkey management is not configured.");
+      return;
+    }
+    if (!requestOriginAllowed(request, config)) {
+      jsonError(request, response, 403, "WEBAUTHN_ORIGIN_REJECTED", "Request origin is not allowed.");
+      return;
+    }
+    const token = bearerToken2(request);
+    if (!token) {
+      jsonError(request, response, 401, "UNAUTHENTICATED", "Authentication is required.");
+      return;
+    }
+    const principal = await sessions.authenticateBearer(token);
+    if (!principal) {
+      jsonError(request, response, 401, "UNAUTHENTICATED", "Authentication session is invalid.");
+      return;
+    }
+    if (!isUuid(request.params.credentialId)) {
+      jsonError(request, response, 400, "WEBAUTHN_REQUEST_INVALID", "A valid credentialId is required.");
+      return;
+    }
+    const body = readObject(request.body);
+    const label = readString(body?.label, 80);
+    if (!label) {
+      jsonError(request, response, 400, "WEBAUTHN_REQUEST_INVALID", "A label between 1 and 80 printable characters is required.");
+      return;
+    }
+    const rows = await runWithRequestContext({ requestId: request.id, principal }, () => db.query(
+      "SELECT public.prodx_webauthn_rename_credential($1::uuid,$2) AS renamed",
+      [request.params.credentialId, label]
+    ));
+    if (!rows[0]?.renamed) {
+      jsonError(request, response, 404, "WEBAUTHN_CREDENTIAL_NOT_FOUND", "Passkey not found.");
+      return;
+    }
+    response.status(204).send();
+  }));
+  app.delete("/auth/webauthn/credentials/:credentialId", asyncRoute2(async (request, response) => {
+    const { config } = resolveConfig();
+    if (!config) {
+      jsonError(request, response, 503, "WEBAUTHN_UNAVAILABLE", "Passkey management is not configured.");
+      return;
+    }
+    if (!requestOriginAllowed(request, config)) {
+      jsonError(request, response, 403, "WEBAUTHN_ORIGIN_REJECTED", "Request origin is not allowed.");
+      return;
+    }
+    const token = bearerToken2(request);
+    if (!token) {
+      jsonError(request, response, 401, "UNAUTHENTICATED", "Authentication is required.");
+      return;
+    }
+    const principal = await sessions.authenticateBearer(token);
+    if (!principal) {
+      jsonError(request, response, 401, "UNAUTHENTICATED", "Authentication session is invalid.");
+      return;
+    }
+    if (!isUuid(request.params.credentialId)) {
+      jsonError(request, response, 400, "WEBAUTHN_REQUEST_INVALID", "A valid credentialId is required.");
+      return;
+    }
+    const reason = readString(readObject(request.body)?.reason, 32);
+    if (!reason || !["lost_device", "compromised", "replaced", "manual"].includes(reason)) {
+      jsonError(request, response, 400, "WEBAUTHN_REQUEST_INVALID", "A valid passkey revocation reason is required.");
+      return;
+    }
+    const rows = await runWithRequestContext({ requestId: request.id, principal }, () => db.query(
+      "SELECT public.prodx_webauthn_revoke_credential($1::uuid,$2) AS revoked",
+      [request.params.credentialId, reason]
+    ));
+    if (!rows[0]?.revoked) {
+      jsonError(request, response, 404, "WEBAUTHN_CREDENTIAL_NOT_FOUND", "Passkey not found.");
+      return;
+    }
+    response.status(204).send();
   }));
 };
 
@@ -4739,7 +5203,7 @@ var money2 = (value, currency) => {
   if (!Number.isSafeInteger(cents3)) throw new Error("Monetary value exceeds safe client representation.");
   return { amountInCents: cents3, currency };
 };
-var toOrder = (row, items, payments) => ({
+var toOrder = (row, items, payments, refundedAmount = "0.00", restockedQuantities = /* @__PURE__ */ new Map()) => ({
   id: row.id,
   orderNumber: row.order_number,
   idempotencyKey: row.idempotency_key,
@@ -4764,6 +5228,7 @@ var toOrder = (row, items, payments) => ({
       unitOfMeasure: item.unit_of_measure
     },
     quantity: item.quantity,
+    restockedQuantity: restockedQuantities.get(item.id) ?? 0,
     unitPrice: money2(item.unit_price_amount, item.currency),
     discountBps: item.item_discount_bps,
     lineSubtotal: money2(item.line_subtotal_amount, item.currency),
@@ -4790,29 +5255,41 @@ var toOrder = (row, items, payments) => ({
     terminalReference: payment.terminal_reference ?? void 0,
     timestamp: new Date(payment.created_at).toISOString()
   })),
+  refundedAmount: money2(refundedAmount, row.currency),
   status: row.status,
   serverCommittedAt: new Date(row.server_committed_at).toISOString(),
   createdAt: new Date(row.created_at).toISOString(),
   notes: row.notes ?? void 0
 });
 var createOrderReadService = (db) => ({
-  async getOrders(organizationId, storeId, limit = 50, registerId) {
+  async getOrders(organizationId, storeId, limit = 50, registerId, options = {}) {
     const safeLimit = Math.min(Math.max(Math.trunc(limit), 1), 200);
+    const safeOffset = Math.min(Math.max(Math.trunc(options.offset ?? 0), 0), 1e5);
     const conditions = ["o.organization_id = $1", "o.store_id = $2"];
     const params = [organizationId, storeId];
     if (registerId && registerId.trim()) {
       params.push(registerId.trim());
       conditions.push(`o.register_id = $${params.length}`);
     }
+    if (options.from) {
+      params.push(options.from);
+      conditions.push(`o.created_at >= $${params.length}::timestamptz`);
+    }
+    if (options.to) {
+      params.push(options.to);
+      conditions.push(`o.created_at <= $${params.length}::timestamptz`);
+    }
     params.push(safeLimit);
     const limitPlaceholder = `$${params.length}`;
+    params.push(safeOffset);
+    const offsetPlaceholder = `$${params.length}`;
     const orders = (await db.query(
       `SELECT o.*, u.display_name AS cashier_name
          FROM prodx_orders o
          JOIN prodx_users u ON u.id = o.cashier_id AND u.organization_id = o.organization_id
          WHERE ${conditions.join(" AND ")}
          ORDER BY o.created_at DESC, o.id DESC
-         LIMIT ${limitPlaceholder}`,
+         LIMIT ${limitPlaceholder} OFFSET ${offsetPlaceholder}`,
       params
     )).rows;
     if (orders.length === 0) return [];
@@ -4821,7 +5298,7 @@ var createOrderReadService = (db) => ({
       `SELECT oi.*, p.sku, p.barcode, p.name, p.category_id, p.price_amount::text AS product_price_amount,
                 p.cost_price_amount::text, p.tax_rate_bps, p.current_stock, p.reorder_point, p.unit_of_measure
          FROM prodx_order_items oi
-         JOIN prodx_products p ON p.id = oi.product_id AND p.store_id = oi.store_id
+         JOIN prodx_products p ON p.id = oi.product_id AND p.organization_id = oi.organization_id AND p.store_id = oi.store_id
          WHERE oi.organization_id = $1 AND oi.store_id = $2 AND oi.order_id = ANY($3::uuid[])
          ORDER BY oi.order_id, oi.id`,
       [organizationId, storeId, ids]
@@ -4831,7 +5308,23 @@ var createOrderReadService = (db) => ({
                 card_last_four, terminal_reference, currency, created_at
          FROM prodx_payments
          WHERE organization_id = $1 AND store_id = $2 AND order_id = ANY($3::uuid[])
+           AND status IN ('captured', 'settled')
          ORDER BY order_id, created_at, id`,
+      [organizationId, storeId, ids]
+    )).rows;
+    const refundRows = (await db.query(
+      `SELECT order_id, SUM(amount)::text AS refunded_amount
+         FROM prodx_refunds
+         WHERE organization_id = $1 AND store_id = $2 AND order_id = ANY($3::uuid[])
+         GROUP BY order_id`,
+      [organizationId, storeId, ids]
+    )).rows;
+    const refundItemRows = (await db.query(
+      `SELECT ri.order_item_id, SUM(ri.quantity)::integer AS restocked_quantity
+         FROM prodx_refund_items ri
+         JOIN prodx_refunds r ON r.id = ri.refund_id AND r.organization_id = ri.organization_id AND r.store_id = ri.store_id
+         WHERE ri.organization_id = $1 AND ri.store_id = $2 AND r.order_id = ANY($3::uuid[])
+         GROUP BY ri.order_item_id`,
       [organizationId, storeId, ids]
     )).rows;
     const itemsByOrder = /* @__PURE__ */ new Map();
@@ -4840,6 +5333,12 @@ var createOrderReadService = (db) => ({
       list.push(item);
       itemsByOrder.set(item.order_id, list);
     }
+    const refundedAmountByOrder = /* @__PURE__ */ new Map();
+    for (const refund of refundRows) refundedAmountByOrder.set(refund.order_id, String(refund.refunded_amount));
+    const restockedQuantityByItem = /* @__PURE__ */ new Map();
+    for (const refundItem of refundItemRows) {
+      restockedQuantityByItem.set(refundItem.order_item_id, Number(refundItem.restocked_quantity));
+    }
     const paymentsByOrder = /* @__PURE__ */ new Map();
     for (const payment of paymentRows) {
       const list = paymentsByOrder.get(payment.order_id) ?? [];
@@ -4847,7 +5346,13 @@ var createOrderReadService = (db) => ({
       paymentsByOrder.set(payment.order_id, list);
     }
     return orders.map(
-      (order) => toOrder(order, itemsByOrder.get(order.id) ?? [], paymentsByOrder.get(order.id) ?? [])
+      (order) => toOrder(
+        order,
+        itemsByOrder.get(order.id) ?? [],
+        paymentsByOrder.get(order.id) ?? [],
+        refundedAmountByOrder.get(order.id) ?? "0.00",
+        restockedQuantityByItem
+      )
     );
   }
 });
@@ -4866,9 +5371,35 @@ var registerOrderReadRoute = (app, db, permission = "pos.sell") => {
       if (!Number.isInteger(rawLimit) || rawLimit < 1 || rawLimit > 200) {
         return error3(response, request, 400, "INVALID_LIMIT", "limit must be an integer between 1 and 200.");
       }
+      const rawOffset = typeof request.query.offset === "string" ? Number(request.query.offset) : 0;
+      if (!Number.isInteger(rawOffset) || rawOffset < 0 || rawOffset > 1e5) {
+        return error3(response, request, 400, "INVALID_OFFSET", "offset must be an integer between 0 and 100000.");
+      }
+      const parseTimestamp = (value) => {
+        if (value === void 0) return void 0;
+        if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)) {
+          throw new TypeError("Timestamps must be ISO 8601 UTC values.");
+        }
+        const parsed = new Date(value);
+        if (!Number.isFinite(parsed.getTime()) || parsed.toISOString() !== value) {
+          throw new TypeError("Timestamps must be valid ISO 8601 UTC values.");
+        }
+        return value;
+      };
+      let from;
+      let to;
+      try {
+        from = parseTimestamp(request.query.from);
+        to = parseTimestamp(request.query.to);
+      } catch {
+        return error3(response, request, 400, "INVALID_DATE_RANGE", "from and to must be valid ISO 8601 UTC timestamps.");
+      }
+      if (from && to && Date.parse(from) > Date.parse(to)) {
+        return error3(response, request, 400, "INVALID_DATE_RANGE", "from must be earlier than or equal to to.");
+      }
       const rawRegisterId = typeof request.query.registerId === "string" ? request.query.registerId.trim() : typeof request.query.terminalId === "string" ? request.query.terminalId.trim() : void 0;
       return response.json(
-        await service.getOrders(context.principal.organizationId, context.principal.storeId, rawLimit, rawRegisterId)
+        await service.getOrders(context.principal.organizationId, context.principal.storeId, rawLimit, rawRegisterId, { from, to, offset: rawOffset })
       );
     } catch (cause) {
       return next(cause);
@@ -7310,6 +7841,7 @@ var createProductionApp = async (options = {}) => {
           config: readFirstTenantBootstrapConfig(process.env)
         }
       });
+      registerWebAuthnRoutes(configuredApp, requestScopedSql, sessions);
       registerPublicInfrastructureRoutes(configuredApp, pool);
     },
     authenticateRequest: async (request) => {
