@@ -209,7 +209,7 @@ export const KitchenDisplayScreen: React.FC = () => {
             onClick={() => setIsMuted(!isMuted)}
             className={`min-h-[42px] px-3 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs ${
               isMuted
-                ? 'bg-card border-border text-text/50 hover:text-text'
+                ? 'bg-card border-border text-brand-text-secondary hover:text-text'
                 : 'bg-primary/10 border-primary/30 text-primary'
             }`}
           >
@@ -248,13 +248,13 @@ export const KitchenDisplayScreen: React.FC = () => {
                 onClick={() => setFilterTab(tab.id as any)}
                 className={`py-2 px-3.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all cursor-pointer flex items-center gap-2 ${
                   isSel
-                    ? 'bg-primary text-white shadow-2xs'
+                    ? 'bg-primary text-primary-foreground shadow-2xs'
                     : 'text-text/70 hover:text-text hover:bg-background'
                 }`}
               >
                 <span>{tab.label}</span>
                 <span
-                  className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+                  className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono tabular-nums ${
                     isSel ? 'bg-white/20 text-white' : 'bg-background border border-border text-text/60'
                   }`}
                 >
@@ -267,7 +267,7 @@ export const KitchenDisplayScreen: React.FC = () => {
 
         {/* Ticket Search */}
         <div className="relative w-full md:w-64">
-          <Search className="h-4 w-4 text-text/40 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <Search className="h-4 w-4 text-brand-text-secondary absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
             type="text"
             value={searchQuery}
@@ -332,7 +332,7 @@ export const KitchenDisplayScreen: React.FC = () => {
                 <div className={`p-3.5 border-b border-border flex items-center justify-between ${urgencyClass}`}>
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="font-mono font-black text-sm text-text">
+                      <span className="font-mono tabular-nums font-black text-sm text-text">
                         {ticket.orderNumber}
                       </span>
                       {ticket.customer && (
@@ -341,13 +341,13 @@ export const KitchenDisplayScreen: React.FC = () => {
                         </span>
                       )}
                     </div>
-                    <div className="text-[10px] text-text/60 font-mono mt-0.5">
+                    <div className="text-[10px] text-text/60 font-mono tabular-nums mt-0.5">
                       {new Date(ticket.createdAt).toLocaleTimeString()} · {ticket.registerId}
                     </div>
                   </div>
 
                   {/* Elapsed Timer Counter */}
-                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-background border border-border font-mono font-bold text-xs shadow-2xs">
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-background border border-border font-mono tabular-nums font-bold text-xs shadow-2xs">
                     <Timer className="h-3.5 w-3.5 text-amber-500 animate-spin" />
                     <span>{formatElapsed(ticket.createdAt)}</span>
                   </div>
@@ -372,13 +372,13 @@ export const KitchenDisplayScreen: React.FC = () => {
                         }
                         className={`w-full text-left p-2.5 rounded-xl border text-xs flex items-start justify-between gap-2 transition-all cursor-pointer ${
                           isItemDone
-                            ? 'bg-emerald-500/10 border-emerald-500/30 text-text/50 line-through'
+                            ? 'bg-emerald-500/10 border-emerald-500/30 text-brand-text-secondary line-through'
                             : 'bg-background border-border hover:border-primary/40 text-text'
                         }`}
                       >
                         <div className="min-w-0 flex-1">
                           <div className="font-bold flex items-center gap-1.5">
-                            <span className="font-mono font-black text-primary text-sm shrink-0">
+                            <span className="font-mono tabular-nums font-black text-primary text-sm shrink-0">
                               {item.quantity}x
                             </span>
                             <span className="truncate">{item.product.name}</span>
@@ -392,7 +392,7 @@ export const KitchenDisplayScreen: React.FC = () => {
 
                         <div
                           className={`p-1 rounded-md shrink-0 ${
-                            isItemDone ? 'bg-emerald-500 text-white' : 'bg-card border border-border text-text/40'
+                            isItemDone ? 'bg-emerald-500 text-white' : 'bg-card border border-border text-brand-text-secondary'
                           }`}
                         >
                           <Check className="h-3.5 w-3.5" />
