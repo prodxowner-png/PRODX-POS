@@ -5,14 +5,17 @@ import {
   Clock3,
   Globe2,
   Lock,
+  Moon,
   RefreshCw,
   ShieldCheck,
+  Sun,
   WifiOff,
   X,
 } from 'lucide-react';
 import { auditService } from '../../services/auditService';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
+import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import {
   getOrganizations,
@@ -67,8 +70,10 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
   const { login, loginWithBiometrics, forgotPin, isLoading, operationalScope, setOperationalScope } =
     useAuth();
   const { language, setLanguage } = useLanguage();
+  const { theme, toggleTheme } = useTheme();
   const { addToast } = useToast();
   const isThai = language === 'th';
+  const isDark = theme === 'dark';
 
   const [selectedOrgId, setSelectedOrgId] = useState<string>(
     () => operationalScope?.organizationId || readTerminalValue(TERMINAL_SCOPE_STORAGE_KEYS.organization),
@@ -487,7 +492,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
             <div className="text-2xl font-black tracking-tighter">
               PRODX<span className="font-light text-cta">POS</span>
             </div>
-            <div className="text-[10px] font-bold uppercase tracking-[0.3em] text-brand-gold-500">
+            <div className="text-xs font-bold uppercase tracking-[0.24em] text-brand-gold-500">
               Enterprise POS Engine
             </div>
           </div>
@@ -496,7 +501,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
         <div className="relative z-10 max-w-md my-auto space-y-4">
           <div className="inline-flex items-center gap-2 rounded-md bg-white/10 border border-white/20 px-3 py-1">
             <ShieldCheck className="w-3.5 h-3.5 text-brand-gold-500" />
-            <span className="text-[10px] font-bold uppercase tracking-wider text-brand-primary-text">{copy.verified}</span>
+            <span className="text-xs font-bold uppercase tracking-wider text-brand-primary-text">{copy.verified}</span>
           </div>
           <h1 className="text-4xl xl:text-5xl font-black tracking-tight leading-tight">
             {isThai ? 'จุดชำระเงินอัจฉริยะ' : 'High-Performance'} <br />
@@ -549,8 +554,29 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
             </button>
             <button
               type="button"
+              onClick={toggleTheme}
+              aria-pressed={isDark}
+              aria-label={
+                isDark
+                  ? isThai
+                    ? 'สลับเป็นโหมดสว่าง'
+                    : 'Switch to light mode'
+                  : isThai
+                    ? 'สลับเป็นโหมดมืด'
+                    : 'Switch to dark mode'
+              }
+              className="flex items-center justify-center min-h-[44px] min-w-[44px] px-2.5 py-2 border border-brand-border-strong bg-brand-surface hover:bg-brand-surface-hover rounded-lg text-brand-text active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2 transition-all cursor-pointer"
+            >
+              {isDark ? (
+                <Sun className="w-4 h-4 text-cta shrink-0" />
+              ) : (
+                <Moon className="w-4 h-4 text-brand-text shrink-0" />
+              )}
+            </button>
+            <button
+              type="button"
               onClick={() => setLanguage(isThai ? 'en' : 'th')}
-              className="flex items-center gap-1.5 px-2.5 sm:px-3.5 py-2 min-h-[44px] border-2 border-brand-border rounded-lg text-xs font-black text-brand-text hover:border-brand-border-strong active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2 transition-all cursor-pointer whitespace-nowrap"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3.5 py-2 min-h-[44px] border border-brand-border-strong bg-brand-surface hover:bg-brand-surface-hover rounded-lg text-xs font-black text-brand-text active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2 transition-all cursor-pointer whitespace-nowrap"
             >
               <Globe2 className="w-3.5 h-3.5 text-brand-text-secondary shrink-0" />
               <span>{copy.language}</span>
@@ -561,7 +587,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
         {/* Dynamic Body: Responsive Compact Layout */}
         <div className="relative z-10 flex-1 flex flex-col justify-center max-w-[440px] mx-auto w-full py-4 space-y-4">
           <div>
-            <div className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-text-accent dark:text-cta mb-1">
+            <div className="text-xs font-black uppercase tracking-[0.16em] text-brand-text-accent dark:text-cta mb-1">
               {copy.eyebrow}
             </div>
             <h2 className="text-2xl font-black text-brand-text tracking-tight leading-snug">{copy.title}</h2>
@@ -686,7 +712,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
           </div>
         </div>
 
-        <footer className="relative z-10 pt-3 border-t border-brand-border flex items-center justify-between text-[11px] text-brand-text-secondary font-medium shrink-0">
+        <footer className="relative z-10 pt-3 border-t border-brand-border flex items-center justify-between text-xs text-brand-text-secondary font-medium shrink-0">
           <div>PRODX POS v2.5 · Enterprise Edition</div>
           <div className="flex items-center gap-1.5">
             <Lock className="w-3 h-3 text-emerald-700 dark:text-emerald-400" />
