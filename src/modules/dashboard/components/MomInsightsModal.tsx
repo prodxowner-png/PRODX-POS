@@ -54,7 +54,7 @@ export const MomInsightsModal: React.FC<MomInsightsModalProps> = ({
       case 'staffing':
         return <Users className="h-4 w-4 text-blue-500" />;
       case 'basket':
-        return <ShoppingBag className="h-4 w-4 text-purple-500" />;
+        return <ShoppingBag className="h-4 w-4 text-brand-text-accent" />;
       case 'promotions':
         return <Sparkles className="h-4 w-4 text-rose-500" />;
       case 'data_quality':
@@ -311,7 +311,7 @@ export const MomInsightsModal: React.FC<MomInsightsModalProps> = ({
                   {metrics.orderVariancePercentage > 0 ? '+' : ''}{metrics.orderVariancePercentage}%
                 </span>
               ) : (
-                <span className="text-xs text-text/50">—</span>
+                <span className="text-xs text-brand-text-secondary">—</span>
               )}
             </div>
             <div className="text-[11px] text-text/60 mt-1 flex items-center justify-between">
@@ -346,7 +346,7 @@ export const MomInsightsModal: React.FC<MomInsightsModalProps> = ({
                   {metrics.aovVariancePercentage > 0 ? '+' : ''}{metrics.aovVariancePercentage}%
                 </span>
               ) : (
-                <span className="text-xs text-text/50">—</span>
+                <span className="text-xs text-brand-text-secondary">—</span>
               )}
             </div>
             <div className="text-[11px] text-text/60 mt-1 flex items-center justify-between">

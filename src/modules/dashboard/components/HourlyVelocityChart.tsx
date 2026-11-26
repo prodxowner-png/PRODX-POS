@@ -245,10 +245,10 @@ export const HourlyVelocityChart: React.FC<HourlyVelocityChartProps> = ({
 
             <div className="flex items-center justify-between text-xs">
               <span className="text-text/70 flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-purple-500" />
+                <span className="w-2 h-2 rounded-full bg-brand-text-accent" />
                 <span>{language === 'th' ? 'เดือนก่อนหน้า:' : 'Prior Month:'}</span>
               </span>
-              <span className="font-mono font-medium text-purple-600 dark:text-purple-400">
+              <span className="font-mono font-medium text-brand-text-accent">
                 {currencySymbol}{item.priorMonthSales.toLocaleString()}
               </span>
             </div>
@@ -301,7 +301,7 @@ export const HourlyVelocityChart: React.FC<HourlyVelocityChartProps> = ({
                 {/* Status Indicator */}
                 {chartViewMode === 'hourly' && currentShift && (
                   <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" aria-hidden="true" />
                     <span>
                       {currentShift.registerId || 'REG-01'} ·{' '}
                       {currentShift.status === 'open'
@@ -495,11 +495,11 @@ export const HourlyVelocityChart: React.FC<HourlyVelocityChartProps> = ({
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <span className="w-3 h-0.5 border-b-2 border-dashed border-purple-500" />
+                  <span className="w-3 h-0.5 border-b-2 border-dashed border-brand-text-accent" />
                   <span className="font-medium text-text/70">
                     {momMetrics.priorMonthName}:
                   </span>
-                  <span className="font-mono font-semibold text-purple-600 dark:text-purple-400">
+                  <span className="font-mono font-semibold text-brand-text-accent">
                     {currencySymbol}{momMetrics.priorMonthSales.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                   </span>
                 </div>
@@ -822,4 +822,3 @@ export const HourlyVelocityChart: React.FC<HourlyVelocityChartProps> = ({
     </>
   );
 };
-
