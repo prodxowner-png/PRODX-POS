@@ -621,7 +621,7 @@ export const QuickPayDrawer: React.FC<QuickPayDrawerProps> = ({
                     className="p-3.5 rounded-xl bg-amber-500/10 border-2 border-amber-500/40 space-y-3"
                   >
                     <div className="flex items-center gap-2">
-                      <div className="p-1 rounded-md bg-amber-500 text-white shrink-0">
+                      <div className="p-1 rounded-md bg-warning-subtle text-warning-text border border-warning/30 shrink-0">
                         <Lock className="h-4 w-4" />
                       </div>
                       <div>
@@ -658,7 +658,7 @@ export const QuickPayDrawer: React.FC<QuickPayDrawerProps> = ({
                         variant="primary"
                         size="sm"
                         onClick={handleVerifyPin}
-                        className="h-9 px-4 font-bold text-xs bg-amber-600 hover:bg-amber-500 text-white"
+                        className="min-h-[44px] h-11 px-4 font-bold text-xs bg-cta hover:bg-cta-hover text-cta-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta"
                       >
                         {language === 'th' ? 'ปลดล็อก' : 'Unlock'}
                       </Button>
@@ -860,10 +860,10 @@ export const QuickPayDrawer: React.FC<QuickPayDrawerProps> = ({
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.2, delay: 0.22 }}
-                    className="p-3.5 rounded-2xl border-2 border-purple-500/30 bg-purple-500/5 hover:border-purple-500/60 transition-all flex items-center justify-between shadow-2xs group"
+                    className="p-3.5 rounded-2xl border-2 border-primary/30 bg-brand-surface-selected/50 hover:border-primary/60 transition-all flex items-center justify-between shadow-2xs group"
                   >
                     <div className="flex items-center gap-2.5">
-                      <div className="p-2 rounded-xl bg-purple-600 text-white shadow-xs">
+                      <div className="p-2 rounded-xl bg-primary text-primary-foreground shadow-xs">
                         <CreditCard className="h-5 w-5" />
                       </div>
                       <div>
@@ -884,7 +884,7 @@ export const QuickPayDrawer: React.FC<QuickPayDrawerProps> = ({
                       className={`min-h-[44px] px-4 rounded-xl font-black text-xs sm:text-sm flex items-center gap-1.5 transition-all cursor-pointer active-scale shadow-sm ${
                         !isAuthorized || isProcessing
                           ? 'bg-muted text-text/40 cursor-not-allowed'
-                          : 'bg-purple-600 hover:bg-purple-500 text-white'
+                          : 'bg-primary hover:bg-primary/90 text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta'
                       }`}
                     >
                       {isProcessing && processingMethod === 'card' ? (
