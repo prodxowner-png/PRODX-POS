@@ -70,7 +70,7 @@ export const ToastContainer: React.FC = () => {
                 {(toast.badge || toast.persistent) && (
                   <div className="flex items-center gap-1.5 mb-1">
                     <span
-                      className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[9px] font-black uppercase tracking-wider ${
+                      className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-mono tabular-nums text-[9px] font-black uppercase tracking-wider ${
                         isOfflineToast
                           ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
                           : isOnlineToast
@@ -112,7 +112,7 @@ export const ToastContainer: React.FC = () => {
                 className={`p-1 rounded transition-colors cursor-pointer shrink-0 ${
                   isOfflineToast || isOnlineToast
                     ? 'text-slate-400 hover:text-white hover:bg-white/10'
-                    : 'text-text/50 hover:text-text/80 dark:hover:text-zinc-200'
+                    : 'text-brand-text-secondary hover:text-text/80 dark:hover:text-zinc-200'
                 }`}
               >
                 <X className="h-3.5 w-3.5" />
@@ -139,7 +139,7 @@ export const ToastContainer: React.FC = () => {
                         ? 'bg-amber-500 hover:bg-amber-400 text-slate-950'
                         : isOnlineToast
                         ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950'
-                        : 'bg-primary hover:bg-primary-dark text-white'
+                        : 'bg-primary hover:bg-primary-dark text-primary-foreground'
                     }`}
                   >
                     {toast.actionLabel}
