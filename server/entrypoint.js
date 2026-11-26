@@ -2519,7 +2519,11 @@ var requestOriginAllowed = (request, config, allowMissing = false) => {
   const origin = request.header("origin");
   return origin ? config.origins.includes(origin) : allowMissing;
 };
-var uuidBytes = (id) => new Uint8Array(Buffer.from(id.replace(/-/g, ""), "hex"));
+var uuidBytes = (id) => {
+  const bytes = new Uint8Array(new ArrayBuffer(16));
+  bytes.set(Buffer.from(id.replace(/-/g, ""), "hex"));
+  return bytes;
+};
 var challengeValue = () => randomBytes(32).toString("base64url");
 var isUuid = (value) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 var expiresAt = () => new Date(Date.now() + 2 * 6e4);
