@@ -169,7 +169,7 @@ export const PasskeyEnrollModal: React.FC<PasskeyEnrollModalProps> = ({
               {capability?.biometricLabel || 'FIDO2 Biometric Authenticator Ready'}
             </span>
           </div>
-          <span className="shrink-0 whitespace-nowrap font-mono text-[10px] text-slate-400 uppercase tracking-wider">
+          <span className="shrink-0 whitespace-nowrap font-mono tabular-nums text-[10px] text-slate-400 uppercase tracking-wider">
             FIDO2 / W3C
           </span>
         </div>
@@ -214,7 +214,7 @@ export const PasskeyEnrollModal: React.FC<PasskeyEnrollModalProps> = ({
                   <button
                     type="button"
                     onClick={() => setActiveTab('enroll')}
-                    className="px-4 py-2 bg-primary text-white text-xs font-bold rounded-lg hover:bg-primary-dark transition-all cursor-pointer shadow-xs whitespace-nowrap"
+                    className="px-4 py-2 bg-primary text-primary-foreground text-xs font-bold rounded-lg hover:bg-primary-dark transition-all cursor-pointer shadow-xs whitespace-nowrap"
                   >
                     {lang === 'th' ? 'ลงทะเบียน Passkey แรก' : 'Enroll First Passkey'}
                   </button>
@@ -243,7 +243,7 @@ export const PasskeyEnrollModal: React.FC<PasskeyEnrollModalProps> = ({
                               {key.userRole}
                             </span>
                             {key.isVirtualFallback && (
-                              <span className="hidden sm:inline-flex shrink-0 whitespace-nowrap px-1.5 py-0.5 rounded text-[9px] font-mono font-semibold bg-indigo-50 text-indigo-600 border border-indigo-200/50">
+                              <span className="hidden sm:inline-flex shrink-0 whitespace-nowrap px-1.5 py-0.5 rounded text-[9px] font-mono tabular-nums font-semibold bg-indigo-50 text-brand-text-accent border border-indigo-200/50">
                                 Terminal Pass
                               </span>
                             )}
@@ -251,7 +251,7 @@ export const PasskeyEnrollModal: React.FC<PasskeyEnrollModalProps> = ({
                           <div className="text-[11px] text-slate-500 truncate mt-0.5">
                             {key.deviceLabel}
                           </div>
-                          <div className="text-[10px] text-slate-400 font-mono truncate mt-0.5">
+                          <div className="text-[10px] text-slate-400 font-mono tabular-nums truncate mt-0.5">
                             {lang === 'th' ? 'ใช้ล่าสุด:' : 'Last used:'}{' '}
                             {key.lastUsedAt ? new Date(key.lastUsedAt).toLocaleDateString() : 'Never'} · {key.counter}x
                           </div>
@@ -280,7 +280,7 @@ export const PasskeyEnrollModal: React.FC<PasskeyEnrollModalProps> = ({
                   <RefreshCw className="w-3 h-3 shrink-0" />
                   <span>{lang === 'th' ? 'คืนค่าเริ่มต้น' : 'Restore Defaults'}</span>
                 </button>
-                <span className="font-mono text-[10px] shrink-0 whitespace-nowrap">WEBAUTHN V2</span>
+                <span className="font-mono tabular-nums text-[10px] shrink-0 whitespace-nowrap">WEBAUTHN V2</span>
               </div>
             </div>
           )}
@@ -351,7 +351,7 @@ export const PasskeyEnrollModal: React.FC<PasskeyEnrollModalProps> = ({
                 <button
                   type="submit"
                   disabled={isEnrolling}
-                  className="flex-1 min-h-[44px] px-4 rounded-xl bg-primary hover:bg-primary-dark text-white text-xs font-bold shadow-xs active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                  className="flex-1 min-h-[44px] px-4 rounded-xl bg-primary hover:bg-primary-dark text-primary-foreground text-xs font-bold shadow-xs active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 whitespace-nowrap"
                 >
                   {isEnrolling ? (
                     <Loader2 className="w-4 h-4 animate-spin shrink-0" />
