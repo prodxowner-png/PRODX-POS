@@ -59,7 +59,11 @@ const requestOriginAllowed = (request: Request, config: WebAuthnConfig, allowMis
   const origin = request.header('origin');
   return origin ? config.origins.includes(origin) : allowMissing;
 };
-const uuidBytes = (id: string): Uint8Array => new Uint8Array(Buffer.from(id.replace(/-/g, ''), 'hex'));
+const uuidBytes = (id: string): Uint8Array<ArrayBuffer> => {
+  const bytes = new Uint8Array(new ArrayBuffer(16));
+  bytes.set(Buffer.from(id.replace(/-/g, ''), 'hex'));
+  return bytes;
+};
 const challengeValue = (): string => randomBytes(32).toString('base64url');
 const isUuid = (value: string): boolean => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 const expiresAt = (): Date => new Date(Date.now() + 2 * 60_000);
