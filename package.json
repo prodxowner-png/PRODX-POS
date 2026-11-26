@@ -12,6 +12,7 @@
     "lint": "tsc --noEmit",
     "server:check": "tsc -p tsconfig.server.json",
     "server:test": "node --import tsx --test --test-concurrency=1 server/*.test.ts server/**/*.test.ts scripts/*.test.ts",
+    "auth:webauthn:test": "node --import tsx --test src/services/webauthnService.test.ts",
     "auth:bootstrap:first-tenant": "tsx scripts/bootstrap-first-tenant.ts",
     "server:test:integration": "node --import tsx --test --test-concurrency=1 server/**/*.integration.test.ts",
     "server:test:refund": "node --import tsx --test --test-concurrency=1 server/http/refund-route.test.ts server/transactions/refund-postgres.integration.test.ts",
