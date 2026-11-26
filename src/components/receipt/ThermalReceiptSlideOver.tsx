@@ -321,7 +321,7 @@ export const ThermalReceiptSlideOver: React.FC<ThermalReceiptSlideOverProps> = (
                   <h2 className="text-heading-3 text-text truncate">
                     {language === 'th' ? 'ตัวอย่างใบเสร็จความร้อน' : 'Thermal Receipt Preview'}
                   </h2>
-                  <Badge variant="primary" size="xs" className="font-mono uppercase font-bold shrink-0">
+                  <Badge variant="primary" size="xs" className="font-mono tabular-nums uppercase font-bold shrink-0">
                     {effectiveOrder.status === 'draft' ? 'DRAFT' : 'FINAL'}
                   </Badge>
                 </div>
@@ -336,7 +336,7 @@ export const ThermalReceiptSlideOver: React.FC<ThermalReceiptSlideOverProps> = (
               type="button"
               id="thermal-receipt-close-btn"
               onClick={onClose}
-              className="p-2 rounded-xl text-text/50 hover:text-text hover:bg-background border border-transparent hover:border-border transition-colors cursor-pointer active:scale-95 shrink-0"
+              className="p-2 rounded-xl text-brand-text-secondary hover:text-text hover:bg-background border border-transparent hover:border-border transition-colors cursor-pointer active:scale-95 shrink-0"
               aria-label={language === 'th' ? 'ปิดหน้าต่าง' : 'Close panel'}
             >
               <X className="h-5 w-5" />
@@ -355,7 +355,7 @@ export const ThermalReceiptSlideOver: React.FC<ThermalReceiptSlideOverProps> = (
                 onClick={() => setViewMode('paper')}
                 className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
                   viewMode === 'paper'
-                    ? 'bg-primary text-white shadow-2xs font-bold'
+                    ? 'bg-primary text-primary-foreground shadow-2xs font-bold'
                     : 'text-text/70 hover:text-text hover:bg-background'
                 }`}
               >
@@ -368,7 +368,7 @@ export const ThermalReceiptSlideOver: React.FC<ThermalReceiptSlideOverProps> = (
                 onClick={() => setViewMode('monospace')}
                 className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
                   viewMode === 'monospace'
-                    ? 'bg-primary text-white shadow-2xs font-bold'
+                    ? 'bg-primary text-primary-foreground shadow-2xs font-bold'
                     : 'text-text/70 hover:text-text hover:bg-background'
                 }`}
               >
@@ -381,7 +381,7 @@ export const ThermalReceiptSlideOver: React.FC<ThermalReceiptSlideOverProps> = (
                 onClick={() => setViewMode('structured')}
                 className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
                   viewMode === 'structured'
-                    ? 'bg-primary text-white shadow-2xs font-bold'
+                    ? 'bg-primary text-primary-foreground shadow-2xs font-bold'
                     : 'text-text/70 hover:text-text hover:bg-background'
                 }`}
               >
@@ -398,7 +398,7 @@ export const ThermalReceiptSlideOver: React.FC<ThermalReceiptSlideOverProps> = (
                   type="button"
                   id="thermal-width-80mm"
                   onClick={() => setPaperWidth('80mm')}
-                  className={`px-2 py-0.5 rounded-lg text-[11px] font-mono font-bold transition-all cursor-pointer ${
+                  className={`px-2 py-0.5 rounded-lg text-[11px] font-mono tabular-nums font-bold transition-all cursor-pointer ${
                     paperWidth === '80mm'
                       ? 'bg-primary/15 text-primary border border-primary/30'
                       : 'text-text/60 hover:text-text'
@@ -411,7 +411,7 @@ export const ThermalReceiptSlideOver: React.FC<ThermalReceiptSlideOverProps> = (
                   type="button"
                   id="thermal-width-58mm"
                   onClick={() => setPaperWidth('58mm')}
-                  className={`px-2 py-0.5 rounded-lg text-[11px] font-mono font-bold transition-all cursor-pointer ${
+                  className={`px-2 py-0.5 rounded-lg text-[11px] font-mono tabular-nums font-bold transition-all cursor-pointer ${
                     paperWidth === '58mm'
                       ? 'bg-primary/15 text-primary border border-primary/30'
                       : 'text-text/60 hover:text-text'
@@ -464,7 +464,7 @@ export const ThermalReceiptSlideOver: React.FC<ThermalReceiptSlideOverProps> = (
                 <button
                   type="button"
                   onClick={() => setIsEmailDrawerOpen(false)}
-                  className="text-text/40 hover:text-text text-xs p-1"
+                  className="text-brand-text-secondary hover:text-text text-xs p-1"
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>
@@ -482,9 +482,9 @@ export const ThermalReceiptSlideOver: React.FC<ThermalReceiptSlideOverProps> = (
                         if (emailError) setEmailError(null);
                       }}
                       placeholder="customer@example.com"
-                      className="w-full px-3 py-2 pl-8 rounded-xl border border-border bg-card text-xs font-mono text-text focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
+                      className="w-full px-3 py-2 pl-8 rounded-xl border border-border bg-card text-xs font-mono tabular-nums text-text focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
                     />
-                    <Mail className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-text/40" />
+                    <Mail className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-brand-text-secondary" />
                   </div>
 
                   <Button
@@ -526,7 +526,7 @@ export const ThermalReceiptSlideOver: React.FC<ThermalReceiptSlideOverProps> = (
           <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-background/50 flex flex-col items-center custom-scrollbar">
             {!hasItems ? (
               <div className="my-auto flex flex-col items-center text-center p-6 max-w-sm">
-                <div className="p-4 rounded-2xl bg-card border border-border border-crisp text-text/30 mb-3 shadow-sm">
+                <div className="p-4 rounded-2xl bg-card border border-border border-crisp text-brand-text-secondary mb-3 shadow-sm">
                   <ShoppingBag className="h-10 w-10" />
                 </div>
                 <h3 className="text-heading-3 text-text">
@@ -553,7 +553,7 @@ export const ThermalReceiptSlideOver: React.FC<ThermalReceiptSlideOverProps> = (
                   <div className="w-full flex justify-center py-2">
                     <div
                       id="thermal-paper-slip"
-                      className={`relative bg-white text-zinc-900 border-x border-zinc-200/80 shadow-2xl transition-all font-mono select-text box-border ${
+                      className={`relative bg-white text-zinc-900 border-x border-zinc-200/80 shadow-2xl transition-all font-mono tabular-nums select-text box-border ${
                         paperWidth === '58mm'
                           ? 'w-[280px] max-w-[280px] p-4 text-[11px]'
                           : 'w-[360px] max-w-[360px] p-5 text-[11.5px]'
@@ -592,7 +592,7 @@ export const ThermalReceiptSlideOver: React.FC<ThermalReceiptSlideOverProps> = (
                         )}
 
                         {taxId && (
-                          <div className="text-[10px] text-zinc-600 font-mono">
+                          <div className="text-[10px] text-zinc-600 font-mono tabular-nums">
                             {language === 'th' ? 'เลขประจำตัวผู้เสียภาษี: ' : 'TAX ID: '}
                             {taxId}
                           </div>
@@ -605,7 +605,7 @@ export const ThermalReceiptSlideOver: React.FC<ThermalReceiptSlideOverProps> = (
                         )}
 
                         {currentStore?.phone && (
-                          <div className="text-[10px] text-zinc-600 font-mono">
+                          <div className="text-[10px] text-zinc-600 font-mono tabular-nums">
                             TEL: {currentStore.phone}
                           </div>
                         )}
@@ -663,7 +663,7 @@ export const ThermalReceiptSlideOver: React.FC<ThermalReceiptSlideOverProps> = (
                                 <span className="font-semibold text-zinc-900 flex-1 truncate">
                                   {item.product.name}
                                 </span>
-                                <span className="font-bold text-zinc-950 shrink-0 font-mono">
+                                <span className="font-bold text-zinc-950 shrink-0 font-mono tabular-nums">
                                   {formatMoney(item.lineTotal)}
                                 </span>
                               </div>
@@ -687,31 +687,31 @@ export const ThermalReceiptSlideOver: React.FC<ThermalReceiptSlideOverProps> = (
                       <div className="space-y-1 text-[11px] text-zinc-800 pb-2 mb-2 border-b border-dashed border-zinc-400">
                         <div className="flex justify-between text-zinc-600">
                           <span>{language === 'th' ? 'ยอดรวมสินค้า (Gross):' : 'Gross Subtotal:'}</span>
-                          <span className="font-mono">{formatMoney(totals.grossSubtotal)}</span>
+                          <span className="font-mono tabular-nums">{formatMoney(totals.grossSubtotal)}</span>
                         </div>
 
                         {totals.itemDiscounts.amountInCents > 0 && (
                           <div className="flex justify-between text-zinc-600">
                             <span>{language === 'th' ? 'ส่วนลดสินค้า:' : 'Item Discounts:'}</span>
-                            <span className="font-mono">-{formatMoney(totals.itemDiscounts)}</span>
+                            <span className="font-mono tabular-nums">-{formatMoney(totals.itemDiscounts)}</span>
                           </div>
                         )}
 
                         {totals.orderDiscount.amountInCents > 0 && (
                           <div className="flex justify-between text-zinc-600">
                             <span>{language === 'th' ? 'ส่วนลดท้ายบิล:' : 'Order Discount:'}</span>
-                            <span className="font-mono">-{formatMoney(totals.orderDiscount)}</span>
+                            <span className="font-mono tabular-nums">-{formatMoney(totals.orderDiscount)}</span>
                           </div>
                         )}
 
                         <div className="flex justify-between text-zinc-600">
                           <span>{language === 'th' ? 'มูลค่าก่อนภาษี (Tax Base):' : 'Net Taxable Subtotal:'}</span>
-                          <span className="font-mono">{formatMoney(totals.netSubtotal)}</span>
+                          <span className="font-mono tabular-nums">{formatMoney(totals.netSubtotal)}</span>
                         </div>
 
                         <div className="flex justify-between text-zinc-600">
                           <span>{language === 'th' ? 'ภาษีมูลค่าเพิ่ม (VAT 7% Inc):' : 'VAT 7% (Included):'}</span>
-                          <span className="font-mono">{formatMoney(totals.totalTax)}</span>
+                          <span className="font-mono tabular-nums">{formatMoney(totals.totalTax)}</span>
                         </div>
 
                         {/* High-Contrast Grand Total */}
@@ -719,14 +719,14 @@ export const ThermalReceiptSlideOver: React.FC<ThermalReceiptSlideOverProps> = (
                           <span className="text-label-md tracking-wider">
                             {language === 'th' ? 'ยอดรวมสุทธิ (TOTAL):' : 'TOTAL DUE:'}
                           </span>
-                          <span className="text-base sm:text-lg font-mono tracking-tight">
+                          <span className="text-base sm:text-lg font-mono tabular-nums tracking-tight">
                             {formatMoney(totals.grandTotal)}
                           </span>
                         </div>
 
                         {/* Dual Currency Conversion If Active */}
                         {secondaryTotals && activeSecondaryCurrency && (
-                          <div className="flex justify-between text-[10px] text-zinc-600 font-mono pt-0.5">
+                          <div className="flex justify-between text-[10px] text-zinc-600 font-mono tabular-nums pt-0.5">
                             <span>{language === 'th' ? `เทียบเท่า (${activeSecondaryCurrency}):` : `Approx (${activeSecondaryCurrency}):`}</span>
                             <span className="font-bold">{formatMoney(secondaryTotals.grandTotal)}</span>
                           </div>
@@ -745,11 +745,11 @@ export const ThermalReceiptSlideOver: React.FC<ThermalReceiptSlideOverProps> = (
                         </div>
                         <div className="flex justify-between text-zinc-500">
                           <span>{language === 'th' ? 'จำนวนเงินที่รับ:' : 'Amount Tendered:'}</span>
-                          <span className="font-mono">{formatMoney(totals.grandTotal)}</span>
+                          <span className="font-mono tabular-nums">{formatMoney(totals.grandTotal)}</span>
                         </div>
                         <div className="flex justify-between text-zinc-500">
                           <span>{language === 'th' ? 'เงินทอน:' : 'Change Given:'}</span>
-                          <span className="font-mono">฿0.00</span>
+                          <span className="font-mono tabular-nums">฿0.00</span>
                         </div>
                       </div>
 
@@ -762,10 +762,10 @@ export const ThermalReceiptSlideOver: React.FC<ThermalReceiptSlideOverProps> = (
                             level="M"
                           />
                         </div>
-                        <div className="text-[9px] text-zinc-500 tracking-widest uppercase font-mono">
+                        <div className="text-[9px] text-zinc-500 tracking-widest uppercase font-mono tabular-nums">
                           SCAN FOR E-TAX & VERIFY
                         </div>
-                        <div className="text-[10px] text-zinc-700 font-mono font-bold tracking-wider">
+                        <div className="text-[10px] text-zinc-700 font-mono tabular-nums font-bold tracking-wider">
                           *{effectiveOrder.orderNumber}*
                         </div>
                       </div>
@@ -780,7 +780,7 @@ export const ThermalReceiptSlideOver: React.FC<ThermalReceiptSlideOverProps> = (
                             ? 'สินค้าเปลี่ยนคืนได้ภายใน 7 วันพร้อมใบเสร็จนี้'
                             : 'Goods exchangeable within 7 days with this slip.'}
                         </p>
-                        <p className="font-mono text-[8.5px] opacity-75 pt-1">
+                        <p className="font-mono tabular-nums text-[8.5px] opacity-75 pt-1">
                           PRODX POS · ENTERPRISE ESC/POS CLOUD
                         </p>
                       </div>
@@ -805,12 +805,12 @@ export const ThermalReceiptSlideOver: React.FC<ThermalReceiptSlideOverProps> = (
                       <span className="text-label-xs">
                         {language === 'th' ? 'ผังตัวอักษรเครื่องพิมพ์ความร้อน' : 'ESC/POS Character Matrix'} ({effectiveTemplate.characterColumns} cols)
                       </span>
-                      <span className="font-mono text-[11px]">
+                      <span className="font-mono tabular-nums text-[11px]">
                         {formattedReceipt.escposBytes.length} bytes
                       </span>
                     </div>
-                    <div className="flex-1 bg-zinc-950 text-emerald-400 p-4 rounded-2xl font-mono text-xs overflow-x-auto select-text shadow-inner border border-zinc-800">
-                      <pre className="whitespace-pre leading-snug font-mono text-[11px] sm:text-xs no-scrollbar">
+                    <div className="flex-1 bg-zinc-950 text-emerald-400 p-4 rounded-2xl font-mono tabular-nums text-xs overflow-x-auto select-text shadow-inner border border-zinc-800">
+                      <pre className="whitespace-pre leading-snug font-mono tabular-nums text-[11px] sm:text-xs no-scrollbar">
                         {formattedReceipt.text}
                       </pre>
                     </div>
@@ -830,21 +830,21 @@ export const ThermalReceiptSlideOver: React.FC<ThermalReceiptSlideOverProps> = (
                           {effectiveOrder.registerId}
                         </Badge>
                       </div>
-                      <div className="grid grid-cols-2 gap-2 pt-1 font-mono text-[11px]">
+                      <div className="grid grid-cols-2 gap-2 pt-1 font-mono tabular-nums text-[11px]">
                         <div>
-                          <span className="text-text/50 block text-[10px] uppercase">Store</span>
+                          <span className="text-brand-text-secondary block text-[10px] uppercase">Store</span>
                           <span className="font-bold text-text truncate block">{currentStore?.name}</span>
                         </div>
                         <div>
-                          <span className="text-text/50 block text-[10px] uppercase">Cashier</span>
+                          <span className="text-brand-text-secondary block text-[10px] uppercase">Cashier</span>
                           <span className="font-bold text-text truncate block">{cashierName}</span>
                         </div>
                         <div>
-                          <span className="text-text/50 block text-[10px] uppercase">Date & Time</span>
+                          <span className="text-brand-text-secondary block text-[10px] uppercase">Date & Time</span>
                           <span className="text-text truncate block">{formattedDate}</span>
                         </div>
                         <div>
-                          <span className="text-text/50 block text-[10px] uppercase">Tax ID</span>
+                          <span className="text-brand-text-secondary block text-[10px] uppercase">Tax ID</span>
                           <span className="text-text truncate block">{taxId}</span>
                         </div>
                       </div>
@@ -856,7 +856,7 @@ export const ThermalReceiptSlideOver: React.FC<ThermalReceiptSlideOverProps> = (
                         <span className="text-label-sm text-text/60">
                           {language === 'th' ? `รายการสินค้า (${items.length})` : `Cart Items (${items.length})`}
                         </span>
-                        <span className="text-label-xs text-text/50 font-mono">
+                        <span className="text-label-xs text-brand-text-secondary font-mono tabular-nums">
                           {totals.totalItemsCount} units
                         </span>
                       </div>
@@ -868,12 +868,12 @@ export const ThermalReceiptSlideOver: React.FC<ThermalReceiptSlideOverProps> = (
                           >
                             <div className="min-w-0 flex-1 pr-2">
                               <div className="font-semibold text-text truncate">{item.product.name}</div>
-                              <div className="text-[10px] text-text/50 font-mono">
+                              <div className="text-[10px] text-brand-text-secondary font-mono tabular-nums">
                                 {item.quantity} × {formatMoney(item.unitPrice)}
                                 {item.discountBps > 0 && ` (-${(item.discountBps / 100).toFixed(0)}%)`}
                               </div>
                             </div>
-                            <span className="font-mono font-bold text-text shrink-0">
+                            <span className="font-mono tabular-nums font-bold text-text shrink-0">
                               {formatMoney(item.lineTotal)}
                             </span>
                           </div>
@@ -882,7 +882,7 @@ export const ThermalReceiptSlideOver: React.FC<ThermalReceiptSlideOverProps> = (
                     </div>
 
                     {/* Financial Summary */}
-                    <div className="p-4 rounded-2xl bg-card border border-border border-crisp text-xs space-y-1.5 font-mono">
+                    <div className="p-4 rounded-2xl bg-card border border-border border-crisp text-xs space-y-1.5 font-mono tabular-nums">
                       <div className="flex justify-between text-text/70">
                         <span>Subtotal (Gross):</span>
                         <span>{formatMoney(totals.grossSubtotal)}</span>
@@ -955,17 +955,17 @@ export const ThermalReceiptSlideOver: React.FC<ThermalReceiptSlideOverProps> = (
                 className="flex-1 text-xs sm:text-sm font-bold min-h-[44px] shadow-sm active:scale-98"
               >
                 {language === 'th' ? 'พิมพ์สลิป' : 'Print Receipt'}
-                <span className="hidden sm:inline-block ml-1 opacity-70 text-[11px] font-mono">
+                <span className="hidden sm:inline-block ml-1 opacity-70 text-[11px] font-mono tabular-nums">
                   (⌘P)
                 </span>
               </Button>
             </div>
 
             {/* Quick Helper Subtext */}
-            <div className="flex items-center justify-between text-[11px] text-text/50 px-1">
+            <div className="flex items-center justify-between text-[11px] text-brand-text-secondary px-1">
               <span>
                 {language === 'th' ? 'ขนาดกระดาษความร้อน: ' : 'Active Roll: '}
-                <strong className="text-text/80 font-mono">{paperWidth}</strong>
+                <strong className="text-text/80 font-mono tabular-nums">{paperWidth}</strong>
               </span>
               <button
                 type="button"
