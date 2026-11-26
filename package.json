@@ -32,6 +32,7 @@
     "@google/genai": "^2.4.0",
     "@supabase/supabase-js": "2.117.2",
     "@types/d3": "^7.4.3",
+    "@vercel/analytics": "^2.0.1",
     "@vercel/oidc": "3.1.0",
     "@vercel/speed-insights": "^2.0.0",
     "@yudiel/react-qr-scanner": "^2.6.0",
