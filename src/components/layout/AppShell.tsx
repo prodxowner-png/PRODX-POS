@@ -144,12 +144,12 @@ export const AppShell: React.FC<AppShellProps> = ({
               </div>
               <h2 className="text-lg font-bold text-text mb-2">กำลังรอการโหลดข้อมูล...</h2>
               <p className="text-sm text-text/60 max-w-md mb-6">
-                ระบบกำลังพยายามโหลดหน้า <span className="font-mono font-bold text-amber-500 uppercase">{currentRoute}</span> หากค้างนานเกินไป โปรดลองกดปุ่มรีเซ็ตด้านล่าง
+                ระบบกำลังพยายามโหลดหน้า <span className="font-mono tabular-nums font-bold text-amber-500 uppercase">{currentRoute}</span> หากค้างนานเกินไป โปรดลองกดปุ่มรีเซ็ตด้านล่าง
               </p>
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => window.location.reload()}
-                  className="px-6 py-2.5 rounded-xl bg-primary text-white font-bold text-sm shadow-md hover:bg-primary-dark transition-all cursor-pointer active:scale-95"
+                  className="px-6 py-2.5 rounded-xl bg-primary text-primary-foreground font-bold text-sm shadow-md hover:bg-primary-dark transition-all cursor-pointer active:scale-95"
                 >
                   โหลดหน้าเว็บใหม่ (Reload)
                 </button>
