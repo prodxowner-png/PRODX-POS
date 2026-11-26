@@ -79,7 +79,7 @@ export const TerminalScopeBar: React.FC<TerminalScopeBarProps> = ({
   return (
     <div className="rounded-xl border border-brand-border bg-brand-surface-muted p-3.5 space-y-3 shadow-2xs">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[11px] font-black uppercase tracking-wider text-brand-text flex items-center gap-1.5 leading-snug">
+        <span className="text-xs font-black uppercase tracking-wider text-brand-text flex items-center gap-1.5 leading-snug">
           <Building2 className="w-3.5 h-3.5 text-brand-primary shrink-0" />
           <span>{isThai ? '1. กำหนดขอบเขตเครื่อง POS (Operational Scope)' : '1. POS Terminal Operational Scope'}</span>
         </span>
@@ -89,7 +89,7 @@ export const TerminalScopeBar: React.FC<TerminalScopeBarProps> = ({
               type="button"
               aria-expanded={true}
               onClick={onToggleExpand}
-              className="min-h-[44px] px-2.5 text-[11px] font-bold text-brand-text-secondary hover:text-brand-text underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta rounded-lg cursor-pointer inline-flex items-center"
+              className="min-h-[44px] px-2.5 text-xs font-bold text-brand-text-secondary hover:text-brand-text underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta rounded-lg cursor-pointer inline-flex items-center"
             >
               {isThai ? 'ซ่อน' : 'Collapse'}
             </button>
@@ -112,7 +112,7 @@ export const TerminalScopeBar: React.FC<TerminalScopeBarProps> = ({
         <div className="space-y-1">
           <label
             htmlFor="terminal-scope-org"
-            className="text-[11px] font-black uppercase text-brand-text-secondary flex items-center justify-between cursor-pointer"
+            className="text-xs font-black uppercase text-brand-text-secondary flex items-center justify-between cursor-pointer"
           >
             <span>{isThai ? 'องค์กร' : 'Organization'} *</span>
             {isOrgValid && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" />}
@@ -122,7 +122,7 @@ export const TerminalScopeBar: React.FC<TerminalScopeBarProps> = ({
             value={selectedOrgId}
             onChange={(e) => onOrganizationChange(e.target.value)}
             disabled={isFetching || isInitialLoading}
-            className="w-full min-h-[44px] h-11 bg-brand-surface border-2 border-brand-border rounded-lg px-2.5 text-base sm:text-xs font-bold text-brand-text outline-none focus:border-cta focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta transition-all disabled:opacity-50"
+            className="w-full min-h-[44px] h-11 bg-brand-surface border-2 border-brand-border-strong rounded-lg px-2.5 text-base sm:text-xs font-bold text-brand-text outline-none focus:border-cta focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta transition-all disabled:opacity-50"
           >
             <option value="">{isThai ? '-- เลือกองค์กร --' : '-- Select Org --'}</option>
             {orgs.map((o) => (
@@ -137,7 +137,7 @@ export const TerminalScopeBar: React.FC<TerminalScopeBarProps> = ({
         <div className="space-y-1">
           <label
             htmlFor="terminal-scope-branch"
-            className="text-[11px] font-black uppercase text-brand-text-secondary flex items-center justify-between cursor-pointer"
+            className="text-xs font-black uppercase text-brand-text-secondary flex items-center justify-between cursor-pointer"
           >
             <span>{isThai ? 'สาขา' : 'Branch'} *</span>
             {isBranchValid && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" />}
@@ -147,7 +147,7 @@ export const TerminalScopeBar: React.FC<TerminalScopeBarProps> = ({
             value={selectedBranchId}
             onChange={(e) => onBranchChange(e.target.value)}
             disabled={!isOrgValid || isFetching || isInitialLoading}
-            className="w-full min-h-[44px] h-11 bg-brand-surface border-2 border-brand-border rounded-lg px-2.5 text-base sm:text-xs font-bold text-brand-text outline-none focus:border-cta focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta transition-all disabled:opacity-50"
+            className="w-full min-h-[44px] h-11 bg-brand-surface border-2 border-brand-border-strong rounded-lg px-2.5 text-base sm:text-xs font-bold text-brand-text outline-none focus:border-cta focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta transition-all disabled:opacity-50"
           >
             <option value="">{isThai ? '-- เลือกสาขา --' : '-- Select Branch --'}</option>
             {branches.map((b) => (
@@ -162,7 +162,7 @@ export const TerminalScopeBar: React.FC<TerminalScopeBarProps> = ({
         <div className="space-y-1">
           <label
             htmlFor="terminal-scope-register"
-            className="text-[11px] font-black uppercase text-brand-text-secondary flex items-center justify-between cursor-pointer"
+            className="text-xs font-black uppercase text-brand-text-secondary flex items-center justify-between cursor-pointer"
           >
             <span>{isThai ? 'เครื่อง POS' : 'POS Register'} *</span>
             {isTerminalValid && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" />}
@@ -172,7 +172,7 @@ export const TerminalScopeBar: React.FC<TerminalScopeBarProps> = ({
             value={selectedTerminalId}
             onChange={(e) => onTerminalChange(e.target.value)}
             disabled={!isBranchValid || isFetching || isInitialLoading}
-            className="w-full min-h-[44px] h-11 bg-brand-surface border-2 border-brand-border rounded-lg px-2.5 text-base sm:text-xs font-bold text-brand-text outline-none focus:border-cta focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta transition-all disabled:opacity-50"
+            className="w-full min-h-[44px] h-11 bg-brand-surface border-2 border-brand-border-strong rounded-lg px-2.5 text-base sm:text-xs font-bold text-brand-text outline-none focus:border-cta focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta transition-all disabled:opacity-50"
           >
             <option value="">{isThai ? '-- เลือกเครื่อง POS --' : '-- Select Register --'}</option>
             {terminals.map((t) => (
