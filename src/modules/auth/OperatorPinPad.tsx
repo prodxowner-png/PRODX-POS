@@ -133,7 +133,7 @@ export const OperatorPinPad: React.FC<OperatorPinPadProps> = ({
                       FIDO2
                     </span>
                   </div>
-                  <div className="text-[11px] text-brand-primary-text/85 truncate leading-snug">
+                  <div className="text-xs text-brand-primary-text/85 truncate leading-snug">
                     {activePasskey
                       ? `${activePasskey.userName} · ${isThai ? 'แตะสแกนข้าม PIN' : 'Touch to bypass PIN'}`
                       : isThai
@@ -153,7 +153,7 @@ export const OperatorPinPad: React.FC<OperatorPinPadProps> = ({
             <div className="absolute inset-0 flex items-center">
               <div className="w-full border-t border-brand-border" />
             </div>
-            <div className="relative bg-brand-surface px-2.5 text-[10px] font-black uppercase tracking-wider text-brand-text-secondary">
+            <div className="relative bg-brand-surface px-2.5 text-xs font-black uppercase tracking-wider text-brand-text-secondary">
               {isThai ? 'หรือ กดรหัส PIN 6 หลัก' : 'Or Enter 6-Digit PIN'}
             </div>
           </div>
@@ -161,14 +161,23 @@ export const OperatorPinPad: React.FC<OperatorPinPadProps> = ({
       )}
 
       {/* Compact PIN Dots */}
-      <div className="flex justify-center gap-2.5 sm:gap-3 py-1" role="status" aria-label={`PIN ${pin.length} of 6 digits entered`}>
+      <div
+        className="flex justify-center gap-2.5 sm:gap-3 py-1"
+        role="status"
+        aria-live="polite"
+        aria-label={
+          isThai
+            ? `กรอกรหัส PIN แล้ว ${pin.length} จาก 6 หลัก`
+            : `PIN ${pin.length} of 6 digits entered`
+        }
+      >
         {[0, 1, 2, 3, 4, 5].map((i) => (
           <div
             key={i}
             className={`w-10 h-11 sm:w-11 sm:h-12 rounded-xl border-2 flex items-center justify-center transition-all duration-200 ${
               pin.length > i
                 ? 'border-cta bg-cta-subtle text-cta motion-safe:scale-105 shadow-xs'
-                : 'border-brand-border bg-brand-surface-muted'
+                : 'border-brand-border-strong bg-brand-surface-muted'
             }`}
           >
             {pin.length > i ? <div className="w-3 h-3 rounded-full bg-cta" /> : null}
@@ -184,7 +193,7 @@ export const OperatorPinPad: React.FC<OperatorPinPadProps> = ({
             key={digit}
             disabled={!terminalReady || isLoading}
             onClick={() => handleDigitPress(digit.toString())}
-            className="min-h-[48px] h-12 sm:h-13 rounded-2xl bg-brand-surface border-2 border-brand-border text-lg font-mono font-black tabular-nums text-brand-text hover:border-cta hover:bg-cta-subtle hover:text-brand-text-accent dark:hover:text-cta active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2 transition-all flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-xs select-none"
+            className="min-h-[48px] h-12 sm:h-13 rounded-2xl bg-brand-surface border-2 border-brand-border-strong text-lg font-mono font-black tabular-nums text-brand-text hover:border-cta hover:bg-cta-subtle hover:text-brand-text-accent dark:hover:text-cta active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2 transition-all flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-xs select-none"
           >
             {digit}
           </button>
@@ -193,7 +202,7 @@ export const OperatorPinPad: React.FC<OperatorPinPadProps> = ({
           type="button"
           disabled={!terminalReady || isLoading}
           onClick={handleClearPress}
-          className="min-h-[48px] h-12 sm:h-13 rounded-2xl bg-brand-surface-muted border-2 border-brand-border text-brand-text-secondary font-black text-xs uppercase tracking-wider hover:bg-danger-subtle hover:text-danger-text hover:border-danger active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger focus-visible:ring-offset-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer select-none"
+          className="min-h-[48px] h-12 sm:h-13 rounded-2xl bg-brand-surface-muted border-2 border-brand-border-strong text-brand-text-secondary font-black text-xs uppercase tracking-wider hover:bg-danger-subtle hover:text-danger-text hover:border-danger active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger focus-visible:ring-offset-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer select-none"
         >
           {isThai ? 'ล้าง' : 'Clear'}
         </button>
@@ -201,7 +210,7 @@ export const OperatorPinPad: React.FC<OperatorPinPadProps> = ({
           type="button"
           disabled={!terminalReady || isLoading}
           onClick={() => handleDigitPress('0')}
-          className="min-h-[48px] h-12 sm:h-13 rounded-2xl bg-brand-surface border-2 border-brand-border text-lg font-mono font-black tabular-nums text-brand-text hover:border-cta hover:bg-cta-subtle hover:text-brand-text-accent dark:hover:text-cta active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2 transition-all flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-xs select-none"
+          className="min-h-[48px] h-12 sm:h-13 rounded-2xl bg-brand-surface border-2 border-brand-border-strong text-lg font-mono font-black tabular-nums text-brand-text hover:border-cta hover:bg-cta-subtle hover:text-brand-text-accent dark:hover:text-cta active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2 transition-all flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-xs select-none"
         >
           0
         </button>
@@ -210,7 +219,7 @@ export const OperatorPinPad: React.FC<OperatorPinPadProps> = ({
           disabled={!terminalReady || isLoading}
           onClick={handleDeletePress}
           aria-label={isThai ? 'ลบตัวเลขล่าสุด' : 'Delete last digit'}
-          className="min-h-[48px] h-12 sm:h-13 rounded-2xl bg-brand-surface-muted border-2 border-brand-border flex items-center justify-center text-brand-text-secondary hover:bg-brand-surface-hover hover:text-brand-text active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer select-none"
+          className="min-h-[48px] h-12 sm:h-13 rounded-2xl bg-brand-surface-muted border-2 border-brand-border-strong flex items-center justify-center text-brand-text-secondary hover:bg-brand-surface-hover hover:text-brand-text active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer select-none"
         >
           <Delete className="w-5 h-5" />
         </button>
@@ -236,7 +245,11 @@ export const OperatorPinPad: React.FC<OperatorPinPadProps> = ({
         </button>
 
         {/* 3-Column Tactile Secondary Auth Card Dock */}
-        <div className="grid grid-cols-3 gap-2 pt-0.5">
+        <div
+          role="group"
+          aria-label={isThai ? 'วิธีเข้าสู่ระบบอื่น' : 'Alternative sign-in methods'}
+          className="grid grid-cols-3 gap-2 pt-0.5"
+        >
           <button
             type="button"
             disabled={!terminalReady}
@@ -244,7 +257,7 @@ export const OperatorPinPad: React.FC<OperatorPinPadProps> = ({
               playClick();
               onSwitchMode('biometric');
             }}
-            className="min-h-[44px] px-2 py-2 rounded-xl border border-brand-border bg-brand-surface-muted/70 hover:bg-brand-surface-hover hover:border-brand-border-strong text-brand-text-secondary hover:text-brand-text active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta transition-all flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-1.5 text-[11px] font-bold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            className="min-h-[44px] px-2 py-2 rounded-xl border border-brand-border-strong bg-brand-surface-muted/70 hover:bg-brand-surface-hover hover:border-brand-primary text-brand-text-secondary hover:text-brand-text active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta transition-all flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-1.5 text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
           >
             <Fingerprint className="w-4 h-4 text-brand-text-accent dark:text-cta shrink-0" />
             <span className="truncate leading-tight">{isThai ? 'ชีวมิติ' : 'Biometric'}</span>
@@ -256,7 +269,7 @@ export const OperatorPinPad: React.FC<OperatorPinPadProps> = ({
               playClick();
               onSwitchMode('qr');
             }}
-            className="min-h-[44px] px-2 py-2 rounded-xl border border-brand-border bg-brand-surface-muted/70 hover:bg-brand-surface-hover hover:border-brand-border-strong text-brand-text-secondary hover:text-brand-text active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta transition-all flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-1.5 text-[11px] font-bold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            className="min-h-[44px] px-2 py-2 rounded-xl border border-brand-border-strong bg-brand-surface-muted/70 hover:bg-brand-surface-hover hover:border-brand-primary text-brand-text-secondary hover:text-brand-text active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta transition-all flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-1.5 text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
           >
             <QrCode className="w-4 h-4 text-brand-text-accent dark:text-cta shrink-0" />
             <span className="truncate leading-tight">{isThai ? 'สแกน QR' : 'QR Badge'}</span>
@@ -268,7 +281,7 @@ export const OperatorPinPad: React.FC<OperatorPinPadProps> = ({
               playClick();
               onSwitchMode('email');
             }}
-            className="min-h-[44px] px-2 py-2 rounded-xl border border-brand-border bg-brand-surface-muted/70 hover:bg-brand-surface-hover hover:border-brand-border-strong text-brand-text-secondary hover:text-brand-text active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta transition-all flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-1.5 text-[11px] font-bold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            className="min-h-[44px] px-2 py-2 rounded-xl border border-brand-border-strong bg-brand-surface-muted/70 hover:bg-brand-surface-hover hover:border-brand-primary text-brand-text-secondary hover:text-brand-text active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta transition-all flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-1.5 text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
           >
             <UserRound className="w-4 h-4 text-brand-text-accent dark:text-cta shrink-0" />
             <span className="truncate leading-tight">{isThai ? 'บัญชีพนักงาน' : 'Staff ID'}</span>
