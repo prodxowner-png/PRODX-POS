@@ -6,13 +6,13 @@ This directory contains the server-side, provider-neutral AI boundary for PRODX.
 
 PRODX application AI is provider-independent. External providers are optional adapters behind the PRODX AI Gateway and must never be coupled directly to browser code.
 
-Provider credentials belong in the deployment secret manager and must never be committed or bundled into the browser.
+Production uses Vercel AI Gateway with runtime OIDC authentication; no static provider key is required. If an AI Gateway API key is explicitly configured, it takes precedence over OIDC. Authentication material remains server-side and must never be committed or bundled into the browser.
 
 The engineering review lane may use an approved external provider, but that provider choice is an implementation detail of the engineering lane and is not part of the application-facing PRODX AI contract.
 
 ## Request flow
 
-PRODX frontend -> authenticated backend AI route -> AI Gateway -> approved provider/model adapter -> audit
+PRODX frontend -> authenticated backend AI route -> Vercel AI Gateway (OIDC) -> server-allowlisted model -> redacted audit event
 
 The application boundary enforces authorization, rate limits, quota policy, audit logging, tenant/store scope, and data-redaction rules before an AI request leaves PRODX.
 
