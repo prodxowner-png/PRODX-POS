@@ -1095,10 +1095,10 @@ export const BulkInventoryUploadModal: React.FC<BulkInventoryUploadModalProps> =
                 key={step.id}
                 className={`flex items-center gap-1.5 p-2 rounded-xl text-xs font-bold transition-all ${
                   isActive
-                    ? 'bg-primary text-white shadow-2xs'
+                    ? 'bg-primary text-primary-foreground shadow-2xs'
                     : isDone
                     ? 'bg-primary/10 text-primary'
-                    : 'bg-muted/50 text-text/40'
+                    : 'bg-muted/50 text-brand-text-secondary'
                 }`}
               >
                 {step.icon}
@@ -1147,7 +1147,7 @@ export const BulkInventoryUploadModal: React.FC<BulkInventoryUploadModalProps> =
 
               {/* Sample Template Downloads */}
               <div className="flex items-center gap-1.5 self-end sm:self-auto flex-wrap">
-                <span className="text-[11px] text-text/50 font-medium">
+                <span className="text-[11px] text-brand-text-secondary font-medium">
                   {language === 'th' ? 'ดาวน์โหลดเทมเพลต:' : 'Templates:'}
                 </span>
                 <Button
@@ -1210,13 +1210,13 @@ export const BulkInventoryUploadModal: React.FC<BulkInventoryUploadModalProps> =
                   <h4 className="font-bold text-sm text-text">
                     {language === 'th' ? 'คลิกหรือลากไฟล์มาวางที่นี่' : 'Click to browse or drag & drop file here'}
                   </h4>
-                  <p className="text-xs text-text/50 mt-1">
+                  <p className="text-xs text-brand-text-secondary mt-1">
                     {language === 'th'
                       ? 'รองรับไฟล์ .CSV (คอมมา, เซมิโคลอน, แท็บ) และ .JSON (ขนาดสูงสุด 10MB)'
                       : 'Supports .CSV (comma, tab, semicolon) and .JSON catalogs (up to 10MB)'}
                   </p>
                 </div>
-                <Badge variant="neutral" size="sm" className="font-mono text-[10px]">
+                <Badge variant="neutral" size="sm" className="font-mono tabular-nums text-[10px]">
                   UTF-8 / ASCII / Windows-874
                 </Badge>
               </div>
@@ -1232,7 +1232,7 @@ export const BulkInventoryUploadModal: React.FC<BulkInventoryUploadModalProps> =
                   placeholder={
                     'sku,name,price,stock\nBEV-ESP-01,Espresso Shot,65,100\nBEV-LAT-02,Oat Latte,85,50'
                   }
-                  className="w-full p-4 rounded-2xl border border-border border-crisp bg-card text-text font-mono text-xs focus:ring-2 focus:ring-primary focus:outline-none"
+                  className="w-full p-4 rounded-2xl border border-border border-crisp bg-card text-text font-mono tabular-nums text-xs focus:ring-2 focus:ring-primary focus:outline-none"
                 />
                 <div className="flex justify-end">
                   <Button
@@ -1275,7 +1275,7 @@ export const BulkInventoryUploadModal: React.FC<BulkInventoryUploadModalProps> =
                     {parsedRawRows.length} {language === 'th' ? 'แถว' : 'rows'}
                   </Badge>
                 </div>
-                <p className="text-[11px] text-text/50 mt-0.5">
+                <p className="text-[11px] text-brand-text-secondary mt-0.5">
                   {language === 'th'
                     ? 'จับคู่คอลัมน์จากไฟล์เข้ากับฟิลด์มาตรฐานของระบบ PRODX POS'
                     : 'Map uploaded file columns to PRODX catalog target schema attributes.'}
@@ -1334,7 +1334,7 @@ export const BulkInventoryUploadModal: React.FC<BulkInventoryUploadModalProps> =
                             <div className="font-bold text-text">
                               {language === 'th' ? field.labelTh : field.label}
                             </div>
-                            <div className="text-[10px] text-text/50 font-mono">
+                            <div className="text-[10px] text-brand-text-secondary font-mono tabular-nums">
                               {field.key}
                             </div>
                           </td>
@@ -1384,7 +1384,7 @@ export const BulkInventoryUploadModal: React.FC<BulkInventoryUploadModalProps> =
                                 {sampleValues.map((val, vIdx) => (
                                   <span
                                     key={vIdx}
-                                    className="px-2 py-0.5 rounded-lg bg-muted border border-border/50 text-[11px] font-mono text-text/80 truncate max-w-[120px]"
+                                    className="px-2 py-0.5 rounded-lg bg-muted border border-border/50 text-[11px] font-mono tabular-nums text-text/80 truncate max-w-[120px]"
                                     title={String(val)}
                                   >
                                     {String(val)}
@@ -1392,7 +1392,7 @@ export const BulkInventoryUploadModal: React.FC<BulkInventoryUploadModalProps> =
                                 ))}
                               </div>
                             ) : (
-                              <span className="text-[11px] text-text/40 italic">
+                              <span className="text-[11px] text-brand-text-secondary italic">
                                 {language === 'th' ? 'ไม่มีข้อมูล' : 'No preview'}
                               </span>
                             )}
@@ -1430,11 +1430,12 @@ export const BulkInventoryUploadModal: React.FC<BulkInventoryUploadModalProps> =
                 </label>
                 <input
                   type="number"
+                  inputMode="decimal"
                   min="0"
                   max="100"
                   value={defaultTaxRate}
                   onChange={(e) => setDefaultTaxRate(parseFloat(e.target.value) || 0)}
-                  className="mt-1.5 w-full px-3 py-2 rounded-xl border border-border border-crisp bg-background text-xs font-mono font-bold text-text"
+                  className="mt-1.5 w-full px-3 py-2 rounded-xl border border-border border-crisp bg-background text-xs font-mono tabular-nums font-bold text-text"
                 />
               </div>
             </div>
@@ -1447,32 +1448,32 @@ export const BulkInventoryUploadModal: React.FC<BulkInventoryUploadModalProps> =
             {/* Validation Metrics KPI Row */}
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
               <div className="p-3 rounded-2xl bg-card border border-border border-crisp">
-                <div className="text-[10px] font-bold text-text/50 uppercase">{language === 'th' ? 'ทั้งหมด' : 'Total Rows'}</div>
-                <div className="text-xl font-black font-mono mt-1 text-text">{validationSummary.total}</div>
+                <div className="text-[10px] font-bold text-brand-text-secondary uppercase">{language === 'th' ? 'ทั้งหมด' : 'Total Rows'}</div>
+                <div className="text-xl font-black font-mono tabular-nums mt-1 text-text">{validationSummary.total}</div>
               </div>
 
               <div className="p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/20">
                 <div className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase">
                   {language === 'th' ? 'ผ่านการตรวจสอบ' : 'Valid Rows'}
                 </div>
-                <div className="text-xl font-black font-mono mt-1 text-emerald-600 dark:text-emerald-400">
+                <div className="text-xl font-black font-mono tabular-nums mt-1 text-emerald-600 dark:text-emerald-400">
                   {validationSummary.validCount}
                 </div>
               </div>
 
               <div className="p-3 rounded-2xl bg-primary/10 border border-primary/20">
                 <div className="text-[10px] font-bold text-primary uppercase">{language === 'th' ? 'สินค้าใหม่' : 'New SKUs'}</div>
-                <div className="text-xl font-black font-mono mt-1 text-primary">{validationSummary.newItemsCount}</div>
+                <div className="text-xl font-black font-mono tabular-nums mt-1 text-primary">{validationSummary.newItemsCount}</div>
               </div>
 
-              <div className="p-3 rounded-2xl bg-indigo-500/10 border border-indigo-500/20">
-                <div className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase">{language === 'th' ? 'อัปเดตเดิม' : 'Catalog Updates'}</div>
-                <div className="text-xl font-black font-mono mt-1 text-indigo-600 dark:text-indigo-400">{validationSummary.updatesCount}</div>
+              <div className="p-3 rounded-2xl bg-brand-surface-selected/60 border border-primary/25">
+                <div className="text-[10px] font-bold text-brand-text-accent uppercase">{language === 'th' ? 'อัปเดตเดิม' : 'Catalog Updates'}</div>
+                <div className="text-xl font-black font-mono tabular-nums mt-1 text-brand-text-accent">{validationSummary.updatesCount}</div>
               </div>
 
               <div className="p-3 rounded-2xl bg-rose-500/10 border border-rose-500/20 col-span-2 sm:col-span-1">
                 <div className="text-[10px] font-bold text-rose-600 dark:text-rose-400 uppercase">{language === 'th' ? 'ข้อผิดพลาด' : 'Errors'}</div>
-                <div className="text-xl font-black font-mono mt-1 text-rose-600 dark:text-rose-400">{validationSummary.errorsCount}</div>
+                <div className="text-xl font-black font-mono tabular-nums mt-1 text-rose-600 dark:text-rose-400">{validationSummary.errorsCount}</div>
               </div>
             </div>
 
@@ -1484,7 +1485,7 @@ export const BulkInventoryUploadModal: React.FC<BulkInventoryUploadModalProps> =
                   onClick={() => setPreviewFilter('all')}
                   className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
                     previewFilter === 'all'
-                      ? 'bg-primary text-white shadow-xs'
+                      ? 'bg-primary text-primary-foreground shadow-xs'
                       : 'bg-card border border-border text-text/70 hover:text-text'
                   }`}
                 >
@@ -1496,7 +1497,7 @@ export const BulkInventoryUploadModal: React.FC<BulkInventoryUploadModalProps> =
                   onClick={() => setPreviewFilter('new')}
                   className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
                     previewFilter === 'new'
-                      ? 'bg-primary text-white shadow-xs'
+                      ? 'bg-primary text-primary-foreground shadow-xs'
                       : 'bg-card border border-border text-text/70 hover:text-text'
                   }`}
                 >
@@ -1508,7 +1509,7 @@ export const BulkInventoryUploadModal: React.FC<BulkInventoryUploadModalProps> =
                   onClick={() => setPreviewFilter('update')}
                   className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
                     previewFilter === 'update'
-                      ? 'bg-indigo-600 text-white shadow-xs'
+                      ? 'bg-primary text-primary-foreground shadow-xs'
                       : 'bg-card border border-border text-text/70 hover:text-text'
                   }`}
                 >
@@ -1521,7 +1522,7 @@ export const BulkInventoryUploadModal: React.FC<BulkInventoryUploadModalProps> =
                     onClick={() => setPreviewFilter('warning')}
                     className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
                       previewFilter === 'warning'
-                        ? 'bg-amber-500 text-white shadow-xs'
+                        ? 'bg-warning-subtle text-warning-text border border-warning/30 shadow-xs'
                         : 'bg-card border border-border text-amber-600 hover:text-amber-700'
                     }`}
                   >
@@ -1573,7 +1574,7 @@ export const BulkInventoryUploadModal: React.FC<BulkInventoryUploadModalProps> =
                   <tbody className="divide-y divide-border/60 font-medium">
                     {filteredPreviewRows.length === 0 ? (
                       <tr>
-                        <td colSpan={8} className="p-8 text-center text-text/50">
+                        <td colSpan={8} className="p-8 text-center text-brand-text-secondary">
                           {language === 'th' ? 'ไม่พบรายการที่ตรงกับเงื่อนไข' : 'No matching rows in this filter view.'}
                         </td>
                       </tr>
@@ -1594,7 +1595,7 @@ export const BulkInventoryUploadModal: React.FC<BulkInventoryUploadModalProps> =
                                 : 'hover:bg-background/60'
                             }`}
                           >
-                            <td className="p-3 pl-4 font-mono text-[11px] text-text/40">{row.rowNumber}</td>
+                            <td className="p-3 pl-4 font-mono tabular-nums text-[11px] text-brand-text-secondary">{row.rowNumber}</td>
                             <td className="p-3">
                               {isErr ? (
                                 <Badge variant="danger" size="sm" className="gap-1">
@@ -1614,15 +1615,15 @@ export const BulkInventoryUploadModal: React.FC<BulkInventoryUploadModalProps> =
                                 </Badge>
                               )}
                             </td>
-                            <td className="p-3 font-mono font-bold text-text">{row.parsed.sku || '—'}</td>
+                            <td className="p-3 font-mono tabular-nums font-bold text-text">{row.parsed.sku || '—'}</td>
                             <td className="p-3 font-medium text-text max-w-[180px] truncate" title={row.parsed.name}>
                               {row.parsed.name || '—'}
                             </td>
-                            <td className="p-3 font-mono">
+                            <td className="p-3 font-mono tabular-nums">
                               {row.isExisting && row.existingProduct && row.parsed.priceAmountInCents !== undefined && row.parsed.priceAmountInCents !== row.existingProduct.price.amountInCents ? (
                                 <div className="flex flex-col">
                                   <div className="flex items-center gap-1.5">
-                                    <span className="text-text/40 line-through text-[11px]">
+                                    <span className="text-brand-text-secondary line-through text-[11px]">
                                       ฿{(row.existingProduct.price.amountInCents / 100).toFixed(2)}
                                     </span>
                                     <span className="text-primary font-bold">
@@ -1639,12 +1640,12 @@ export const BulkInventoryUploadModal: React.FC<BulkInventoryUploadModalProps> =
                                 '—'
                               )}
                             </td>
-                            <td className="p-3 font-mono text-text/60">
+                            <td className="p-3 font-mono tabular-nums text-text/60">
                               {row.parsed.costPriceAmountInCents !== undefined
                                 ? `฿${(row.parsed.costPriceAmountInCents / 100).toFixed(2)}`
                                 : '—'}
                             </td>
-                            <td className="p-3 font-mono font-bold">
+                            <td className="p-3 font-mono tabular-nums font-bold">
                               {row.isExisting && row.existingProduct ? (
                                 (() => {
                                   const current = row.existingProduct.currentStock;
@@ -1662,12 +1663,12 @@ export const BulkInventoryUploadModal: React.FC<BulkInventoryUploadModalProps> =
                                   return (
                                     <div className="flex flex-col">
                                       <div className="flex items-center gap-1.5">
-                                        <span className="text-text/50">{current}</span>
+                                        <span className="text-brand-text-secondary">{current}</span>
                                         <span className="text-text/30">→</span>
-                                        <span className="text-indigo-600 dark:text-indigo-400 font-bold">{next}</span>
+                                        <span className="text-brand-text-accent font-bold">{next}</span>
                                         {delta !== 0 && (
                                           <span
-                                            className={`text-[10px] px-1 py-0.5 rounded font-mono font-bold leading-none ${
+                                            className={`text-[10px] px-1 py-0.5 rounded font-mono tabular-nums font-bold leading-none ${
                                               delta > 0
                                                 ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
                                                 : 'bg-rose-500/15 text-rose-600 dark:text-rose-400'
@@ -1769,28 +1770,28 @@ export const BulkInventoryUploadModal: React.FC<BulkInventoryUploadModalProps> =
             {/* Results Grid */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 max-w-xl mx-auto text-left">
               <div className="p-4 rounded-2xl bg-card border border-border border-crisp">
-                <div className="text-[10px] font-bold text-text/50 uppercase">{language === 'th' ? 'ประมวลผลทั้งหมด' : 'Processed'}</div>
-                <div className="text-2xl font-black font-mono mt-1 text-text">{importResult.totalProcessed}</div>
+                <div className="text-[10px] font-bold text-brand-text-secondary uppercase">{language === 'th' ? 'ประมวลผลทั้งหมด' : 'Processed'}</div>
+                <div className="text-2xl font-black font-mono tabular-nums mt-1 text-text">{importResult.totalProcessed}</div>
               </div>
 
               <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20">
                 <div className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase">{language === 'th' ? 'สร้างใหม่' : 'Created'}</div>
-                <div className="text-2xl font-black font-mono mt-1 text-emerald-600 dark:text-emerald-400">{importResult.createdCount}</div>
+                <div className="text-2xl font-black font-mono tabular-nums mt-1 text-emerald-600 dark:text-emerald-400">{importResult.createdCount}</div>
               </div>
 
-              <div className="p-4 rounded-2xl bg-indigo-500/10 border border-indigo-500/20">
-                <div className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase">{language === 'th' ? 'อัปเดตเดิม' : 'Updated'}</div>
-                <div className="text-2xl font-black font-mono mt-1 text-indigo-600 dark:text-indigo-400">{importResult.updatedCount}</div>
+              <div className="p-4 rounded-2xl bg-brand-surface-selected/60 border border-primary/25">
+                <div className="text-[10px] font-bold text-brand-text-accent uppercase">{language === 'th' ? 'อัปเดตเดิม' : 'Updated'}</div>
+                <div className="text-2xl font-black font-mono tabular-nums mt-1 text-brand-text-accent">{importResult.updatedCount}</div>
               </div>
 
               <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20">
                 <div className="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase">{language === 'th' ? 'ข้าม / ข้อผิดพลาด' : 'Skipped'}</div>
-                <div className="text-2xl font-black font-mono mt-1 text-amber-600 dark:text-amber-400">{importResult.skippedCount}</div>
+                <div className="text-2xl font-black font-mono tabular-nums mt-1 text-amber-600 dark:text-amber-400">{importResult.skippedCount}</div>
               </div>
             </div>
 
             {/* Batch Ref Tag */}
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-muted border border-border border-crisp text-xs font-mono text-text/70">
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-muted border border-border border-crisp text-xs font-mono tabular-nums text-text/70">
               <span>{language === 'th' ? 'รหัสอ้างอิงชุดงาน:' : 'Audit Batch Ref:'}</span>
               <span className="font-bold text-primary">{importResult.batchReference}</span>
             </div>
