@@ -214,10 +214,10 @@ export const ShiftPaymentBreakdownModal: React.FC<ShiftPaymentBreakdownModalProp
             <div className="text-[11px] font-semibold text-text/60 uppercase tracking-wider">
               {language === 'th' ? 'ยอดขายสุทธิรวม' : 'Total Shift Revenue'}
             </div>
-            <div className="text-xl font-black font-mono text-primary mt-1">
+            <div className="text-xl font-black font-mono tabular-nums text-primary mt-1">
               {formatMoney({ amountInCents: breakdown.totalCents, currency })}
             </div>
-            <div className="text-[10px] text-text/50 mt-0.5">
+            <div className="text-[10px] text-brand-text-secondary mt-0.5">
               {breakdown.totalCount} {language === 'th' ? 'คำสั่งซื้อที่สำเร็จ' : 'completed orders'}
             </div>
           </div>
@@ -226,10 +226,10 @@ export const ShiftPaymentBreakdownModal: React.FC<ShiftPaymentBreakdownModalProp
             <div className="text-[11px] font-semibold text-text/60 uppercase tracking-wider">
               {language === 'th' ? 'เงินสดในลิ้นชักที่คาดหวัง' : 'Expected Drawer Cash'}
             </div>
-            <div className="text-xl font-black font-mono text-emerald-600 dark:text-emerald-400 mt-1">
+            <div className="text-xl font-black font-mono tabular-nums text-emerald-600 dark:text-emerald-400 mt-1">
               {formatMoney(shift.expectedCashInDrawer)}
             </div>
-            <div className="text-[10px] text-text/50 mt-0.5">
+            <div className="text-[10px] text-brand-text-secondary mt-0.5">
               {language === 'th' ? `ยกมา ${formatMoney(shift.openingFloat)}` : `Float + Cash Sales`}
             </div>
           </div>
@@ -238,7 +238,7 @@ export const ShiftPaymentBreakdownModal: React.FC<ShiftPaymentBreakdownModalProp
             <div className="text-[11px] font-semibold text-text/60 uppercase tracking-wider">
               {language === 'th' ? 'ตั๋วเฉลี่ยต่อบิล' : 'Average Ticket Size'}
             </div>
-            <div className="text-xl font-black font-mono text-text mt-1">
+            <div className="text-xl font-black font-mono tabular-nums text-text mt-1">
               {breakdown.totalCount > 0
                 ? formatMoney({
                     amountInCents: Number((BigInt(breakdown.totalCents) + BigInt(Math.max(1, breakdown.totalCount)) / 2n) / BigInt(Math.max(1, breakdown.totalCount))),
@@ -246,7 +246,7 @@ export const ShiftPaymentBreakdownModal: React.FC<ShiftPaymentBreakdownModalProp
                   })
                 : formatMoney({ amountInCents: 0, currency })}
             </div>
-            <div className="text-[10px] text-text/50 mt-0.5">
+            <div className="text-[10px] text-brand-text-secondary mt-0.5">
               {language === 'th' ? 'มูลค่าเฉลี่ยต่อคำสั่งซื้อ' : 'Per transaction average'}
             </div>
           </div>
@@ -259,7 +259,7 @@ export const ShiftPaymentBreakdownModal: React.FC<ShiftPaymentBreakdownModalProp
               <PieChart className="h-4 w-4 text-primary" />
               <span>{language === 'th' ? 'สัดส่วนช่องทางชำระเงิน (%)' : 'Tender Share Distribution'}</span>
             </h3>
-            <span className="text-xs font-mono font-semibold text-text/70">
+            <span className="text-xs font-mono tabular-nums font-semibold text-text/70">
               100% Total
             </span>
           </div>
@@ -278,7 +278,7 @@ export const ShiftPaymentBreakdownModal: React.FC<ShiftPaymentBreakdownModalProp
             />
             <div
               style={{ width: `${breakdown.digital.pct}%` }}
-              className="bg-purple-600 transition-all duration-500 h-full"
+              className="bg-primary transition-all duration-500 h-full"
               title={`Digital/QR: ${breakdown.digital.pct.toFixed(1)}%`}
             />
           </div>
@@ -291,11 +291,11 @@ export const ShiftPaymentBreakdownModal: React.FC<ShiftPaymentBreakdownModalProp
               <div className="flex-1 min-w-0">
                 <div className="text-xs font-bold text-text flex items-center justify-between">
                   <span>{language === 'th' ? 'เงินสด (Cash)' : 'Cash'}</span>
-                  <span className="font-mono text-emerald-600 dark:text-emerald-400">
+                  <span className="font-mono tabular-nums text-emerald-600 dark:text-emerald-400">
                     {breakdown.cash.pct.toFixed(1)}%
                   </span>
                 </div>
-                <div className="text-[11px] font-mono font-semibold text-text/70 mt-0.5">
+                <div className="text-[11px] font-mono tabular-nums font-semibold text-text/70 mt-0.5">
                   {formatMoney({ amountInCents: breakdown.cash.cents, currency })} ({breakdown.cash.count} txns)
                 </div>
               </div>
@@ -307,11 +307,11 @@ export const ShiftPaymentBreakdownModal: React.FC<ShiftPaymentBreakdownModalProp
               <div className="flex-1 min-w-0">
                 <div className="text-xs font-bold text-text flex items-center justify-between">
                   <span>{language === 'th' ? 'บัตรเครดิต (Card)' : 'Card'}</span>
-                  <span className="font-mono text-blue-600 dark:text-blue-400">
+                  <span className="font-mono tabular-nums text-blue-600 dark:text-blue-400">
                     {breakdown.card.pct.toFixed(1)}%
                   </span>
                 </div>
-                <div className="text-[11px] font-mono font-semibold text-text/70 mt-0.5">
+                <div className="text-[11px] font-mono tabular-nums font-semibold text-text/70 mt-0.5">
                   {formatMoney({ amountInCents: breakdown.card.cents, currency })} ({breakdown.card.count} txns)
                 </div>
               </div>
@@ -319,15 +319,15 @@ export const ShiftPaymentBreakdownModal: React.FC<ShiftPaymentBreakdownModalProp
 
             {/* Digital Legend */}
             <div className="p-3 rounded-xl bg-background border border-border border-crisp flex items-center gap-3">
-              <div className="w-3 h-3 rounded-full bg-purple-600 shrink-0" />
+              <div className="w-3 h-3 rounded-full bg-primary shrink-0" />
               <div className="flex-1 min-w-0">
                 <div className="text-xs font-bold text-text flex items-center justify-between">
                   <span>{language === 'th' ? 'คิวอาร์/ดิจิทัล (Digital)' : 'Digital/QR'}</span>
-                  <span className="font-mono text-purple-600 dark:text-purple-400">
+                  <span className="font-mono tabular-nums text-brand-text-accent">
                     {breakdown.digital.pct.toFixed(1)}%
                   </span>
                 </div>
-                <div className="text-[11px] font-mono font-semibold text-text/70 mt-0.5">
+                <div className="text-[11px] font-mono tabular-nums font-semibold text-text/70 mt-0.5">
                   {formatMoney({ amountInCents: breakdown.digital.cents, currency })} ({breakdown.digital.count} txns)
                 </div>
               </div>
