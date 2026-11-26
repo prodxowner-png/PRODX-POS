@@ -171,7 +171,7 @@ export const PermissionMatrixSection: React.FC = () => {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="p-3.5 rounded-xl border border-border border-crisp bg-card shadow-2xs flex items-center justify-between">
           <div>
-            <div className="text-[11px] font-bold text-text/50 uppercase">
+            <div className="text-[11px] font-bold text-brand-text-secondary uppercase">
               {language === 'th' ? 'ผู้ดูแลระบบ (Admin)' : 'Administrator'}
             </div>
             <div className="text-sm font-bold text-primary mt-0.5">
@@ -188,7 +188,7 @@ export const PermissionMatrixSection: React.FC = () => {
 
         <div className="p-3.5 rounded-xl border border-border border-crisp bg-card shadow-2xs flex items-center justify-between">
           <div>
-            <div className="text-[11px] font-bold text-text/50 uppercase">
+            <div className="text-[11px] font-bold text-brand-text-secondary uppercase">
               {language === 'th' ? 'ผู้จัดการ (Shift Manager)' : 'Shift Manager'}
             </div>
             <div className="text-sm font-bold text-amber-500 mt-0.5">
@@ -205,7 +205,7 @@ export const PermissionMatrixSection: React.FC = () => {
 
         <div className="p-3.5 rounded-xl border border-border border-crisp bg-card shadow-2xs flex items-center justify-between">
           <div>
-            <div className="text-[11px] font-bold text-text/50 uppercase">
+            <div className="text-[11px] font-bold text-brand-text-secondary uppercase">
               {language === 'th' ? 'แคชเชียร์ (Cashier / Staff)' : 'Staff Cashier'}
             </div>
             <div className="text-sm font-bold text-text/80 mt-0.5">
@@ -232,7 +232,7 @@ export const PermissionMatrixSection: React.FC = () => {
               <h3 className="text-sm font-bold text-text">
                 {language === 'th' ? 'ตารางกำหนดสิทธิ์ละเอียด (Granular Permission Matrix)' : 'Role & Permission Matrix'}
               </h3>
-              <p className="text-[11px] text-text/50">
+              <p className="text-[11px] text-brand-text-secondary">
                 {language === 'th'
                   ? 'เปิด/ปิดการเข้าถึงฟังก์ชันงานของแต่ละตำแหน่ง เพื่อความปลอดภัยและความโปร่งใส'
                   : 'Configure operational permissions across roles to enforce enterprise separation of duties.'}
@@ -270,16 +270,16 @@ export const PermissionMatrixSection: React.FC = () => {
             <table className="w-full text-left text-xs border-collapse">
               <thead>
                 <tr className="border-b border-border bg-background/70">
-                  <th className="py-3 px-5 font-bold text-text/70 uppercase text-[11px]">
+                  <th scope="col" className="py-3 px-5 font-bold text-text/70 uppercase text-[11px]">
                     {language === 'th' ? 'รายการสิทธิ์ในระบบ (Permission Description)' : 'System Permission & Scope'}
                   </th>
-                  <th className="py-3 px-4 text-center font-bold text-primary uppercase text-[11px] w-28">
+                  <th scope="col" className="py-3 px-4 text-center font-bold text-primary uppercase text-[11px] w-28">
                     {language === 'th' ? 'แอดมิน' : 'Admin'}
                   </th>
-                  <th className="py-3 px-4 text-center font-bold text-amber-500 uppercase text-[11px] w-28">
+                  <th scope="col" className="py-3 px-4 text-center font-bold text-amber-500 uppercase text-[11px] w-28">
                     {language === 'th' ? 'ผู้จัดการ' : 'Manager'}
                   </th>
-                  <th className="py-3 px-4 text-center font-bold text-text/70 uppercase text-[11px] w-28">
+                  <th scope="col" className="py-3 px-4 text-center font-bold text-text/70 uppercase text-[11px] w-28">
                     {language === 'th' ? 'แคชเชียร์' : 'Cashier'}
                   </th>
                 </tr>
@@ -343,7 +343,7 @@ export const PermissionMatrixSection: React.FC = () => {
                                   onClick={() => handleToggle('manager', p.id)}
                                   className={`w-5 h-5 rounded-md border flex items-center justify-center cursor-pointer transition-colors ${
                                     managerHas
-                                      ? 'bg-amber-500 border-amber-600 text-white shadow-2xs'
+                                      ? 'bg-warning-subtle border-warning text-warning-text shadow-2xs'
                                       : 'bg-background border-border hover:border-text/40 text-transparent'
                                   }`}
                                   title={
@@ -369,7 +369,7 @@ export const PermissionMatrixSection: React.FC = () => {
                                   onClick={() => handleToggle('cashier', p.id)}
                                   className={`w-5 h-5 rounded-md border flex items-center justify-center cursor-pointer transition-colors ${
                                     cashierHas
-                                      ? 'bg-primary border-primary text-white shadow-2xs'
+                                      ? 'bg-primary border-primary text-primary-foreground shadow-2xs'
                                       : 'bg-background border-border hover:border-text/40 text-transparent'
                                   }`}
                                   title={
