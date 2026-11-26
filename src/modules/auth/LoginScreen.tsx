@@ -33,7 +33,7 @@ import {
   PasskeyCredentialRecord,
   WebAuthnCapability,
 } from '../../services/webauthnService';
-import { PasskeyEnrollModal } from '../../components/auth/PasskeyEnrollModal';
+import { webauthnApi } from '../../adapters/webauthnApi';
 
 import { TerminalScopeBar } from './TerminalScopeBar';
 import { OperatorPinPad } from './OperatorPinPad';
@@ -42,7 +42,6 @@ import { QrBadgeScannerPanel } from './QrBadgeScannerPanel';
 import { EmailPasswordForm } from './EmailPasswordForm';
 
 const BIOMETRIC_REMEMBER_STORAGE_KEY = 'prodx.auth.remember_biometrics';
-const BIOMETRIC_REMEMBER_PASSKEY_ID_KEY = 'prodx.auth.remembered_passkey_id';
 
 const readTerminalValue = (key: string, env?: string) => {
   if (typeof window === 'undefined') return env?.trim() ?? '';
@@ -101,19 +100,13 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
   const [isScopeBarExpanded, setIsScopeBarExpanded] = useState<boolean>(false);
 
   const [webauthnCapability, setWebauthnCapability] = useState<WebAuthnCapability | null>(null);
+  const [webauthnServerEnabled, setWebauthnServerEnabled] = useState(false);
+  const [biometricUsername, setBiometricUsername] = useState('');
   const [enrolledPasskeys, setEnrolledPasskeys] = useState<PasskeyCredentialRecord[]>(() =>
     getRegisteredPasskeys(),
   );
-  const [selectedPasskeyId, setSelectedPasskeyId] = useState<string>(() => {
-    const keys = getRegisteredPasskeys();
-    const rememberedId = readTerminalValue(BIOMETRIC_REMEMBER_PASSKEY_ID_KEY);
-    if (rememberedId && keys.some((k) => k.id === rememberedId)) {
-      return rememberedId;
-    }
-    return keys[0]?.id || '';
-  });
+  const [selectedPasskeyId, setSelectedPasskeyId] = useState<string>('');
   const [isBiometricVerifying, setIsBiometricVerifying] = useState<boolean>(false);
-  const [isEnrollModalOpen, setIsEnrollModalOpen] = useState<boolean>(false);
   const hasAutoInitiatedBiometricRef = useRef<boolean>(false);
 
   type LoginErrorType = 'network' | 'credentials' | 'mapping' | null;
@@ -400,11 +393,14 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
   const handlePinDelete = () => setPin((prev) => prev.slice(0, -1));
 
   const refreshPasskeysAndCapability = useCallback(async () => {
-    const keys = getRegisteredPasskeys();
-    setEnrolledPasskeys(keys);
-    setSelectedPasskeyId((prev) => (keys.some((k) => k.id === prev) ? prev : keys[0]?.id || ''));
-    const cap = await checkWebAuthnCapability();
-    setWebauthnCapability(cap);
+    setEnrolledPasskeys([]);
+    setSelectedPasskeyId('');
+    const [capability, serverStatus] = await Promise.all([
+      checkWebAuthnCapability(),
+      webauthnApi.status().catch(() => null),
+    ]);
+    setWebauthnCapability(capability);
+    setWebauthnServerEnabled(serverStatus?.enabled === true);
   }, []);
 
   useEffect(() => {
@@ -425,7 +421,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
   }, [isThai]);
 
   const handleBiometricLogin = useCallback(
-    async (targetRecord?: PasskeyCredentialRecord) => {
+    async () => {
       if (isLoading || isBiometricVerifying) return;
       if (!terminalReady || !organizationContext) {
         setIsScopeBarExpanded(true);
@@ -437,11 +433,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
         return;
       }
 
-      const chosenPasskey =
-        targetRecord ||
-        enrolledPasskeys.find((k) => k.id === selectedPasskeyId) ||
-        enrolledPasskeys[0];
-
       setIsBiometricVerifying(true);
       setLoginError(null);
 
@@ -449,25 +440,19 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
         persistTerminal();
         const verification = await loginWithBiometrics({
           organizationSlug: organizationContext.organizationSlug,
-          storeCode: organizationContext.branchName,
+          storeCode: organizationContext.branchCode || organizationContext.branchName,
           registerId: organizationContext.terminalCode,
           organizationContext,
-          targetUser: chosenPasskey
-            ? {
-                id: chosenPasskey.userId,
-                email: chosenPasskey.userEmail,
-                name: chosenPasskey.userName,
-              }
-            : undefined,
+          username: biometricUsername.trim(),
         });
 
-        if (!verification.verified || !verification.credential) {
-          throw new Error(verification.error || 'Biometric verification failed.');
+        if (!verification.verified) {
+          throw new Error(verification.error || 'Passkey verification failed.');
         }
 
         addToast({
           title: isThai ? 'ยืนยันตัวตนชีวมิติสำเร็จ' : 'Biometric Verified',
-          message: `Signed in as ${verification.credential.userName}`,
+          message: isThai ? 'เข้าสู่ระบบด้วย Passkey สำเร็จ' : 'Signed in with your passkey.',
           type: 'success',
         });
       } catch (err) {
@@ -478,7 +463,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
         setIsBiometricVerifying(false);
       }
     },
-    [isLoading, isBiometricVerifying, terminalReady, organizationContext, enrolledPasskeys, selectedPasskeyId, isThai, addToast, loginWithBiometrics],
+    [isLoading, isBiometricVerifying, terminalReady, organizationContext, biometricUsername, isThai, addToast, loginWithBiometrics],
   );
 
   return (
@@ -673,12 +658,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
                 terminalReady={terminalReady}
                 isLoading={isLoading}
                 isBiometricVerifying={isBiometricVerifying}
-                enrolledPasskeys={enrolledPasskeys}
-                selectedPasskeyId={selectedPasskeyId}
+                username={biometricUsername}
+                onUsernameChange={setBiometricUsername}
                 webauthnCapability={webauthnCapability}
-                onSelectPasskey={setSelectedPasskeyId}
-                onScanBiometric={handleBiometricLogin}
-                onOpenEnrollModal={() => setIsEnrollModalOpen(true)}
+                serverEnabled={webauthnServerEnabled}
+                onScanBiometric={() => void handleBiometricLogin()}
                 onSwitchMode={(mode) => setLoginMode(mode)}
               />
             )}
@@ -721,16 +705,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
         </footer>
       </section>
 
-      {/* Passkey Enrollment Modal */}
-      {isEnrollModalOpen && (
-        <PasskeyEnrollModal
-          isOpen={isEnrollModalOpen}
-          onClose={() => {
-            setIsEnrollModalOpen(false);
-            void refreshPasskeysAndCapability();
-          }}
-        />
-      )}
     </main>
   );
 };

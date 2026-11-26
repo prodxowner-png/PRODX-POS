@@ -6,6 +6,7 @@ import {
   stringToBase64URL,
   base64URLToString,
   createWebAuthnChallengeRecord,
+  detectBiometricLabel,
   authenticatePasskey,
   getRegisteredPasskeys,
   registerPasskey,
@@ -118,4 +119,10 @@ test('browser-side passkey registry cannot create trusted credentials', () => {
   assert.deepEqual(getRegisteredPasskeys(), []);
   assert.deepEqual(resetPasskeys(), []);
   assert.deepEqual(revokeEnrolledPasskey('forged-credential'), { remaining: [] });
+});
+
+test('WebAuthn: authenticator labels do not infer Face ID, Touch ID, or Windows Hello from user-agent strings', () => {
+  const detected = detectBiometricLabel();
+  assert.equal(detected.type, 'security_key');
+  assert.equal(detected.label, 'Passkey authenticator');
 });
