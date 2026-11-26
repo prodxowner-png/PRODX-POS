@@ -71,26 +71,29 @@ export const BiometricAuthPanel: React.FC<BiometricAuthPanelProps> = ({
       {/* Sensor Status Banner */}
       <div className="rounded-xl border border-brand-border-strong bg-brand-primary text-brand-primary-text px-3.5 py-2.5 flex items-center justify-between gap-2.5 shadow-xs">
         <div className="flex items-center gap-2.5 min-w-0">
-          <div className="relative h-8 w-8 rounded-lg bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center shrink-0">
+          <div className="relative h-8 w-8 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center shrink-0">
             {activePasskey?.authenticatorType === 'face_id' ? (
-              <ScanFace className="w-4 h-4 text-emerald-400" />
+              <ScanFace className="w-4 h-4 text-amber-300" />
             ) : (
-              <Fingerprint className="w-4 h-4 text-emerald-400" />
+              <Fingerprint className="w-4 h-4 text-amber-300" />
             )}
-            <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
-            </span>
+            <span className="absolute -top-1 -right-1 inline-flex h-2.5 w-2.5 rounded-full bg-amber-400 ring-2 ring-brand-primary" />
           </div>
           <div className="min-w-0">
             <div className="text-xs font-bold text-brand-primary-text flex items-center gap-1.5 truncate">
-              <span>{isThai ? 'เซ็นเซอร์ชีวมิติพร้อมทำงาน' : 'Biometric Sensor Ready'}</span>
-              <span className="rounded bg-emerald-500/20 px-1 py-0.5 text-[9px] font-mono font-bold text-emerald-300">
-                FIDO2
+              <span>
+                {webauthnCapability?.isSupported
+                  ? isThai ? 'ตรวจพบ WebAuthn API' : 'WebAuthn API Detected'
+                  : isThai ? 'เบราว์เซอร์ไม่รองรับ WebAuthn' : 'WebAuthn Unavailable'}
+              </span>
+              <span className="rounded bg-amber-500/20 px-1 py-0.5 text-[9px] font-mono font-bold text-amber-200">
+                DIAGNOSTIC
               </span>
             </div>
             <div className="text-[10px] text-brand-primary-text/80 truncate">
-              {webauthnCapability?.biometricLabel || 'Touch ID / Fingerprint / Face ID'}
+              {webauthnCapability?.hasPlatformAuthenticator
+                ? isThai ? 'ตรวจพบ Platform Authenticator' : 'Platform authenticator detected'
+                : isThai ? 'ไม่พบ Platform Authenticator' : 'No platform authenticator detected'}
             </div>
           </div>
         </div>
@@ -105,6 +108,11 @@ export const BiometricAuthPanel: React.FC<BiometricAuthPanelProps> = ({
           <Plus className="w-3.5 h-3.5 text-cta" />
           <span>{isThai ? 'จัดการ Passkey' : 'Passkeys'}</span>
         </button>
+      </div>
+      <div role="status" className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] leading-relaxed text-brand-text-secondary">
+        {isThai
+          ? 'โหมดตรวจสอบเท่านั้น: ตรวจความสามารถของเบราว์เซอร์ ไม่ลงทะเบียน Passkey และยังไม่สามารถใช้เข้าสู่ระบบได้ เพราะยังไม่มี Server-side verification'
+          : 'Diagnostic only: checks browser capability. Passkey enrollment and sign-in remain disabled until server-side verification is configured.'}
       </div>
 
       {/* Tactile Biometric Interactive Target */}
