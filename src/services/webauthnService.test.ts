@@ -6,6 +6,12 @@ import {
   stringToBase64URL,
   base64URLToString,
   createWebAuthnChallengeRecord,
+  authenticatePasskey,
+  getRegisteredPasskeys,
+  registerPasskey,
+  resetPasskeys,
+  revokeEnrolledPasskey,
+  saveRegisteredPasskeys,
   PasskeyCredentialRecord,
 } from './webauthnService.ts';
 
@@ -15,7 +21,6 @@ test('WebAuthn: Base64URL encoding and decoding round-trip', () => {
   const decoded = base64URLToString(encoded);
 
   assert.equal(decoded, testString);
-  // Must be URL-safe (no +, /, or trailing =)
   assert.ok(!encoded.includes('+'), 'Must not include +');
   assert.ok(!encoded.includes('/'), 'Must not include /');
   assert.ok(!encoded.includes('='), 'Must not include trailing =');
@@ -49,7 +54,7 @@ test('WebAuthn: creates single-use challenge with valid TTL and CSPRNG entropy',
   assert.equal(challengeRec.expiresAt - challengeRec.issuedAt, 30_000);
 });
 
-test('WebAuthn: Quick Sign-In credential structure supports PIN bypass', () => {
+test('WebAuthn: Quick Sign-In credential structure remains typed', () => {
   const cashierCredential: PasskeyCredentialRecord = {
     id: 'pk_cashier_quick_signin_test',
     userId: 'usr-cashier-001',
@@ -67,4 +72,50 @@ test('WebAuthn: Quick Sign-In credential structure supports PIN bypass', () => {
   assert.equal(cashierCredential.authenticatorType, 'touch_id');
   assert.ok(cashierCredential.id.length > 0);
   assert.ok(cashierCredential.userName.length > 0);
+});
+
+test('passkey enrollment remains unavailable until server-side verification exists', async () => {
+  const result = await registerPasskey({
+    id: 'user-1',
+    email: 'admin@example.invalid',
+    name: 'Admin',
+    role: 'admin',
+  });
+
+  assert.equal(result.success, false);
+  assert.equal(result.credential, undefined);
+  assert.equal(result.isVirtual, false);
+  assert.match(result.error ?? '', /server-side WebAuthn verification/i);
+});
+
+test('passkey authentication cannot produce a client-authoritative assertion', async () => {
+  const result = await authenticatePasskey({
+    id: 'user-1',
+    email: 'admin@example.invalid',
+    name: 'Admin',
+  });
+
+  assert.equal(result.success, false);
+  assert.equal(result.credential, undefined);
+  assert.equal(result.assertion, undefined);
+  assert.match(result.error ?? '', /server-side WebAuthn verification/i);
+});
+
+test('browser-side passkey registry cannot create trusted credentials', () => {
+  saveRegisteredPasskeys([{
+    id: 'forged-credential',
+    userId: 'user-1',
+    userEmail: 'admin@example.invalid',
+    userName: 'Admin',
+    userRole: 'admin',
+    deviceLabel: 'Forged',
+    authenticatorType: 'virtual_biometric',
+    createdAt: new Date(0).toISOString(),
+    counter: 999,
+    isVirtualFallback: true,
+  }]);
+
+  assert.deepEqual(getRegisteredPasskeys(), []);
+  assert.deepEqual(resetPasskeys(), []);
+  assert.deepEqual(revokeEnrolledPasskey('forged-credential'), { remaining: [] });
 });
