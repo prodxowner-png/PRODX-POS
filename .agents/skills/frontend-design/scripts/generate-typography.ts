@@ -372,7 +372,7 @@ function formatAsTailwind(typography: GeneratedTypography): string {
 
 module.exports = {
   theme: {
-    extend: ${JSON.stringify(config, null, 6).replace(/"([^"]+)":/g, "$1:")}
+    extend: ${JSON.stringify(config, null, 6)}
   }
 };`;
 }
@@ -408,7 +408,7 @@ function formatAsTokens(typography: GeneratedTypography): string {
   return JSON.stringify(tokens, null, 2);
 }
 
-function formatOutput(typography: GeneratedTypography, options: GenerateOptions): string {
+export function formatOutput(typography: GeneratedTypography, options: GenerateOptions): string {
   switch (options.format) {
     case "css":
       return formatAsCSS(typography, options.responsive);

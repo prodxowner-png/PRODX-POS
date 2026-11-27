@@ -172,6 +172,71 @@ function adjustHsl(hex: string, hDelta: number, sDelta: number, lDelta: number):
   return rgbToHex(hslToRgb(hsl));
 }
 
+function getRelativeLuminance(rgb: RGB): number {
+  const [rs, gs, bs] = [rgb.r, rgb.g, rgb.b].map((channel) => {
+    const normalized = channel / 255;
+    return normalized <= 0.04045
+      ? normalized / 12.92
+      : Math.pow((normalized + 0.055) / 1.055, 2.4);
+  });
+  return 0.2126 * rs + 0.7152 * gs + 0.0722 * bs;
+}
+
+export function getContrastRatio(hex1: string, hex2: string): number {
+  const l1 = getRelativeLuminance(hexToRgb(hex1));
+  const l2 = getRelativeLuminance(hexToRgb(hex2));
+  const lighter = Math.max(l1, l2);
+  const darker = Math.min(l1, l2);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+export function getContrastThreshold(target: "AA" | "AAA"): number {
+  return target === "AAA" ? 7.0 : 4.5;
+}
+
+export function ensureContrastTarget(
+  hex: string,
+  surfaceHex: string,
+  minRatio: number
+): string {
+  if (getContrastRatio(hex, surfaceHex) >= minRatio) {
+    return rgbToHex(hexToRgb(hex));
+  }
+
+  const hsl = rgbToHsl(hexToRgb(hex));
+  const surfaceLuminance = getRelativeLuminance(hexToRgb(surfaceHex));
+  const darken = surfaceLuminance > 0.5;
+
+  let low = darken ? 0 : hsl.l;
+  let high = darken ? hsl.l : 1;
+  let best = rgbToHex(hslToRgb({ ...hsl, l: darken ? 0 : 1 }));
+
+  if (getContrastRatio(best, surfaceHex) < minRatio) {
+    throw new Error(
+      `Cannot satisfy contrast ratio ${minRatio}:1 for ${hex} against ${surfaceHex}`
+    );
+  }
+
+  for (let i = 0; i < 24; i++) {
+    const mid = (low + high) / 2;
+    const candidate = rgbToHex(hslToRgb({ ...hsl, l: mid }));
+    if (getContrastRatio(candidate, surfaceHex) >= minRatio) {
+      best = candidate;
+      if (darken) {
+        low = mid;
+      } else {
+        high = mid;
+      }
+    } else if (darken) {
+      high = mid;
+    } else {
+      low = mid;
+    }
+  }
+
+  return best;
+}
+
 // === Shade Generation ===
 
 function generateShadeScale(baseColor: string): Record<string, string> {
@@ -243,12 +308,21 @@ function applyStyle(color: string, style?: Style): string {
 
 // === Semantic Colors ===
 
-function generateSemanticColors(): GeneratedPalette["semantic"] {
+function generateSemanticColors(
+  surfaceHex: string,
+  minContrastRatio: number
+): GeneratedPalette["semantic"] {
+  const buildSemantic = (base: string) => {
+    const adjustedBase = ensureContrastTarget(base, surfaceHex, minContrastRatio);
+    const scale = generateShadeScale(adjustedBase);
+    scale["500"] = ensureContrastTarget(scale["500"], surfaceHex, minContrastRatio);
+    return scale;
+  };
   return {
-    success: generateShadeScale("#22c55e"),
-    warning: generateShadeScale("#f59e0b"),
-    error: generateShadeScale("#ef4444"),
-    info: generateShadeScale("#3b82f6"),
+    success: buildSemantic("#22c55e"),
+    warning: buildSemantic("#f59e0b"),
+    error: buildSemantic("#ef4444"),
+    info: buildSemantic("#3b82f6"),
   };
 }
 
@@ -301,6 +375,23 @@ export async function generatePalette(options: GenerateOptions): Promise<Generat
     };
   }
 
+  const contrastTarget = spec.contrastTarget ?? options.contrast ?? "AA";
+  if (contrastTarget !== "AA" && contrastTarget !== "AAA") {
+    throw new Error(`Invalid contrastTarget '${contrastTarget}': must be 'AA' or 'AAA'`);
+  }
+  const minContrastRatio = getContrastThreshold(contrastTarget);
+  const surfaceHex = spec.theme === "dark" ? "#0f172a" : "#ffffff";
+
+  const buildColorGroup = (baseColor: string): Record<string, string> => {
+    const accessibleBase = ensureContrastTarget(baseColor, surfaceHex, minContrastRatio);
+    if (!spec.generateShades) {
+      return { DEFAULT: accessibleBase };
+    }
+    const scale = generateShadeScale(accessibleBase);
+    scale["500"] = ensureContrastTarget(scale["500"], surfaceHex, minContrastRatio);
+    return scale;
+  };
+
   // Determine primary color
   let primaryColor: string;
 
@@ -317,41 +408,25 @@ export async function generatePalette(options: GenerateOptions): Promise<Generat
     primaryColor = applyStyle(primaryColor, spec.style);
   }
 
-  // Generate palette
+  // Generate palette with WCAG contrast target enforcement
   const palette: GeneratedPalette = {
-    primary: spec.generateShades
-      ? generateShadeScale(primaryColor)
-      : { DEFAULT: primaryColor },
+    primary: buildColorGroup(primaryColor),
     neutral: generateNeutralScale(primaryColor),
   };
 
   // Secondary color
-  const secondaryColor = spec.seedColors?.secondary || generateSecondaryColor(primaryColor);
-  if (spec.style) {
-    palette.secondary = spec.generateShades
-      ? generateShadeScale(applyStyle(secondaryColor, spec.style))
-      : { DEFAULT: applyStyle(secondaryColor, spec.style) };
-  } else {
-    palette.secondary = spec.generateShades
-      ? generateShadeScale(secondaryColor)
-      : { DEFAULT: secondaryColor };
-  }
+  const rawSecondary = spec.seedColors?.secondary || generateSecondaryColor(primaryColor);
+  const secondaryColor = spec.style ? applyStyle(rawSecondary, spec.style) : rawSecondary;
+  palette.secondary = buildColorGroup(secondaryColor);
 
   // Accent color
-  const accentColor = spec.seedColors?.accent || generateAccentColor(primaryColor);
-  if (spec.style) {
-    palette.accent = spec.generateShades
-      ? generateShadeScale(applyStyle(accentColor, spec.style))
-      : { DEFAULT: applyStyle(accentColor, spec.style) };
-  } else {
-    palette.accent = spec.generateShades
-      ? generateShadeScale(accentColor)
-      : { DEFAULT: accentColor };
-  }
+  const rawAccent = spec.seedColors?.accent || generateAccentColor(primaryColor);
+  const accentColor = spec.style ? applyStyle(rawAccent, spec.style) : rawAccent;
+  palette.accent = buildColorGroup(accentColor);
 
   // Semantic colors
   if (spec.generateSemantics) {
-    palette.semantic = generateSemanticColors();
+    palette.semantic = generateSemanticColors(surfaceHex, minContrastRatio);
   }
 
   return palette;
@@ -453,7 +528,7 @@ function formatAsTailwind(palette: GeneratedPalette): string {
 module.exports = {
   theme: {
     extend: {
-      colors: ${JSON.stringify(config, null, 8).replace(/"([^"]+)":/g, "$1:")}
+      colors: ${JSON.stringify(config, null, 8)}
     }
   }
 };`;
@@ -499,7 +574,7 @@ function formatAsTokens(palette: GeneratedPalette): string {
   return JSON.stringify(tokens, null, 2);
 }
 
-function formatOutput(palette: GeneratedPalette, format: OutputFormat): string {
+export function formatOutput(palette: GeneratedPalette, format: OutputFormat): string {
   switch (format) {
     case "css":
       return formatAsCSS(palette);
@@ -596,6 +671,12 @@ async function main(args: string[]): Promise<void> {
   if (!validFormats.includes(parsed.format as OutputFormat)) {
     console.error(`Error: Invalid format '${parsed.format}'`);
     console.error(`Valid formats: ${validFormats.join(", ")}`);
+    Deno.exit(1);
+  }
+
+  if (parsed.contrast !== "AA" && parsed.contrast !== "AAA") {
+    console.error(`Error: Invalid contrast target '${parsed.contrast}'`);
+    console.error("Valid contrast targets: AA, AAA");
     Deno.exit(1);
   }
 

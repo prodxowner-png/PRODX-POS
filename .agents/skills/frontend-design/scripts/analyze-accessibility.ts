@@ -106,6 +106,13 @@ interface AnalysisPattern {
   check: (match: RegExpMatchArray, content: string, lineNum: number) => A11yIssue | null;
 }
 
+function hasAccessibleNameAttribute(tag: string): boolean {
+  return (
+    /\baria-label\s*=\s*(?:"[^"]*\S[^"]*"|'[^']*\S[^']*'|\{[^}]+\})/i.test(tag) ||
+    /\baria-labelledby\s*=\s*(?:"[^"]*\S[^"]*"|'[^']*\S[^']*'|\{[^}]+\})/i.test(tag)
+  );
+}
+
 const HTML_PATTERNS: AnalysisPattern[] = [
   // Missing alt text on images
   {
@@ -147,28 +154,38 @@ const HTML_PATTERNS: AnalysisPattern[] = [
   // Links without accessible names
   {
     pattern: /<a[^>]*>[\s]*<\/a>/gi,
-    check: (match, _content, lineNum) => ({
-      severity: "error",
-      category: "semantics",
-      element: match[0],
-      line: lineNum,
-      description: "Empty link - no accessible name",
-      wcagCriteria: "2.4.4 Link Purpose",
-      suggestion: "Add text content or aria-label to the link",
-    }),
+    check: (match, _content, lineNum) => {
+      if (hasAccessibleNameAttribute(match[0])) {
+        return null;
+      }
+      return {
+        severity: "error",
+        category: "semantics",
+        element: match[0],
+        line: lineNum,
+        description: "Empty link - no accessible name",
+        wcagCriteria: "2.4.4 Link Purpose",
+        suggestion: "Add text content or aria-label to the link",
+      };
+    },
   },
   // Buttons without accessible names
   {
     pattern: /<button[^>]*>[\s]*<\/button>/gi,
-    check: (match, _content, lineNum) => ({
-      severity: "error",
-      category: "semantics",
-      element: match[0],
-      line: lineNum,
-      description: "Empty button - no accessible name",
-      wcagCriteria: "4.1.2 Name, Role, Value",
-      suggestion: "Add text content or aria-label to the button",
-    }),
+    check: (match, _content, lineNum) => {
+      if (hasAccessibleNameAttribute(match[0])) {
+        return null;
+      }
+      return {
+        severity: "error",
+        category: "semantics",
+        element: match[0],
+        line: lineNum,
+        description: "Empty button - no accessible name",
+        wcagCriteria: "4.1.2 Name, Role, Value",
+        suggestion: "Add text content or aria-label to the button",
+      };
+    },
   },
   // Form inputs without labels
   {
@@ -181,7 +198,7 @@ const HTML_PATTERNS: AnalysisPattern[] = [
           return null;
         }
       }
-      if (match[0].includes("aria-label") || match[0].includes("aria-labelledby")) {
+      if (hasAccessibleNameAttribute(match[0])) {
         return null;
       }
       return {

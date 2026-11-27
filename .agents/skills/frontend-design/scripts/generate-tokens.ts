@@ -8,7 +8,7 @@
  */
 
 import { parseArgs } from "jsr:@std/cli@1.0.9/parse-args";
-import { resolve, join } from "jsr:@std/path@1.0.8";
+import { resolve, relative, isAbsolute } from "jsr:@std/path@1.0.8";
 import { ensureDir } from "jsr:@std/fs@1.0.8/ensure-dir";
 
 // === Constants ===
@@ -178,6 +178,10 @@ function generateJS(spec: TokenSpec): string {
   return lines.join("\n");
 }
 
+function formatPropertyKey(key: string): string {
+  return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key) ? key : JSON.stringify(key);
+}
+
 function generateTS(spec: TokenSpec): string {
   const lines: string[] = [
     `/**`,
@@ -193,10 +197,11 @@ function generateTS(spec: TokenSpec): string {
   if (spec.tokens.color) {
     lines.push("  color: {");
     for (const [key, value] of Object.entries(spec.tokens.color)) {
+      const propKey = formatPropertyKey(key);
       if (typeof value === "string") {
-        lines.push(`    ${key}: string;`);
+        lines.push(`    ${propKey}: string;`);
       } else {
-        lines.push(`    ${key}: Record<string, string>;`);
+        lines.push(`    ${propKey}: Record<string, string>;`);
       }
     }
     lines.push("  };");
@@ -339,7 +344,7 @@ function generateTailwind(spec: TokenSpec): string {
  * module.exports = { theme: { extend: tokens } };
  */
 
-module.exports = ${JSON.stringify(config, null, 2).replace(/"([^"]+)":/g, "$1:")};
+module.exports = ${JSON.stringify(config, null, 2)};
 `;
 }
 
@@ -389,8 +394,42 @@ function getFileExtension(format: OutputFormat): string {
   }
 }
 
+export function sanitizeTokenSetName(name: string): string {
+  const baseName = name.trim().toLowerCase().replace(/\s+/g, "-");
+  if (
+    !baseName ||
+    baseName.includes("..") ||
+    baseName.includes("/") ||
+    baseName.includes("\\") ||
+    !/^[a-z0-9][a-z0-9._-]*$/.test(baseName)
+  ) {
+    throw new Error(
+      `Invalid token specification name '${name}': must contain only letters, numbers, spaces, hyphens, underscores, or single dots without path traversal`
+    );
+  }
+  return baseName;
+}
+
+export function resolveContainedOutputPath(outputDir: string, fileName: string): string {
+  const outPath = resolve(outputDir);
+  if (
+    !fileName ||
+    fileName.includes("/") ||
+    fileName.includes("\\") ||
+    fileName.includes("..")
+  ) {
+    throw new Error(`Invalid output filename '${fileName}': path traversal is not allowed`);
+  }
+  const filePath = resolve(outPath, fileName);
+  const rel = relative(outPath, filePath);
+  if (!rel || rel.startsWith("..") || isAbsolute(rel) || rel.includes("/") || rel.includes("\\")) {
+    throw new Error(`Refusing to write '${fileName}' outside output directory '${outPath}'`);
+  }
+  return filePath;
+}
+
 function getFileName(name: string, format: OutputFormat): string {
-  const baseName = name.toLowerCase().replace(/\s+/g, "-");
+  const baseName = sanitizeTokenSetName(name);
   const ext = getFileExtension(format);
 
   if (format === "style-dictionary") {
@@ -551,7 +590,7 @@ async function main(args: string[]): Promise<void> {
     await ensureDir(outPath);
 
     for (const [fileName, content] of outputs) {
-      const filePath = join(outPath, fileName);
+      const filePath = resolveContainedOutputPath(outPath, fileName);
       await Deno.writeTextFile(filePath, content);
       console.log(`Generated: ${filePath}`);
     }

@@ -61,7 +61,6 @@ const TOKEN_PATTERNS: Record<string, RegExp[]> = {
     /border-color/i,
     /fill/i,
     /stroke/i,
-    /shadow/i,
     /bg/i,
     /fg/i,
     /text(?!-)/i,
@@ -379,7 +378,7 @@ function formatAsTailwind(tokens: ExtractedTokens): string {
 
 module.exports = {
   theme: {
-    extend: ${JSON.stringify(config, null, 6).replace(/"([^"]+)":/g, "$1:")}
+    extend: ${JSON.stringify(config, null, 6)}
   }
 };`;
 }
@@ -425,7 +424,7 @@ function formatAsTokensStudio(tokens: ExtractedTokens): string {
   return JSON.stringify(tsTokens, null, 2);
 }
 
-function formatOutput(tokens: ExtractedTokens, options: ExtractOptions): string {
+export function formatOutput(tokens: ExtractedTokens, options: ExtractOptions): string {
   switch (options.format) {
     case "css":
       return formatAsCSS(tokens);
