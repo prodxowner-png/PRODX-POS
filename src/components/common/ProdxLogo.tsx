@@ -322,12 +322,12 @@ export const ProdxLogo: React.FC<ProdxLogoProps> = ({
           <span className="text-base sm:text-lg font-black tracking-tight text-text uppercase">
             PRODX
           </span>
-          <span className="px-1.5 py-0.5 rounded bg-primary text-white font-mono text-xs font-black tracking-wider">
+          <span className="px-1.5 py-0.5 rounded bg-primary text-primary-foreground font-mono tabular-nums text-xs font-black tracking-wider">
             POS
           </span>
         </div>
         {showTagline && (
-          <div className="text-[10px] font-bold uppercase tracking-widest text-text/50 mt-0.5">
+          <div className="text-[10px] font-bold uppercase tracking-widest text-brand-text-secondary mt-0.5">
             {storeName}
           </div>
         )}
@@ -345,7 +345,7 @@ export const ProdxLogo: React.FC<ProdxLogoProps> = ({
           >
             PRODX
           </span>
-          <span className="px-1.5 py-0.5 rounded-md bg-primary/15 text-primary border border-primary/25 font-mono text-[10px] font-black tracking-wider uppercase shrink-0">
+          <span className="px-1.5 py-0.5 rounded-md bg-primary/15 text-primary border border-primary/25 font-mono tabular-nums text-[10px] font-black tracking-wider uppercase shrink-0">
             POS
           </span>
         </div>

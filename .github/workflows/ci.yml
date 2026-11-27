@@ -89,6 +89,7 @@ jobs:
              AND (SELECT count(*) FROM prodx_schema_migrations WHERE version LIKE '004%') = ${EXPECTED_004_MIGRATION_COUNT}
              AND (SELECT count(*) FROM prodx_schema_migrations WHERE version LIKE '005%') = ${EXPECTED_005_MIGRATION_COUNT}
              AND (SELECT count(*) FROM prodx_schema_migrations WHERE version LIKE '006%') = ${EXPECTED_006_MIGRATION_COUNT}
+             AND NOT has_function_privilege('prodx_app', 'public.prodx_auth_find_supervisor_credential(uuid, uuid, text)', 'EXECUTE')
              AND (SELECT count(*) FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
                   JOIN pg_namespace n ON n.oid = c.relnamespace
                   WHERE n.nspname = 'public'

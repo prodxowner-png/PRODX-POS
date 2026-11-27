@@ -12,6 +12,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
+import { getStoreDateCarrier } from './utils/storeTime';
 
 export interface DateRange {
   startDate: Date;
@@ -31,6 +32,7 @@ export interface DateRangePickerProps {
   onChange: (range: DateRange) => void;
   className?: string;
   id?: string;
+  timeZone?: string;
 }
 
 // Helpers for date calculations
@@ -81,6 +83,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
   onChange,
   className = '',
   id = 'report-date-range-picker',
+  timeZone = 'UTC',
 }) => {
   const { language } = useLanguage();
   const [isOpen, setIsOpen] = useState(false);
@@ -101,7 +104,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
   useEffect(() => {
     setTempStart(value.startDate);
     setTempEnd(value.endDate);
-  }, [value]);
+  }, [value, timeZone]);
 
   // Click outside listener
   useEffect(() => {
@@ -110,17 +113,24 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
         setIsOpen(false);
       }
     }
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        setIsOpen(false);
+      }
+    }
     if (isOpen) {
       document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('keydown', handleKeyDown);
     }
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
     };
   }, [isOpen]);
 
   // Determine which preset matches the current value
   const activePreset = useMemo<DateRangePreset>(() => {
-    const now = new Date();
+    const now = getStoreDateCarrier(new Date(), timeZone);
     const todayStart = startOfDay(now);
     const todayEnd = endOfDay(now);
 
@@ -161,7 +171,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
     }
 
     return 'custom';
-  }, [value]);
+  }, [value, timeZone]);
 
   // Presets configuration
   const presets: { id: DateRangePreset; labelTh: string; labelEn: string; getRange: () => DateRange }[] = [
@@ -170,7 +180,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
       labelTh: 'วันนี้',
       labelEn: 'Today',
       getRange: () => {
-        const now = new Date();
+        const now = getStoreDateCarrier(new Date(), timeZone);
         return { startDate: startOfDay(now), endDate: endOfDay(now) };
       },
     },
@@ -179,7 +189,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
       labelTh: 'เมื่อวาน',
       labelEn: 'Yesterday',
       getRange: () => {
-        const d = new Date();
+        const d = getStoreDateCarrier(new Date(), timeZone);
         d.setDate(d.getDate() - 1);
         return { startDate: startOfDay(d), endDate: endOfDay(d) };
       },
@@ -189,7 +199,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
       labelTh: '7 วันล่าสุด',
       labelEn: 'Last 7 Days',
       getRange: () => {
-        const now = new Date();
+        const now = getStoreDateCarrier(new Date(), timeZone);
         const start = new Date(now);
         start.setDate(now.getDate() - 6);
         return { startDate: startOfDay(start), endDate: endOfDay(now) };
@@ -200,7 +210,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
       labelTh: '30 วันล่าสุด',
       labelEn: 'Last 30 Days',
       getRange: () => {
-        const now = new Date();
+        const now = getStoreDateCarrier(new Date(), timeZone);
         const start = new Date(now);
         start.setDate(now.getDate() - 29);
         return { startDate: startOfDay(start), endDate: endOfDay(now) };
@@ -211,7 +221,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
       labelTh: 'เดือนนี้',
       labelEn: 'This Month',
       getRange: () => {
-        const now = new Date();
+        const now = getStoreDateCarrier(new Date(), timeZone);
         const start = new Date(now.getFullYear(), now.getMonth(), 1);
         return { startDate: startOfDay(start), endDate: endOfDay(now) };
       },
@@ -352,7 +362,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
           setSelectionStep('start');
           setIsOpen(!isOpen);
         }}
-        className={`min-h-[44px] px-3.5 py-2 rounded-lg border-crisp flex items-center justify-between gap-3 text-xs font-medium transition-all cursor-pointer select-none shadow-2xs focus:outline-none focus:ring-2 focus:ring-primary/40 ${
+        className={`min-h-[44px] px-3.5 py-2 rounded-lg border-crisp flex items-center justify-between gap-3 text-xs font-medium transition-all cursor-pointer select-none shadow-2xs focus:outline-none focus-visible:ring-2 focus-visible:ring-cta ${
           isOpen
             ? 'border-primary bg-primary/10 text-primary'
             : 'border-border bg-card text-text hover:bg-background hover:border-border'
@@ -368,7 +378,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
           <div className="flex items-center gap-2">
             {/* Active Preset Pill */}
             {activePreset !== 'custom' ? (
-              <span className="px-2 py-0.5 rounded-md bg-primary text-white font-mono text-[10px] font-bold uppercase tracking-wider">
+              <span className="px-2 py-0.5 rounded-md bg-primary text-primary-foreground font-mono text-[10px] font-bold uppercase tracking-wider">
                 {presets.find((p) => p.id === activePreset)?.[language === 'th' ? 'labelTh' : 'labelEn']}
               </span>
             ) : (
@@ -385,7 +395,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
         </div>
 
         <ChevronDown
-          className={`h-4 w-4 text-text/50 transition-transform duration-200 ${
+          className={`h-4 w-4 text-brand-text-secondary transition-transform duration-200 ${
             isOpen ? 'rotate-180 text-primary' : ''
           }`}
         />
@@ -393,7 +403,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
 
       {/* Popover / Dialog Modal */}
       {isOpen && (
-        <div className="fixed sm:absolute inset-x-3 sm:inset-x-auto top-20 sm:top-full sm:left-0 sm:mt-2 z-50 rounded-lg border-border border-crisp bg-card shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 w-auto sm:w-[480px] max-w-[95vw]">
+        <div role="dialog" aria-label={language === 'th' ? 'เลือกช่วงเวลารายงาน' : 'Select report date range'} className="fixed sm:absolute inset-x-3 sm:inset-x-auto top-20 sm:top-full sm:left-0 sm:mt-2 z-50 rounded-lg border-border border-crisp bg-card shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 w-auto sm:w-[480px] max-w-[95vw]">
           {/* Header Bar */}
           <div className="px-4 py-3 border-b border-border flex items-center justify-between bg-card">
             <div>
@@ -421,7 +431,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
           <div className="p-4 space-y-4">
             {/* Quick Presets Strip - Touch-optimized with 40-44px targets */}
             <div>
-              <div className="text-[10px] font-mono uppercase tracking-wider text-text/50 font-bold mb-1.5">
+              <div className="text-[10px] font-mono uppercase tracking-wider text-brand-text-secondary font-bold mb-1.5">
                 {language === 'th' ? 'ช่วงเวลายอดนิยม' : 'Quick Presets'}
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
@@ -434,7 +444,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
                       onClick={() => handleApplyPreset(p.id)}
                       className={`min-h-[42px] px-3 py-1.5 rounded-lg border-crisp text-xs font-semibold transition-all cursor-pointer flex items-center justify-center gap-1.5 select-none ${
                         isCurrent
-                          ? 'border-primary bg-primary text-white font-bold shadow-2xs'
+                          ? 'border-primary bg-primary text-primary-foreground font-bold shadow-2xs'
                           : 'border-border bg-background text-text/80 hover:bg-card hover:border-border'
                       }`}
                     >
@@ -456,7 +466,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
                     : 'border-border bg-card'
                 }`}
               >
-                <div className="text-[10px] uppercase font-mono font-semibold text-text/50">
+                <div className="text-[10px] uppercase font-mono font-semibold text-brand-text-secondary">
                   {language === 'th' ? 'วันเริ่มต้น (Start)' : 'Start Date'}
                 </div>
                 <div className="text-xs font-bold font-mono text-text mt-0.5">
@@ -464,7 +474,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
                 </div>
               </div>
 
-              <div className="text-text/50 shrink-0">
+              <div className="text-brand-text-secondary shrink-0">
                 <ArrowRight className="h-4 w-4" />
               </div>
 
@@ -476,7 +486,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
                     : 'border-border bg-card'
                 }`}
               >
-                <div className="text-[10px] uppercase font-mono font-semibold text-text/50">
+                <div className="text-[10px] uppercase font-mono font-semibold text-brand-text-secondary">
                   {language === 'th' ? 'วันสิ้นสุด (End)' : 'End Date'}
                 </div>
                 <div className="text-xs font-bold font-mono text-text mt-0.5">
@@ -516,7 +526,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
                 {dayNames.map((name, i) => (
                   <div
                     key={name + i}
-                    className="text-[10px] font-mono font-bold text-text/50 py-1"
+                    className="text-[10px] font-mono font-bold text-brand-text-secondary py-1"
                   >
                     {name}
                   </div>
@@ -529,7 +539,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
                   const isStart = isSameDay(date, tempStart);
                   const isEnd = isSameDay(date, tempEnd);
                   const inRange = isDateInRange(date, tempStart, tempEnd);
-                  const isToday = isSameDay(date, new Date());
+                  const isToday = isSameDay(date, getStoreDateCarrier(new Date(), timeZone));
 
                   // Hover styling when selecting end date
                   const inHoverRange =
@@ -542,12 +552,12 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
                   let containerBg = '';
 
                   if (isStart && isEnd) {
-                    cellClasses = 'bg-primary text-white font-bold rounded-lg shadow-2xs';
+                    cellClasses = 'bg-primary text-primary-foreground font-bold rounded-lg shadow-2xs';
                   } else if (isStart) {
-                    cellClasses = 'bg-primary text-white font-bold rounded-l-lg shadow-2xs';
+                    cellClasses = 'bg-primary text-primary-foreground font-bold rounded-l-lg shadow-2xs';
                     containerBg = 'bg-primary/10 rounded-l-lg';
                   } else if (isEnd) {
-                    cellClasses = 'bg-primary text-white font-bold rounded-r-lg shadow-2xs';
+                    cellClasses = 'bg-primary text-primary-foreground font-bold rounded-r-lg shadow-2xs';
                     containerBg = 'bg-primary/10 rounded-r-lg';
                   } else if (inRange || inHoverRange) {
                     cellClasses = 'bg-primary/10 text-primary font-semibold';
@@ -563,6 +573,8 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
                       <button
                         type="button"
                         onClick={() => handleDayClick(date)}
+                        aria-current={isToday ? 'date' : undefined}
+                        aria-pressed={isStart || isEnd}
                         onMouseEnter={() => setHoverDate(date)}
                         className={`w-full min-h-[40px] sm:min-h-[42px] h-10 sm:h-11 flex flex-col items-center justify-center text-xs font-mono font-medium transition-colors cursor-pointer select-none active:scale-95 ${cellClasses}`}
                       >
@@ -598,7 +610,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
               <button
                 type="button"
                 onClick={handleApply}
-                className="min-h-[44px] px-5 py-1.5 rounded-lg bg-primary hover:bg-primary-hover active:bg-primary-active text-white text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                className="min-h-[44px] px-5 py-1.5 rounded-lg bg-primary hover:bg-primary-hover active:bg-primary-active text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs"
               >
                 <Check className="h-4 w-4" />
                 <span>{language === 'th' ? 'ใช้งานช่วงเวลานี้' : 'Apply Range'}</span>

@@ -1,258 +1,77 @@
-import React, { useState, useEffect } from 'react';
-import { Fingerprint, ScanFace, Plus, KeyRound, Loader2, CheckCircle2, ShieldCheck, Sparkles, UserCheck } from 'lucide-react';
-import { PasskeyCredentialRecord, WebAuthnCapability } from '../../services/webauthnService';
-import { useSound } from '../../context/SoundContext';
+import React from 'react';
+import { Fingerprint, KeyRound, Loader2, ShieldCheck } from 'lucide-react';
+import type { WebAuthnCapability } from '../../services/webauthnService';
 
 interface BiometricAuthPanelProps {
   isThai: boolean;
   terminalReady: boolean;
   isLoading: boolean;
   isBiometricVerifying: boolean;
-  enrolledPasskeys: PasskeyCredentialRecord[];
-  selectedPasskeyId: string;
+  username: string;
+  onUsernameChange: (value: string) => void;
   webauthnCapability: WebAuthnCapability | null;
-  onSelectPasskey: (id: string) => void;
-  onScanBiometric: (record?: PasskeyCredentialRecord) => void;
-  onOpenEnrollModal: () => void;
+  serverEnabled: boolean;
+  onScanBiometric: () => void;
   onSwitchMode: (mode: 'pin' | 'biometric' | 'qr' | 'email') => void;
 }
 
-const BIOMETRIC_REMEMBER_STORAGE_KEY = 'prodx.auth.remember_biometrics';
-
 export const BiometricAuthPanel: React.FC<BiometricAuthPanelProps> = ({
-  isThai,
-  terminalReady,
-  isLoading,
-  isBiometricVerifying,
-  enrolledPasskeys,
-  selectedPasskeyId,
-  webauthnCapability,
-  onSelectPasskey,
-  onScanBiometric,
-  onOpenEnrollModal,
-  onSwitchMode,
-}) => {
-  const { playClick, playSuccess } = useSound();
-  const [rememberTerminal, setRememberTerminal] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem(BIOMETRIC_REMEMBER_STORAGE_KEY) === 'true';
-    } catch {
-      return false;
-    }
-  });
-
-  const handleToggleRemember = (checked: boolean) => {
-    playClick();
-    setRememberTerminal(checked);
-    try {
-      if (checked) {
-        localStorage.setItem(BIOMETRIC_REMEMBER_STORAGE_KEY, 'true');
-      } else {
-        localStorage.removeItem(BIOMETRIC_REMEMBER_STORAGE_KEY);
-      }
-    } catch {}
-  };
-
-  const activePasskey =
-    enrolledPasskeys.find((pk) => pk.id === selectedPasskeyId) ||
-    enrolledPasskeys[0];
-
-  const handleTriggerScan = (record?: PasskeyCredentialRecord) => {
-    playClick();
-    const target = record || activePasskey;
-    if (target) {
-      onSelectPasskey(target.id);
-    }
-    onScanBiometric(target);
-  };
-
-  return (
-    <div className="space-y-3.5 max-w-[360px] mx-auto select-none">
-      {/* Sensor Status Banner */}
-      <div className="rounded-xl border border-brand-border-strong bg-brand-primary text-brand-primary-text px-3.5 py-2.5 flex items-center justify-between gap-2.5 shadow-xs">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <div className="relative h-8 w-8 rounded-lg bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center shrink-0">
-            {activePasskey?.authenticatorType === 'face_id' ? (
-              <ScanFace className="w-4 h-4 text-emerald-400" />
-            ) : (
-              <Fingerprint className="w-4 h-4 text-emerald-400" />
-            )}
-            <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
-            </span>
-          </div>
-          <div className="min-w-0">
-            <div className="text-xs font-bold text-white flex items-center gap-1.5 truncate">
-              <span>{isThai ? 'เซ็นเซอร์ชีวมิติพร้อมทำงาน' : 'Biometric Sensor Ready'}</span>
-              <span className="rounded bg-emerald-500/20 px-1 py-0.2 text-[9px] font-mono font-bold text-emerald-300">
-                FIDO2
-              </span>
-            </div>
-            <div className="text-[10px] text-slate-300 truncate">
-              {webauthnCapability?.biometricLabel || 'Touch ID / Fingerprint / Face ID'}
-            </div>
-          </div>
-        </div>
-        <button
-          type="button"
-          onClick={() => {
-            playClick();
-            onOpenEnrollModal();
-          }}
-          className="shrink-0 inline-flex items-center gap-1 rounded-lg bg-white/10 hover:bg-white/20 border border-white/15 px-2.5 py-1.5 text-[11px] font-bold text-white focus-visible:ring-2 focus-visible:ring-cta transition-all cursor-pointer"
-        >
-          <Plus className="w-3.5 h-3.5 text-cta" />
-          <span>{isThai ? 'จัดการ Passkey' : 'Passkeys'}</span>
-        </button>
+  isThai, terminalReady, isLoading, isBiometricVerifying, username, onUsernameChange,
+  webauthnCapability, serverEnabled, onScanBiometric, onSwitchMode,
+}) => (
+  <div className="space-y-4 max-w-[360px] mx-auto">
+    <div className="rounded-xl border border-brand-border bg-brand-primary text-brand-primary-text px-3.5 py-3 flex items-center gap-3 shadow-xs">
+      <div className="h-9 w-9 rounded-lg bg-emerald-500/15 border border-emerald-400/30 flex items-center justify-center shrink-0">
+        <ShieldCheck className="w-5 h-5 text-emerald-300" />
       </div>
-
-      {/* Tactile Biometric Interactive Target */}
-      <div className="rounded-2xl border-2 border-brand-border bg-brand-surface-muted p-4 text-center shadow-xs space-y-3">
-        <div className="flex flex-col items-center justify-center">
-          <button
-            type="button"
-            disabled={!terminalReady || isLoading || isBiometricVerifying}
-            onClick={() => handleTriggerScan()}
-            aria-label={isThai ? 'กดเพื่อสแกนชีวมิติ' : 'Tap to scan biometrics'}
-            className={`relative w-20 h-20 rounded-full flex items-center justify-center transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
-              isBiometricVerifying
-                ? 'bg-emerald-500 text-white shadow-xl shadow-emerald-500/30 scale-105'
-                : 'bg-brand-primary text-brand-primary-text hover:bg-cta hover:text-cta-text hover:scale-105 active:scale-95 shadow-lg shadow-brand-primary/20'
-            } focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2`}
-          >
-            {/* Animated Laser Sweep & Glow effect */}
-            {isBiometricVerifying ? (
-              <div className="absolute inset-0 rounded-full overflow-hidden">
-                <div className="w-full h-1 bg-white animate-laser-sweep" />
-              </div>
-            ) : null}
-
-            {isBiometricVerifying ? (
-              <Loader2 className="w-9 h-9 animate-spin text-white" />
-            ) : activePasskey?.authenticatorType === 'face_id' ? (
-              <ScanFace className="w-9 h-9 text-cta transition-transform hover:scale-110" />
-            ) : (
-              <Fingerprint className="w-9 h-9 text-cta transition-transform hover:scale-110" />
-            )}
-          </button>
-        </div>
-
-        {/* Selected Cashier Identity Preview */}
-        {activePasskey && (
-          <div className="space-y-0.5">
-            <div className="inline-flex items-center gap-1.5 text-xs font-black text-brand-text">
-              <UserCheck className="w-3.5 h-3.5 text-emerald-600" />
-              <span>{activePasskey.userName}</span>
-              <span className="rounded-md bg-brand-surface border border-brand-border px-1.5 py-0.2 text-[10px] font-bold uppercase text-brand-text-secondary">
-                {activePasskey.userRole}
-              </span>
-            </div>
-            <p className="text-[11px] text-brand-text-secondary font-medium">
-              {isThai
-                ? 'แตะเซ็นเซอร์สแกนลายนิ้วมือหรือมองกล้องเพื่อเข้ากะทันที'
-                : 'Touch sensor or look at camera for instant shift sign-in'}
-            </p>
-          </div>
-        )}
-      </div>
-
-      {/* Cashier Quick-Selector Switcher */}
-      <div className="space-y-1.5">
-        <div className="flex items-center justify-between text-[11px] font-black uppercase text-brand-text-secondary px-1">
-          <span>{isThai ? 'เลือกพนักงานแคชเชียร์ (1-Tap Switch)' : 'Enrolled Cashiers'}</span>
-          <span className="text-[10px] text-brand-text-muted font-bold font-mono">
-            {enrolledPasskeys.length} {isThai ? 'คีย์' : 'keys'}
-          </span>
-        </div>
-
-        <div className="space-y-1.5 max-h-[150px] overflow-y-auto pr-0.5">
-          {enrolledPasskeys.map((pk) => {
-            const isSelected = pk.id === (activePasskey?.id || selectedPasskeyId);
-            return (
-              <div
-                key={pk.id}
-                onClick={() => {
-                  onSelectPasskey(pk.id);
-                  handleTriggerScan(pk);
-                }}
-                className={`rounded-xl border-2 px-3 py-2 flex items-center justify-between gap-2.5 transition-all cursor-pointer ${
-                  isSelected
-                    ? 'border-cta bg-brand-surface-selected shadow-xs'
-                    : 'border-brand-border bg-brand-surface hover:border-brand-border-strong hover:bg-brand-surface-hover'
-                }`}
-              >
-                <div className="flex items-center gap-2 min-w-0 flex-1">
-                  <div
-                    className={`h-8 w-8 rounded-lg flex items-center justify-center shrink-0 ${
-                      isSelected ? 'bg-cta text-cta-text' : 'bg-brand-surface-muted text-brand-text-secondary'
-                    }`}
-                  >
-                    {pk.authenticatorType === 'face_id' ? (
-                      <ScanFace className="w-4 h-4" />
-                    ) : (
-                      <Fingerprint className="w-4 h-4" />
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-xs font-black text-brand-text truncate flex items-center gap-1.5">
-                      <span>{pk.userName}</span>
-                      {isSelected && <CheckCircle2 className="w-3.5 h-3.5 text-cta" />}
-                    </div>
-                    <div className="text-[10px] text-brand-text-secondary truncate">{pk.deviceLabel}</div>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  disabled={!terminalReady || isLoading || isBiometricVerifying}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onSelectPasskey(pk.id);
-                    handleTriggerScan(pk);
-                  }}
-                  className={`h-7.5 px-3 rounded-lg text-xs font-black transition-all cursor-pointer disabled:opacity-40 ${
-                    isSelected
-                      ? 'bg-cta text-cta-text hover:bg-cta-hover'
-                      : 'bg-brand-primary text-brand-primary-text hover:bg-brand-primary-hover'
-                  } focus-visible:ring-2 focus-visible:ring-cta`}
-                >
-                  {isThai ? 'สแกน' : 'Scan'}
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Terminal Auto-Biometric Preference Checkbox */}
-      <label className="flex items-center gap-2 px-1 pt-0.5 cursor-pointer">
-        <input
-          type="checkbox"
-          checked={rememberTerminal}
-          onChange={(e) => handleToggleRemember(e.target.checked)}
-          className="h-4 w-4 rounded border-brand-border text-brand-primary focus:ring-cta cursor-pointer"
-        />
-        <span className="text-[11px] font-bold text-brand-text-secondary">
-          {isThai ? 'เปิดโหมดชีวมิติเป็นค่าเริ่มต้นบนเครื่อง POS นี้' : 'Default to biometrics on this terminal'}
-        </span>
-      </label>
-
-      {/* Switch to PIN Pad */}
-      <div className="flex items-center justify-center pt-1">
-        <button
-          type="button"
-          onClick={() => {
-            playClick();
-            onSwitchMode('pin');
-          }}
-          className="text-xs font-bold text-brand-text-secondary hover:text-brand-primary focus-visible:ring-2 focus-visible:ring-cta rounded-lg p-1.5 transition-colors cursor-pointer inline-flex items-center gap-1.5"
-        >
-          <KeyRound className="w-4 h-4 text-blue-700" />
-          <span>{isThai ? 'กลับไปใช้แป้น PIN' : 'Switch to PIN Pad'}</span>
-        </button>
+      <div className="min-w-0">
+        <div className="text-xs font-bold truncate">{serverEnabled ? (isThai ? 'Passkey พร้อมใช้งาน' : 'Server Passkeys Available') : (isThai ? 'Passkey ยังไม่พร้อมใช้งาน' : 'Passkeys Not Configured')}</div>
+        <div className="text-[10px] text-brand-primary-text/75 truncate">{webauthnCapability?.platformSummary || 'WebAuthn capability check pending'}</div>
       </div>
     </div>
-  );
-};
 
+    {!serverEnabled && (
+      <div role="status" className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] leading-relaxed text-brand-text-secondary">
+        {isThai ? 'ระบบ Passkey ยังไม่ได้ตั้งค่า RP ID และ Origin บน Server กรุณาใช้ PIN หรือรหัสผ่านแทน' : 'The authentication server has not configured its WebAuthn RP ID and allowed origins. Use PIN or password sign-in for now.'}
+      </div>
+    )}
+
+    <div className="rounded-2xl border-2 border-brand-border bg-brand-surface-muted p-4 text-center shadow-xs space-y-3">
+      <label className="block text-left space-y-1.5">
+        <span className="text-xs font-bold text-brand-text">{isThai ? 'ชื่อผู้ใช้' : 'Account username'}</span>
+        <input
+          type="text"
+          autoComplete="username webauthn"
+          value={username}
+          onChange={(event) => onUsernameChange(event.target.value)}
+          placeholder={isThai ? 'กรอก Username' : 'Enter username'}
+          maxLength={256}
+          className="w-full min-h-[44px] rounded-lg border border-brand-border bg-brand-surface px-3 text-sm text-brand-text outline-none focus-visible:ring-2 focus-visible:ring-cta"
+        />
+      </label>
+      <button
+        type="button"
+        disabled={!terminalReady || !serverEnabled || !webauthnCapability?.isSupported || !username.trim() || isLoading || isBiometricVerifying}
+        onClick={onScanBiometric}
+        className="mx-auto relative w-20 h-20 rounded-full flex items-center justify-center bg-brand-primary text-brand-primary-text hover:bg-cta hover:text-cta-text transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-brand-primary/20 focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2"
+        aria-label={isThai ? 'เข้าสู่ระบบด้วย Passkey' : 'Sign in with passkey'}
+      >
+        {isBiometricVerifying ? <Loader2 className="w-9 h-9 animate-spin" /> : <Fingerprint className="w-9 h-9 text-cta" />}
+      </button>
+      <p className="text-[11px] text-brand-text-secondary">
+        {isThai ? 'กดปุ่มเพื่อเปิดหน้าต่างยืนยัน Passkey ของอุปกรณ์' : 'Continue with your device or password manager passkey prompt'}
+      </p>
+    </div>
+
+    <div className="flex items-center justify-center pt-1">
+      <button
+        type="button"
+        onClick={() => onSwitchMode('pin')}
+        className="min-h-[44px] px-3 text-xs font-bold text-brand-text-secondary hover:text-brand-text-accent focus-visible:ring-2 focus-visible:ring-cta rounded-lg transition-colors cursor-pointer inline-flex items-center gap-1.5"
+      >
+        <KeyRound className="w-4 h-4 text-brand-text-accent" />
+        <span>{isThai ? 'กลับไปใช้แป้น PIN' : 'Switch to PIN Pad'}</span>
+      </button>
+    </div>
+  </div>
+);

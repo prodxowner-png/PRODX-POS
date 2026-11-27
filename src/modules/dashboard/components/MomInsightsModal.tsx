@@ -54,9 +54,11 @@ export const MomInsightsModal: React.FC<MomInsightsModalProps> = ({
       case 'staffing':
         return <Users className="h-4 w-4 text-blue-500" />;
       case 'basket':
-        return <ShoppingBag className="h-4 w-4 text-purple-500" />;
+        return <ShoppingBag className="h-4 w-4 text-brand-text-accent" />;
       case 'promotions':
         return <Sparkles className="h-4 w-4 text-rose-500" />;
+      case 'data_quality':
+        return <AlertTriangle className="h-4 w-4 text-amber-500" />;
       default:
         return <Lightbulb className="h-4 w-4 text-primary" />;
     }
@@ -98,6 +100,7 @@ export const MomInsightsModal: React.FC<MomInsightsModalProps> = ({
               <button
                 type="button"
                 onClick={() => onSimulate('growth')}
+                disabled={!metrics.hasComparablePriorPeriod}
                 className={`px-2.5 py-1 rounded-lg font-bold text-xs transition-colors cursor-pointer flex items-center gap-1 ${
                   simulationMode === 'growth'
                     ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
@@ -110,6 +113,7 @@ export const MomInsightsModal: React.FC<MomInsightsModalProps> = ({
               <button
                 type="button"
                 onClick={() => onSimulate('decline')}
+                disabled={!metrics.hasComparablePriorPeriod}
                 className={`px-2.5 py-1 rounded-lg font-bold text-xs transition-colors cursor-pointer flex items-center gap-1 ${
                   simulationMode === 'decline'
                     ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30'
@@ -123,12 +127,36 @@ export const MomInsightsModal: React.FC<MomInsightsModalProps> = ({
           </div>
         )}
 
+        {metrics.isSimulation && (
+          <div role="status" className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-900 p-3 text-xs text-amber-900 dark:text-amber-200">
+            <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+            <span>
+              {language === 'th'
+                ? 'โหมดจำลองสถานการณ์: ตัวเลขนี้ไม่ใช่ผลประกอบการจริง และไม่ควรใช้แทนรายงานยอดขายที่ยืนยันแล้ว'
+                : 'Scenario simulation: these figures are not actual performance and must not replace verified sales reports.'}
+            </span>
+          </div>
+        )}
+
+        {!metrics.hasComparablePriorPeriod && (
+          <div role="status" className="flex items-start gap-2 rounded-xl border border-border bg-background p-3 text-xs text-text/70">
+            <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-amber-500" />
+            <span>
+              {language === 'th'
+                ? 'ยังไม่มีข้อมูลยอดขายที่ยืนยันแล้วของเดือนก่อนเพียงพอ จึงไม่แสดงเปอร์เซ็นต์เปรียบเทียบ'
+                : 'There is not enough server-confirmed prior-month sales data, so percentage comparisons are unavailable.'}
+            </span>
+          </div>
+        )}
+
         {/* 2. Primary Hero Variance Callout Card */}
         <div
           className={`p-5 rounded-2xl border transition-all ${
-            isGrowth
-              ? 'bg-emerald-500/5 border-emerald-500/30 text-emerald-950 dark:text-emerald-50'
-              : 'bg-rose-500/5 border-rose-500/30 text-rose-950 dark:text-rose-50'
+            !metrics.hasComparablePriorPeriod
+              ? 'bg-background border-border text-text'
+              : isGrowth
+                ? 'bg-emerald-500/5 border-emerald-500/30 text-emerald-950 dark:text-emerald-50'
+                : 'bg-rose-500/5 border-rose-500/30 text-rose-950 dark:text-rose-50'
           }`}
         >
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -136,12 +164,16 @@ export const MomInsightsModal: React.FC<MomInsightsModalProps> = ({
               <div className="flex items-center gap-2">
                 <span
                   className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${
-                    isGrowth
-                      ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'
-                      : 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30'
+                    !metrics.hasComparablePriorPeriod
+                      ? 'bg-slate-500/10 text-text/70 border-border'
+                      : isGrowth
+                        ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'
+                        : 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30'
                   }`}
                 >
-                  {isGrowth ? (
+                  {!metrics.hasComparablePriorPeriod ? (
+                    <span>{language === 'th' ? 'ข้อมูลเปรียบเทียบไม่เพียงพอ' : 'Insufficient comparison data'}</span>
+                  ) : isGrowth ? (
                     <>
                       <ArrowUp className="h-3.5 w-3.5 stroke-[2.5]" />
                       <span>{language === 'th' ? 'อัตราเติบโตเทียบเดือนก่อน (MoM Growth)' : 'Month-over-Month Growth'}</span>
@@ -161,26 +193,34 @@ export const MomInsightsModal: React.FC<MomInsightsModalProps> = ({
               <div className="flex items-baseline gap-3 mt-3">
                 <span
                   className={`text-4xl sm:text-5xl font-black font-mono tracking-tight ${
-                    isGrowth ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
+                    !metrics.hasComparablePriorPeriod
+                      ? 'text-text/60'
+                      : isGrowth
+                        ? 'text-emerald-600 dark:text-emerald-400'
+                        : 'text-rose-600 dark:text-rose-400'
                   }`}
                 >
-                  {varianceFormatted}
+                  {metrics.hasComparablePriorPeriod ? varianceFormatted : '—'}
                 </span>
                 <span className="text-sm font-medium text-text/70">
-                  {isGrowth
-                    ? (language === 'th' ? 'ยอดขายสูงกว่าช่วงเดียวกันเดือนก่อน' : 'higher than same period last month')
-                    : (language === 'th' ? 'ยอดขายต่ำกว่าช่วงเดียวกันเดือนก่อน' : 'lower than same period last month')}
+                  {metrics.hasComparablePriorPeriod
+                    ? isGrowth
+                      ? (language === 'th' ? 'ยอดขายสูงกว่าช่วงเดียวกันเดือนก่อน' : 'higher than same period last month')
+                      : (language === 'th' ? 'ยอดขายต่ำกว่าช่วงเดียวกันเดือนก่อน' : 'lower than same period last month')
+                    : (language === 'th' ? 'ไม่มีข้อมูลเพียงพอสำหรับคำนวณส่วนต่าง' : 'Not enough data to calculate variance')}
                 </span>
               </div>
 
-              <p className="text-xs text-text/70 mt-1">
-                {language === 'th' ? 'ส่วนต่างยอดขายสุทธิ:' : 'Net Volume Variance:'}{' '}
-                <strong className="font-mono text-text">
-                  {metrics.varianceAmount >= 0 ? '+' : ''}
-                  {currencySymbol}
-                  {metrics.varianceAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </strong>
-              </p>
+              {metrics.hasComparablePriorPeriod && (
+                <p className="text-xs text-text/70 mt-1">
+                  {language === 'th' ? 'ส่วนต่างยอดขายสุทธิ:' : 'Net Volume Variance:'}{' '}
+                  <strong className="font-mono text-text">
+                    {metrics.varianceAmount >= 0 ? '+' : ''}
+                    {currencySymbol}
+                    {metrics.varianceAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </strong>
+                </p>
+              )}
             </div>
 
             {/* Target & Pace Indicator */}
@@ -203,11 +243,18 @@ export const MomInsightsModal: React.FC<MomInsightsModalProps> = ({
                       {language === 'th' ? 'ตามเกณฑ์ปกติ' : 'On Track'}
                     </span>
                   </>
-                ) : (
+                ) : metrics.paceStatus === 'lagging' ? (
                   <>
                     <TrendingDown className="h-4 w-4 text-rose-500" />
                     <span className="text-rose-600 dark:text-rose-400">
-                      {language === 'th' ? 'ต้องกระตุ้นยอด' : 'Behind Pace'}
+                      {language === 'th' ? 'ต้องตรวจสอบยอดขาย' : 'Below Prior Period'}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <AlertTriangle className="h-4 w-4 text-amber-500" />
+                    <span className="text-text/60">
+                      {language === 'th' ? 'ข้อมูลไม่เพียงพอ' : 'Insufficient Data'}
                     </span>
                   </>
                 )}
@@ -235,7 +282,9 @@ export const MomInsightsModal: React.FC<MomInsightsModalProps> = ({
             <div className="text-[11px] text-text/60 mt-1 flex items-center justify-between">
               <span>{language === 'th' ? 'เดือนก่อน:' : 'Prior Month:'}</span>
               <span className="font-mono">
-                {currencySymbol}{metrics.priorMonthSales.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                {metrics.hasComparablePriorPeriod
+                  ? `${currencySymbol}${metrics.priorMonthSales.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
+                  : '—'}
               </span>
             </div>
           </div>
@@ -248,22 +297,30 @@ export const MomInsightsModal: React.FC<MomInsightsModalProps> = ({
             </div>
             <div className="text-lg font-black font-mono text-text flex items-center gap-2">
               <span>{metrics.currentMonthOrders.toLocaleString()}</span>
-              <span
-                className={`text-xs font-bold flex items-center ${
-                  metrics.orderVariancePercentage >= 0 ? 'text-emerald-500' : 'text-rose-500'
-                }`}
-              >
-                {metrics.orderVariancePercentage >= 0 ? (
-                  <ArrowUp className="h-3 w-3" />
-                ) : (
-                  <ArrowDown className="h-3 w-3" />
-                )}
-                {metrics.orderVariancePercentage > 0 ? '+' : ''}{metrics.orderVariancePercentage}%
-              </span>
+              {metrics.hasComparablePriorPeriod ? (
+                <span
+                  className={`text-xs font-bold flex items-center ${
+                    metrics.orderVariancePercentage >= 0 ? 'text-emerald-500' : 'text-rose-500'
+                  }`}
+                >
+                  {metrics.orderVariancePercentage >= 0 ? (
+                    <ArrowUp className="h-3 w-3" />
+                  ) : (
+                    <ArrowDown className="h-3 w-3" />
+                  )}
+                  {metrics.orderVariancePercentage > 0 ? '+' : ''}{metrics.orderVariancePercentage}%
+                </span>
+              ) : (
+                <span className="text-xs text-brand-text-secondary">—</span>
+              )}
             </div>
             <div className="text-[11px] text-text/60 mt-1 flex items-center justify-between">
               <span>{language === 'th' ? 'เดือนก่อน:' : 'Prior Month:'}</span>
-              <span className="font-mono">{metrics.priorMonthOrders.toLocaleString()} {language === 'th' ? 'บิล' : 'bills'}</span>
+              <span className="font-mono">
+                {metrics.hasComparablePriorPeriod
+                  ? `${metrics.priorMonthOrders.toLocaleString()} ${language === 'th' ? 'บิล' : 'bills'}`
+                  : '—'}
+              </span>
             </div>
           </div>
 
@@ -275,22 +332,28 @@ export const MomInsightsModal: React.FC<MomInsightsModalProps> = ({
             </div>
             <div className="text-lg font-black font-mono text-text flex items-center gap-2">
               <span>{currencySymbol}{metrics.currentMonthAov}</span>
-              <span
-                className={`text-xs font-bold flex items-center ${
-                  metrics.aovVariancePercentage >= 0 ? 'text-emerald-500' : 'text-rose-500'
-                }`}
-              >
-                {metrics.aovVariancePercentage >= 0 ? (
-                  <ArrowUp className="h-3 w-3" />
-                ) : (
-                  <ArrowDown className="h-3 w-3" />
-                )}
-                {metrics.aovVariancePercentage > 0 ? '+' : ''}{metrics.aovVariancePercentage}%
-              </span>
+              {metrics.hasComparablePriorPeriod ? (
+                <span
+                  className={`text-xs font-bold flex items-center ${
+                    metrics.aovVariancePercentage >= 0 ? 'text-emerald-500' : 'text-rose-500'
+                  }`}
+                >
+                  {metrics.aovVariancePercentage >= 0 ? (
+                    <ArrowUp className="h-3 w-3" />
+                  ) : (
+                    <ArrowDown className="h-3 w-3" />
+                  )}
+                  {metrics.aovVariancePercentage > 0 ? '+' : ''}{metrics.aovVariancePercentage}%
+                </span>
+              ) : (
+                <span className="text-xs text-brand-text-secondary">—</span>
+              )}
             </div>
             <div className="text-[11px] text-text/60 mt-1 flex items-center justify-between">
               <span>{language === 'th' ? 'เดือนก่อน:' : 'Prior Month:'}</span>
-              <span className="font-mono">{currencySymbol}{metrics.priorMonthAov}</span>
+              <span className="font-mono">
+                {metrics.hasComparablePriorPeriod ? `${currencySymbol}${metrics.priorMonthAov}` : '—'}
+              </span>
             </div>
           </div>
         </div>

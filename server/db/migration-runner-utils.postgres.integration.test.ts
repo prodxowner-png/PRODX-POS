@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createPostgresPool, resolveConfiguredDatabaseUrl } from './postgres';
+import { createPostgresPool } from './postgres';
+import { resolveDisposableTestDatabaseUrl } from './test-database-guard';
 import { recoverInvalidConcurrentIndex } from './migration-runner-utils';
 
-const url = resolveConfiguredDatabaseUrl(process.env.DATABASE_URL);
+const url = resolveDisposableTestDatabaseUrl(process.env.DATABASE_URL, 'server/db/migration-runner-utils.postgres.integration.test.ts');
 const pool = url ? createPostgresPool({ connectionString: url, max: 2 }) : null;
 const suffix = String(process.pid);
 const tableName = `prodx_migration_recovery_${suffix}`;
