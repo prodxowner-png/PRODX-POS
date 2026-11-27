@@ -26,6 +26,7 @@ const valid = (value: unknown): value is Body => {
   const body = value as Record<string, unknown>;
   if (!['refund', 'void', 'discount'].includes(String(body.action)) ||
       (typeof body.supervisorUsername !== 'string' && typeof body.supervisorUserId !== 'string') ||
+      (typeof body.supervisorUserId === 'string' && (body.supervisorUserId.trim().length === 0 || body.supervisorUserId.length > 128)) ||
       !((typeof body.supervisorSecret === 'string' && body.supervisorSecret.length > 0 && body.supervisorSecret.length <= 1024) || (typeof body.supervisorAccessToken === 'string' && body.supervisorAccessToken.length > 0 && body.supervisorAccessToken.length <= 8192)) ||
       (typeof body.supervisorAccessToken === 'string' && typeof body.supervisorUserId !== 'string')) return false;
   if (body.action === 'discount') {
@@ -155,7 +156,7 @@ export const registerSupervisorAuthorizationRoute = (app: Express, db: Transacti
           await tx.query(
             `SELECT public.prodx_record_security_audit_event($1, $2, $3, 'SUPERVISOR_AUTHORIZATION_REQUESTED', $4::jsonb)`,
             [crypto.randomUUID(), context.principal.organizationId, context.principal.userId,
-             JSON.stringify({ action: 'discount', idempotencyKey: checkout.idempotencyKey, payloadHash: checkoutAuthorizationFingerprint(checkout), thresholdBps: Number(policy.max_discount_without_approval_bps) })],
+             JSON.stringify({ action: 'discount', storeId: context.principal.storeId, idempotencyKey: checkout.idempotencyKey, payloadHash: checkoutAuthorizationFingerprint(checkout), thresholdBps: Number(policy.max_discount_without_approval_bps) })],
           );
           const result = await service.authorize({
             organizationId: context.principal.organizationId,
