@@ -2,3 +2,6 @@ project_id = "prodx-owner-auth"
 
 [functions.owner-authorize]
 verify_jwt = true
+
+[functions.owner-audit]
+verify_jwt = true
