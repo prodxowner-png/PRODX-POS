@@ -179,7 +179,7 @@ User Agent: ${typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown'
       return (
         <div
           id="global-error-boundary-screen"
-          className="fixed inset-0 z-50 flex flex-col items-center justify-center p-4 sm:p-6 bg-background text-text font-sans selection:bg-primary selection:text-white overflow-y-auto"
+          className="fixed inset-0 z-50 flex flex-col items-center justify-center p-4 sm:p-6 bg-background text-text font-sans selection:bg-primary selection:text-primary-foreground overflow-y-auto"
         >
           {/* Subtle Ambient Background Glow */}
           <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-primary/10 rounded-full blur-3xl pointer-events-none" />
@@ -210,7 +210,7 @@ User Agent: ${typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown'
               </p>
 
               {/* Error Message Box */}
-              <div className="mt-4 p-3 rounded-xl bg-rose-50/80 dark:bg-rose-950/40 border border-rose-200/80 dark:border-rose-900/50 text-left text-xs font-mono text-rose-800 dark:text-rose-300 break-words">
+              <div className="mt-4 p-3 rounded-xl bg-rose-50/80 dark:bg-rose-950/40 border border-rose-200/80 dark:border-rose-900/50 text-left text-xs font-mono tabular-nums text-rose-800 dark:text-rose-300 break-words">
                 <div className="flex items-center gap-1.5 font-bold mb-1 text-[11px] uppercase tracking-wider text-rose-900 dark:text-rose-200">
                   <AlertTriangle className="h-3.5 w-3.5 text-rose-600 dark:text-rose-400" />
                   <span>Exception Caught:</span>
@@ -224,7 +224,7 @@ User Agent: ${typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown'
                   id="btn-error-reset-global"
                   type="button"
                   onClick={this.resetBoundary}
-                  className="py-2.5 px-4 rounded-xl font-bold text-white text-xs bg-primary hover:bg-primary-dark active:scale-[0.99] shadow-md shadow-primary/25 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                  className="py-2.5 px-4 rounded-xl font-bold text-primary-foreground text-xs bg-primary hover:bg-primary-dark active:scale-[0.99] shadow-md shadow-primary/25 transition-all flex items-center justify-center gap-2 cursor-pointer"
                 >
                   <RotateCcw className="h-3.5 w-3.5" />
                   <span>ลองใหม่อีกครั้ง (Try Again)</span>
@@ -280,7 +280,7 @@ User Agent: ${typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown'
 
               {/* Collapsible Stack Trace */}
               {showDetails && (
-                <div className="mt-3 p-3 rounded-xl bg-background text-zinc-200 text-left font-mono text-[10px] leading-relaxed max-h-48 overflow-y-auto border border-border animate-in fade-in duration-200">
+                <div className="mt-3 p-3 rounded-xl bg-background text-zinc-200 text-left font-mono tabular-nums text-[10px] leading-relaxed max-h-48 overflow-y-auto border border-border animate-in fade-in duration-200">
                   <div className="text-amber-400 font-bold mb-1">// Component Stack Trace</div>
                   <pre className="whitespace-pre-wrap">{errorInfo?.componentStack || 'No component stack.'}</pre>
                   <div className="text-amber-400 font-bold mt-2 mb-1">// Error Stack</div>
@@ -290,7 +290,7 @@ User Agent: ${typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown'
             </div>
 
             {/* Footer */}
-            <div className="mt-4 text-[10px] text-text/40 uppercase tracking-widest font-mono">
+            <div className="mt-4 text-[10px] text-brand-text-secondary uppercase tracking-widest font-mono tabular-nums">
               PRODX POS ENTERPRISE · ISOLATED RECOVERY ENGINE
             </div>
           </div>
@@ -326,7 +326,7 @@ User Agent: ${typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown'
           </p>
 
           {/* Error Message */}
-          <div className="mt-3 p-2.5 rounded-xl bg-background border border-border border-crisp text-left text-[11px] font-mono text-text/80 break-words max-h-24 overflow-y-auto">
+          <div className="mt-3 p-2.5 rounded-xl bg-background border border-border border-crisp text-left text-[11px] font-mono tabular-nums text-text/80 break-words max-h-24 overflow-y-auto">
             An unexpected module error occurred. Detailed error content is withheld to protect session and transaction data.
           </div>
 
@@ -336,7 +336,7 @@ User Agent: ${typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown'
               id={`btn-reset-${moduleName || 'module'}`}
               type="button"
               onClick={this.resetBoundary}
-              className="py-2 px-3.5 rounded-xl font-bold text-white text-xs bg-primary hover:bg-primary-dark active:scale-[0.99] shadow-sm shadow-primary/20 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+              className="py-2 px-3.5 rounded-xl font-bold text-primary-foreground text-xs bg-primary hover:bg-primary-dark active:scale-[0.99] shadow-sm shadow-primary/20 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
             >
               <RotateCcw className="h-3.5 w-3.5" />
               <span>ลองใหม่อีกครั้ง</span>
@@ -367,13 +367,13 @@ User Agent: ${typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown'
             <button
               type="button"
               onClick={() => this.setState({ showDetails: !showDetails })}
-              className="text-[10px] text-text/50 hover:text-text/70 dark:hover:text-text/60 transition-colors inline-flex items-center gap-1 cursor-pointer"
+              className="text-[10px] text-brand-text-secondary hover:text-text/70 dark:hover:text-text/60 transition-colors inline-flex items-center gap-1 cursor-pointer"
             >
               <span>{showDetails ? 'Hide technical logs' : 'Show technical logs'}</span>
               {showDetails ? <ChevronUp className="h-2.5 w-2.5" /> : <ChevronDown className="h-2.5 w-2.5" />}
             </button>
             {showDetails && (
-              <div className="mt-2 p-2 rounded-lg bg-background text-text/60 text-[9.5px] font-mono text-left max-h-32 overflow-y-auto leading-normal">
+              <div className="mt-2 p-2 rounded-lg bg-background text-text/60 text-[9.5px] font-mono tabular-nums text-left max-h-32 overflow-y-auto leading-normal">
                 <pre className="whitespace-pre-wrap">{errorInfo?.componentStack || 'Detailed error stack is withheld.'}</pre>
               </div>
             )}
