@@ -878,7 +878,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return false;
       }
       try {
-        await authApi.logout(previousSession.token, previousSession.authProvider);
+        await authApi.logout(previousSession.token);
       } catch {
         await authApi.logout(replacement.token, replacement.authProvider).catch(() => undefined);
         return false;
