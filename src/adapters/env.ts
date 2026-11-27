@@ -16,13 +16,14 @@ export const hasProductionUrl = (): boolean => hasProductionApiRoute({
   mocksDisabled: isMockDisabled(),
 });
 
-export const isAiStudioPreview = (): boolean => {
-  if (typeof window === 'undefined') return false;
-  const h = window.location.hostname;
-  return h.includes('aistudio.google.com') || 
-         h.includes('asia-southeast1.run.app') || 
-         h.includes('localhost');
-};
+export const isAiStudioPreviewHostname = (hostname: string): boolean =>
+  hostname === 'localhost' ||
+  hostname.endsWith('.localhost') ||
+  hostname === 'aistudio.google.com' ||
+  hostname.endsWith('.aistudio.google.com');
+
+export const isAiStudioPreview = (): boolean =>
+  typeof window !== 'undefined' && isAiStudioPreviewHostname(window.location.hostname);
 
 export const shouldUseDevelopmentMocks = (flags: {
   isDev: boolean;
