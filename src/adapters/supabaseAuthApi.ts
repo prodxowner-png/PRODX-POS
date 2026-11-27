@@ -1,7 +1,7 @@
 import type { IAuthApi, LoginRequest } from './types';
 import type { SessionContext, Store } from '../domain/auth';
 import { createProductionAuthApi } from './productionAuthApi';
-import { getSupabasePosAuthClient } from '../lib/supabasePosAuth';
+import { getSupabasePosAuthClient, SupabaseAuthConfigurationError } from '../lib/supabasePosAuth';
 
 type SupabaseAuthClient = ReturnType<typeof getSupabasePosAuthClient>;
 type SupabaseAuthApiDependencies = {
@@ -50,7 +50,10 @@ export const createSupabaseAuthApi = ({
   async login(request) {
     const identity = request.emailOrPin.trim();
     // PIN identities remain verified by the PostgreSQL credential path.
-    if (!identity.includes('@')) return fallbackApi.login(request);
+    if (!identity.includes('@')) {
+      const session = await fallbackApi.login(request);
+      return { ...session, authProvider: 'pin' };
+    }
 
     const client = getClient();
     const { data, error } = await client.auth.signInWithPassword({
@@ -61,27 +64,60 @@ export const createSupabaseAuthApi = ({
       throw new Error(error?.message ?? 'Supabase sign-in did not return a session.');
     }
     try {
-      return await exchangeToken(data.session.access_token, request, fetcher);
+      const session = await exchangeToken(data.session.access_token, request, fetcher);
+      return { ...session, authProvider: 'supabase' };
     } catch (error) {
       await client.auth.signOut({ scope: 'local' }).catch(() => undefined);
       throw error;
     }
   },
 
-  async logout(token) {
+  async logout(token, authProvider) {
     const response = await fetcher(`${baseUrl()}/auth/logout`, {
       method: 'POST',
       credentials: 'include',
       headers: { Accept: 'application/json', Authorization: `Bearer ${requireToken(token)}` },
     });
     if (!response.ok && response.status !== 401) throw new Error('Authentication logout failed.');
+    if (authProvider !== 'supabase') return;
     try {
       const { error } = await getClient().auth.signOut({ scope: 'local' });
       if (error) throw error;
     } catch (error) {
-      if (error instanceof Error && error.message.includes('POS Supabase Auth is not configured')) return;
+      if (error instanceof SupabaseAuthConfigurationError) return;
       throw error;
     }
+  },
+
+  async renewSession(token, authProvider) {
+    if (authProvider !== 'supabase') return null;
+    const normalizedPosToken = requireToken(token);
+    const client = getClient();
+    const current = await client.auth.getSession();
+    if (current.error) throw current.error;
+    if (!current.data.session) return null;
+
+    const refreshed = await client.auth.refreshSession();
+    if (refreshed.error) throw refreshed.error;
+    const supabaseAccessToken = refreshed.data.session?.access_token;
+    if (!supabaseAccessToken) throw new Error('Supabase session refresh did not return an access token.');
+
+    const response = await fetcher(baseUrl() + '/auth/supabase/renew', {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        Accept: 'application/json',
+        Authorization: 'Bearer ' + normalizedPosToken,
+        'X-Supabase-Authorization': 'Bearer ' + requireToken(supabaseAccessToken),
+      },
+    });
+    const body = await response.json().catch(() => null);
+    if (!response.ok) {
+      const error = new Error(body?.error?.message ?? 'POS session renewal failed.');
+      Object.assign(error, { status: response.status });
+      throw error;
+    }
+    return body as SessionContext;
   },
 
   async verifySession(token) {

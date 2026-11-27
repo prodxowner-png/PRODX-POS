@@ -87,7 +87,7 @@ export const CustomerDisplayLauncherModal: React.FC<CustomerDisplayLauncherModal
         {/* Quick Launch Action Banner */}
         <div className="p-4 rounded-lg border border-primary/20 bg-primary/5 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-lg bg-primary text-white">
+            <div className="p-2.5 rounded-lg bg-primary text-primary-foreground">
               <Tv className="h-5 w-5" />
             </div>
             <div>

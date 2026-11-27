@@ -64,6 +64,27 @@ test('session revocation only revokes active sessions', async () => {
   assert.match(calls[0].sql, /prodx_auth_revoke_session/);
 });
 
+test('Supabase POS session renewal uses the atomic database function and returns its persisted expiry', async () => {
+  const expiry = new Date('2030-01-01T00:00:00Z');
+  const calls: Array<{ sql: string; parameters: readonly unknown[] }> = [];
+  const db: SqlExecutor = {
+    async query<T extends Record<string, unknown>>(sql: string, parameters = []): Promise<readonly T[]> {
+      calls.push({ sql, parameters });
+      return [{ expires_at: expiry } as unknown as T];
+    },
+  };
+  const result = await createPostgresAuthenticationRepository(db).renewSession({
+    sessionId: 'session-1',
+    tokenHash: 'hashed-token',
+    supabaseUserId: 'supabase-user-1',
+    expiresAt: expiry,
+  });
+  assert.equal(result, expiry);
+  assert.deepEqual(calls[0].parameters, ['session-1', 'hashed-token', 'supabase-user-1', expiry]);
+  assert.match(calls[0].sql, /prodx_auth_renew_supabase_session/);
+  assert.doesNotMatch(calls[0].sql, /UPDATE\s+prodx_sessions/i);
+});
+
 test('session lookup joins user status instead of trusting session state', async () => {
   const db: SqlExecutor = { async query<T extends Record<string, unknown>>(): Promise<readonly T[]> {
     return [{ id: 'session-1', organization_id: 'org-1', user_id: 'user-1', device_id: 'device-1',

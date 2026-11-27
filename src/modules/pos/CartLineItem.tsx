@@ -109,7 +109,7 @@ export const CartLineItem = React.memo<CartLineItemProps>(({
       >
         {/* Left Vertical Indicator Strip */}
         {isRecentlyScanned ? (
-          <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-emerald-500 rounded-l-xl animate-pulse" />
+          <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-emerald-500 rounded-l-xl" />
         ) : hasPriceOrDiscountApplied ? (
           <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary rounded-l-xl" />
         ) : null}
@@ -135,7 +135,7 @@ export const CartLineItem = React.memo<CartLineItemProps>(({
                   className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-black tracking-tight bg-emerald-500 text-white shadow-xs animate-bounce-short"
                   title={language === 'th' ? 'เพิ่มรายการจากการสแกนบาร์โค้ด' : 'Added via Barcode Scanner'}
                 >
-                  <Barcode className="h-3 w-3 animate-pulse" />
+                  <Barcode className="h-3 w-3" aria-hidden="true" />
                   <span>{language === 'th' ? 'สแกนสำเร็จ +1' : 'Scanned +1'}</span>
                 </span>
               )}
@@ -143,7 +143,7 @@ export const CartLineItem = React.memo<CartLineItemProps>(({
               {/* Visual Indicator Badges using Theme's Primary Color */}
               {hasDiscount && (
                 <span
-                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold tracking-tight bg-primary text-white shadow-2xs"
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold tracking-tight bg-primary text-primary-foreground shadow-2xs"
                   title={`${language === 'th' ? 'ส่วนลดรายการ' : 'Line Discount'}: ${item.discountBps / 100}%`}
                 >
                   <Tag className="h-2.5 w-2.5" />
@@ -174,7 +174,7 @@ export const CartLineItem = React.memo<CartLineItemProps>(({
                   e.stopPropagation();
                   setNumpadMode('price');
                 }}
-                className={`text-[11px] font-mono flex items-center gap-1 transition-colors cursor-pointer rounded px-1 -ml-1 py-0.5 ${
+                className={`min-h-[32px] text-[11px] font-mono tabular-nums flex items-center gap-1 transition-colors cursor-pointer rounded px-1.5 -ml-1.5 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta ${
                   hasPriceChange
                     ? 'text-primary font-bold bg-primary/10 hover:bg-primary/20'
                     : 'text-text/70 hover:text-primary'
@@ -182,7 +182,7 @@ export const CartLineItem = React.memo<CartLineItemProps>(({
                 title={language === 'th' ? 'แตะเพื่อแก้ไขราคาต่อชิ้น' : 'Click to override unit price'}
               >
                 {hasPriceChange && (
-                  <span className="line-through text-text/40 text-[10px] mr-0.5">
+                  <span className="line-through text-brand-text-secondary text-[10px] mr-0.5">
                     {formatMoney(item.product.price)}
                   </span>
                 )}
@@ -203,7 +203,7 @@ export const CartLineItem = React.memo<CartLineItemProps>(({
                     e.stopPropagation();
                     setItemPrice(item.lineId, item.product.price);
                   }}
-                  className="text-[10px] text-text/50 hover:text-primary flex items-center gap-0.5 cursor-pointer underline hover:no-underline"
+                  className="text-[10px] text-brand-text-secondary hover:text-primary min-h-[28px] px-1 flex items-center gap-0.5 cursor-pointer underline hover:no-underline"
                   title={language === 'th' ? 'คืนค่าราคามาตรฐานเดิม' : 'Reset to catalog price'}
                 >
                   <RotateCcw className="h-2.5 w-2.5" />
@@ -216,7 +216,7 @@ export const CartLineItem = React.memo<CartLineItemProps>(({
           {/* Line Total Calculation */}
           <div className="text-right shrink-0">
             <div
-              className={`text-xs font-mono font-bold ${
+              className={`text-xs font-mono tabular-nums font-bold ${
                 hasPriceOrDiscountApplied ? 'text-primary font-extrabold' : 'text-text'
               }`}
             >
@@ -224,7 +224,7 @@ export const CartLineItem = React.memo<CartLineItemProps>(({
             </div>
             {hasPriceOrDiscountApplied && (
               <div className="flex items-center justify-end gap-1 text-[10px] font-mono">
-                <span className="line-through text-text/40">
+                <span className="line-through text-brand-text-secondary">
                   {formatMoney(createMoney(catalogPriceCents * item.quantity, item.product.price.currency))}
                 </span>
                 {hasDiscount && (
@@ -248,9 +248,9 @@ export const CartLineItem = React.memo<CartLineItemProps>(({
                 triggerHaptic('tap');
                 onRequestDiscount();
               }}
-              className={`min-h-[40px] flex items-center gap-1.5 text-xs px-3 py-1.5 theme-btn-radius active-scale border-crisp border transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
+              className={`min-h-[40px] flex items-center gap-1.5 text-xs px-3 py-1.5 theme-btn-radius active-scale border-crisp border transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta ${
                 item.discountBps > 0
-                  ? 'border-primary bg-primary text-white font-bold shadow-xs'
+                  ? 'border-primary bg-primary text-primary-foreground font-bold shadow-xs'
                   : 'border-border bg-transparent text-text/70 hover:text-text hover:border-primary/50'
               }`}
             >
@@ -275,7 +275,7 @@ export const CartLineItem = React.memo<CartLineItemProps>(({
                 triggerHaptic('tap');
                 onUpdateQuantity(item.lineId, -1);
               }}
-              className="min-h-[44px] min-w-[44px] h-11 w-11 theme-btn-radius active-scale border-crisp border border-border bg-card text-text flex items-center justify-center hover:bg-background cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              className="min-h-[44px] min-w-[44px] h-11 w-11 theme-btn-radius active-scale border-crisp border border-border bg-card text-text flex items-center justify-center hover:bg-background cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta"
               aria-label="Decrease quantity"
             >
               <Minus className="h-4 w-4" />
@@ -298,7 +298,7 @@ export const CartLineItem = React.memo<CartLineItemProps>(({
                 triggerHaptic('tap');
                 onUpdateQuantity(item.lineId, 1);
               }}
-              className="min-h-[44px] min-w-[44px] h-11 w-11 theme-btn-radius active-scale border-crisp border border-border bg-card text-text flex items-center justify-center hover:bg-background cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              className="min-h-[44px] min-w-[44px] h-11 w-11 theme-btn-radius active-scale border-crisp border border-border bg-card text-text flex items-center justify-center hover:bg-background cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta"
               aria-label="Increase quantity"
             >
               <Plus className="h-4 w-4" />
@@ -310,7 +310,7 @@ export const CartLineItem = React.memo<CartLineItemProps>(({
                 triggerHaptic('medium');
                 onRemove(item.lineId);
               }}
-              className="min-h-[44px] min-w-[44px] h-11 w-11 ml-0.5 theme-btn-radius border border-transparent text-text/50 hover:border-rose-200 dark:hover:border-rose-900 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20 flex items-center justify-center cursor-pointer transition-colors active-scale focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
+              className="min-h-[44px] min-w-[44px] h-11 w-11 ml-0.5 theme-btn-radius border border-transparent text-brand-text-secondary hover:border-rose-200 dark:hover:border-rose-900 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20 flex items-center justify-center cursor-pointer transition-colors active-scale focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
               aria-label="Remove item from cart"
             >
               <Trash2 className="h-4 w-4" />

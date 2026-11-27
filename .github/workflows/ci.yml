@@ -65,25 +65,31 @@ jobs:
     - name: Verify migration governance
       run: bun run db:migrations:check
 
-    - name: Apply PostgreSQL migrations
-      shell: bash
-      run: |
-        set -euo pipefail
-        for migration in db/migrations/*.sql; do
-          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration"
-        done
+    - name: Apply PostgreSQL migrations with production runner
+      run: bun run db:migrate
 
     - name: Exercise production migration runner on a clean PostgreSQL database
       shell: bash
       run: |
         set -euo pipefail
+        EXPECTED_MIGRATION_COUNT="$(find db/migrations -maxdepth 1 -type f -name '*.sql' | wc -l | tr -d '[:space:]')"
+        EXPECTED_004_MIGRATION_COUNT="$(find db/migrations -maxdepth 1 -type f -name '004*.sql' | wc -l | tr -d '[:space:]')"
+        EXPECTED_005_MIGRATION_COUNT="$(find db/migrations -maxdepth 1 -type f -name '005*.sql' | wc -l | tr -d '[:space:]')"
+        EXPECTED_006_MIGRATION_COUNT="$(find db/migrations -maxdepth 1 -type f -name '006*.sql' | wc -l | tr -d '[:space:]')"
         PGPASSWORD=prodx createdb --host=127.0.0.1 --username=prodx prodx_migration_runner_test
         DATABASE_URL=postgresql://prodx:prodx@127.0.0.1:5432/prodx_migration_runner_test bun run db:migrate
         psql postgresql://prodx:prodx@127.0.0.1:5432/prodx_migration_runner_test -v ON_ERROR_STOP=1 -Atc "
           SELECT CASE
-            WHEN count(*) = 59
-             AND (SELECT count(*) FROM prodx_schema_migrations WHERE version LIKE '004%') = 9
-             AND (SELECT count(*) FROM prodx_schema_migrations WHERE version LIKE '005%') = 9
+            WHEN count(*) = ${EXPECTED_MIGRATION_COUNT}
+             AND (SELECT count(*) FROM prodx_schema_migrations WHERE version LIKE '004%') = ${EXPECTED_004_MIGRATION_COUNT}
+             AND (SELECT count(*) FROM prodx_schema_migrations WHERE version LIKE '005%') = ${EXPECTED_005_MIGRATION_COUNT}
+             AND (SELECT count(*) FROM prodx_schema_migrations WHERE version LIKE '006%') = ${EXPECTED_006_MIGRATION_COUNT}
+             AND (SELECT count(*) FROM prodx_schema_migrations WHERE version = '0061_security_revoke_runtime_trigger_function') = 1
+             AND (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+                  WHERE n.nspname = 'public'
+                    AND p.proname = 'prodx_seed_discount_policy_for_store'
+                    AND NOT has_function_privilege('prodx_app', p.oid, 'EXECUTE')) = 1
+             AND NOT has_function_privilege('prodx_app', 'public.prodx_auth_find_supervisor_credential(uuid, uuid, text)', 'EXECUTE')
              AND (SELECT count(*) FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
                   JOIN pg_namespace n ON n.oid = c.relnamespace
                   WHERE n.nspname = 'public'
@@ -101,8 +107,25 @@ jobs:
           FROM prodx_schema_migrations
         " | grep -Fx 'migration runner verified'
 
-    - name: Run server tests
-      run: bun run server:test
+    - name: Run client tests
+      run: bun run client:test
+
+    - name: Prepare isolated first-tenant PostgreSQL integration database
+      shell: bash
+      run: |
+        set -euo pipefail
+        PGPASSWORD=prodx createdb --host=127.0.0.1 --username=prodx prodx_bootstrap_test
+        DATABASE_URL=postgresql://prodx:prodx@127.0.0.1:5432/prodx_bootstrap_test bun run db:migrate
+
+    - name: Run server tests including first-tenant PostgreSQL integration (no skips)
+      shell: bash
+      env:
+        PRODX_RUN_BOOTSTRAP_POSTGRES_INTEGRATION: '1'
+        PRODX_BOOTSTRAP_TEST_DATABASE_URL: postgresql://prodx:prodx@127.0.0.1:5432/prodx_bootstrap_test
+      run: |
+        set -euo pipefail
+        bun run server:test 2>&1 | tee /tmp/prodx-server-test.log
+        grep -Eq '^ℹ skipped 0$' /tmp/prodx-server-test.log
 
     - name: Build application
       run: bun run build

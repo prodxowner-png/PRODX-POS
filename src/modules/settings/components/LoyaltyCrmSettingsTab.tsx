@@ -208,7 +208,7 @@ export const LoyaltyCrmSettingsTab: React.FC<LoyaltyCrmSettingsTabProps> = ({
           </div>
           <div className="flex items-center gap-2">
             <input
-              type="number"
+              type="number" inputMode="decimal"
               min={1}
               value={loyaltyConfig.pointsEarnRate}
               onChange={(e) =>
@@ -223,7 +223,7 @@ export const LoyaltyCrmSettingsTab: React.FC<LoyaltyCrmSettingsTabProps> = ({
               {language === 'th' ? 'บาท = 1 แต้ม' : 'THB = 1 Point'}
             </span>
           </div>
-          <p className="text-[11px] text-text/50">
+          <p className="text-[11px] text-brand-text-secondary">
             {language === 'th'
               ? 'ซื้อสินค้าครบทุกๆ จำนวนบาทนี้ จะได้รับ 1 แต้มสะสม'
               : 'Amount spent required to grant one loyalty point.'}
@@ -241,7 +241,7 @@ export const LoyaltyCrmSettingsTab: React.FC<LoyaltyCrmSettingsTabProps> = ({
           </div>
           <div className="flex items-center gap-2">
             <input
-              type="number"
+              type="number" inputMode="decimal"
               min={1}
               value={loyaltyConfig.pointsRedeemRate}
               onChange={(e) =>
@@ -256,7 +256,7 @@ export const LoyaltyCrmSettingsTab: React.FC<LoyaltyCrmSettingsTabProps> = ({
               {language === 'th' ? 'แต้ม = ส่วนลด 1 บาท' : 'Points = 1 THB Discount'}
             </span>
           </div>
-          <p className="text-[11px] text-text/50">
+          <p className="text-[11px] text-brand-text-secondary">
             {language === 'th'
               ? 'จำนวนแต้มที่ลูกค้าต้องใช้แลกเป็นส่วนลดเงินสด 1 บาท'
               : 'Points cost per one THB checkout bill discount.'}
@@ -265,7 +265,7 @@ export const LoyaltyCrmSettingsTab: React.FC<LoyaltyCrmSettingsTabProps> = ({
 
         <div className="p-4 rounded-2xl bg-card border border-border shadow-xs space-y-2">
           <div className="flex items-center gap-2 text-xs font-bold text-text">
-            <TrendingUp className="h-4 w-4 text-purple-500" />
+            <TrendingUp className="h-4 w-4 text-brand-text-accent" />
             <span>
               {language === 'th'
                 ? 'อายุของแต้มสะสม (Expiry)'
@@ -274,7 +274,7 @@ export const LoyaltyCrmSettingsTab: React.FC<LoyaltyCrmSettingsTabProps> = ({
           </div>
           <div className="flex items-center gap-2">
             <input
-              type="number"
+              type="number" inputMode="decimal"
               min={30}
               value={loyaltyConfig.pointsExpiryDays}
               onChange={(e) =>
@@ -289,7 +289,7 @@ export const LoyaltyCrmSettingsTab: React.FC<LoyaltyCrmSettingsTabProps> = ({
               {language === 'th' ? 'วัน (Days)' : 'Days'}
             </span>
           </div>
-          <p className="text-[11px] text-text/50">
+          <p className="text-[11px] text-brand-text-secondary">
             {language === 'th'
               ? 'ระยะเวลาที่แต้มมีอายุใช้งานก่อนตัดสิทธิ์อัตโนมัติ'
               : 'Number of calendar days before accrued points expire.'}
@@ -371,15 +371,15 @@ export const LoyaltyCrmSettingsTab: React.FC<LoyaltyCrmSettingsTabProps> = ({
                 {/* Key Benefits Badges */}
                 <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-border/60">
                   <div className="p-2 rounded-xl bg-background border border-border/70 text-center">
-                    <div className="text-[10px] text-text/50 font-semibold">
+                    <div className="text-[10px] text-brand-text-secondary font-semibold">
                       ตัวคูณแต้ม
                     </div>
-                    <div className="text-xs font-black text-purple-600 dark:text-purple-400">
+                    <div className="text-xs font-black text-brand-text-accent dark:text-brand-text-accent">
                       x{tier.pointMultiplier.toFixed(1)} เท่า
                     </div>
                   </div>
                   <div className="p-2 rounded-xl bg-background border border-border/70 text-center">
-                    <div className="text-[10px] text-text/50 font-semibold">
+                    <div className="text-[10px] text-brand-text-secondary font-semibold">
                       ส่วนลดบิล
                     </div>
                     <div className="text-xs font-black text-emerald-600 dark:text-emerald-400">
@@ -392,7 +392,7 @@ export const LoyaltyCrmSettingsTab: React.FC<LoyaltyCrmSettingsTabProps> = ({
 
                 {/* Perks list */}
                 <div className="mt-3 space-y-1">
-                  <div className="text-[10px] font-bold text-text/50 uppercase tracking-wider">
+                  <div className="text-[10px] font-bold text-brand-text-secondary uppercase tracking-wider">
                     สิทธิพิเศษ
                   </div>
                   <ul className="space-y-1 text-[11px] text-text/70">
@@ -432,7 +432,7 @@ export const LoyaltyCrmSettingsTab: React.FC<LoyaltyCrmSettingsTabProps> = ({
               {language === 'th' ? 'ยอดซื้อตัวอย่าง (บาท)' : 'Sample Spend (THB)'}
             </label>
             <input
-              type="number"
+              type="number" inputMode="decimal"
               value={simSpend}
               onChange={(e) => setSimSpend(Number(e.target.value))}
               className="w-full px-3 py-2 text-xs font-bold rounded-xl border border-border bg-background text-text focus:ring-2 focus:ring-primary/20"
@@ -458,7 +458,7 @@ export const LoyaltyCrmSettingsTab: React.FC<LoyaltyCrmSettingsTabProps> = ({
 
           <div className="p-3 rounded-xl bg-background border border-border flex items-center justify-around">
             <div className="text-center">
-              <span className="text-[10px] text-text/50 font-bold block">
+              <span className="text-[10px] text-brand-text-secondary font-bold block">
                 ส่วนลดที่ได้
               </span>
               <span className="text-xs font-black text-rose-500">
@@ -467,7 +467,7 @@ export const LoyaltyCrmSettingsTab: React.FC<LoyaltyCrmSettingsTabProps> = ({
             </div>
             <div className="h-6 w-[1px] bg-border" />
             <div className="text-center">
-              <span className="text-[10px] text-text/50 font-bold block">
+              <span className="text-[10px] text-brand-text-secondary font-bold block">
                 ยอดสุทธิ
               </span>
               <span className="text-xs font-black text-text">
@@ -476,10 +476,10 @@ export const LoyaltyCrmSettingsTab: React.FC<LoyaltyCrmSettingsTabProps> = ({
             </div>
             <div className="h-6 w-[1px] bg-border" />
             <div className="text-center">
-              <span className="text-[10px] text-text/50 font-bold block">
+              <span className="text-[10px] text-brand-text-secondary font-bold block">
                 แต้มที่ได้รับ
               </span>
-              <span className="text-xs font-black text-purple-500">
+              <span className="text-xs font-black text-brand-text-accent">
                 +{finalPoints} แต้ม
               </span>
             </div>

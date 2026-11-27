@@ -245,10 +245,10 @@ export const HourlyVelocityChart: React.FC<HourlyVelocityChartProps> = ({
 
             <div className="flex items-center justify-between text-xs">
               <span className="text-text/70 flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-purple-500" />
+                <span className="w-2 h-2 rounded-full bg-brand-text-accent" />
                 <span>{language === 'th' ? 'เดือนก่อนหน้า:' : 'Prior Month:'}</span>
               </span>
-              <span className="font-mono font-medium text-purple-600 dark:text-purple-400">
+              <span className="font-mono font-medium text-brand-text-accent">
                 {currencySymbol}{item.priorMonthSales.toLocaleString()}
               </span>
             </div>
@@ -270,7 +270,9 @@ export const HourlyVelocityChart: React.FC<HourlyVelocityChartProps> = ({
   };
 
   const isGrowth = momMetrics.isGrowth;
-  const momVarianceLabel = `${momMetrics.variancePercentage > 0 ? '+' : ''}${momMetrics.variancePercentage}%`;
+  const momVarianceLabel = momMetrics.hasComparablePriorPeriod
+    ? `${momMetrics.variancePercentage > 0 ? '+' : ''}${momMetrics.variancePercentage}%`
+    : 'N/A';
 
   return (
     <>
@@ -299,7 +301,7 @@ export const HourlyVelocityChart: React.FC<HourlyVelocityChartProps> = ({
                 {/* Status Indicator */}
                 {chartViewMode === 'hourly' && currentShift && (
                   <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" aria-hidden="true" />
                     <span>
                       {currentShift.registerId || 'REG-01'} ·{' '}
                       {currentShift.status === 'open'
@@ -493,29 +495,33 @@ export const HourlyVelocityChart: React.FC<HourlyVelocityChartProps> = ({
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <span className="w-3 h-0.5 border-b-2 border-dashed border-purple-500" />
+                  <span className="w-3 h-0.5 border-b-2 border-dashed border-brand-text-accent" />
                   <span className="font-medium text-text/70">
                     {momMetrics.priorMonthName}:
                   </span>
-                  <span className="font-mono font-semibold text-purple-600 dark:text-purple-400">
+                  <span className="font-mono font-semibold text-brand-text-accent">
                     {currencySymbol}{momMetrics.priorMonthSales.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                   </span>
                 </div>
 
                 {/* Variance callout */}
                 <div className="flex items-center gap-1.5 pl-2 border-l border-border/80">
-                  <span
-                    className={`inline-flex items-center gap-1 font-mono font-bold ${
-                      isGrowth ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
-                    }`}
-                  >
-                    {isGrowth ? (
-                      <ArrowUp className="h-3.5 w-3.5 stroke-[2.5]" />
-                    ) : (
-                      <ArrowDown className="h-3.5 w-3.5 stroke-[2.5]" />
-                    )}
-                    <span>{momVarianceLabel} MoM</span>
-                  </span>
+                  {momMetrics.hasComparablePriorPeriod ? (
+                    <span
+                      className={`inline-flex items-center gap-1 font-mono font-bold ${
+                        isGrowth ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
+                      }`}
+                    >
+                      {isGrowth ? (
+                        <ArrowUp className="h-3.5 w-3.5 stroke-[2.5]" />
+                      ) : (
+                        <ArrowDown className="h-3.5 w-3.5 stroke-[2.5]" />
+                      )}
+                      <span>{momVarianceLabel} MoM</span>
+                    </span>
+                  ) : (
+                    <span className="text-text/60">{language === 'th' ? 'ข้อมูลเปรียบเทียบไม่เพียงพอ' : 'Insufficient comparison data'}</span>
+                  )}
                 </div>
               </div>
 
@@ -530,7 +536,20 @@ export const HourlyVelocityChart: React.FC<HourlyVelocityChartProps> = ({
             </div>
           )}
 
-          {/* Recharts Chart Container */}
+          {/* Show an explicit empty state instead of a zero-line chart when no verified data exists. */}
+          {chartViewMode === 'hourly' && totalShiftOrders === 0 ? (
+            <div role="status" className="h-[260px] flex items-center justify-center rounded-xl border border-dashed border-border bg-background px-6 text-center text-sm text-text/60">
+              {language === 'th'
+                ? 'ยังไม่มีรายการขายที่ยืนยันแล้วในกะนี้ จึงยังไม่สามารถแสดงแนวโน้มรายชั่วโมงได้'
+                : 'No server-confirmed orders exist for this shift yet, so hourly trends are unavailable.'}
+            </div>
+          ) : chartViewMode === 'mom_trend' && !momMetrics.hasComparablePriorPeriod ? (
+            <div role="status" className="h-[260px] flex items-center justify-center rounded-xl border border-dashed border-border bg-background px-6 text-center text-sm text-text/60">
+              {language === 'th'
+                ? 'ยังไม่มีข้อมูลยอดขายที่ยืนยันแล้วของเดือนก่อนเพียงพอสำหรับเปรียบเทียบ'
+                : 'There is not enough server-confirmed prior-month sales data for comparison.'}
+            </div>
+          ) : (
           <div id="recharts-shift-line-chart-wrapper" className="w-full h-[260px] select-none">
             <ResponsiveContainer width="100%" height="100%">
               {chartViewMode === 'hourly' ? (
@@ -692,13 +711,14 @@ export const HourlyVelocityChart: React.FC<HourlyVelocityChartProps> = ({
               )}
             </ResponsiveContainer>
           </div>
+          )}
 
           {/* Summary Footer & Actionable Indicators */}
           <div className="mt-4 pt-3 border-t border-border flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-text/70">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="w-2 h-2 rounded-full bg-primary shrink-0" />
               <span className="font-medium">
-                {chartViewMode === 'mom_trend' ? (
+                {chartViewMode === 'mom_trend' && momMetrics.hasComparablePriorPeriod ? (
                   <span>
                     <span className="text-text font-bold">
                       {language === 'th' ? 'สถานะความเร็ว MoM:' : 'MoM Velocity Pace:'}{' '}
@@ -715,6 +735,8 @@ export const HourlyVelocityChart: React.FC<HourlyVelocityChartProps> = ({
                       {currencySymbol}{Math.abs(momMetrics.varianceAmount).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                     </span>
                   </span>
+                ) : chartViewMode === 'mom_trend' ? (
+                  <span>{language === 'th' ? 'ไม่มีข้อมูลเดือนก่อนที่ยืนยันแล้วเพียงพอสำหรับการเปรียบเทียบ' : 'Not enough verified prior-month data for comparison.'}</span>
                 ) : peakPoint && (activeMetric === 'sales' ? peakPoint.sales > 0 : peakPoint.orders > 0) ? (
                   <>
                     <span className="text-text font-bold">
@@ -734,8 +756,8 @@ export const HourlyVelocityChart: React.FC<HourlyVelocityChartProps> = ({
                 ) : (
                   <span>
                     {language === 'th'
-                      ? 'กำลังบันทึกยอดขายกะปัจจุบันแบบเรียลไทม์'
-                      : 'Logging real-time sales transactions for current shift'}
+                      ? 'ยังไม่มีรายการขายที่ยืนยันแล้วในกะปัจจุบัน'
+                      : 'No server-confirmed orders in the current shift'}
                   </span>
                 )}
               </span>
@@ -743,7 +765,7 @@ export const HourlyVelocityChart: React.FC<HourlyVelocityChartProps> = ({
 
             <div className="flex items-center gap-2 flex-wrap">
               {/* MoM Variance Indicator Badge */}
-              {isManager && (
+              {isManager && momMetrics.hasComparablePriorPeriod && (
                 <button
                   type="button"
                   onClick={() => setIsMomModalOpen(true)}
@@ -800,4 +822,3 @@ export const HourlyVelocityChart: React.FC<HourlyVelocityChartProps> = ({
     </>
   );
 };
-

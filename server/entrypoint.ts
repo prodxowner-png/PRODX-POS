@@ -13,6 +13,7 @@ import { createTransactionalPostgresExecutor } from './db/transaction.ts';
 import { createAIGatewayService } from './ai/production-composition.ts';
 import { registerCheckoutRoute } from './http/checkout-route.ts';
 import { registerAuthRoutes } from './http/auth-route.ts';
+import { registerWebAuthnRoutes } from './http/webauthn-route.ts';
 import { createApp } from './http/createApp.ts';
 import { registerRefundRoute } from './http/refund-route.ts';
 import { registerAuditRoute } from './http/audit-route.ts';
@@ -23,6 +24,7 @@ import { registerCatalogRoute } from './http/catalog-route.ts';
 import { registerCatalogImportRoute } from './http/catalog-import-route.ts';
 import { registerCatalogPricingRoute } from './http/catalog-pricing-route.ts';
 import { registerPaymentLifecycleRoute } from './http/payment-lifecycle-route.ts';
+import { registerPaymentWebhookRoute } from './http/payment-webhook-route.ts';
 import { registerSyncRoute } from './http/sync-route.ts';
 import { registerSupervisorAuthorizationRoute } from './http/supervisor-authorization-route.ts';
 import { registerDiscountPolicyRoute } from './http/discount-policy-route.ts';
@@ -31,7 +33,10 @@ import { registerVoidRoute } from './http/void-route.ts';
 import { registerInventoryAdjustmentRoute } from './http/inventory-adjustment-route.ts';
 import { registerInfrastructureRoutes, registerPublicInfrastructureRoutes } from './http/infrastructureRoutes.ts';
 import { installAIHttpRoute } from './ai/http-route.ts';
+import { logger, safeErrorDiagnostic } from './observability/logger.ts';
+import { installGracefulShutdown } from './observability/shutdown.ts';
 export { createRetryableInitialization } from './http/retryable-initialization.ts';
+export { logger, safeErrorDiagnostic };
 
 export type ProductionAppOptions = {
   vercelOidcToken?: string;
@@ -69,6 +74,8 @@ export const createProductionApp = async (options: ProductionAppOptions = {}) =>
           config: readFirstTenantBootstrapConfig(process.env),
         },
       });
+      registerPaymentWebhookRoute(configuredApp, transactions);
+      registerWebAuthnRoutes(configuredApp, requestScopedSql, sessions);
       registerPublicInfrastructureRoutes(configuredApp, pool);
     },
     authenticateRequest: async (request) => {
@@ -113,18 +120,10 @@ export const startProductionServer = async (): Promise<void> => {
   }
 
   const server = app.listen(port, host, () => {
-    console.log(`PRODX POS backend listening on ${host}:${port}`);
+    logger.info('server.started', { host, port });
   });
 
-  const shutdown = async (signal: string) => {
-    server.close(async () => {
-      await pool.end();
-      console.log(`PRODX POS backend stopped after ${signal}`);
-    });
-  };
-
-  process.once('SIGINT', () => void shutdown('SIGINT'));
-  process.once('SIGTERM', () => void shutdown('SIGTERM'));
+  installGracefulShutdown({ server, pool });
 };
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

@@ -108,7 +108,7 @@ test('CartLineItem: quantity decrement, increment, and remove controls satisfy 4
 
   // Verify minimum 44px touch targets
   assert.match(source, /min-h-\[44px\] min-w-\[44px\]/);
-  assert.match(source, /focus-visible:ring-2 focus-visible:ring-primary/);
+  assert.match(source, /focus-visible:ring-2 focus-visible:ring-cta/);
   assert.match(source, /focus-visible:ring-2 focus-visible:ring-rose-500/);
 });
 

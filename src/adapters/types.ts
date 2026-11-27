@@ -5,7 +5,7 @@
  * infrastructure / backend API layer (e.g. NestJS + PostgreSQL).
  */
 
-import { User, SessionContext, Store } from '../domain/auth';
+import { User, SessionAuthProvider, SessionContext, Store } from '../domain/auth';
 import type { WebAuthnAssertionPayload } from '../services/webauthnService';
 import {
   Product,
@@ -19,7 +19,7 @@ import {
 import { Order, CartLineItem, CartTotals, TenderPayment } from '../domain/order';
 import { Shift, CashMovement, CashMovementType, TimeclockRecord } from '../domain/shift';
 import { AuditLogEntry, AuditAction, AuditSeverity } from '../domain/audit';
-import { OutboxItem } from '../domain/sync';
+import { OutboxItem, OutboxItemType } from '../domain/sync';
 import { Money } from '../domain/money';
 
 export interface OrganizationLoginContext {
@@ -52,6 +52,7 @@ export interface BiometricLoginRequest {
   storeCode: string;
   registerId: string;
   organizationContext?: OrganizationLoginContext;
+  username?: string;
   targetUser?: { id: string; email: string; name: string };
   requireAdminRole?: boolean;
 }
@@ -83,7 +84,9 @@ export interface CheckoutResponse {
 
 export interface IAuthApi {
   login(req: LoginRequest): Promise<SessionContext>;
-  logout(token: string): Promise<void>;
+  logout(token: string, authProvider?: SessionAuthProvider): Promise<void>;
+  /** Refreshes only a Supabase-backed POS session; null means this is not a Supabase session. */
+  renewSession(token: string, authProvider?: SessionAuthProvider): Promise<SessionContext | null>;
   verifySession(token: string): Promise<SessionContext | null>;
   getStores(orgSlug: string, token: string): Promise<readonly Store[]>;
   forgotPin(organizationSlug: string, storeCode: string, emailOrPin: string, registerId: string): Promise<void>;
@@ -133,7 +136,7 @@ export interface RefundItemRestock {
 
 export interface IOrderApi {
   createOrder(req: CheckoutRequest): Promise<CheckoutResponse>;
-  getOrders(storeId: string, limit?: number, registerId?: string): Promise<readonly Order[]>;
+  getOrders(storeId: string, limit?: number, registerId?: string, options?: { from?: string; to?: string; offset?: number }): Promise<readonly Order[]>;
   getOrderById(storeId: string, orderId: string): Promise<Order | null>;
   voidOrder(storeId: string, orderId: string, reason: string, authorizedByUserId: string): Promise<Order>;
   refundOrder(
@@ -179,7 +182,21 @@ export interface IAuditApi {
   getLogs(storeId: string, limit?: number): Promise<readonly AuditLogEntry[]>;
 }
 
+export interface SyncCommandResponse {
+  readonly commandType?: OutboxItemType;
+  readonly confirmedEntityId?: string;
+  readonly confirmedOrder?: Order;
+  readonly confirmedMovement?: CashMovement;
+  readonly confirmedAdjustment?: {
+    readonly adjustmentId: string;
+    readonly entries: readonly unknown[];
+  };
+  readonly syncedAt: string;
+  readonly serverConfirmed?: boolean;
+  readonly idempotencyCached?: boolean;
+}
+
 export interface ISyncApi {
-  syncOutboxItem(item: OutboxItem): Promise<{ confirmedOrder: Order; syncedAt: string }>;
+  syncOutboxItem(item: OutboxItem): Promise<SyncCommandResponse>;
   ping(clientTimestamp?: number): Promise<{ serverTimestamp: string; roundTripLatencyMs: number; status: 'ok' | 'degraded' }>;
 }

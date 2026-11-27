@@ -201,6 +201,11 @@ export class DevelopmentMockAuthApi implements IAuthApi {
     clearStoredSession(token);
   }
 
+  async renewSession(_token: string): Promise<SessionContext | null> {
+    // Development sessions have a fixed TTL and no Supabase identity to refresh.
+    return null;
+  }
+
   async verifySession(token: string): Promise<SessionContext | null> {
     if (!token || !token.startsWith('dev-session-')) return null;
     const stored = readStoredSession();

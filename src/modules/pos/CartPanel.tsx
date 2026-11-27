@@ -162,7 +162,7 @@ export const CartPanel: React.FC<CartPanelProps> = ({ onOpenQuickPay }) => {
                 </>
               ) : (
                 <>
-                  <div className="p-1 rounded-md bg-card text-text/50 shrink-0">
+                  <div className="p-1 rounded-md bg-card text-brand-text-secondary shrink-0">
                     <UserPlus className="h-3.5 w-3.5" />
                   </div>
                   <span className="truncate text-xs font-semibold">
@@ -177,7 +177,7 @@ export const CartPanel: React.FC<CartPanelProps> = ({ onOpenQuickPay }) => {
                 {customer.loyaltyPoints} {language === 'th' ? 'แต้ม' : 'pts'}
               </Badge>
             ) : (
-              <span className="text-[10px] text-text/40 shrink-0 font-mono">
+              <span className="text-[10px] text-brand-text-secondary shrink-0 font-mono">
                 {language === 'th' ? 'แตะเลือก' : 'Select'}
               </span>
             )}
@@ -193,10 +193,11 @@ export const CartPanel: React.FC<CartPanelProps> = ({ onOpenQuickPay }) => {
                   setIsHoldModalOpen(true);
                 }}
                 title={language === 'th' ? `บิลที่พักไว้ (${heldCarts.length})` : `Parked Orders (${heldCarts.length})`}
-                className="min-h-[44px] px-2.5 py-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors active-scale"
+                aria-label={language === 'th' ? `เปิดบิลที่พักไว้ (${heldCarts.length} รายการ)` : `Open parked orders (${heldCarts.length})`}
+                className="min-h-[44px] px-2.5 py-1.5 rounded-lg border border-warning/30 bg-warning-subtle text-warning-text hover:opacity-90 text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta active-scale"
               >
                 <PauseCircle className="h-3.5 w-3.5" />
-                <span className="font-mono text-[11px]">{heldCarts.length}</span>
+                <span className="font-mono text-[11px] tabular-nums">{heldCarts.length}</span>
               </button>
             )}
 
@@ -227,7 +228,7 @@ export const CartPanel: React.FC<CartPanelProps> = ({ onOpenQuickPay }) => {
                   playScannerSound('click');
                   setIsClearConfirmOpen(true);
                 }}
-                className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg border border-border/60 hover:border-rose-200 dark:hover:border-rose-900/60 hover:bg-rose-50 dark:hover:bg-rose-950/20 text-text/50 hover:text-rose-600 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 active-scale"
+                className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg border border-border/60 hover:border-rose-200 dark:hover:border-rose-900/60 hover:bg-rose-50 dark:hover:bg-rose-950/20 text-brand-text-secondary hover:text-rose-600 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 active-scale"
                 title={t.pos.clearCart}
                 aria-label={t.pos.clearCart}
               >
@@ -269,7 +270,6 @@ export const CartPanel: React.FC<CartPanelProps> = ({ onOpenQuickPay }) => {
               <div className="px-3 py-2 rounded-xl bg-primary/10 border border-primary/30 flex items-center justify-between text-xs text-primary shadow-2xs animate-in fade-in duration-200">
                 <div className="flex items-center gap-2 font-bold min-w-0 truncate">
                   <span className="relative flex h-2 w-2 shrink-0">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
                     <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
                   </span>
                   <Tag className="h-3.5 w-3.5 shrink-0" />
@@ -280,7 +280,7 @@ export const CartPanel: React.FC<CartPanelProps> = ({ onOpenQuickPay }) => {
                   </span>
                 </div>
                 {totalItemSavingsCents > 0 && (
-                  <span className="shrink-0 font-mono font-bold text-[11px] px-2 py-0.5 rounded-full bg-primary text-white shadow-2xs">
+                  <span className="shrink-0 font-mono font-bold tabular-nums text-[11px] px-2 py-0.5 rounded-full bg-primary text-primary-foreground shadow-2xs">
                     {language === 'th' ? 'ประหยัด ' : 'Saved '}
                     {formatMoney(createMoney(totalItemSavingsCents, items[0]?.unitPrice.currency || 'THB'))}
                   </span>
@@ -346,7 +346,7 @@ export const CartPanel: React.FC<CartPanelProps> = ({ onOpenQuickPay }) => {
                   basePriceCents: totals.grossSubtotal.amountInCents - totals.itemDiscounts.amountInCents,
                 });
               }}
-              className={`min-h-[26px] px-2 py-0.5 rounded-md font-bold text-xs flex items-center gap-1 transition-colors cursor-pointer ${
+              className={`min-h-[36px] px-2.5 py-1 rounded-lg font-bold text-xs flex items-center gap-1 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta ${
                 orderDiscountBps > 0
                   ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400'
                   : hasItems
@@ -371,7 +371,7 @@ export const CartPanel: React.FC<CartPanelProps> = ({ onOpenQuickPay }) => {
           <div className="space-y-1 text-xs">
             <div className="flex justify-between text-text/70 font-medium">
               <span>{t.pos.subtotal} ({totals.totalItemsCount} {t.pos.itemCount})</span>
-              <span className="font-mono text-text font-bold">{formatMoney(totals.grossSubtotal)}</span>
+              <span className="font-mono tabular-nums text-text font-bold">{formatMoney(totals.grossSubtotal)}</span>
             </div>
 
             {totals.itemDiscounts.amountInCents > 0 && (
@@ -380,7 +380,7 @@ export const CartPanel: React.FC<CartPanelProps> = ({ onOpenQuickPay }) => {
                   <Tag className="h-3 w-3" />
                   <span>{language === 'th' ? 'ส่วนลดรายการ' : 'Line Discounts'}</span>
                 </span>
-                <span className="font-mono">-{formatMoney(totals.itemDiscounts)}</span>
+                <span className="font-mono tabular-nums">-{formatMoney(totals.itemDiscounts)}</span>
               </div>
             )}
 
@@ -399,13 +399,13 @@ export const CartPanel: React.FC<CartPanelProps> = ({ onOpenQuickPay }) => {
             {totals.orderDiscount.amountInCents > 0 && (
               <div className="flex justify-between text-rose-600 dark:text-rose-400 font-medium">
                 <span>{language === 'th' ? 'ส่วนลดท้ายบิล' : 'Ticket Discount'} ({orderDiscountBps / 100}%)</span>
-                <span className="font-mono font-bold">-{formatMoney(totals.orderDiscount)}</span>
+                <span className="font-mono tabular-nums font-bold">-{formatMoney(totals.orderDiscount)}</span>
               </div>
             )}
 
-            <div className="flex justify-between text-text/50 text-[11px]">
+            <div className="flex justify-between text-brand-text-secondary text-[11px]">
               <span>{t.pos.vatIncluded}</span>
-              <span className="font-mono font-medium">{formatMoney(totals.totalTax)}</span>
+              <span className="font-mono tabular-nums font-medium">{formatMoney(totals.totalTax)}</span>
             </div>
 
             {/* Prominent Grand Total Block with pulse & highlight animation */}
@@ -437,7 +437,7 @@ export const CartPanel: React.FC<CartPanelProps> = ({ onOpenQuickPay }) => {
                   </AnimatePresence>
                 </div>
                 {secondaryTotals && (
-                  <div className="text-[10px] text-text/50 font-medium">
+                  <div className="text-[11px] text-brand-text-secondary font-mono tabular-nums font-medium">
                     ≈ {formatMoney(secondaryTotals.grandTotal)} ({activeSecondaryCurrency})
                   </div>
                 )}
@@ -448,7 +448,7 @@ export const CartPanel: React.FC<CartPanelProps> = ({ onOpenQuickPay }) => {
                   initial={{ scale: 0.95 }}
                   animate={{ scale: isTotalPulsing ? [1, 1.14, 1] : 1 }}
                   transition={{ duration: 0.35, ease: 'easeOut' }}
-                  className={`inline-block text-xl sm:text-2xl font-black font-mono tracking-tight transition-colors ${
+                  className={`inline-block text-xl sm:text-2xl font-black font-mono tabular-nums tracking-tight transition-colors ${
                     isTotalPulsing ? 'text-emerald-600 dark:text-emerald-400 animate-total-text' : 'text-primary'
                   }`}
                 >
@@ -472,7 +472,7 @@ export const CartPanel: React.FC<CartPanelProps> = ({ onOpenQuickPay }) => {
                 setIsClearConfirmOpen(true);
               }}
               title={language === 'th' ? 'เริ่มขายใหม่ / ล้างตะกร้า' : 'New Sale (Clear)'}
-              className={`min-h-[36px] h-9 px-2 rounded-lg border text-xs font-bold flex items-center justify-center gap-1.5 transition-all theme-btn-radius active-scale ${
+              className={`min-h-[44px] h-11 px-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-all theme-btn-radius active-scale focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta ${
                 hasItems
                   ? 'border-rose-200 dark:border-rose-950/60 bg-rose-50/50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400 hover:bg-rose-100/50 cursor-pointer'
                   : 'border-border/40 text-text/30 bg-card cursor-not-allowed opacity-50'
@@ -491,7 +491,7 @@ export const CartPanel: React.FC<CartPanelProps> = ({ onOpenQuickPay }) => {
                 setIsParkModalOpen(true);
               }}
               title={t.pos.holdCart}
-              className={`min-h-[36px] h-9 px-2 rounded-lg border text-xs font-bold flex items-center justify-center gap-1.5 transition-all theme-btn-radius active-scale ${
+              className={`min-h-[44px] h-11 px-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-all theme-btn-radius active-scale focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta ${
                 hasItems
                   ? 'border-border bg-background text-text hover:border-primary/50 cursor-pointer'
                   : 'border-border/40 text-text/30 bg-card cursor-not-allowed opacity-50'
@@ -510,7 +510,7 @@ export const CartPanel: React.FC<CartPanelProps> = ({ onOpenQuickPay }) => {
                 setIsReceiptPreviewOpen(true);
               }}
               title={language === 'th' ? 'ดูตัวอย่างใบเสร็จ' : 'Receipt Preview'}
-              className={`min-h-[36px] h-9 px-2 rounded-lg border text-xs font-bold flex items-center justify-center gap-1.5 transition-all theme-btn-radius active-scale ${
+              className={`min-h-[44px] h-11 px-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-all theme-btn-radius active-scale focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta ${
                 hasItems
                   ? 'border-border bg-background text-text hover:border-primary/50 cursor-pointer'
                   : 'border-border/40 text-text/30 bg-card cursor-not-allowed opacity-50'
@@ -564,7 +564,7 @@ export const CartPanel: React.FC<CartPanelProps> = ({ onOpenQuickPay }) => {
               }}
               className={`flex-1 min-h-[44px] h-11 sm:h-11.5 flex items-center justify-between px-4 rounded-xl font-bold text-sm tracking-wide shadow-sm transition-all theme-btn-radius active-scale ${
                 hasItems
-                  ? 'bg-cta hover:bg-cta-hover active:bg-cta-pressed text-cta-text cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40'
+                  ? 'bg-cta hover:bg-cta-hover active:bg-cta-pressed text-cta-text cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2'
                   : 'bg-border/60 text-text/40 cursor-not-allowed'
               }`}
             >
@@ -700,4 +700,3 @@ export const CartPanel: React.FC<CartPanelProps> = ({ onOpenQuickPay }) => {
     </div>
   );
 };
-

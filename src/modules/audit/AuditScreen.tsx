@@ -104,7 +104,7 @@ export const AuditScreen: React.FC = () => {
           onClick={() => setAuditSourceView('organization_crud')}
           className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 ${
             auditSourceView === 'organization_crud'
-              ? 'bg-purple-600 text-white shadow-xs'
+              ? 'bg-primary text-primary-foreground shadow-xs'
               : 'bg-card border border-border text-text/70 hover:bg-card/80'
           }`}
         >
@@ -121,7 +121,7 @@ export const AuditScreen: React.FC = () => {
           onClick={() => setAuditSourceView('store_operations')}
           className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 ${
             auditSourceView === 'store_operations'
-              ? 'bg-primary text-white shadow-xs'
+              ? 'bg-primary text-primary-foreground shadow-xs'
               : 'bg-card border border-border text-text/70 hover:bg-card/80'
           }`}
         >
@@ -143,7 +143,7 @@ export const AuditScreen: React.FC = () => {
                   <Shield className="h-4 w-4" />
                 </div>
               </div>
-          <div className="mt-2 text-2xl font-black font-mono tracking-tight text-text">
+          <div className="mt-2 text-2xl font-black font-mono tabular-nums tracking-tight text-text">
             {logs.length} <span className="text-xs font-sans font-medium text-text/60">{language === 'th' ? 'รายการ' : 'events'}</span>
           </div>
           <div className="mt-1.5 text-[11px] text-text/60">
@@ -154,11 +154,11 @@ export const AuditScreen: React.FC = () => {
         <div className="p-4 rounded-xl border border-border border-crisp bg-card shadow-2xs flex flex-col justify-between">
           <div className="flex items-center justify-between text-xs font-semibold text-text/60 uppercase tracking-wider">
             <span>{language === 'th' ? 'วิกฤต (Critical)' : 'Critical Events'}</span>
-            <div className={`p-1.5 rounded-lg ${criticalCount > 0 ? 'bg-rose-500/15 text-rose-500' : 'bg-text/5 text-text/40'}`}>
+            <div className={`p-1.5 rounded-lg ${criticalCount > 0 ? 'bg-rose-500/15 text-rose-500' : 'bg-text/5 text-brand-text-secondary'}`}>
               <AlertOctagon className="h-4 w-4" />
             </div>
           </div>
-          <div className={`mt-2 text-2xl font-black font-mono tracking-tight ${criticalCount > 0 ? 'text-rose-500' : 'text-text'}`}>
+          <div className={`mt-2 text-2xl font-black font-mono tabular-nums tracking-tight ${criticalCount > 0 ? 'text-rose-500' : 'text-text'}`}>
             {criticalCount} <span className="text-xs font-sans font-medium text-text/60">{language === 'th' ? 'รายการ' : 'critical'}</span>
           </div>
           <div className="mt-1.5 text-[11px] text-text/60">
@@ -169,11 +169,11 @@ export const AuditScreen: React.FC = () => {
         <div className="p-4 rounded-xl border border-border border-crisp bg-card shadow-2xs flex flex-col justify-between">
           <div className="flex items-center justify-between text-xs font-semibold text-text/60 uppercase tracking-wider">
             <span>{language === 'th' ? 'แจ้งเตือน (Warnings)' : 'Warnings'}</span>
-            <div className={`p-1.5 rounded-lg ${warnCount > 0 ? 'bg-amber-500/15 text-amber-500' : 'bg-text/5 text-text/40'}`}>
+            <div className={`p-1.5 rounded-lg ${warnCount > 0 ? 'bg-amber-500/15 text-amber-500' : 'bg-text/5 text-brand-text-secondary'}`}>
               <AlertTriangle className="h-4 w-4" />
             </div>
           </div>
-          <div className={`mt-2 text-2xl font-black font-mono tracking-tight ${warnCount > 0 ? 'text-amber-500' : 'text-text'}`}>
+          <div className={`mt-2 text-2xl font-black font-mono tabular-nums tracking-tight ${warnCount > 0 ? 'text-amber-500' : 'text-text'}`}>
             {warnCount} <span className="text-xs font-sans font-medium text-text/60">{language === 'th' ? 'รายการ' : 'warnings'}</span>
           </div>
           <div className="mt-1.5 text-[11px] text-text/60">
@@ -188,7 +188,7 @@ export const AuditScreen: React.FC = () => {
               <CheckCircle className="h-4 w-4" />
             </div>
           </div>
-          <div className="mt-2 text-2xl font-black font-mono tracking-tight text-emerald-600 dark:text-emerald-400">
+          <div className="mt-2 text-2xl font-black font-mono tabular-nums tracking-tight text-emerald-600 dark:text-emerald-400">
             {infoCount} <span className="text-xs font-sans font-medium text-text/60">{language === 'th' ? 'รายการ' : 'routine'}</span>
           </div>
           <div className="mt-1.5 text-[11px] text-text/60">
@@ -238,11 +238,11 @@ export const AuditScreen: React.FC = () => {
                     <th className="py-3.5 px-5">{t.audit.details}</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-border font-mono">
+                <tbody className="divide-y divide-border font-mono tabular-nums">
                   {filtered.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="py-12 text-center text-text/50 font-sans">
-                        <Shield className="h-8 w-8 mx-auto text-text/30 mb-2" />
+                      <td colSpan={6} className="py-12 text-center text-brand-text-secondary font-sans">
+                        <Shield className="h-8 w-8 mx-auto text-brand-text-secondary mb-2" />
                         <p className="text-xs font-semibold text-text">
                           {language === 'th' ? 'ไม่พบบันทึกเหตุการณ์' : 'No audit entries match filter'}
                         </p>
@@ -283,8 +283,8 @@ export const AuditScreen: React.FC = () => {
                               {log.severity}
                             </Badge>
                           </td>
-                          <td className="py-3 px-4 text-text/70 font-mono">{log.registerId}</td>
-                          <td className="py-3 px-5 font-mono text-[11px] text-text/70 truncate max-w-xs">
+                          <td className="py-3 px-4 text-text/70 font-mono tabular-nums">{log.registerId}</td>
+                          <td className="py-3 px-5 font-mono tabular-nums text-[11px] text-text/70 truncate max-w-xs">
                             {JSON.stringify(log.details)}
                           </td>
                         </tr>
@@ -311,7 +311,7 @@ export const AuditScreen: React.FC = () => {
                 variant="ghost"
                 size="sm"
                 onClick={() => setSelectedLog(null)}
-                className="h-8 px-2 text-text/50 hover:text-text"
+                className="h-8 px-2 text-brand-text-secondary hover:text-text"
               >
                 ✕
               </Button>
@@ -336,7 +336,7 @@ export const AuditScreen: React.FC = () => {
 
               <div className="flex items-center justify-between">
                 <span className="text-text/60 font-sans">{t.audit.action}:</span>
-                <span className="font-bold font-mono text-text">{selectedLog.action}</span>
+                <span className="font-bold font-mono tabular-nums text-text">{selectedLog.action}</span>
               </div>
 
               <div className="flex items-center justify-between">
@@ -346,12 +346,12 @@ export const AuditScreen: React.FC = () => {
 
               <div className="flex items-center justify-between">
                 <span className="text-text/60 font-sans">{t.audit.terminal}:</span>
-                <span className="font-mono text-text">{selectedLog.registerId}</span>
+                <span className="font-mono tabular-nums text-text">{selectedLog.registerId}</span>
               </div>
 
               <div className="flex items-center justify-between">
                 <span className="text-text/60 font-sans">{t.audit.timestamp}:</span>
-                <span className="font-mono text-text/80">{new Date(selectedLog.timestamp).toLocaleString()}</span>
+                <span className="font-mono tabular-nums text-text/80">{new Date(selectedLog.timestamp).toLocaleString()}</span>
               </div>
             </div>
 
@@ -364,13 +364,13 @@ export const AuditScreen: React.FC = () => {
                   variant="outline"
                   size="sm"
                   onClick={() => handleCopyJson(selectedLog.details)}
-                  leftIcon={copied ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3 text-text/50" />}
+                  leftIcon={copied ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3 text-brand-text-secondary" />}
                   className="h-7 text-[11px] px-2"
                 >
                   {copied ? (language === 'th' ? 'คัดลอกแล้ว' : 'Copied') : (language === 'th' ? 'คัดลอก' : 'Copy JSON')}
                 </Button>
               </div>
-              <pre className="p-3 rounded-lg bg-background border border-border text-[11px] font-mono text-text overflow-x-auto max-h-64 no-scrollbar">
+              <pre className="p-3 rounded-lg bg-background border border-border text-[11px] font-mono tabular-nums text-text overflow-x-auto max-h-64 no-scrollbar">
                 {JSON.stringify(selectedLog.details, null, 2)}
               </pre>
             </div>
@@ -416,15 +416,15 @@ export const AuditScreen: React.FC = () => {
               </div>
               <div className="flex items-center justify-between pb-2 border-b border-border">
                 <span className="text-text/60">{t.audit.terminal}:</span>
-                <span className="font-mono text-text">{selectedLog.registerId}</span>
+                <span className="font-mono tabular-nums text-text">{selectedLog.registerId}</span>
               </div>
               <div className="flex items-center justify-between pb-2 border-b border-border">
                 <span className="text-text/60">{t.audit.timestamp}:</span>
-                <span className="font-mono text-text">{new Date(selectedLog.timestamp).toLocaleString()}</span>
+                <span className="font-mono tabular-nums text-text">{new Date(selectedLog.timestamp).toLocaleString()}</span>
               </div>
               <div className="pt-2">
                 <span className="block font-semibold mb-1 text-text">Payload:</span>
-                <pre className="p-3 rounded-lg bg-background border border-border text-[11px] font-mono text-text overflow-x-auto max-h-56 no-scrollbar">
+                <pre className="p-3 rounded-lg bg-background border border-border text-[11px] font-mono tabular-nums text-text overflow-x-auto max-h-56 no-scrollbar">
                   {JSON.stringify(selectedLog.details, null, 2)}
                 </pre>
               </div>

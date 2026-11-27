@@ -75,7 +75,7 @@ test('aiService strips forbidden credential keys from localStorage config', () =
 
     const config = aiService.getConfig();
     assert.deepEqual(config, {
-      model: 'gemini-3.8-flash',
+      model: 'google/gemini-3.8-flash',
       enabled: true,
       temperature: 0.4,
     });
@@ -92,7 +92,7 @@ test('aiService strips forbidden credential keys from localStorage config', () =
 test('chatCompletion and askFrontendAssistant retain Bearer token and credentials: include', async () => {
   const restoreStorage = installMemoryStorage();
   const originalFetch = globalThis.fetch;
-  const requests: Array<{ url: string; headers: Headers; credentials: RequestCredentials | undefined }> = [];
+  const requests: Array<{ url: string; headers: Headers; credentials: RequestCredentials | undefined; body: string }> = [];
 
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
@@ -100,6 +100,7 @@ test('chatCompletion and askFrontendAssistant retain Bearer token and credential
       url,
       headers: new Headers(init?.headers),
       credentials: init?.credentials,
+      body: String(init?.body ?? ''),
     });
     if (url === AI_BACKEND_CHAT_PATH) {
       return new Response(
@@ -130,6 +131,12 @@ test('chatCompletion and askFrontendAssistant retain Bearer token and credential
     assert.equal(requests[1].url, '/api/v1/ai/frontend-assistant');
     assert.equal(requests[1].headers.get('authorization'), 'Bearer session-token-123');
     assert.equal(requests[1].credentials, 'include');
+    assert.equal('model' in JSON.parse(requests[0].body), false, 'default model must be resolved by the server');
+    assert.equal('model' in JSON.parse(requests[1].body), false, 'default model must be resolved by the server');
+
+    aiService.saveConfig({ model: 'openai/gpt-4.1' });
+    await aiService.chatCompletion([{ role: 'user', content: 'custom model test' }]);
+    assert.equal(JSON.parse(requests[2].body).model, 'openai/gpt-4.1', 'explicit model selection must be preserved');
   } finally {
     aiService.setSessionToken(null);
     globalThis.fetch = originalFetch;
