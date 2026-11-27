@@ -59,6 +59,8 @@ export function createPwaUpdateController(deps: PwaUpdateControllerDeps): PwaUpd
   let snapshot: PwaUpdateSnapshot = Object.freeze({ updateAvailable: false, isApplying: false });
   let updateServiceWorker: ((reloadPage?: boolean) => Promise<void>) | null = null;
   let serviceWorkerRegistration: ServiceWorkerRegistrationLike | null = null;
+  let observedWaitingWorker: WaitingServiceWorkerLike | null = null;
+  let activatedExternally = false;
   let hasReloaded = false;
 
   function publish(next: PwaUpdateSnapshot): void {
@@ -70,6 +72,12 @@ export function createPwaUpdateController(deps: PwaUpdateControllerDeps): PwaUpd
     if (hasReloaded) return;
     hasReloaded = true;
     reload();
+  }
+
+  function trackWaitingWorker(worker: WaitingServiceWorkerLike | null | undefined): void {
+    if (worker) {
+      observedWaitingWorker = worker;
+    }
   }
 
   return {
@@ -88,11 +96,16 @@ export function createPwaUpdateController(deps: PwaUpdateControllerDeps): PwaUpd
       updateServiceWorker = registerSW({
         immediate: true,
         onNeedRefresh: () => {
+          trackWaitingWorker(serviceWorkerRegistration?.waiting);
           publish({ updateAvailable: true, isApplying: false });
         },
         onNeedReload: () => {
-          // Reload is owned exclusively by applyUpdate() after explicit activation.
-          // Never trigger a second reload here or reload when another tab activates a worker.
+          // Reload is owned exclusively by applyUpdate() after user-triggered safety checks.
+          // Never auto-reload here, but record external activation so applyUpdate() can safely reload.
+          if (!snapshot.isApplying) {
+            activatedExternally = true;
+            publish({ updateAvailable: true, isApplying: false });
+          }
         },
         onRegisterError: (error) => {
           logError('[PWA] Service worker registration failed:', error);
@@ -100,6 +113,7 @@ export function createPwaUpdateController(deps: PwaUpdateControllerDeps): PwaUpd
         onRegisteredSW: (swUrl, registration) => {
           if (!registration) return;
           serviceWorkerRegistration = registration;
+          trackWaitingWorker(registration.waiting);
 
           void registration.update().catch((error) => {
             logWarn('[PWA] Background update check failed:', error);
@@ -132,11 +146,44 @@ export function createPwaUpdateController(deps: PwaUpdateControllerDeps): PwaUpd
         throw new Error('No waiting service worker is ready to apply.');
       }
 
-      const waitingWorker = serviceWorkerRegistration?.waiting;
+      let waitingWorker = serviceWorkerRegistration?.waiting ?? null;
       if (!waitingWorker) {
-        throw new Error('The waiting service worker is no longer available. Refresh the update status before retrying.');
+        // Another tab may have already activated the shared waiting worker.
+        if (activatedExternally || observedWaitingWorker?.state === 'activated') {
+          activatedExternally = false;
+          observedWaitingWorker = null;
+          publish({ updateAvailable: false, isApplying: false });
+          reloadOnce();
+          return;
+        }
+
+        // Reconcile with the browser registration before failing.
+        if (serviceWorkerRegistration) {
+          try {
+            await serviceWorkerRegistration.update();
+          } catch (error) {
+            logWarn('[PWA] Update reconciliation failed:', error);
+          }
+          waitingWorker = serviceWorkerRegistration.waiting ?? null;
+        }
+
+        if (!waitingWorker) {
+          if (activatedExternally || observedWaitingWorker?.state === 'activated') {
+            activatedExternally = false;
+            observedWaitingWorker = null;
+            publish({ updateAvailable: false, isApplying: false });
+            reloadOnce();
+            return;
+          }
+          if (!serviceWorkerRegistration?.installing) {
+            observedWaitingWorker = null;
+            publish({ updateAvailable: false, isApplying: false });
+          }
+          throw new Error('The waiting service worker is no longer available. Refresh the update status before retrying.');
+        }
       }
 
+      trackWaitingWorker(waitingWorker);
       publish({ ...snapshot, isApplying: true });
       try {
         // Activate only the worker explicitly waiting for this registration.
@@ -168,6 +215,8 @@ export function createPwaUpdateController(deps: PwaUpdateControllerDeps): PwaUpd
           onStateChange();
         });
 
+        activatedExternally = false;
+        observedWaitingWorker = null;
         publish({ updateAvailable: false, isApplying: false });
         // Sole reload path: reload only this tab after explicit waiting-worker activation.
         // clientsClaim remains disabled so other POS tabs are not forcibly taken over.

@@ -127,3 +127,133 @@ test('applyUpdate does not reload and resets applying state when waiting worker 
   assert.equal(reloadCalls, 0);
   assert.deepEqual(controller.getSnapshot(), { updateAvailable: true, isApplying: false });
 });
+
+test('applyUpdate safely reloads when another tab activated the worker and onNeedReload fired', async () => {
+  let capturedOptions: RegisterSWOptionsLike | null = null;
+  let reloadCalls = 0;
+  let updateSwCalls = 0;
+  const fakeWorker = createFakeWaitingWorker('installed');
+  let waiting: WaitingServiceWorkerLike | null = fakeWorker.worker;
+
+  const controller = createPwaUpdateController({
+    registerSW: (options) => {
+      capturedOptions = options;
+      return async () => {
+        updateSwCalls += 1;
+      };
+    },
+    reload: () => {
+      reloadCalls += 1;
+    },
+    fetchImpl: async () => ({ ok: true }),
+    isOnline: () => true,
+  });
+
+  controller.start();
+  capturedOptions!.onRegisteredSW?.('/sw.js', {
+    get waiting() {
+      return waiting;
+    },
+    update: async () => undefined,
+  });
+  capturedOptions!.onNeedRefresh?.();
+
+  // Another tab activates the waiting worker -> waiting becomes null and onNeedReload fires.
+  waiting = null;
+  capturedOptions!.onNeedReload?.();
+
+  // Still must NOT auto-reload while this tab has not passed safety gates.
+  assert.equal(reloadCalls, 0);
+  assert.deepEqual(controller.getSnapshot(), { updateAvailable: true, isApplying: false });
+
+  // Once the user triggers applyUpdate(), it reloads cleanly without failing on missing waiting worker.
+  await controller.applyUpdate();
+
+  assert.equal(updateSwCalls, 0);
+  assert.equal(reloadCalls, 1);
+  assert.deepEqual(controller.getSnapshot(), { updateAvailable: false, isApplying: false });
+});
+
+test('applyUpdate safely reloads when observed waiting worker activated in another tab without onNeedReload', async () => {
+  let capturedOptions: RegisterSWOptionsLike | null = null;
+  let reloadCalls = 0;
+  let updateSwCalls = 0;
+  const fakeWorker = createFakeWaitingWorker('installed');
+  let waiting: WaitingServiceWorkerLike | null = fakeWorker.worker;
+
+  const controller = createPwaUpdateController({
+    registerSW: (options) => {
+      capturedOptions = options;
+      return async () => {
+        updateSwCalls += 1;
+      };
+    },
+    reload: () => {
+      reloadCalls += 1;
+    },
+    fetchImpl: async () => ({ ok: true }),
+    isOnline: () => true,
+  });
+
+  controller.start();
+  capturedOptions!.onRegisteredSW?.('/sw.js', {
+    get waiting() {
+      return waiting;
+    },
+    update: async () => undefined,
+  });
+  capturedOptions!.onNeedRefresh?.();
+
+  // Another tab activates the worker with clientsClaim: false (no onNeedReload in this tab).
+  fakeWorker.transitionTo('activated');
+  waiting = null;
+
+  await controller.applyUpdate();
+
+  assert.equal(updateSwCalls, 0);
+  assert.equal(reloadCalls, 1);
+  assert.deepEqual(controller.getSnapshot(), { updateAvailable: false, isApplying: false });
+});
+
+test('applyUpdate clears stale updateAvailable when waiting worker disappears without activation', async () => {
+  let capturedOptions: RegisterSWOptionsLike | null = null;
+  let reloadCalls = 0;
+  let updateRegistrationCalls = 0;
+  const fakeWorker = createFakeWaitingWorker('installed');
+  let waiting: WaitingServiceWorkerLike | null = fakeWorker.worker;
+
+  const controller = createPwaUpdateController({
+    registerSW: (options) => {
+      capturedOptions = options;
+      return async () => undefined;
+    },
+    reload: () => {
+      reloadCalls += 1;
+    },
+    fetchImpl: async () => ({ ok: true }),
+    isOnline: () => true,
+  });
+
+  controller.start();
+  capturedOptions!.onRegisteredSW?.('/sw.js', {
+    get waiting() {
+      return waiting;
+    },
+    update: async () => {
+      updateRegistrationCalls += 1;
+    },
+  });
+  capturedOptions!.onNeedRefresh?.();
+
+  fakeWorker.transitionTo('redundant');
+  waiting = null;
+
+  await assert.rejects(
+    () => controller.applyUpdate(),
+    /no longer available/,
+  );
+
+  assert.ok(updateRegistrationCalls >= 1);
+  assert.equal(reloadCalls, 0);
+  assert.deepEqual(controller.getSnapshot(), { updateAvailable: false, isApplying: false });
+});
