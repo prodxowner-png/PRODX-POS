@@ -200,7 +200,7 @@ Load this file when doing a UI review/audit pass, or when you need the full chec
 - `unsaved-changes-guard` - Ask before leaving, closing or cancelling with unsaved edits, and never when nothing changed (Vercel)
 - `forgiving-formats` - Trim whitespace, ignore spaces, hyphens and brackets in numbers and codes, and accept accents and apostrophes in names (GOV.UK, Vercel)
 - `allow-paste` - Never block paste, including password, confirmation and one-time-code fields (Vercel)
-- `persistent-errors` - Errors stay until fixed or dismissed; auto-dismissing toasts are only for non-critical confirmations (WCAG)
+- `persistent-errors` - Errors stay until fixed or dismissed; auto-dismissing toasts are only for non-critical confirmations (WCAG 3 draft guidance; not a WCAG 2.2 success criterion)
 - `dialog-focus` - Move focus into a modal on open, keep Tab inside, close on Escape and return focus to the opener on close (WAI-ARIA APG)
 
 ### 9. Navigation Patterns (HIGH)

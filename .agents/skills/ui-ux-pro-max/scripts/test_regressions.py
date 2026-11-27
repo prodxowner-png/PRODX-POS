@@ -11,7 +11,7 @@ SKILL_DIR = SCRIPT_DIR.parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
 from core import search  # noqa: E402
-from design_system import resolve_preview_locale  # noqa: E402
+from design_system import resolve_preview_locale, _query_wants_dark  # noqa: E402
 
 
 class PreviewLocaleTests(unittest.TestCase):
@@ -29,6 +29,12 @@ class PreviewLocaleTests(unittest.TestCase):
 
     def test_explicit_direction_overrides_locale_default(self):
         self.assertEqual(resolve_preview_locale("English", lang="en", direction="rtl"), ("en", "rtl"))
+
+
+class DarkModeAliasTests(unittest.TestCase):
+    def test_arabic_dark_mode_aliases_select_dark_mode(self):
+        self.assertTrue(_query_wants_dark("داكن"))
+        self.assertTrue(_query_wants_dark("مظلم"))
 
 
 class ColorSearchTests(unittest.TestCase):
@@ -49,6 +55,7 @@ class PySideExampleTests(unittest.TestCase):
             "2": ("setThemeColor(ThemeColor.LIGHT_1)", 'widget.setStyleSheet("color: #3B82F6")'),
             "4": ("layout.setSpacing(16)", "layout = QVBoxLayout(); layout.addWidget(card)"),
             "11": ("QTimer.singleShot(200, self.on_ready)", "time.sleep(0.2)"),
+            "9": ("self._expand_anim = QPropertyAnimation(self, b'maximumWidth')", "anim = QPropertyAnimation(self, b'maximumWidth')"),
             "15": ("self.worker.progress.connect(self.on_progress, Qt.QueuedConnection)", "self.worker.progress.connect(self.on_progress)"),
             "28": ("btn.setAccessibleName('Close window')", "btn.setToolTip('Close window')"),
         }
