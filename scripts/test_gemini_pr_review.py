@@ -440,15 +440,15 @@ class GeminiReviewContractTests(unittest.TestCase):
             "head_sha": "b" * 40,
         }
         output = io.StringIO()
-        with patch.dict(os.environ, env), \\
-             patch.object(review, "fetch_pr", side_effect=[pr, pr]), \\
-             patch.object(review, "global_review_throttle_reason", return_value=None), \\
-             patch.object(review, "find_existing_review_comment", return_value=None), \\
-             patch.object(review, "review_throttle_reason", return_value=None), \\
-             patch.object(review, "reserve_review_slot", return_value={"id": 1}), \\
-             patch.object(review, "fetch_files_and_diff", return_value=([{"filename": "server/a.py"}], "diff", False)), \\
-             patch.object(review, "review_diff", return_value=blocked), \\
-             patch.object(review, "post_comment"), \\
+        with patch.dict(os.environ, env), \
+             patch.object(review, "fetch_pr", side_effect=[pr, pr]), \
+             patch.object(review, "global_review_throttle_reason", return_value=None), \
+             patch.object(review, "find_existing_review_comment", return_value=None), \
+             patch.object(review, "review_throttle_reason", return_value=None), \
+             patch.object(review, "reserve_review_slot", return_value={"id": 1}), \
+             patch.object(review, "fetch_files_and_diff", return_value=([{"filename": "server/a.py"}], "diff", False)), \
+             patch.object(review, "review_diff", return_value=blocked), \
+             patch.object(review, "post_comment"), \
              contextlib.redirect_stdout(output):
             self.assertEqual(review.main(), 0)
         self.assertEqual(json.loads(output.getvalue())["status"], "API_ERROR")
