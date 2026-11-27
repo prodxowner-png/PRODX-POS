@@ -401,3 +401,14 @@ Avoid generic "AI slop" aesthetics. See `references/design-philosophy.md` for de
 ## PRODX-POS Integration
 
 When working in PRODX-POS, read `PRODX-INTEGRATION.md` in this skill directory and follow the repository's `AGENTS.md` first. This design skill does not override the product's server-authority, security, tenancy, financial, inventory, idempotency, offline-sync, auditability, or CI requirements. Prefer existing semantic tokens and established components over introducing a parallel design system.
+
+## Evidence contract
+
+When auditing, generating, or changing a frontend, report verifiable evidence and distinguish:
+
+- **PASS** — the stated design or accessibility criterion was checked and direct evidence supports it.
+- **FAIL** — direct inspection or a reproducible check demonstrates a violation.
+- **BLOCKED** — the required runtime, browser, device, or tool is unavailable.
+- **UNVERIFIED** — the criterion was not checked or the available evidence is incomplete.
+
+Do not claim WCAG conformance, responsive correctness, visual consistency, or production readiness from a generated mockup or skill invocation alone. Identify the relevant files, viewports, interaction states, and checks performed. State explicitly when Deno helper scripts or browser-based validation could not be run.
