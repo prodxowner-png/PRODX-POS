@@ -551,8 +551,8 @@ export default function App() {
                     <AuthProvider>
                       <OfflineProvider>
                         <ShiftProvider>
-                          <PwaUpdateGate />
                           <CartProvider>
+                            <PwaUpdateGate />
                             <ReceiptPrinterProvider>
                               <VisualInspectorProvider>
                                 <BreadcrumbProvider>

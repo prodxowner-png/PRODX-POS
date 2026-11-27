@@ -9,6 +9,12 @@ import { createShiftApi } from '../adapters/productionShiftApiFactory';
 import { useAuth } from './AuthContext';
 import { useToast } from './ToastContext';
 import { getShiftScopeKey, isShiftStateKnownForScope } from '../services/shiftStatePolicy';
+import { notifyShiftStateChanged, subscribeShiftStateChanged } from '../services/shiftCrossTabSync';
+
+export interface ShiftRefreshResult {
+  readonly known: boolean;
+  readonly shift: Shift | null;
+}
 
 interface ShiftContextType {
   currentShift: Shift | null;
@@ -17,7 +23,7 @@ interface ShiftContextType {
   openShift: (openingFloat: Money) => Promise<Shift | undefined>;
   closeShift: (actualCountedCash: Money, notes?: string) => Promise<Shift>;
   recordCashMovement: (type: CashMovementType, amount: Money, reason: string) => Promise<void>;
-  refreshShift: () => Promise<void>;
+  refreshShift: () => Promise<ShiftRefreshResult>;
 }
 
 const ShiftContext = createContext<ShiftContextType | undefined>(undefined);
@@ -46,34 +52,71 @@ export const ShiftProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
   const clearIdempotencyKey = (operation: string) => pendingIdempotency.current.delete(operation);
 
-  const refreshShift = useCallback(async () => {
+  const refreshShift = useCallback(async (): Promise<ShiftRefreshResult> => {
     const requestSequence = ++refreshSequence.current;
     if (!session) {
       setCurrentShift(null);
       setLoadedShiftScopeKey(null);
       setIsLoading(false);
-      return;
+      return { known: true, shift: null };
     }
     try {
       setIsLoading(true);
       const shift = await shiftApi!.getCurrentShift(session.currentStore.id, session.registerId);
       // Ignore stale responses when the authenticated scope changed during the request.
-      if (requestSequence !== refreshSequence.current) return;
+      if (requestSequence !== refreshSequence.current) {
+        return { known: false, shift: null };
+      }
       setCurrentShift(shift);
       setLoadedShiftScopeKey(shiftScopeKey);
+      return { known: true, shift };
     } catch (err) {
       // A failed authoritative read must never be interpreted as a closed shift.
-      if (requestSequence !== refreshSequence.current) return;
+      if (requestSequence !== refreshSequence.current) {
+        return { known: false, shift: null };
+      }
       setLoadedShiftScopeKey(null);
       console.error('[ShiftContext] Error loading shift:', err);
+      return { known: false, shift: null };
     } finally {
       if (requestSequence === refreshSequence.current) setIsLoading(false);
     }
-  }, [session]);
+  }, [session, shiftScopeKey]);
 
   useEffect(() => {
-    refreshShift();
+    void refreshShift();
   }, [refreshShift]);
+
+  useEffect(() => {
+    if (!session) return;
+
+    const unsubscribe = subscribeShiftStateChanged((changedScopeKey) => {
+      if (changedScopeKey !== null && shiftScopeKey !== null && changedScopeKey !== shiftScopeKey) {
+        return;
+      }
+      // Immediately fail closed until the authoritative server state is re-read.
+      setLoadedShiftScopeKey(null);
+      void refreshShift();
+    });
+
+    const handleVisibilityChange = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        setLoadedShiftScopeKey(null);
+        void refreshShift();
+      }
+    };
+
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+    }
+
+    return () => {
+      unsubscribe();
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      }
+    };
+  }, [session, shiftScopeKey, refreshShift]);
 
   const openShift = async (openingFloat: Money): Promise<Shift | undefined> => {
     if (!session) return undefined;
@@ -89,6 +132,7 @@ export const ShiftProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       clearIdempotencyKey('open-shift');
       setCurrentShift(shift);
       setLoadedShiftScopeKey(shiftScopeKey);
+      notifyShiftStateChanged(shiftScopeKey);
       addToast({
         title: 'Shift Opened',
         message: `Register ${session.registerId} active with opening float of $${(openingFloat.amountInCents / 100).toFixed(2)}`,
@@ -113,6 +157,7 @@ export const ShiftProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       clearIdempotencyKey('close-shift');
       setCurrentShift(null);
       setLoadedShiftScopeKey(shiftScopeKey);
+      notifyShiftStateChanged(shiftScopeKey);
       addToast({
         title: 'Shift Closed & Reconciled',
         message: `Actual cash: $${(actualCountedCash.amountInCents / 100).toFixed(2)}`,
@@ -143,6 +188,7 @@ export const ShiftProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       );
       clearIdempotencyKey('cash-movement');
       await refreshShift();
+      notifyShiftStateChanged(shiftScopeKey);
       addToast({
         title: 'Cash Drawer Movement Recorded',
         message: `${type.replace('_', ' ').toUpperCase()}: $${(amount.amountInCents / 100).toFixed(2)}`,

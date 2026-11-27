@@ -11,6 +11,8 @@ const safeState: PwaUpdateSafetyState = {
   isShiftStateKnown: true,
   hasActiveShift: false,
   hasInventoryMutationInFlight: false,
+  hasCheckoutInFlight: false,
+  hasDraftCart: false,
 };
 
 test('PWA update is allowed only when all safety gates are clear', () => {
@@ -49,8 +51,21 @@ test('multiple unsafe states report every blocker in deterministic order', () =>
       isShiftStateKnown: false,
       hasActiveShift: true,
       hasInventoryMutationInFlight: true,
+      hasCheckoutInFlight: true,
+      hasDraftCart: true,
     }),
-    ['offline', 'outbox-loading', 'syncing', 'outbox-unresolved', 'shift-loading', 'shift-unknown', 'active-shift', 'inventory-mutation'],
+    [
+      'offline',
+      'outbox-loading',
+      'syncing',
+      'outbox-unresolved',
+      'shift-loading',
+      'shift-unknown',
+      'active-shift',
+      'inventory-mutation',
+      'checkout-in-flight',
+      'draft-cart',
+    ],
   );
   assert.equal(canApplyPwaUpdate({ ...safeState, hasActiveShift: true }), false);
 });
@@ -61,4 +76,20 @@ test('an in-flight inventory mutation blocks PWA activation', () => {
     ['inventory-mutation'],
   );
   assert.equal(canApplyPwaUpdate({ ...safeState, hasInventoryMutationInFlight: true }), false);
+});
+
+test('an in-flight live checkout request blocks PWA activation', () => {
+  assert.deepEqual(
+    getPwaUpdateBlockers({ ...safeState, hasCheckoutInFlight: true }),
+    ['checkout-in-flight'],
+  );
+  assert.equal(canApplyPwaUpdate({ ...safeState, hasCheckoutInFlight: true }), false);
+});
+
+test('active or held cart drafts block PWA activation so reloads never drop draft sales', () => {
+  assert.deepEqual(
+    getPwaUpdateBlockers({ ...safeState, hasDraftCart: true }),
+    ['draft-cart'],
+  );
+  assert.equal(canApplyPwaUpdate({ ...safeState, hasDraftCart: true }), false);
 });

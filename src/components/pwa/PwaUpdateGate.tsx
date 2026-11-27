@@ -2,12 +2,14 @@ import React, { useCallback, useEffect, useState, useSyncExternalStore } from 'r
 import { createPortal } from 'react-dom';
 import { RefreshCw, ShieldCheck } from 'lucide-react';
 import { Button } from '../common/Button';
+import { useCart } from '../../context/CartContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { useOffline } from '../../context/OfflineContext';
 import { useShift } from '../../context/ShiftContext';
 import { canApplyPwaUpdate, getPwaUpdateBlockers } from '../../services/pwaUpdatePolicy';
 import { applyPwaUpdate, getPwaUpdateSnapshot, subscribePwaUpdate } from '../../services/pwaUpdateService';
 import { getActiveInventoryMutationCount, subscribeInventoryMutations } from '../../services/inventoryMutationTracker';
+import { getActiveCheckoutMutationCount, subscribeCheckoutMutations } from '../../services/checkoutMutationTracker';
 
 const blockerMessages = {
   offline: { th: 'รอการเชื่อมต่ออินเทอร์เน็ต', en: 'Waiting for an online connection' },
@@ -18,40 +20,84 @@ const blockerMessages = {
   'shift-unknown': { th: 'ยังยืนยันสถานะกะจากเซิร์ฟเวอร์ไม่ได้', en: 'The shift state is not authoritatively confirmed' },
   'active-shift': { th: 'มีกะขายเปิดอยู่ ต้องปิดกะก่อนอัปเดต', en: 'An active shift must be closed before updating' },
   'inventory-mutation': { th: 'กำลังบันทึกการปรับสต็อก รอให้รายการเสร็จก่อน', en: 'An inventory write is in progress; wait for it to finish' },
+  'checkout-in-flight': { th: 'กำลังส่งรายการชำระเงินไปยังเซิร์ฟเวอร์ รอให้เสร็จก่อน', en: 'A live checkout request is in flight; wait for confirmation' },
+  'draft-cart': { th: 'มีรายการในตะกร้าหรือบิลที่พักไว้ ต้องชำระเงินหรือล้างก่อนอัปเดต', en: 'Active or held cart drafts must be completed or cleared before updating' },
 } as const;
+
+interface PreApplyVerificationResult {
+  readonly safe: boolean;
+  readonly reason?: string;
+}
 
 interface PwaUpdateBannerProps {
   readonly isSafeToUpdate: boolean;
   readonly safeMessage: string;
   readonly blockerMessage: string | null;
+  readonly verifyBeforeApply?: () => Promise<PreApplyVerificationResult>;
 }
 
 const PwaUpdateBanner: React.FC<PwaUpdateBannerProps> = ({
   isSafeToUpdate,
   safeMessage,
   blockerMessage,
+  verifyBeforeApply,
 }) => {
   const update = useSyncExternalStore(subscribePwaUpdate, getPwaUpdateSnapshot, getPwaUpdateSnapshot);
   const { language } = useLanguage();
   const [applyError, setApplyError] = useState<string | null>(null);
+  const [isVerifying, setIsVerifying] = useState(false);
   const isThai = language === 'th';
 
   const handleApplyUpdate = useCallback(async () => {
     // Recheck the current render's operational state immediately before SKIP_WAITING.
-    if (!update.updateAvailable || !isSafeToUpdate || getActiveInventoryMutationCount() > 0) return;
+    if (
+      !update.updateAvailable ||
+      !isSafeToUpdate ||
+      isVerifying ||
+      getActiveInventoryMutationCount() > 0 ||
+      getActiveCheckoutMutationCount() > 0
+    ) {
+      return;
+    }
     setApplyError(null);
+    setIsVerifying(true);
     const appRoot = document.getElementById('root');
-    // Lock the UI synchronously so no new action starts during activation.
+    // Lock the UI synchronously so no new action starts during verification or activation.
     appRoot?.setAttribute('inert', '');
     try {
+      if (verifyBeforeApply) {
+        const verification = await verifyBeforeApply();
+        if (!verification.safe) {
+          appRoot?.removeAttribute('inert');
+          setApplyError(
+            verification.reason ??
+              (isThai
+                ? 'สถานะระบบเปลี่ยนแปลงระหว่างตรวจสอบ กรุณารอช่วงที่ปลอดภัยก่อนอัปเดต'
+                : 'Operational state changed during verification. Wait for a safe window before updating.'),
+          );
+          return;
+        }
+      }
+      if (getActiveInventoryMutationCount() > 0 || getActiveCheckoutMutationCount() > 0) {
+        appRoot?.removeAttribute('inert');
+        setApplyError(
+          getActiveCheckoutMutationCount() > 0
+            ? blockerMessages['checkout-in-flight'][isThai ? 'th' : 'en']
+            : blockerMessages['inventory-mutation'][isThai ? 'th' : 'en'],
+        );
+        return;
+      }
       await applyPwaUpdate();
     } catch (error) {
       appRoot?.removeAttribute('inert');
       setApplyError(error instanceof Error ? error.message : 'Unable to apply the update.');
+    } finally {
+      setIsVerifying(false);
     }
-  }, [isSafeToUpdate, update.updateAvailable]);
+  }, [isSafeToUpdate, isThai, isVerifying, update.updateAvailable, verifyBeforeApply]);
 
   if (!update.updateAvailable) return null;
+  const isBusy = update.isApplying || isVerifying;
 
   return createPortal(
     <>
@@ -91,17 +137,17 @@ const PwaUpdateBanner: React.FC<PwaUpdateBannerProps> = ({
             type="button"
             variant="primary"
             size="sm"
-            disabled={!isSafeToUpdate || update.isApplying}
-            isLoading={update.isApplying}
+            disabled={!isSafeToUpdate || isBusy}
+            isLoading={isBusy}
             onClick={handleApplyUpdate}
             className="ml-auto shrink-0 sm:ml-0"
             aria-label={
-              update.isApplying
+              isBusy
                 ? (isThai ? 'กำลังอัปเดต PRODX POS' : 'Updating PRODX POS')
                 : (isThai ? 'อัปเดต PRODX POS เมื่อปลอดภัย' : 'Update PRODX POS when safe')
             }
           >
-            {update.isApplying
+            {isBusy
               ? (isThai ? 'กำลังอัปเดต' : 'Updating')
               : (isThai ? 'อัปเดต' : 'Update')}
           </Button>
@@ -115,13 +161,20 @@ const PwaUpdateBanner: React.FC<PwaUpdateBannerProps> = ({
 export const PwaUpdateGate: React.FC = () => {
   const { language } = useLanguage();
   const { isOnline, isOutboxReady, hasUnresolvedOutbox, isSyncing } = useOffline();
-  const { currentShift, isLoading: isShiftLoading, isShiftStateKnown } = useShift();
+  const { currentShift, isLoading: isShiftLoading, isShiftStateKnown, refreshShift } = useShift();
+  const { items, heldCarts, stagedPayments } = useCart();
   const activeInventoryMutations = useSyncExternalStore(
     subscribeInventoryMutations,
     getActiveInventoryMutationCount,
     getActiveInventoryMutationCount,
   );
+  const activeCheckoutMutations = useSyncExternalStore(
+    subscribeCheckoutMutations,
+    getActiveCheckoutMutationCount,
+    getActiveCheckoutMutationCount,
+  );
   const isThai = language === 'th';
+  const hasDraftCart = items.length > 0 || heldCarts.length > 0 || stagedPayments.length > 0;
 
   const safetyState = {
     isOnline,
@@ -132,6 +185,8 @@ export const PwaUpdateGate: React.FC = () => {
     isShiftStateKnown,
     hasActiveShift: currentShift !== null,
     hasInventoryMutationInFlight: activeInventoryMutations > 0,
+    hasCheckoutInFlight: activeCheckoutMutations > 0,
+    hasDraftCart,
   };
   const blockers = getPwaUpdateBlockers(safetyState);
   const isSafeToUpdate = canApplyPwaUpdate(safetyState);
@@ -139,15 +194,39 @@ export const PwaUpdateGate: React.FC = () => {
     ? blockerMessages[blockers[0]][isThai ? 'th' : 'en']
     : null;
 
+  const verifyBeforeApply = useCallback(async (): Promise<PreApplyVerificationResult> => {
+    const lang = isThai ? 'th' : 'en';
+    if (hasDraftCart) {
+      return { safe: false, reason: blockerMessages['draft-cart'][lang] };
+    }
+    if (getActiveCheckoutMutationCount() > 0) {
+      return { safe: false, reason: blockerMessages['checkout-in-flight'][lang] };
+    }
+    if (getActiveInventoryMutationCount() > 0) {
+      return { safe: false, reason: blockerMessages['inventory-mutation'][lang] };
+    }
+    // Revalidate authoritative shift state from the server so another tab/device
+    // opening a shift after the initial read cannot be missed.
+    const shiftResult = await refreshShift();
+    if (!shiftResult.known) {
+      return { safe: false, reason: blockerMessages['shift-unknown'][lang] };
+    }
+    if (shiftResult.shift !== null) {
+      return { safe: false, reason: blockerMessages['active-shift'][lang] };
+    }
+    return { safe: true };
+  }, [hasDraftCart, isThai, refreshShift]);
+
   return (
     <PwaUpdateBanner
       isSafeToUpdate={isSafeToUpdate}
       safeMessage={
         isThai
-          ? 'ตรวจสอบแล้ว: ปิดกะแล้ว, Outbox พร้อมและไม่มีรายการค้าง สามารถอัปเดตได้อย่างปลอดภัย'
-          : 'Verified safe: no active shift, durable outbox is ready, and no unresolved items remain'
+          ? 'ตรวจสอบแล้ว: ปิดกะแล้ว, ไม่มีบิลค้างในตะกร้า, Outbox พร้อมและไม่มีรายการซิงก์ค้าง สามารถอัปเดตได้อย่างปลอดภัย'
+          : 'Verified safe: no active shift, no draft carts, durable outbox is ready, and no unresolved items remain'
       }
       blockerMessage={blockerMessage}
+      verifyBeforeApply={verifyBeforeApply}
     />
   );
 };
@@ -163,6 +242,11 @@ export const StandalonePwaUpdateGate: React.FC = () => {
     subscribeInventoryMutations,
     getActiveInventoryMutationCount,
     getActiveInventoryMutationCount,
+  );
+  const activeCheckoutMutations = useSyncExternalStore(
+    subscribeCheckoutMutations,
+    getActiveCheckoutMutationCount,
+    getActiveCheckoutMutationCount,
   );
   const [isOnline, setIsOnline] = useState<boolean>(
     () => (typeof navigator !== 'undefined' ? navigator.onLine : true),
@@ -180,17 +264,23 @@ export const StandalonePwaUpdateGate: React.FC = () => {
     };
   }, []);
 
+  const blockerMessage = !isOnline
+    ? blockerMessages.offline[isThai ? 'th' : 'en']
+    : activeInventoryMutations > 0
+      ? blockerMessages['inventory-mutation'][isThai ? 'th' : 'en']
+      : activeCheckoutMutations > 0
+        ? blockerMessages['checkout-in-flight'][isThai ? 'th' : 'en']
+        : null;
+
   return (
     <PwaUpdateBanner
-      isSafeToUpdate={isOnline && activeInventoryMutations === 0}
+      isSafeToUpdate={isOnline && activeInventoryMutations === 0 && activeCheckoutMutations === 0}
       safeMessage={
         isThai
           ? 'พร้อมอัปเดตหน้าจอแสดงผลเป็นเวอร์ชันล่าสุดอย่างปลอดภัย'
           : 'Ready to safely update this display to the latest version'
       }
-      blockerMessage={!isOnline
-        ? blockerMessages.offline[isThai ? 'th' : 'en']
-        : (activeInventoryMutations > 0 ? blockerMessages['inventory-mutation'][isThai ? 'th' : 'en'] : null)}
+      blockerMessage={blockerMessage}
     />
   );
 };
