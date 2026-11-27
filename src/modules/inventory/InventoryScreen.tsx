@@ -739,7 +739,7 @@ export const InventoryScreen: React.FC = () => {
           >
             <span>{language === 'th' ? 'รายงานสินค้าต้องสั่งเติม' : 'Restock Needed Report'}</span>
             {inventoryMetrics.lowStockCount + inventoryMetrics.outOfStockCount > 0 && (
-              <span className="ml-1.5 px-1.5 py-0.2 rounded-full text-[10px] font-mono font-black bg-amber-500 text-white shadow-2xs">
+              <span className="ml-1.5 px-1.5 py-0.2 rounded-full text-[10px] font-mono tabular-nums font-black bg-warning-subtle text-warning-text border border-warning/30 shadow-2xs">
                 {inventoryMetrics.lowStockCount + inventoryMetrics.outOfStockCount}
               </span>
             )}
@@ -750,8 +750,8 @@ export const InventoryScreen: React.FC = () => {
             variant="primary"
             size="sm"
             onClick={() => setIsAiOptimizationModalOpen(true)}
-            leftIcon={<Sparkles className="h-4 w-4 text-yellow-300 animate-pulse" />}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold"
+            leftIcon={<Sparkles className="h-4 w-4 text-cta" />}
+            className="bg-primary hover:bg-primary/90 text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta font-bold"
           >
             {language === 'th' ? 'PRODX AI วางแผนสต็อก' : 'PRODX AI Stock Optimizer'}
           </Button>
@@ -801,7 +801,7 @@ export const InventoryScreen: React.FC = () => {
               {
                 id: 'restock',
                 label: language === 'th' ? 'แนะนำสั่งสินค้าอัจฉริยะ' : 'Smart Restock',
-                icon: <Sparkles className="h-4 w-4 text-amber-500 animate-pulse" />,
+                icon: <Sparkles className="h-4 w-4 text-amber-500" />,
               },
             ]}
             activeTab={activeTab}
@@ -820,7 +820,7 @@ export const InventoryScreen: React.FC = () => {
               <Layers className="h-4 w-4" />
             </div>
           </div>
-          <div className="mt-2 text-2xl font-black font-mono tracking-tight text-text">
+          <div className="mt-2 text-2xl font-black font-mono tabular-nums tracking-tight text-text">
             {inventoryMetrics.totalSKUs} <span className="text-xs font-sans font-medium text-text/60">SKUs</span>
           </div>
           <div className="mt-2 text-[11px] text-text/60">
@@ -836,7 +836,7 @@ export const InventoryScreen: React.FC = () => {
               <PackageCheck className="h-4 w-4" />
             </div>
           </div>
-          <div className="mt-2 text-2xl font-black font-mono tracking-tight text-emerald-600 dark:text-emerald-400">
+          <div className="mt-2 text-2xl font-black font-mono tabular-nums tracking-tight text-emerald-600 dark:text-emerald-400">
             {inventoryMetrics.inStockCount}
           </div>
           <div className="mt-2 text-[11px] text-text/60">
@@ -866,7 +866,7 @@ export const InventoryScreen: React.FC = () => {
                   e.stopPropagation();
                   setIsThresholdModalOpen(true);
                 }}
-                className="p-1 rounded-lg text-text/40 hover:text-amber-600 hover:bg-amber-500/10 transition-colors cursor-pointer"
+                className="p-1 rounded-lg text-brand-text-secondary hover:text-amber-600 hover:bg-amber-500/10 transition-colors cursor-pointer"
                 title={language === 'th' ? 'ตั้งค่าเกณฑ์แจ้งเตือนสต็อกต่ำ' : 'Configure Alert Threshold'}
               >
                 <SlidersHorizontal className="h-3.5 w-3.5" />
@@ -877,10 +877,10 @@ export const InventoryScreen: React.FC = () => {
             </div>
           </div>
           <div className="mt-2 flex items-baseline justify-between">
-            <div className="text-2xl font-black font-mono tracking-tight text-amber-500">
+            <div className="text-2xl font-black font-mono tabular-nums tracking-tight text-amber-500">
               {inventoryMetrics.lowStockCount}
             </div>
-            <span className="text-[10.5px] font-bold font-mono px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700/60">
+            <span className="text-[10.5px] font-bold font-mono tabular-nums px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700/60">
               ≤ {lowStockThreshold} {language === 'th' ? 'ชิ้น' : 'units'}
             </span>
           </div>
@@ -902,7 +902,7 @@ export const InventoryScreen: React.FC = () => {
               <PackageX className="h-4 w-4" />
             </div>
           </div>
-          <div className="mt-2 text-2xl font-black font-mono tracking-tight text-rose-500">
+          <div className="mt-2 text-2xl font-black font-mono tabular-nums tracking-tight text-rose-500">
             {inventoryMetrics.outOfStockCount}
           </div>
           <div className="mt-2 text-[11px] text-text/60">
@@ -914,16 +914,16 @@ export const InventoryScreen: React.FC = () => {
         <div className="p-4 rounded-2xl border border-border border-crisp bg-card shadow-2xs flex flex-col justify-between sm:col-span-2 md:col-span-3 lg:col-span-1">
           <div className="flex items-center justify-between text-xs font-semibold text-text/60 uppercase tracking-wider">
             <span>{language === 'th' ? 'มูลค่าสินค้าคงคลัง' : 'Asset Valuation'}</span>
-            <div className="p-1.5 rounded-lg bg-purple-500/10 text-purple-500">
+            <div className="p-1.5 rounded-lg bg-primary/10 text-primary">
               <DollarSign className="h-4 w-4" />
             </div>
           </div>
-          <div className="mt-2 text-2xl font-black font-mono tracking-tight text-text">
+          <div className="mt-2 text-2xl font-black font-mono tabular-nums tracking-tight text-text">
             {formatMoney(inventoryMetrics.totalRetailValue)}
           </div>
           <div className="mt-2 text-[11px] text-text/60 flex items-center justify-between">
             <span>{language === 'th' ? 'ต้นทุนรวม:' : 'Total Cost:'}</span>
-            <span className="font-mono font-bold text-text/80">
+            <span className="font-mono tabular-nums font-bold text-text/80">
               {formatMoney(inventoryMetrics.totalCostValue)}
             </span>
           </div>
@@ -962,7 +962,7 @@ export const InventoryScreen: React.FC = () => {
                 </p>
                 {/* Preset Chips */}
                 <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-                  <span className="text-[10.5px] font-semibold text-text/50 mr-1">
+                  <span className="text-[10.5px] font-semibold text-brand-text-secondary mr-1">
                     {language === 'th' ? 'ทางลัด:' : 'Presets:'}
                   </span>
                   {[5, 10, 15, 20, 25, 30, 50].map((preset) => (
@@ -970,9 +970,9 @@ export const InventoryScreen: React.FC = () => {
                       key={preset}
                       type="button"
                       onClick={() => handleThresholdChange(preset)}
-                      className={`px-2 py-0.5 rounded-lg text-[10.5px] font-mono font-bold transition-all cursor-pointer ${
+                      className={`px-2 py-0.5 rounded-lg text-[10.5px] font-mono tabular-nums font-bold transition-all cursor-pointer ${
                         lowStockThreshold === preset
-                          ? 'bg-amber-500 text-white shadow-2xs'
+                          ? 'bg-warning-subtle text-warning-text border border-warning/30 shadow-2xs'
                           : 'bg-muted hover:bg-amber-500/10 text-text/70 hover:text-amber-600 border border-border border-crisp'
                       }`}
                     >
@@ -991,7 +991,7 @@ export const InventoryScreen: React.FC = () => {
                 onClick={handleToggleHighlightLowStock}
                 className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer flex items-center gap-1.5 ${
                   isHighlightLowStockActive
-                    ? 'bg-amber-500 hover:bg-amber-600 text-white border-amber-600 shadow-2xs'
+                    ? 'bg-cta hover:bg-cta-hover text-cta-text border-cta/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta shadow-2xs'
                     : 'bg-muted border-border border-crisp text-text/70 hover:text-text'
                 }`}
                 title={language === 'th' ? 'เปิด/ปิดการไฮไลต์และป้ายเตือนสต็อกต่ำ' : 'Toggle visual warning badge and highlight'}
@@ -1017,6 +1017,7 @@ export const InventoryScreen: React.FC = () => {
                   </button>
                   <input
                     type="number"
+                    inputMode="numeric"
                     min="0"
                     max="5000"
                     value={lowStockThreshold}
@@ -1024,7 +1025,7 @@ export const InventoryScreen: React.FC = () => {
                       const parsed = parseInt(e.target.value, 10);
                       handleThresholdChange(isNaN(parsed) ? 0 : parsed);
                     }}
-                    className="w-12 text-center font-mono font-black text-xs text-primary bg-transparent border-none focus:outline-none focus:ring-0 p-0"
+                    className="w-12 text-center font-mono tabular-nums font-black text-xs text-primary bg-transparent border-none focus:outline-none focus:ring-0 p-0"
                   />
                   <button
                     type="button"
@@ -1056,12 +1057,12 @@ export const InventoryScreen: React.FC = () => {
               className="p-4 rounded-2xl bg-gradient-to-r from-amber-500/15 via-amber-500/10 to-amber-500/5 dark:from-amber-950/40 dark:via-amber-950/20 dark:to-card border-2 border-amber-400 dark:border-amber-600/70 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-amber-950 dark:text-amber-100 shadow-sm shadow-amber-500/5"
             >
               <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-xl bg-amber-500 text-white shrink-0 shadow-xs ring-4 ring-amber-500/20">
+                <div className="p-2.5 rounded-xl bg-warning-subtle text-warning-text border border-warning/30 shrink-0 shadow-xs ring-4 ring-amber-500/20">
                   <AlertTriangle className="h-5 w-5" />
                 </div>
                 <div>
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500 text-white shadow-2xs">
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-warning-subtle text-warning-text border border-warning/30 shadow-2xs">
                       {language === 'th' ? 'สัญญาณเตือนสต็อกต่ำ' : 'Low Stock Warning'}
                     </span>
                     <h4 className="font-black text-sm text-amber-950 dark:text-amber-100">
@@ -1083,7 +1084,7 @@ export const InventoryScreen: React.FC = () => {
                   size="sm"
                   variant="primary"
                   onClick={() => setIsRestockReportModalOpen(true)}
-                  className="text-xs bg-amber-600 hover:bg-amber-700 text-white font-bold shrink-0 cursor-pointer shadow-xs border-amber-700 flex items-center gap-1.5"
+                  className="text-xs bg-cta hover:bg-cta-hover text-cta-text font-bold shrink-0 cursor-pointer shadow-xs border-cta/40 min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta flex items-center gap-1.5"
                 >
                   <FileSpreadsheet className="h-3.5 w-3.5" />
                   <span>{language === 'th' ? 'สร้างรายงานสั่งเติมสินค้า' : 'Generate Restock Report'}</span>
@@ -1120,7 +1121,7 @@ export const InventoryScreen: React.FC = () => {
           {velocityRiskCount > 0 && (
             <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 dark:border-amber-500/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-amber-900 dark:text-amber-200 shadow-2xs">
               <div className="flex items-center gap-3">
-                <div className="p-2 rounded-xl bg-amber-500 text-white shrink-0">
+                <div className="p-2 rounded-xl bg-warning-subtle text-warning-text border border-warning/30 shrink-0">
                   <TrendingUp className="h-4 w-4" />
                 </div>
                 <div>
@@ -1194,7 +1195,7 @@ export const InventoryScreen: React.FC = () => {
                 onClick={() => setSelectedStockFilter('all')}
                 className={`px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
                   selectedStockFilter === 'all'
-                    ? 'bg-primary text-white shadow-2xs'
+                    ? 'bg-primary text-primary-foreground shadow-2xs'
                     : 'bg-card border border-border border-crisp text-text/70 hover:text-text'
                 }`}
               >
@@ -1218,7 +1219,7 @@ export const InventoryScreen: React.FC = () => {
                 onClick={() => setSelectedStockFilter('low_stock')}
                 className={`px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
                   selectedStockFilter === 'low_stock'
-                    ? 'bg-amber-500 text-white shadow-2xs'
+                    ? 'bg-warning-subtle text-warning-text border border-warning/30 shadow-2xs'
                     : 'bg-card border border-border border-crisp text-text/70 hover:text-text'
                 }`}
               >
@@ -1242,7 +1243,7 @@ export const InventoryScreen: React.FC = () => {
                 onClick={() => setSelectedStockFilter('velocity_risk')}
                 className={`px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
                   selectedStockFilter === 'velocity_risk'
-                    ? 'bg-amber-600 text-white shadow-2xs'
+                    ? 'bg-warning-subtle text-warning-text border border-warning/30 shadow-2xs'
                     : 'bg-card border border-border border-crisp text-amber-600 dark:text-amber-400 hover:text-text'
                 }`}
               >
@@ -1258,7 +1259,7 @@ export const InventoryScreen: React.FC = () => {
                 onClick={() => setViewMode('grid')}
                 className={`p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
                   viewMode === 'grid'
-                    ? 'bg-primary text-white shadow-2xs'
+                    ? 'bg-primary text-primary-foreground shadow-2xs'
                     : 'text-text/60 hover:text-text'
                 }`}
                 title="Grid View"
@@ -1272,7 +1273,7 @@ export const InventoryScreen: React.FC = () => {
                 onClick={() => setViewMode('table')}
                 className={`p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
                   viewMode === 'table'
-                    ? 'bg-primary text-white shadow-2xs'
+                    ? 'bg-primary text-primary-foreground shadow-2xs'
                     : 'text-text/60 hover:text-text'
                 }`}
                 title="Table View"
@@ -1290,7 +1291,7 @@ export const InventoryScreen: React.FC = () => {
               onClick={() => setSelectedCategory('all')}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
                 selectedCategory === 'all'
-                  ? 'bg-primary text-white shadow-2xs'
+                  ? 'bg-primary text-primary-foreground shadow-2xs'
                   : 'bg-card/80 border border-border border-crisp text-text/70 hover:bg-background'
               }`}
             >
@@ -1306,7 +1307,7 @@ export const InventoryScreen: React.FC = () => {
                   onClick={() => setSelectedCategory(cat.id)}
                   className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
                     isSelected
-                      ? 'bg-primary text-white shadow-2xs'
+                      ? 'bg-primary text-primary-foreground shadow-2xs'
                       : 'bg-card/80 border border-border border-crisp text-text/70 hover:bg-background'
                   }`}
                 >
@@ -1378,12 +1379,12 @@ export const InventoryScreen: React.FC = () => {
 
           {/* 4. RESPONSIVE PRODUCT SYSTEM */}
           {filteredProducts.length === 0 ? (
-            <div className="p-12 text-center text-text/40 text-sm bg-card rounded-2xl border border-border border-crisp space-y-2">
+            <div className="p-12 text-center text-brand-text-secondary text-sm bg-card rounded-2xl border border-border border-crisp space-y-2">
               <Package className="h-8 w-8 mx-auto text-text/60 dark:text-text/70" />
               <div className="font-bold text-text/80">
                 {language === 'th' ? 'ไม่พบสินค้าที่ตรงกับเงื่อนไข' : 'No products found'}
               </div>
-              <p className="text-xs text-text/50">
+              <p className="text-xs text-brand-text-secondary">
                 {language === 'th' ? 'ลองค้นหาด้วยคำอื่น หรือเลือกหมวดหมู่อื่น' : 'Try adjusting your search filters or categories.'}
               </p>
               <div className="pt-2">
@@ -1443,10 +1444,10 @@ export const InventoryScreen: React.FC = () => {
                             className="rounded border-border text-primary focus:ring-primary h-4 w-4 shrink-0 cursor-pointer"
                           />
                           <div className="min-w-0">
-                            <div className="text-[10.5px] font-mono text-text/40 font-bold uppercase truncate">
+                            <div className="text-[10.5px] font-mono tabular-nums text-brand-text-secondary font-bold uppercase truncate">
                               {p.sku}
                             </div>
-                            <div className="text-[9.5px] font-mono text-text/60 truncate">
+                            <div className="text-[9.5px] font-mono tabular-nums text-text/60 truncate">
                               {p.barcode}
                             </div>
                           </div>
@@ -1460,9 +1461,9 @@ export const InventoryScreen: React.FC = () => {
                           <Badge
                             variant="warning"
                             size="sm"
-                            className="bg-amber-500 text-white dark:bg-amber-500 dark:text-white border-amber-600 font-black shadow-2xs px-2 py-0.5"
+                            className="bg-warning-subtle text-warning-text border border-warning/30 font-black shadow-2xs px-2 py-0.5"
                           >
-                            <AlertTriangle className="h-3 w-3 inline mr-1 text-white shrink-0" />
+                            <AlertTriangle className="h-3 w-3 inline mr-1 text-warning-text shrink-0" />
                             <span>{t.inventory.lowStockAlert} (≤{lowStockThreshold})</span>
                           </Badge>
                         ) : (
@@ -1486,7 +1487,7 @@ export const InventoryScreen: React.FC = () => {
                       {isHighlighted && (
                         <div className="mt-2.5 px-3 py-2 rounded-xl bg-amber-500/15 dark:bg-amber-500/25 border-2 border-amber-400 dark:border-amber-500/50 flex items-center justify-between text-xs text-amber-900 dark:text-amber-100 shadow-2xs">
                           <div className="flex items-center gap-2 font-bold text-[11px] min-w-0">
-                            <div className="p-1 rounded-md bg-amber-500 text-white shrink-0 shadow-2xs">
+                            <div className="p-1 rounded-md bg-warning-subtle text-warning-text border border-warning/30 shrink-0 shadow-2xs">
                               <AlertTriangle className="h-3.5 w-3.5" />
                             </div>
                             <div className="min-w-0">
@@ -1500,7 +1501,7 @@ export const InventoryScreen: React.FC = () => {
                               </span>
                             </div>
                           </div>
-                          <span className="text-[10px] font-mono font-black px-2 py-0.5 rounded-md bg-amber-500 text-white shrink-0 ml-1 shadow-2xs">
+                          <span className="text-[10px] font-mono tabular-nums font-black px-2 py-0.5 rounded-md bg-warning-subtle text-warning-text border border-warning/30 shrink-0 ml-1 shadow-2xs">
                             ≤ {lowStockThreshold}
                           </span>
                         </div>
@@ -1512,7 +1513,7 @@ export const InventoryScreen: React.FC = () => {
                           <span className="text-text/60 text-[11px]">
                             {t.inventory.stockStatus}
                           </span>
-                          <span className={`font-mono font-bold text-sm ${
+                          <span className={`font-mono tabular-nums font-bold text-sm ${
                             isOutOfStock
                               ? 'text-rose-500'
                               : isLow
@@ -1539,8 +1540,8 @@ export const InventoryScreen: React.FC = () => {
                         </div>
 
                         <div className="flex items-center justify-between text-[10px] text-text/60 pt-0.5">
-                          <span>{t.inventory.minAlert}: <strong className="font-mono">{p.reorderPoint}</strong></span>
-                          <span>Margin: <strong className="font-mono text-emerald-600 dark:text-emerald-400">+{marginPercent}%</strong></span>
+                          <span>{t.inventory.minAlert}: <strong className="font-mono tabular-nums">{p.reorderPoint}</strong></span>
+                          <span>Margin: <strong className="font-mono tabular-nums text-emerald-600 dark:text-emerald-400">+{marginPercent}%</strong></span>
                         </div>
 
                         {/* Average Daily Sales Velocity & Stockout Forecast */}
@@ -1551,9 +1552,9 @@ export const InventoryScreen: React.FC = () => {
                             <div className="mt-2 p-2 rounded-xl bg-background border border-border border-crisp flex items-center justify-between text-[10px]">
                               <div className="flex items-center gap-1 text-text/60">
                                 <TrendingUp className="h-3 w-3 text-primary" />
-                                <span>{language === 'th' ? 'ขาย/วัน:' : 'Velocity:'} <strong className="font-mono text-text">{vInfo.adsv}/d</strong></span>
+                                <span>{language === 'th' ? 'ขาย/วัน:' : 'Velocity:'} <strong className="font-mono tabular-nums text-text">{vInfo.adsv}/d</strong></span>
                               </div>
-                              <div className={`font-mono font-bold ${
+                              <div className={`font-mono tabular-nums font-bold ${
                                 vInfo.riskLevel === 'critical' ? 'text-rose-500' : vInfo.riskLevel === 'high' ? 'text-amber-500' : 'text-text/70'
                               }`}>
                                 {vInfo.daysRemaining > 300 ? 'Stable' : (language === 'th' ? `หมดใน ${vInfo.daysRemaining} วัน` : `~${vInfo.daysRemaining}d left`)}
@@ -1568,7 +1569,7 @@ export const InventoryScreen: React.FC = () => {
                     <div className="mt-3.5 pt-3 border-t border-border border-crisp flex items-center justify-between gap-2">
                       <div>
                         <div className="text-[10px] text-text/60">{t.inventory.retailPrice}</div>
-                        <div className="text-sm font-bold font-mono text-primary">
+                        <div className="text-sm font-bold font-mono tabular-nums text-primary">
                           {formatMoney(p.price)}
                         </div>
                       </div>
@@ -1637,7 +1638,7 @@ export const InventoryScreen: React.FC = () => {
                               : 'hover:bg-muted'
                           }`}
                         >
-                          <td className="py-3.5 px-5 font-mono">
+                          <td className="py-3.5 px-5 font-mono tabular-nums">
                             <div className="flex items-center gap-2.5">
                               <input
                                 type="checkbox"
@@ -1660,26 +1661,26 @@ export const InventoryScreen: React.FC = () => {
                             <div className="flex items-center gap-2 flex-wrap">
                               <span>{p.name}</span>
                               {isHighlighted && (
-                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10.5px] font-black bg-amber-500 text-white shrink-0 shadow-2xs">
-                                  <AlertTriangle className="h-3 w-3 text-white shrink-0" />
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10.5px] font-black bg-warning-subtle text-warning-text border border-warning/30 shrink-0 shadow-2xs">
+                                  <AlertTriangle className="h-3 w-3 text-warning-text shrink-0" />
                                   <span>{t.inventory.lowStockAlert} (≤{lowStockThreshold})</span>
                                 </span>
                               )}
                             </div>
                             <div className="text-[10px] text-text/60 line-clamp-1">{p.description}</div>
                           </td>
-                          <td className="py-3.5 px-4 font-mono font-bold text-text">
+                          <td className="py-3.5 px-4 font-mono tabular-nums font-bold text-text">
                             {formatMoney(p.price)}
                           </td>
-                          <td className="py-3.5 px-4 font-mono text-text/60">
+                          <td className="py-3.5 px-4 font-mono tabular-nums text-text/60">
                             {formatMoney(p.costPrice)}
                           </td>
-                          <td className="py-3.5 px-4 font-mono font-semibold text-emerald-600 dark:text-emerald-400">
+                          <td className="py-3.5 px-4 font-mono tabular-nums font-semibold text-emerald-600 dark:text-emerald-400">
                             +{marginPercent}%
                           </td>
                           <td className="py-3.5 px-4">
                             <div className="flex items-center gap-2">
-                              <span className={`font-mono font-bold text-sm ${
+                              <span className={`font-mono tabular-nums font-bold text-sm ${
                                 isOutOfStock ? 'text-rose-500' : isLow ? 'text-amber-600 dark:text-amber-400 font-black flex items-center gap-1' : 'text-text'
                               }`}>
                                 {isLow && <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0" />}
@@ -1693,18 +1694,18 @@ export const InventoryScreen: React.FC = () => {
                                 <Badge
                                   variant="warning"
                                   size="sm"
-                                  className="bg-amber-500 text-white font-bold border-amber-600 shadow-2xs px-2 py-0.5"
+                                  className="bg-warning-subtle text-warning-text font-bold border border-warning/30 shadow-2xs px-2 py-0.5"
                                 >
-                                  <AlertTriangle className="h-3 w-3 text-white inline mr-1 shrink-0" />
+                                  <AlertTriangle className="h-3 w-3 text-warning-text inline mr-1 shrink-0" />
                                   <span>{t.inventory.lowStockAlert}</span>
                                 </Badge>
                               ) : null}
                             </div>
                           </td>
-                          <td className="py-3.5 px-4 font-mono text-text/60">
+                          <td className="py-3.5 px-4 font-mono tabular-nums text-text/60">
                             {p.reorderPoint}
                           </td>
-                          <td className="py-3.5 px-4 font-mono text-[11px]">
+                          <td className="py-3.5 px-4 font-mono tabular-nums text-[11px]">
                             {(() => {
                               const vInfo = productVelocityMap.get(p.id);
                               if (!vInfo) return '-';
@@ -1761,7 +1762,7 @@ export const InventoryScreen: React.FC = () => {
           {/* Mobile Ledger: Responsive Card Grid */}
           <div className="lg:hidden p-3.5 sm:p-4 grid grid-cols-1 md:grid-cols-2 gap-3">
             {ledgerEntries.length === 0 ? (
-              <div className="col-span-full py-8 text-center text-text/50 text-xs">
+              <div className="col-span-full py-8 text-center text-brand-text-secondary text-xs">
                 {language === 'th' ? 'ยังไม่มีประวัติการเคลื่อนไหวสต็อก' : 'No stock movements recorded yet.'}
               </div>
             ) : (
@@ -1778,7 +1779,7 @@ export const InventoryScreen: React.FC = () => {
                         {prod ? prod.name : entry.productId}
                       </span>
                       <span
-                        className={`font-mono font-bold ${
+                        className={`font-mono tabular-nums font-bold ${
                           isPositive ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
                         }`}
                       >
@@ -1787,13 +1788,13 @@ export const InventoryScreen: React.FC = () => {
                     </div>
 
                     <div className="flex items-center justify-between text-[11px] text-text/60">
-                      <span className="font-mono text-[10px]">{entry.reason.replace(/_/g, ' ')}</span>
-                      <span className="font-mono text-[10px]">{new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                      <span className="font-mono tabular-nums text-[10px]">{entry.reason.replace(/_/g, ' ')}</span>
+                      <span className="font-mono tabular-nums text-[10px]">{new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                     </div>
 
                     <div className="flex items-center justify-between pt-1 border-t border-border dark:border-white/5 text-[10.5px]">
-                      <span className="text-text/50">Ref: {entry.referenceId}</span>
-                      <span className="font-mono font-bold text-text/80">
+                      <span className="text-brand-text-secondary">Ref: {entry.referenceId}</span>
+                      <span className="font-mono tabular-nums font-bold text-text/80">
                         {language === 'th' ? 'คงเหลือ:' : 'Result:'} {entry.resultingStock}
                       </span>
                     </div>
@@ -1816,10 +1817,10 @@ export const InventoryScreen: React.FC = () => {
                   <th className="py-3.5 px-5 text-right">{language === 'th' ? 'ยอดคงเหลือใหม่' : 'Resulting Stock'}</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-zinc-200/80 dark:divide-white/5 font-mono">
+              <tbody className="divide-y divide-zinc-200/80 dark:divide-white/5 font-mono tabular-nums">
                 {ledgerEntries.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="py-8 text-center text-text/40">
+                    <td colSpan={6} className="py-8 text-center text-brand-text-secondary">
                       {language === 'th' ? 'ยังไม่มีประวัติการเคลื่อนไหวสต็อก' : 'No stock movements recorded yet.'}
                     </td>
                   </tr>
@@ -1879,39 +1880,39 @@ export const InventoryScreen: React.FC = () => {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {/* Stat 1: At Stockout Risk */}
             <div className="p-4 rounded-2xl border border-border border-crisp bg-card shadow-2xs">
-              <div className="text-[10px] font-bold text-text/40 uppercase tracking-wider">
+              <div className="text-[10px] font-bold text-brand-text-secondary uppercase tracking-wider">
                 {language === 'th' ? 'สินค้าที่อยู่ในเกณฑ์สต็อกต่ำ' : 'Items Near or Below Safety'}
               </div>
-              <div className="text-2xl font-black font-mono tracking-tight text-amber-500 mt-1">
-                {restockSuggestions.filter(s => s.isNearOrBelowSafety).length} <span className="text-xs font-sans font-medium text-text/50">SKUs</span>
+              <div className="text-2xl font-black font-mono tabular-nums tracking-tight text-amber-500 mt-1">
+                {restockSuggestions.filter(s => s.isNearOrBelowSafety).length} <span className="text-xs font-sans font-medium text-brand-text-secondary">SKUs</span>
               </div>
-              <p className="text-[10px] text-text/50 mt-1">
+              <p className="text-[10px] text-brand-text-secondary mt-1">
                 {language === 'th' ? 'ระดับสต็อกน้อยกว่าหรือเท่ากับเกณฑ์ปลอดภัยของคุณ' : 'Stock level is less than or equal to safety alert levels.'}
               </p>
             </div>
 
             {/* Stat 2: Total Suggested Replenishment Units */}
             <div className="p-4 rounded-2xl border border-border border-crisp bg-card shadow-2xs">
-              <div className="text-[10px] font-bold text-text/40 uppercase tracking-wider">
+              <div className="text-[10px] font-bold text-brand-text-secondary uppercase tracking-wider">
                 {language === 'th' ? 'รวมหน่วยสั่งซื้อที่แนะนำ' : 'Recommended Total Units'}
               </div>
-              <div className="text-2xl font-black font-mono tracking-tight text-emerald-500 mt-1">
+              <div className="text-2xl font-black font-mono tabular-nums tracking-tight text-emerald-500 mt-1">
                 {restockSuggestions.reduce((acc, s) => {
                   const qty = restockQuantities[s.product.id] !== undefined ? restockQuantities[s.product.id] : s.smartRecommendedQty;
                   return acc + qty;
-                }, 0)} <span className="text-xs font-sans font-medium text-text/50">units</span>
+                }, 0)} <span className="text-xs font-sans font-medium text-brand-text-secondary">units</span>
               </div>
-              <p className="text-[10px] text-text/50 mt-1">
+              <p className="text-[10px] text-brand-text-secondary mt-1">
                 {language === 'th' ? 'คำนวณตามความเร็วการขายเฉลี่ย (ADSV) เป็นเวลา 14 วัน' : 'Sized mathematically to cover active sales trends for the next 14 days.'}
               </p>
             </div>
 
             {/* Stat 3: Estimated Procurement Cost */}
             <div className="p-4 rounded-2xl border border-border border-crisp bg-card shadow-2xs">
-              <div className="text-[10px] font-bold text-text/40 uppercase tracking-wider">
+              <div className="text-[10px] font-bold text-brand-text-secondary uppercase tracking-wider">
                 {language === 'th' ? 'มูลค่าจัดซื้อที่คาดการณ์' : 'Estimated Cost Capital'}
               </div>
-              <div className="text-2xl font-black font-mono tracking-tight text-primary mt-1">
+              <div className="text-2xl font-black font-mono tabular-nums tracking-tight text-primary mt-1">
                 {(() => {
                   const totalCostCents = restockSuggestions.reduce((acc, s) => {
                     const qty = restockQuantities[s.product.id] !== undefined ? restockQuantities[s.product.id] : s.smartRecommendedQty;
@@ -1921,7 +1922,7 @@ export const InventoryScreen: React.FC = () => {
                   return formatMoney(createMoney(totalCostCents, currency));
                 })()}
               </div>
-              <p className="text-[10px] text-text/50 mt-1">
+              <p className="text-[10px] text-brand-text-secondary mt-1">
                 {language === 'th' ? 'คำนวณจากต้นทุนราคาส่งของรายการที่เลือก' : 'Estimated procurement cost required for restock selection.'}
               </p>
             </div>
@@ -1932,7 +1933,7 @@ export const InventoryScreen: React.FC = () => {
               <div className="flex flex-col sm:flex-row sm:items-center justify-between w-full">
                 <div>
                   <h3 className="text-sm sm:text-base font-bold text-text flex items-center gap-2">
-                    <Sparkles className="h-4 w-4 text-amber-500 animate-pulse" />
+                    <Sparkles className="h-4 w-4 text-amber-500" />
                     <span>{language === 'th' ? 'รายการเติมสต็อกแนะนำอัจฉริยะ' : 'Smart Restock Replenishment Suggestions'}</span>
                   </h3>
                   <p className="text-xs text-text/60 mt-0.5">
@@ -1974,7 +1975,7 @@ export const InventoryScreen: React.FC = () => {
             {/* Mobile View: Restock Card List */}
             <div className="lg:hidden p-3.5 sm:p-4 space-y-3">
               {restockSuggestions.length === 0 ? (
-                <div className="py-12 text-center text-text/50 text-xs">
+                <div className="py-12 text-center text-brand-text-secondary text-xs">
                   {language === 'th'
                     ? 'ยินดีด้วย! ระดับสต็อกทั้งหมดของคุณอยู่ในระดับปลอดภัยและมีความเสี่ยงต่ำ'
                     : 'Congratulations! All your catalog stock levels are within healthy and safe limits.'}
@@ -2008,7 +2009,7 @@ export const InventoryScreen: React.FC = () => {
                           />
                           <div>
                             <div className="font-bold text-text text-xs">{p.name}</div>
-                            <div className="text-[10px] text-text/60 font-mono mt-0.5">{p.sku}</div>
+                            <div className="text-[10px] text-text/60 font-mono tabular-nums mt-0.5">{p.sku}</div>
                           </div>
                         </div>
 
@@ -2025,19 +2026,19 @@ export const InventoryScreen: React.FC = () => {
 
                       <div className="grid grid-cols-2 gap-2 text-[10px] bg-card p-2.5 rounded-xl border border-border border-crisp">
                         <div>
-                          <span className="text-text/50">{language === 'th' ? 'ยอดขายประวัติ:' : 'Total Sold:'}</span>
-                          <span className="font-mono font-bold text-text/80 ml-1">
+                          <span className="text-brand-text-secondary">{language === 'th' ? 'ยอดขายประวัติ:' : 'Total Sold:'}</span>
+                          <span className="font-mono tabular-nums font-bold text-text/80 ml-1">
                             {item.vInfo.totalSold} units
                           </span>
                         </div>
                         <div>
-                          <span className="text-text/50">{language === 'th' ? 'ความเร็ว ADSV:' : 'Velocity:'}</span>
-                          <span className="font-mono font-bold text-text/80 ml-1">
+                          <span className="text-brand-text-secondary">{language === 'th' ? 'ความเร็ว ADSV:' : 'Velocity:'}</span>
+                          <span className="font-mono tabular-nums font-bold text-text/80 ml-1">
                             {item.vInfo.adsv}/day
                           </span>
                         </div>
                         <div className="col-span-2 pt-1 border-t border-border border-crisp mt-1 flex items-center justify-between">
-                          <span className="text-text/50 font-semibold">{language === 'th' ? 'ความเร่งด่วน:' : 'Alert Status:'}</span>
+                          <span className="text-brand-text-secondary font-semibold">{language === 'th' ? 'ความเร่งด่วน:' : 'Alert Status:'}</span>
                           <span className={`font-bold ${
                             item.isOutOfStock ? 'text-rose-500' : 'text-amber-500'
                           }`}>
@@ -2059,19 +2060,20 @@ export const InventoryScreen: React.FC = () => {
                               const nextVal = Math.max(0, qty - 5);
                               setRestockQuantities((prev) => ({ ...prev, [p.id]: nextVal }));
                             }}
-                            className="w-6 h-6 rounded-lg bg-background text-text/60 hover:text-text flex items-center justify-center text-xs font-black cursor-pointer"
+                            className="min-w-[36px] min-h-[36px] w-9 h-9 rounded-lg bg-background text-brand-text-secondary hover:text-text flex items-center justify-center text-sm font-black cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta"
                           >
                             -
                           </button>
                           <input
                             type="number"
+                            inputMode="numeric"
                             min="0"
                             value={qty}
                             onChange={(e) => {
                               const val = parseInt(e.target.value, 10);
                               setRestockQuantities((prev) => ({ ...prev, [p.id]: isNaN(val) ? 0 : val }));
                             }}
-                            className="w-10 text-center font-mono font-bold text-xs text-primary bg-transparent border-none p-0 focus:outline-none focus:ring-0"
+                            className="w-10 text-center font-mono tabular-nums font-bold text-xs text-primary bg-transparent border-none p-0 focus:outline-none focus:ring-0"
                           />
                           <button
                             type="button"
@@ -2079,7 +2081,7 @@ export const InventoryScreen: React.FC = () => {
                               const nextVal = qty + 5;
                               setRestockQuantities((prev) => ({ ...prev, [p.id]: nextVal }));
                             }}
-                            className="w-6 h-6 rounded-lg bg-background text-text/60 hover:text-text flex items-center justify-center text-xs font-black cursor-pointer"
+                            className="min-w-[36px] min-h-[36px] w-9 h-9 rounded-lg bg-background text-brand-text-secondary hover:text-text flex items-center justify-center text-sm font-black cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta"
                           >
                             +
                           </button>
@@ -2121,7 +2123,7 @@ export const InventoryScreen: React.FC = () => {
                 <tbody className="divide-y divide-border">
                   {restockSuggestions.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="py-12 text-center text-text/40 text-xs">
+                      <td colSpan={7} className="py-12 text-center text-brand-text-secondary text-xs">
                         {language === 'th'
                           ? 'ยินดีด้วย! ระดับสต็อกทั้งหมดของคุณอยู่ในระดับปลอดภัยและมีความเสี่ยงต่ำ'
                           : 'Congratulations! All your catalog stock levels are within healthy and safe limits.'}
@@ -2154,19 +2156,19 @@ export const InventoryScreen: React.FC = () => {
                           </td>
                           <td className="py-3.5 px-4">
                             <div className="font-bold text-text">{p.name}</div>
-                            <div className="text-[10px] text-text/60 font-mono mt-0.5">SKU: {p.sku} | Barcode: {p.barcode}</div>
+                            <div className="text-[10px] text-text/60 font-mono tabular-nums mt-0.5">SKU: {p.sku} | Barcode: {p.barcode}</div>
                           </td>
                           <td className="py-3.5 px-4 text-center">
-                            <span className={`font-mono font-bold text-xs ${
+                            <span className={`font-mono tabular-nums font-bold text-xs ${
                               p.currentStock <= 0 ? 'text-rose-500' : 'text-amber-500'
                             }`}>
                               {p.currentStock} {p.unitOfMeasure}
                             </span>
                           </td>
-                          <td className="py-3.5 px-4 text-center font-mono font-semibold text-text/80">
+                          <td className="py-3.5 px-4 text-center font-mono tabular-nums font-semibold text-text/80">
                             {item.vInfo.totalSold} {p.unitOfMeasure}
                           </td>
-                          <td className="py-3.5 px-4 text-center font-mono font-semibold text-text/80">
+                          <td className="py-3.5 px-4 text-center font-mono tabular-nums font-semibold text-text/80">
                             {item.vInfo.adsv} {p.unitOfMeasure}/day
                           </td>
                           <td className="py-3.5 px-4 text-center">
@@ -2194,13 +2196,14 @@ export const InventoryScreen: React.FC = () => {
                               </button>
                               <input
                                 type="number"
+                                inputMode="numeric"
                                 min="0"
                                 value={qty}
                                 onChange={(e) => {
                                   const val = parseInt(e.target.value, 10);
                                   setRestockQuantities((prev) => ({ ...prev, [p.id]: isNaN(val) ? 0 : val }));
                                 }}
-                                className="w-11 text-center font-mono font-bold text-xs text-primary bg-transparent border-none focus:outline-none focus:ring-0 p-0"
+                                className="w-11 text-center font-mono tabular-nums font-bold text-xs text-primary bg-transparent border-none focus:outline-none focus:ring-0 p-0"
                               />
                               <button
                                 type="button"
@@ -2281,9 +2284,10 @@ export const InventoryScreen: React.FC = () => {
             </label>
             <input
               type="number"
+              inputMode="numeric"
               value={bulkQuantityDelta}
               onChange={(e) => setBulkQuantityDelta(parseInt(e.target.value, 10) || 0)}
-              className="w-full py-2.5 px-3 rounded-xl border border-border border-crisp bg-card text-sm font-mono font-bold text-text focus:outline-none focus:border-primary"
+              className="w-full py-2.5 px-3 rounded-xl border border-border border-crisp bg-card text-sm font-mono tabular-nums font-bold text-text focus:outline-none focus:border-primary"
             />
             <div className="flex items-center gap-1.5 mt-2 overflow-x-auto no-scrollbar">
               {[5, 10, 25, 50, 100, -5, -10].map((amt) => (
@@ -2291,7 +2295,7 @@ export const InventoryScreen: React.FC = () => {
                   key={amt}
                   type="button"
                   onClick={() => setBulkQuantityDelta(amt)}
-                  className="px-2.5 py-1 rounded-lg bg-muted hover:bg-primary/20 hover:text-primary text-xs font-mono font-bold text-text/80 transition-colors cursor-pointer"
+                  className="px-2.5 py-1 rounded-lg bg-muted hover:bg-primary/20 hover:text-primary text-xs font-mono tabular-nums font-bold text-text/80 transition-colors cursor-pointer"
                 >
                   {amt > 0 ? `+${amt}` : amt}
                 </button>
@@ -2377,7 +2381,7 @@ export const InventoryScreen: React.FC = () => {
       >
         {bulkPricingStep === 'configure' ? (
           <div className="space-y-4">
-            <div className="p-3 rounded-xl bg-purple-500/10 border border-purple-500/30 text-xs text-purple-900 dark:text-purple-200">
+            <div className="p-3 rounded-xl bg-brand-surface-selected/60 border border-primary/30 text-xs text-text">
               {language === 'th'
                 ? `อัปเดตราคาขายปลีกสำหรับสินค้า ${selectedProductIds.length} รายการที่เลือกไว้ทันทีในครั้งเดียว`
                 : `Update retail pricing for all ${selectedProductIds.length} selected products in a single atomic transaction.`}
@@ -2406,10 +2410,11 @@ export const InventoryScreen: React.FC = () => {
               </label>
               <input
                 type="number"
+                inputMode="decimal"
                 step="0.01"
                 value={bulkPriceValue}
                 onChange={(e) => setBulkPriceValue(parseFloat(e.target.value) || 0)}
-                className="w-full py-2.5 px-3 rounded-xl border border-border border-crisp bg-card text-sm font-mono font-bold text-text focus:outline-none focus:border-primary"
+                className="w-full py-2.5 px-3 rounded-xl border border-border border-crisp bg-card text-sm font-mono tabular-nums font-bold text-text focus:outline-none focus:border-primary"
               />
             </div>
           </div>
@@ -2422,9 +2427,9 @@ export const InventoryScreen: React.FC = () => {
                 <div className="text-[11px] font-semibold text-text/60">
                   {language === 'th' ? 'สินค้าที่ได้รับผลกระทบ' : 'Affected Items'}
                 </div>
-                <div className="text-xl font-bold font-mono text-text flex items-baseline gap-1.5">
+                <div className="text-xl font-bold font-mono tabular-nums text-text flex items-baseline gap-1.5">
                   <span>{pricingSummaryReport.count}</span>
-                  <span className="text-xs text-text/50 font-normal">{language === 'th' ? 'รายการ' : 'SKUs'}</span>
+                  <span className="text-xs text-brand-text-secondary font-normal">{language === 'th' ? 'รายการ' : 'SKUs'}</span>
                 </div>
               </div>
 
@@ -2433,7 +2438,7 @@ export const InventoryScreen: React.FC = () => {
                 <div className="text-[11px] font-semibold text-text/60">
                   {language === 'th' ? 'การเปลี่ยนแปลงราคาเฉลี่ย' : 'Projected Avg Shift'}
                 </div>
-                <div className={`text-lg font-bold font-mono flex items-baseline gap-1.5 ${
+                <div className={`text-lg font-bold font-mono tabular-nums flex items-baseline gap-1.5 ${
                   pricingSummaryReport.avgPctShift > 0
                     ? 'text-emerald-600 dark:text-emerald-400'
                     : pricingSummaryReport.avgPctShift < 0
@@ -2444,7 +2449,7 @@ export const InventoryScreen: React.FC = () => {
                     {pricingSummaryReport.avgPctShift > 0 ? '+' : ''}
                     {pricingSummaryReport.avgPctShift.toFixed(1)}%
                   </span>
-                  <span className="text-xs font-mono font-medium opacity-80">
+                  <span className="text-xs font-mono tabular-nums font-medium opacity-80">
                     ({pricingSummaryReport.avgDeltaCents >= 0 ? '+' : ''}{formatMoney(createMoney(pricingSummaryReport.avgDeltaCents, pricingSummaryReport.currency))})
                   </span>
                 </div>
@@ -2455,9 +2460,9 @@ export const InventoryScreen: React.FC = () => {
                 <div className="text-[11px] font-semibold text-text/60">
                   {language === 'th' ? 'มูลค่ารวมก่อน / หลัง' : 'Total Value (Old ➔ New)'}
                 </div>
-                <div className="text-xs font-mono font-bold text-text flex items-center gap-1 truncate">
+                <div className="text-xs font-mono tabular-nums font-bold text-text flex items-center gap-1 truncate">
                   <span>{formatMoney(createMoney(pricingSummaryReport.totalOldCents, pricingSummaryReport.currency))}</span>
-                  <span className="text-text/40">➔</span>
+                  <span className="text-brand-text-secondary">➔</span>
                   <span className="text-primary">{formatMoney(createMoney(pricingSummaryReport.totalNewCents, pricingSummaryReport.currency))}</span>
                 </div>
               </div>
@@ -2467,7 +2472,7 @@ export const InventoryScreen: React.FC = () => {
             <div className="space-y-2">
               <div className="flex items-center justify-between text-xs font-bold text-text/80">
                 <span>{language === 'th' ? 'ตัวอย่างรายการที่จะได้รับการปรับราคา' : 'Affected Items Preview'}</span>
-                <span className="text-[11px] text-text/50 font-normal">
+                <span className="text-[11px] text-brand-text-secondary font-normal">
                   {language === 'th' ? `แสดงทั้งหมด ${pricingSummaryReport.itemResults.length} รายการ` : `Showing all ${pricingSummaryReport.itemResults.length} items`}
                 </span>
               </div>
@@ -2480,18 +2485,18 @@ export const InventoryScreen: React.FC = () => {
                     <div key={res.product.id} className="p-2.5 flex items-center justify-between text-xs hover:bg-card/80 transition-colors">
                       <div className="min-w-0 pr-3">
                         <div className="font-bold text-text truncate">{res.product.name}</div>
-                        <div className="font-mono text-[10px] text-text/50">SKU: {res.product.sku}</div>
+                        <div className="font-mono tabular-nums text-[10px] text-brand-text-secondary">SKU: {res.product.sku}</div>
                       </div>
                       <div className="flex items-center gap-3 shrink-0 text-right">
                         <div>
-                          <div className="font-mono text-text/60 line-through text-[11px]">
+                          <div className="font-mono tabular-nums text-text/60 line-through text-[11px]">
                             {formatMoney(res.product.price)}
                           </div>
-                          <div className="font-mono font-bold text-primary text-xs">
+                          <div className="font-mono tabular-nums font-bold text-primary text-xs">
                             {formatMoney(createMoney(res.newCents, res.product.price.currency))}
                           </div>
                         </div>
-                        <div className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono shrink-0 ${
+                        <div className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono tabular-nums shrink-0 ${
                           isUp
                             ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20'
                             : isDown
@@ -2551,17 +2556,17 @@ export const InventoryScreen: React.FC = () => {
             {/* Current Stock vs Resulting Stock Banner */}
             <div className="p-4 rounded-2xl bg-background border border-border border-crisp flex items-center justify-between text-xs">
               <div>
-                <span className="text-text/50 block text-[11px]">{language === 'th' ? 'ยอดคงเหลือปัจจุบัน' : 'Current Stock'}</span>
-                <span className="font-mono font-bold text-base text-text">
+                <span className="text-brand-text-secondary block text-[11px]">{language === 'th' ? 'ยอดคงเหลือปัจจุบัน' : 'Current Stock'}</span>
+                <span className="font-mono tabular-nums font-bold text-base text-text">
                   {selectedProduct.currentStock} {selectedProduct.unitOfMeasure}
                 </span>
               </div>
               <div className="text-center px-2">
-                <span className="text-text/50 text-xs">➔</span>
+                <span className="text-brand-text-secondary text-xs">➔</span>
               </div>
               <div className="text-right">
-                <span className="text-text/50 block text-[11px]">{language === 'th' ? 'ยอดคงเหลือใหม่' : 'Resulting Stock'}</span>
-                <span className="font-mono font-bold text-base text-primary">
+                <span className="text-brand-text-secondary block text-[11px]">{language === 'th' ? 'ยอดคงเหลือใหม่' : 'Resulting Stock'}</span>
+                <span className="font-mono tabular-nums font-bold text-base text-primary">
                   {Math.max(0, selectedProduct.currentStock + adjustQuantity)} {selectedProduct.unitOfMeasure}
                 </span>
               </div>
@@ -2592,9 +2597,10 @@ export const InventoryScreen: React.FC = () => {
               </label>
               <input
                 type="number"
+                inputMode="numeric"
                 value={adjustQuantity}
                 onChange={(e) => setAdjustQuantity(parseInt(e.target.value, 10) || 0)}
-                className="w-full py-2.5 px-3 rounded-xl border border-border border-crisp bg-card text-sm font-mono font-bold text-text focus:outline-none focus:border-primary"
+                className="w-full py-2.5 px-3 rounded-xl border border-border border-crisp bg-card text-sm font-mono tabular-nums font-bold text-text focus:outline-none focus:border-primary"
               />
 
               {/* Quick Preset Buttons */}
@@ -2604,7 +2610,7 @@ export const InventoryScreen: React.FC = () => {
                     key={amt}
                     type="button"
                     onClick={() => setAdjustQuantity((prev) => prev + amt)}
-                    className="px-2.5 py-1 rounded-lg bg-muted hover:bg-primary/20 hover:text-primary text-xs font-mono font-bold text-text/80 transition-colors cursor-pointer"
+                    className="px-2.5 py-1 rounded-lg bg-muted hover:bg-primary/20 hover:text-primary text-xs font-mono tabular-nums font-bold text-text/80 transition-colors cursor-pointer"
                   >
                     {amt > 0 ? `+${amt}` : amt}
                   </button>

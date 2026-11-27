@@ -207,7 +207,7 @@ export const InterBranchTransferModule: React.FC<InterBranchTransferModuleProps>
             <Building2 className="h-4 w-4 text-primary" />
             <span className="text-xs font-bold text-text">
               {language === 'th' ? 'สาขาปัจจุบัน:' : 'Current Branch:'}{' '}
-              <span className="text-primary font-mono">{currentStore.name} ({currentStore.code})</span>
+              <span className="text-primary font-mono tabular-nums">{currentStore.name} ({currentStore.code})</span>
             </span>
           </div>
 
@@ -224,7 +224,7 @@ export const InterBranchTransferModule: React.FC<InterBranchTransferModuleProps>
         {/* Transfers List */}
         <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
           {transfers.length === 0 ? (
-            <div className="p-8 text-center text-text/50 border border-border rounded-xl">
+            <div className="p-8 text-center text-brand-text-secondary border border-border rounded-xl">
               <Truck className="h-8 w-8 mx-auto text-text/30 mb-2" />
               <p className="text-xs font-bold">{language === 'th' ? 'ยังไม่มีรายการย้ายสต็อก' : 'No transfers recorded'}</p>
             </div>
@@ -233,7 +233,7 @@ export const InterBranchTransferModule: React.FC<InterBranchTransferModuleProps>
               <div key={trf.id} className="p-4 rounded-xl border border-border bg-card shadow-2xs space-y-3">
                 <div className="flex items-center justify-between text-xs">
                   <div className="flex items-center gap-2">
-                    <span className="font-mono font-black text-text">{trf.transferNumber}</span>
+                    <span className="font-mono tabular-nums font-black text-text">{trf.transferNumber}</span>
                     <Badge
                       variant={
                         trf.status === 'received'
@@ -248,7 +248,7 @@ export const InterBranchTransferModule: React.FC<InterBranchTransferModuleProps>
                     </Badge>
                   </div>
 
-                  <span className="text-[11px] text-text/50 font-mono">
+                  <span className="text-[11px] text-brand-text-secondary font-mono tabular-nums">
                     {new Date(trf.createdAt).toLocaleDateString()}
                   </span>
                 </div>
@@ -263,7 +263,7 @@ export const InterBranchTransferModule: React.FC<InterBranchTransferModuleProps>
                 {/* Item List Summary */}
                 <div className="text-xs space-y-1">
                   {trf.items.map((item, idx) => (
-                    <div key={idx} className="flex justify-between text-text/80 font-mono">
+                    <div key={idx} className="flex justify-between text-text/80 font-mono tabular-nums">
                       <span>{item.quantity}x {item.productName} ({item.sku})</span>
                     </div>
                   ))}
@@ -338,17 +338,18 @@ export const InterBranchTransferModule: React.FC<InterBranchTransferModuleProps>
 
               <input
                 type="number"
+                inputMode="numeric"
                 min="1"
                 value={transferQty}
                 onChange={(e) => setTransferQty(parseInt(e.target.value, 10) || 1)}
-                className="sm:col-span-2 h-9 px-2 rounded-lg border border-border bg-background text-xs font-mono font-bold text-center"
+                className="sm:col-span-2 h-9 px-2 rounded-lg border border-border bg-background text-xs font-mono tabular-nums font-bold text-center"
               />
 
               <button
                 type="button"
                 onClick={handleAddItem}
                 disabled={!selectedProductId}
-                className="sm:col-span-2 h-9 rounded-lg bg-primary text-white text-xs font-bold flex items-center justify-center cursor-pointer disabled:opacity-40"
+                className="sm:col-span-2 min-h-[44px] h-11 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold flex items-center justify-center cursor-pointer disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta"
               >
                 + {language === 'th' ? 'เพิ่ม' : 'Add'}
               </button>
@@ -358,7 +359,7 @@ export const InterBranchTransferModule: React.FC<InterBranchTransferModuleProps>
             {stagedItems.length > 0 && (
               <div className="space-y-1.5 pt-2">
                 {stagedItems.map((item, idx) => (
-                  <div key={idx} className="p-2 rounded-lg bg-background border border-border flex justify-between items-center text-xs font-mono">
+                  <div key={idx} className="p-2 rounded-lg bg-background border border-border flex justify-between items-center text-xs font-mono tabular-nums">
                     <span>{item.quantity}x {item.productName} ({item.sku})</span>
                     <button
                       type="button"
