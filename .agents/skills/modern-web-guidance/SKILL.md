@@ -88,3 +88,14 @@ npx -y modern-web-guidance@latest legacy-scan <path> --json
 * **Default Behavior**: All guides assume **Baseline Widely available** features are safe to use without fallbacks. For features that are not Baseline widely available, you **MUST** follow the fallback recommendations in the guide, unless the user has specified a custom browser support policy.
 * **Custom Policies**: If the user defines explicit browser support requirements, use the guide's compatibility data to determine if a fallback can be ignored (for `Baseline YYYY` targets, a feature satisfies the target if its "Baseline since" date is `<= YYYY`). Examples: _"Do not implement feature fallbacks"_, _"Safari 17.4+"_, _"Never implement polyfills; use a lightweight custom fallback or redesign"_, or _"Allow Newly Available features if feature-detected with graceful degradation"_.
 * **Reactive Policy Discovery**: Suggest documenting a policy in `AGENTS.md` or `CLAUDE.md` (e.g., `**Browser Support:** Allow Newly Available features, but only adopt custom fallback code that adds <= 20 lines and no external dependencies`) if the developer targets a restricted runtime (Electron/Tauri), excludes specific browsers, hesitates over polyfill size/complexity, or asks if a feature is safe without fallbacks.
+
+
+## Evidence contract
+
+Report each checked requirement with an explicit status:
+- **PASS** — current direct evidence proves the requirement.
+- **FAIL** — direct evidence demonstrates a violated requirement.
+- **BLOCKED** — required environment, access, or prerequisite is unavailable.
+- **UNVERIFIED** — evidence is absent, stale, indirect, or insufficient.
+
+For implementation and review outcomes, include the exact commit SHA, affected source paths, guidance IDs retrieved, relevant command or CI run, and test/build results. Never infer compliance from the presence of this Skill, a passing unit test, or a successful build alone. Do not claim browser compatibility without checking the applicable Baseline support and required fallbacks.
