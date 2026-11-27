@@ -36,6 +36,14 @@ class DarkModeAliasTests(unittest.TestCase):
         self.assertTrue(_query_wants_dark("داكن"))
         self.assertTrue(_query_wants_dark("مظلم"))
 
+    def test_hyphenated_and_compact_dark_mode_aliases_select_dark_mode(self):
+        self.assertTrue(_query_wants_dark("dark-mode"))
+        self.assertTrue(_query_wants_dark("darkmode"))
+
+    def test_oled_substring_in_words_does_not_select_dark_mode(self):
+        self.assertFalse(_query_wants_dark("homeschooled"))
+        self.assertFalse(_query_wants_dark("water-cooled"))
+
 
 class ColorSearchTests(unittest.TestCase):
     def test_three_digit_hex_matches_equivalent_six_digit_hex(self):

@@ -82,9 +82,8 @@ self.rows = new_rows
 self.endResetModel()",self.rows = new_rows,High,https://doc.qt.io/qt-6/qabstractitemmodel.html#subclassing,pyside6-qss 6.12,active,2026-11-24
 50,Input,Use SearchLineEdit for search fields,The library search field adds the clear button and the correct focus styling,Use SearchLineEdit for any filter field,Do not use a bare LineEdit for a search field,edit = SearchLineEdit(self),edit = LineEdit(self),Low,https://qfluentwidgets.com/,pyside6-qss 6.12,active,2026-11-24
 51,Input,Give every input a label bound as buddy,A label that is not associated with its field is announced without the field,Bind each label to its field as a buddy,Do not leave a standalone label next to an unbound input,label.setBuddy(field),label = BodyLabel('Filter'); field = LineEdit(),Medium,https://doc.qt.io/qt-6/qlabel.html#buddy,pyside6-qss 6.12,active,2026-11-24
-52,Input,Validate input before accepting it with a QValidator,Silent coercion of a bad value produces a wrong result that is hard to trace,Attach a QIntValidator or QDoubleValidator and show the reason inline,Do not silently coerce a bad value,"spin.setRange(0, 100000000)
-spin.setSuffix(' B')
-spin.setValidator(QIntValidator(0, 100000000))","val = int(edit.text() or 0)",Medium,https://doc.qt.io/qt-6/qvalidator.html,pyside6-qss 6.12,active,2026-11-24
+52,Input,Validate input before accepting it with a QValidator,Silent coercion of a bad value produces a wrong result that is hard to trace,Attach a QIntValidator or QDoubleValidator and show the reason inline,Do not silently coerce a bad value,"edit = QLineEdit(self)
+edit.setValidator(QIntValidator(0, 100000000))","val = int(edit.text() or 0)",Medium,https://doc.qt.io/qt-6/qvalidator.html,pyside6-qss 6.12,active,2026-11-24
 53,Feedback,Show a determinate progress bar with a percentage and a remaining estimate,An indeterminate spinner gives no sense of how long the operation will take,Set a range and a value and pair the bar with a text summary,Do not use an indeterminate range for a known total,"progress.setRange(0, total)
 progress.setValue(done)
 progress.setFormat(f'{done} / {total}')","progress.setRange(0, 0)",High,https://qfluentwidgets.com/,pyside6-qss 6.12,active,2026-11-24

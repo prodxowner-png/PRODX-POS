@@ -208,10 +208,14 @@ def _style_is_dark_primary(style: dict) -> bool:
 
 def _query_wants_dark(query: str) -> bool:
     """True when the query explicitly asks for a dark theme."""
-    lowered = _normalize((query or "").lower())
+    raw_lowered = (query or "").lower()
+    normalized = _normalize(raw_lowered)
     # Anchor at a word start so "homeschooled" or "water-cooled" is not "oled".
-    return any(re.search(r"(?<!\w)" + re.escape(marker), lowered)
-               for marker in _DARK_QUERY_MARKERS)
+    return any(
+        re.search(r"(?<!\w)" + re.escape(marker), candidate)
+        for candidate in (raw_lowered, normalized)
+        for marker in _DARK_QUERY_MARKERS
+    )
 
 
 def _resolve_color_mode(query: str, style: dict) -> str:
