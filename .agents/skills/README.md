@@ -21,6 +21,8 @@ These agent skills turn PRODX-POS production principles into repeatable review p
 - [prodx-code-review](prodx-code-review/SKILL.md) — adversarial pull-request review contract already present in this repository.
 - [prodx-ai-tooling](prodx-ai-tooling/SKILL.md) — safe AI tool-calling, permission boundaries, prompt injection, idempotency, and auditable execution.
 
+- [frontend-design](frontend-design/SKILL.md) — production-grade frontend design guidance, design tokens, typography, palettes, component generation, and accessibility analysis; obeys PRODX integration guardrails.
+
 ## Required evidence vocabulary
 Every skill must distinguish:
 - **PASS** — current direct evidence proves the criterion.

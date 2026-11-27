@@ -36,6 +36,8 @@ jobs:
         run: python3 .agents/skills/ui-ux-pro-max/scripts/validate_data.py
       - name: Run UI/UX Pro Max regression tests
         run: python3 -B .agents/skills/ui-ux-pro-max/scripts/test_regressions.py
+      - name: Run Frontend Design script regression tests
+        run: node --test .agents/skills/frontend-design/scripts/frontend-design-scripts.test.mjs
       - name: Validate skill pack
         run: node scripts/validate-engineering-skills.mjs
       - name: Run validator regression tests
