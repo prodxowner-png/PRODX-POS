@@ -77,6 +77,41 @@ test('failed supervisor attempts use the atomic SECURITY DEFINER failed-attempt 
   assert.ok(calls.some((sql) => sql.includes('prodx_record_supervisor_authorization_event')));
 });
 
+test('disabled supervisor credentials are rejected with NULL audit actor and retained target identity', async () => {
+  const calls: Array<{ sql: string; parameters: readonly unknown[] }> = [];
+  const discountInput = {
+    ...input,
+    action: 'discount' as const,
+    orderId: undefined,
+    checkoutIdempotencyKey: 'disabled-supervisor-checkout',
+    checkoutPayloadHash: 'a'.repeat(64),
+    policyThresholdBps: 1500,
+    policyRequiresApproval: true,
+  };
+  const db: SqlExecutor = {
+    async query<T extends Record<string, unknown>>(sql: string, parameters: readonly unknown[] = []): Promise<readonly T[]> {
+      calls.push({ sql, parameters });
+      if (sql.includes('prodx_supervisor_find_credential')) {
+        return [{ userId: ids.supervisor, status: 'disabled', secretHash: 'must-not-be-verified', failedAttempts: 0, lockedUntil: null }] as unknown as T[];
+      }
+      if (sql.includes('prodx_record_security_audit_event')) return [] as unknown as T[];
+      throw new Error(`Unexpected SQL: ${sql}`);
+    },
+  };
+
+  await assert.rejects(
+    createSupervisorAuthorizationService(db).authorize(discountInput),
+    (error: unknown) => error instanceof SupervisorAuthorizationError && error.code === 'INVALID_CREDENTIALS',
+  );
+  const audit = calls.find(({ sql }) => sql.includes('prodx_record_security_audit_event'));
+  assert.ok(audit, 'disabled supervisor rejection must be audited');
+  assert.equal(audit.parameters[2], null, 'disabled target must not be used as the audit actor');
+  const metadata = JSON.parse(String(audit.parameters[4])) as Record<string, unknown>;
+  assert.equal(metadata.requestedSupervisorUserId, ids.supervisor);
+  assert.equal(calls.some(({ sql }) => sql.includes('prodx_supervisor_record_failed_attempt')), false);
+  assert.equal(calls.some(({ sql }) => sql.includes('INSERT INTO prodx_supervisor_authorizations')), false);
+});
+
 test('supervisor authorization token is one-time and distinguishes replay from expiry', async () => {
   let consumeCount = 0;
   const db: SqlExecutor = {
