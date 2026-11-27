@@ -424,7 +424,7 @@ class GeminiReviewContractTests(unittest.TestCase):
         import gemini_pr_review as review
         from unittest.mock import patch
 
-        pr = {"head": {"sha": "b" * 40}, "title": "test", "body": "test"}
+        pr = {"state": "open", "merged": False, "head": {"sha": "b" * 40}, "title": "test", "body": "test"}
         env = {
             "GITHUB_REPOSITORY": "org/repo",
             "GITHUB_TOKEN": "token",
