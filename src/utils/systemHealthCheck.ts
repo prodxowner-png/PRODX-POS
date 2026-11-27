@@ -45,21 +45,18 @@ export class SystemHealthCheckUtility {
   public async executePing(options?: { timeoutMs?: number }): Promise<SystemHealthCheckResult> {
     const started = performance.now();
     const requestId = `shc-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), options?.timeoutMs ?? 10000);
+    const timeoutMs = Math.max(0, options?.timeoutMs ?? 10000);
     let payload: any = null;
     let httpStatus = 503;
     try {
       const response = await fetch('/api/v1/infrastructure/system-health-check', {
         method: 'GET', headers: { Accept: 'application/json', 'x-request-id': requestId },
-        signal: controller.signal,
+        signal: AbortSignal.timeout(timeoutMs),
       });
       httpStatus = response.status;
       payload = await response.json().catch(() => null);
     } catch (error) {
       console.warn('[SystemHealthCheck] Backend endpoint unreachable:', error);
-    } finally {
-      clearTimeout(timer);
     }
     const roundTripNetworkMs = Number((performance.now() - started).toFixed(1));
     const postgres: CloudSqlServiceHealth = payload?.services?.cloudSql ?? {
