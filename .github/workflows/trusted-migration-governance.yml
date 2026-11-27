@@ -48,7 +48,7 @@ jobs:
       - name: Test trusted verifier contracts
         env:
           CI: 'true'
-          MIGRATION_CANDIDATE_ROOT: candidate
+          MIGRATION_CANDIDATE_ROOT: trusted
         run: node --test trusted/scripts/check-migration-governance-trusted.test.mjs
 
       - name: Verify candidate migrations with trusted base-branch code

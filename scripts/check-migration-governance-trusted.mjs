@@ -82,8 +82,8 @@ export async function verifyMigrationGovernance(candidateRoot, trustedRoot) {
   }
 
   const candidateManifestBytes = await readRegularFile(candidateManifest, 'candidate migration manifest');
-  const candidateManifestSha = gitBlobSha(candidateManifestBytes);
-  if (candidateManifestSha !== trustedManifestSha) {
+  if (!candidateManifestBytes.equals(trustedManifestBytes)) {
+    const candidateManifestSha = gitBlobSha(candidateManifestBytes);
     throw new Error(
       `Candidate migration manifest differs from the trusted base manifest: expected ${trustedManifestSha}, got ${candidateManifestSha}.`,
     );
@@ -109,15 +109,21 @@ export async function verifyMigrationGovernance(candidateRoot, trustedRoot) {
     throw new Error('Candidate migration manifest does not match the trusted baseline contract.');
   }
 
-  const directoryInfo = await lstat(candidateDir);
-  if (!directoryInfo.isDirectory() || directoryInfo.isSymbolicLink()) {
-    throw new Error('Candidate migration directory must be a real directory, not a symlink.');
+  const errors = [];
+  const allEntries = (await readdir(candidateDir)).sort();
+  const names = [];
+  for (const name of allEntries) {
+    if (name === 'manifest.json') continue;
+    if (!name.endsWith('.sql')) {
+      errors.push(
+        `Unexpected entry in db/migrations (only manifest.json and NNNN_description.sql regular files are allowed): db/migrations/${name}`,
+      );
+      continue;
+    }
+    names.push(name);
   }
-
-  const names = (await readdir(candidateDir)).filter((name) => name.endsWith('.sql')).sort();
   const currentPaths = new Set(names.map((name) => path.posix.join('db/migrations', name)));
   const baselinePaths = new Set(Object.keys(manifest.files));
-  const errors = [];
   const baselineIds = new Map();
 
   for (const relativePath of baselinePaths) {
@@ -189,7 +195,7 @@ export async function verifyMigrationGovernance(candidateRoot, trustedRoot) {
     try {
       const trustedContent = await readRegularFile(path.join(trusted, relativePath), 'trusted base migration');
       const candidateContent = await readRegularFile(path.join(candidate, relativePath), 'candidate base migration');
-      if (gitBlobSha(candidateContent) !== gitBlobSha(trustedContent)) {
+      if (!candidateContent.equals(trustedContent)) {
         errors.push(`Base migration was modified: ${relativePath}`);
       }
     } catch (error) {

@@ -59,10 +59,26 @@ function formatMigrationId(id) {
   return String(id).padStart(4, '0');
 }
 
-async function trustedRootWithPostBaselineMigration() {
+function isCiEnvironment() {
+  const value = process.env.CI?.trim().toLowerCase();
+  return Boolean(value && value !== 'false' && value !== '0');
+}
+
+async function nextMigrationId(candidate) {
+  const maxId = Math.max(
+    await getMaxMigrationId(trustedRoot),
+    await getMaxMigrationId(candidate),
+  );
+  return formatMigrationId(maxId + 1);
+}
+
+async function trustedRootWithPostBaselineMigration(candidate) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'prodx-trusted-migration-base-'));
   await cp(path.join(trustedRoot, 'db/migrations'), path.join(root, 'db/migrations'), { recursive: true });
-  const nextId = formatMigrationId((await getMaxMigrationId(root)) + 1);
+  const maxId = candidate
+    ? Math.max(await getMaxMigrationId(root), await getMaxMigrationId(candidate))
+    : await getMaxMigrationId(root);
+  const nextId = formatMigrationId(maxId + 1);
   const postBaselinePath = `db/migrations/${nextId}_post_baseline_fixture.sql`;
   await writeFile(path.join(root, postBaselinePath), `SELECT ${Number(nextId)};\n`);
   return { root, postBaselineId: nextId, postBaselinePath };
@@ -70,13 +86,13 @@ async function trustedRootWithPostBaselineMigration() {
 
 async function candidateFixtureCopy(t) {
   if (!fixtureRoot) {
-    if (process.env.CI === 'true') throw new Error('MIGRATION_CANDIDATE_ROOT must be set in CI; refusing to skip candidate verifier tests.');
+    if (isCiEnvironment()) throw new Error('MIGRATION_CANDIDATE_ROOT must be set in CI; refusing to skip candidate verifier tests.');
     t.skip('MIGRATION_CANDIDATE_ROOT is not set; no full candidate fixture was supplied.');
     return null;
   }
   const fixtureManifest = path.join(fixtureRoot, 'db/migrations/manifest.json');
   if (!await lstat(fixtureManifest).then(() => true).catch(() => false)) {
-    if (process.env.CI === 'true') throw new Error('Candidate migration manifest is required in CI; refusing to skip verifier tests.');
+    if (isCiEnvironment()) throw new Error('Candidate migration manifest is required in CI; refusing to skip verifier tests.');
     t.skip('Candidate does not yet contain the migration baseline manifest.');
     return null;
   }
@@ -175,7 +191,7 @@ test('trusted verifier rejects migration IDs at or below the immutable baseline 
 test('trusted verifier rejects a new migration backfilled below the current trusted base maximum', async (t) => {
   const candidate = await candidateFixtureCopy(t);
   if (!candidate) return;
-  const { root: trusted, postBaselineId, postBaselinePath } = await trustedRootWithPostBaselineMigration();
+  const { root: trusted, postBaselineId, postBaselinePath } = await trustedRootWithPostBaselineMigration(candidate);
   try {
     await cp(path.join(trusted, postBaselinePath), path.join(candidate, postBaselinePath));
     await writeFile(path.join(candidate, 'db/migrations/0049_backfilled_after_release.sql'), 'SELECT 49;\n');
@@ -192,7 +208,7 @@ test('trusted verifier rejects a new migration backfilled below the current trus
 test('trusted verifier rejects modification of a migration merged after the pinned manifest baseline', async (t) => {
   const candidate = await candidateFixtureCopy(t);
   if (!candidate) return;
-  const { root: trusted, postBaselinePath } = await trustedRootWithPostBaselineMigration();
+  const { root: trusted, postBaselinePath } = await trustedRootWithPostBaselineMigration(candidate);
   try {
     await cp(path.join(trusted, postBaselinePath), path.join(candidate, postBaselinePath));
     const filePath = path.join(candidate, postBaselinePath);
@@ -211,7 +227,7 @@ test('trusted verifier rejects modification of a migration merged after the pinn
 test('trusted verifier rejects deletion of a migration merged after the pinned manifest baseline', async (t) => {
   const candidate = await candidateFixtureCopy(t);
   if (!candidate) return;
-  const { root: trusted, postBaselinePath } = await trustedRootWithPostBaselineMigration();
+  const { root: trusted, postBaselinePath } = await trustedRootWithPostBaselineMigration(candidate);
   try {
     await cp(path.join(trusted, postBaselinePath), path.join(candidate, postBaselinePath));
     await rm(path.join(candidate, postBaselinePath));
@@ -228,7 +244,7 @@ test('trusted verifier rejects deletion of a migration merged after the pinned m
 test('trusted verifier rejects a new migration that reuses an ID already present on the trusted base', async (t) => {
   const candidate = await candidateFixtureCopy(t);
   if (!candidate) return;
-  const { root: trusted, postBaselineId, postBaselinePath } = await trustedRootWithPostBaselineMigration();
+  const { root: trusted, postBaselineId, postBaselinePath } = await trustedRootWithPostBaselineMigration(candidate);
   try {
     await cp(path.join(trusted, postBaselinePath), path.join(candidate, postBaselinePath));
     await writeFile(
@@ -249,7 +265,7 @@ test('trusted verifier rejects duplicate new migration IDs above the trusted bas
   const candidate = await candidateFixtureCopy(t);
   if (!candidate) return;
   try {
-    const nextId = formatMigrationId((await getMaxMigrationId(trustedRoot)) + 1);
+    const nextId = await nextMigrationId(candidate);
     await writeFile(path.join(candidate, `db/migrations/${nextId}_first_new.sql`), 'SELECT 1;\n');
     await writeFile(path.join(candidate, `db/migrations/${nextId}_second_new.sql`), 'SELECT 2;\n');
     await assert.rejects(
@@ -265,7 +281,7 @@ test('trusted verifier rejects an empty new migration SQL file', async (t) => {
   const candidate = await candidateFixtureCopy(t);
   if (!candidate) return;
   try {
-    const nextId = formatMigrationId((await getMaxMigrationId(trustedRoot)) + 1);
+    const nextId = await nextMigrationId(candidate);
     await writeFile(path.join(candidate, `db/migrations/${nextId}_empty_migration.sql`), '   \n\t\n');
     await assert.rejects(
       verifyMigrationGovernance(candidate, trustedRoot),
@@ -294,7 +310,7 @@ test('trusted verifier rejects symlinked new migrations and symlinked migrations
   const candidate = await candidateFixtureCopy(t);
   if (!candidate) return;
   try {
-    const nextId = formatMigrationId((await getMaxMigrationId(trustedRoot)) + 1);
+    const nextId = await nextMigrationId(candidate);
     await symlink(
       path.join(candidate, 'db/migrations/manifest.json'),
       path.join(candidate, `db/migrations/${nextId}_symlink_escape.sql`),
@@ -319,10 +335,72 @@ test('trusted verifier accepts a valid new migration strictly above the trusted 
   const candidate = await candidateFixtureCopy(t);
   if (!candidate) return;
   try {
-    const nextId = formatMigrationId((await getMaxMigrationId(trustedRoot)) + 1);
+    const nextId = await nextMigrationId(candidate);
     await writeFile(path.join(candidate, `db/migrations/${nextId}_valid_new_migration.sql`), 'SELECT 1;\n');
     const result = await verifyMigrationGovernance(candidate, trustedRoot);
     assert.equal(result.status, 'passed');
+  } finally {
+    await rm(candidate, { recursive: true, force: true });
+  }
+});
+
+test('trusted verifier rejects subdirectories inside db/migrations', async (t) => {
+  const candidate = await candidateFixtureCopy(t);
+  if (!candidate) return;
+  try {
+    const nextId = await nextMigrationId(candidate);
+    await mkdir(path.join(candidate, 'db/migrations/subdir'), { recursive: true });
+    await writeFile(path.join(candidate, `db/migrations/subdir/${nextId}_nested.sql`), 'SELECT 1;\n');
+    await assert.rejects(
+      verifyMigrationGovernance(candidate, trustedRoot),
+      /Unexpected entry in db\/migrations.*db\/migrations\/subdir/,
+    );
+  } finally {
+    await rm(candidate, { recursive: true, force: true });
+  }
+});
+
+test('trusted verifier rejects uppercase .SQL files in db/migrations', async (t) => {
+  const candidate = await candidateFixtureCopy(t);
+  if (!candidate) return;
+  try {
+    const nextId = await nextMigrationId(candidate);
+    await writeFile(path.join(candidate, `db/migrations/${nextId}_upper.SQL`), 'SELECT 1;\n');
+    await assert.rejects(
+      verifyMigrationGovernance(candidate, trustedRoot),
+      new RegExp(`Unexpected entry in db/migrations.*db/migrations/${nextId}_upper\\.SQL`),
+    );
+  } finally {
+    await rm(candidate, { recursive: true, force: true });
+  }
+});
+
+test('trusted verifier rejects non-.sql files in db/migrations', async (t) => {
+  const candidate = await candidateFixtureCopy(t);
+  if (!candidate) return;
+  try {
+    await writeFile(path.join(candidate, 'db/migrations/evil.txt'), 'not sql\n');
+    await assert.rejects(
+      verifyMigrationGovernance(candidate, trustedRoot),
+      /Unexpected entry in db\/migrations.*db\/migrations\/evil\.txt/,
+    );
+  } finally {
+    await rm(candidate, { recursive: true, force: true });
+  }
+});
+
+test('trusted verifier rejects symlinked non-.sql entries in db/migrations', async (t) => {
+  const candidate = await candidateFixtureCopy(t);
+  if (!candidate) return;
+  try {
+    await symlink(
+      path.join(candidate, 'db/migrations/manifest.json'),
+      path.join(candidate, 'db/migrations/evil_link'),
+    );
+    await assert.rejects(
+      verifyMigrationGovernance(candidate, trustedRoot),
+      /Unexpected entry in db\/migrations.*db\/migrations\/evil_link/,
+    );
   } finally {
     await rm(candidate, { recursive: true, force: true });
   }
