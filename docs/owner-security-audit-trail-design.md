@@ -1,6 +1,6 @@
 # Owner Security Audit Trail — Design
 
-Status: implementation prepared on `feat/owner-audit-implementation` (stacked on PR #398); remote rollout remains blocked pending explicit approval.  
+Status: implementation prepared on `feat/owner-audit-implementation` (stacked on PR #398); remote rollout remains blocked pending explicit approval.
 Scope: dedicated `PRODX-OWNER-AUTH` project only. This document does not apply database changes or deploy Edge Functions.
 
 ## Verified starting state (2026-11-21)

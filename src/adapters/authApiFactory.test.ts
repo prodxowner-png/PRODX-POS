@@ -11,6 +11,7 @@ import {
 } from './authApiFactory';
 import {
   AUTH_SESSION_STORAGE_KEY,
+  readPersistedSession,
   restoreVerifiedSession,
   writePersistedSession,
   type SessionStorageLike,
@@ -23,6 +24,9 @@ function createStubAuthApi(label: string): IAuthApi {
     },
     async logout() {
       throw new Error(`stub:${label}:logout`);
+    },
+    async renewSession() {
+      throw new Error(`stub:${label}:renewSession`);
     },
     async verifySession() {
       throw new Error(`stub:${label}:verifySession`);
@@ -150,7 +154,19 @@ test('development mock adapter is selected only when isDev is true and never whe
   );
 });
 
-// 5. Runtime calls with unconfigured provider (all 5 IAuthApi methods reject)
+
+// Explicit invalid API routing must fail closed without throwing during module evaluation.
+test('invalid explicit production API base URL resolves to fail-closed auth', async () => {
+  const productionStub = createStubAuthApi('production');
+  const resolved = resolveAuthApi(
+    { isDev: false, provider: 'production', apiBaseUrl: '//attacker.example' },
+    { productionApi: productionStub },
+  );
+  assert.notEqual(resolved, productionStub);
+  await assert.rejects(resolved.verifySession('token'), { message: UNCONFIGURED_AUTH_PROVIDER_ERROR });
+});
+
+// 5. Runtime calls with unconfigured provider (all 6 IAuthApi methods reject)
 test('authApi fails closed on every IAuthApi method when unconfigured outside DEV', async () => {
   const errorPattern = { message: UNCONFIGURED_AUTH_PROVIDER_ERROR };
 
@@ -166,10 +182,23 @@ test('authApi fails closed on every IAuthApi method when unconfigured outside DE
       errorPattern,
     );
     await assert.rejects(api.logout('token'), errorPattern);
+    await assert.rejects(api.renewSession('token'), errorPattern);
     await assert.rejects(api.verifySession('token'), errorPattern);
     await assert.rejects(api.getStores('demo', 'token'), errorPattern);
     await assert.rejects(api.forgotPin('demo', 'STORE-01', '123456', 'POS-01'), errorPattern);
   }
+});
+
+test('persisted POS session keeps only the validated auth provider needed for safe renewal routing', () => {
+  const storage = createMemoryStorage();
+  writePersistedSession(storage, 'pos-pin-token', 'pin');
+  assert.deepEqual(readPersistedSession(storage), { token: 'pos-pin-token', authProvider: 'pin' });
+
+  storage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify({ token: 'pos-legacy-token', authProvider: 'admin' }));
+  assert.deepEqual(readPersistedSession(storage), { token: 'pos-legacy-token' });
+
+  storage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify({ token: 'pos-pre-metadata-token' }));
+  assert.deepEqual(readPersistedSession(storage), { token: 'pos-pre-metadata-token' });
 });
 
 // 6. Session initialization failure clears persisted session/storage and creates no bypass

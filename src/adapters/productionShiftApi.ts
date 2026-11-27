@@ -1,3 +1,4 @@
+import { resolveProductionApiBaseUrl } from './apiBaseUrl';
 import type { IShiftApi } from './types';
 import type { CashMovement, Shift, TimeclockRecord } from '../domain/shift';
 
@@ -15,20 +16,19 @@ const DEFAULT_API_BASE_URL =
     ? import.meta.env.VITE_AUTH_API_BASE_URL
     : undefined;
 
-const normalizeBaseUrl = (apiBaseUrl?: string) => {
-  if (!apiBaseUrl) return '';
-  return apiBaseUrl.replace(/\/$/, '');
-};
-
 export function createProductionShiftApi(
   token: string,
   options?: ProductionShiftApiOptions,
 ): IShiftApi {
   const fetchImpl = options?.fetchImpl ?? fetch;
-  const host = normalizeBaseUrl(options?.apiBaseUrl ?? DEFAULT_API_BASE_URL);
 
   const request = async <T>(path: string, init?: RequestInit): Promise<ApiRequestResult<T>> => {
-    if (!host) return { ok: false };
+    let host: string;
+    try {
+      host = resolveProductionApiBaseUrl(options?.apiBaseUrl ?? DEFAULT_API_BASE_URL);
+    } catch {
+      return { ok: false };
+    }
     try {
       const res = await fetchImpl(host + path, {
         ...init,

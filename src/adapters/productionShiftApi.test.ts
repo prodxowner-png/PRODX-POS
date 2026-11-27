@@ -62,9 +62,20 @@ test('getCurrentShift fails closed on non-OK HTTP status, network error, or inva
   });
   await assert.rejects(() => invalidJsonApi.getCurrentShift('store-1', 'reg-1'));
 
-  const missingBaseUrlApi = createProductionShiftApi('token-123', {
+  const sameOriginUrls: string[] = [];
+  const sameOriginApi = createProductionShiftApi('token-123', {
     apiBaseUrl: '',
+    fetchImpl: async (input) => {
+      sameOriginUrls.push(String(input));
+      return createJsonResponse(null, 200);
+    },
+  });
+  assert.equal(await sameOriginApi.getCurrentShift('store-1', 'reg-1'), null);
+  assert.deepEqual(sameOriginUrls, ['/api/v1/shifts/current?registerId=reg-1']);
+
+  const invalidBaseUrlApi = createProductionShiftApi('token-123', {
+    apiBaseUrl: '//evil.example',
     fetchImpl: async () => createJsonResponse(null, 200),
   });
-  await assert.rejects(() => missingBaseUrlApi.getCurrentShift('store-1', 'reg-1'));
+  await assert.rejects(() => invalidBaseUrlApi.getCurrentShift('store-1', 'reg-1'));
 });

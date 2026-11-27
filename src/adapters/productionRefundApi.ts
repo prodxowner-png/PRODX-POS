@@ -1,11 +1,10 @@
+import { resolveProductionApiBaseUrl } from './apiBaseUrl';
 import type { Money } from "../domain/money";
 import type { RefundItemRestock } from "./types";
 
 const configuredBaseUrl = (): string | undefined => import.meta.env?.VITE_AUTH_API_BASE_URL;
 function requireBaseUrl(baseUrl?: string): string {
-  const resolved = baseUrl ?? configuredBaseUrl();
-  if (!resolved) throw new Error("Production refund API is not configured: VITE_AUTH_API_BASE_URL is missing.");
-  return resolved.replace(/\/$/, "");
+  return resolveProductionApiBaseUrl(baseUrl ?? configuredBaseUrl());
 }
 export type ProductionRefundRequest = { orderId:string; refundAmount:Money; reason:string; refundMethod:"cash"|"card"|"qr_digital"; itemsToRestock:readonly RefundItemRestock[]; idempotencyKey:string; supervisorAuthorizationToken:string; };
 export type ProductionRefundResponse = { success:true; refundId:string; orderId:string; status:"server_confirmed"|"refunded"; refundedAmount:Money; message:string; idempotencyCached:boolean; };

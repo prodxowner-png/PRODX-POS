@@ -1,6 +1,6 @@
 # PRODX POS — MFA Security Design V2
 
-**Status:** Proposed design; Product/Security approval required before production enforcement.  
+**Status:** Proposed design; Product/Security approval required before production enforcement.
 **Source:** POS Production Development Specification V2 and repository review at main `c3329c99cf0d0c8095ad9d732a3cfca5a23d69ec`.
 
 ## 1. Decision summary
