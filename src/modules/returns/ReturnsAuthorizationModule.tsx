@@ -6,6 +6,7 @@ import { Order, CartLineItem } from '../../domain/order';
 import { formatMoney, createMoney } from '../../domain/money';
 import { createRefundApi } from '../../adapters/refundApiFactory';
 import { createProductionSupervisorAuthorizationApi } from '../../adapters/productionSupervisorAuthorizationApi';
+import { authenticateSupervisorWithSupabase } from '../../lib/supabaseSupervisorAuth';
 import { Modal } from '../../components/common/Modal';
 import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
@@ -77,10 +78,10 @@ export const ReturnsAuthorizationModule: React.FC<ReturnsAuthorizationModuleProp
 
   const handleVerifySupervisorPin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!supervisorPin.trim()) {
+    if (!supervisorPin) {
       playScannerSound('error');
       addToast({
-        title: language === 'th' ? 'กรุณาระบุรหัสผู้จัดการ' : 'Supervisor Secret Required',
+        title: language === 'th' ? 'กรุณาระบุรหัสผู้จัดการ' : 'Supervisor Account Password Required',
         message: language === 'th' ? 'กรุณากรอกรหัส PIN หรือรหัสผ่านผู้จัดการเพื่อยืนยันสิทธิ์บนเซิร์ฟเวอร์' : 'Enter a valid manager credential.',
         type: 'error',
       });
@@ -88,12 +89,13 @@ export const ReturnsAuthorizationModule: React.FC<ReturnsAuthorizationModuleProp
     }
 
     try {
+      const proof = await authenticateSupervisorWithSupabase(session.currentUser.email, supervisorPin);
       const authApi = createProductionSupervisorAuthorizationApi(session.token);
       const grant = await authApi.authorize({
         action: 'refund',
         orderId: order.id,
         supervisorUserId: session.currentUser.id,
-        supervisorSecret: supervisorPin.trim(),
+        supervisorAccessToken: proof.accessToken,
       });
       setSupervisorToken(grant.authorizationToken);
       setIsPinValidated(true);
@@ -195,11 +197,11 @@ export const ReturnsAuthorizationModule: React.FC<ReturnsAuthorizationModuleProp
         {/* Order Header Summary */}
         <div className="p-3.5 rounded-xl bg-card border border-border flex items-center justify-between text-xs">
           <div>
-            <div className="font-mono font-black text-text text-sm">{order.orderNumber}</div>
-            <div className="text-text/60 font-mono mt-0.5">{new Date(order.createdAt).toLocaleString()} · {order.cashierName}</div>
+            <div className="font-mono tabular-nums font-black text-text text-sm">{order.orderNumber}</div>
+            <div className="text-text/60 font-mono tabular-nums mt-0.5">{new Date(order.createdAt).toLocaleString()} · {order.cashierName}</div>
           </div>
 
-          <Badge variant="primary" size="md" className="font-mono font-bold">
+          <Badge variant="primary" size="md" className="font-mono tabular-nums font-bold">
             {formatMoney(order.totals.grandTotal)}
           </Badge>
         </div>
@@ -224,7 +226,7 @@ export const ReturnsAuthorizationModule: React.FC<ReturnsAuthorizationModuleProp
                 >
                   <div className="min-w-0 flex-1">
                     <div className="font-bold text-text truncate">{item.product.name}</div>
-                    <div className="text-[11px] text-text/60 font-mono">
+                    <div className="text-[11px] text-text/60 font-mono tabular-nums">
                       {item.product.sku} · {formatMoney(item.unitPrice)} / {item.product.unitOfMeasure}
                     </div>
                   </div>
@@ -234,20 +236,20 @@ export const ReturnsAuthorizationModule: React.FC<ReturnsAuthorizationModuleProp
                       <button
                         type="button"
                         onClick={() => handleQuantityToggle(item.lineId, item.quantity, selectedQty - 1)}
-                        className="w-6 h-6 rounded bg-background hover:bg-border/40 font-bold flex items-center justify-center text-text"
+                        className="min-w-[36px] min-h-[36px] w-9 h-9 rounded-lg bg-background hover:bg-border/40 font-bold flex items-center justify-center text-text cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta"
                       >
                         -
                       </button>
-                      <span className="font-mono font-bold w-6 text-center">{selectedQty}</span>
+                      <span className="font-mono tabular-nums font-bold w-6 text-center">{selectedQty}</span>
                       <button
                         type="button"
                         onClick={() => handleQuantityToggle(item.lineId, item.quantity, selectedQty + 1)}
-                        className="w-6 h-6 rounded bg-background hover:bg-border/40 font-bold flex items-center justify-center text-text"
+                        className="min-w-[36px] min-h-[36px] w-9 h-9 rounded-lg bg-background hover:bg-border/40 font-bold flex items-center justify-center text-text cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta"
                       >
                         +
                       </button>
                     </div>
-                    <span className="text-[10px] text-text/50 font-mono">/ {item.quantity}</span>
+                    <span className="text-[10px] text-brand-text-secondary font-mono tabular-nums">/ {item.quantity}</span>
                   </div>
                 </div>
               );
@@ -265,7 +267,7 @@ export const ReturnsAuthorizationModule: React.FC<ReturnsAuthorizationModuleProp
               <select
                 value={returnReason}
                 onChange={(e) => setReturnReason(e.target.value as any)}
-                className="w-full h-9 px-2.5 rounded-lg border border-border bg-background text-xs text-text font-semibold"
+                className="w-full min-h-[44px] h-11 px-3 rounded-xl border border-border bg-background text-xs text-text font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta"
               >
                 <option value="defective">{language === 'th' ? 'สินค้าชำรุด / เสียหาย' : 'Defective / Damaged'}</option>
                 <option value="wrong_item">{language === 'th' ? 'หยิบสินค้าผิด' : 'Wrong Item Picked'}</option>
@@ -281,7 +283,7 @@ export const ReturnsAuthorizationModule: React.FC<ReturnsAuthorizationModuleProp
               <select
                 value={stockDisposition}
                 onChange={(e) => setStockDisposition(e.target.value as any)}
-                className="w-full h-9 px-2.5 rounded-lg border border-border bg-background text-xs text-text font-semibold"
+                className="w-full min-h-[44px] h-11 px-3 rounded-xl border border-border bg-background text-xs text-text font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta"
               >
                 <option value="restock_resellable">{language === 'th' ? 'คืนสต็อกพร้อมขาย (Restock)' : 'Restock as Resellable'}</option>
                 <option value="scrap_writeoff">{language === 'th' ? 'ตัดเป็นสินค้าชำรุด (Scrap/Write-off)' : 'Scrap & Write-Off'}</option>
@@ -295,19 +297,18 @@ export const ReturnsAuthorizationModule: React.FC<ReturnsAuthorizationModuleProp
           <form onSubmit={handleVerifySupervisorPin} className="p-3.5 rounded-xl border border-amber-500/30 bg-amber-500/10 space-y-2">
             <div className="flex items-center gap-2 text-xs font-bold text-amber-900 dark:text-amber-200">
               <Lock className="h-4 w-4 text-amber-500" />
-              <span>{language === 'th' ? 'การอนุมัติสิทธิ์จากผู้จัดการ (Supervisor Verification)' : 'Manager Authorization PIN Required'}</span>
+              <span>{language === 'th' ? 'การอนุมัติสิทธิ์จากผู้จัดการ (Supervisor Verification)' : 'Manager Account Password Required'}</span>
             </div>
             <div className="flex items-center gap-2">
               <input
                 type="password"
-                maxLength={6}
                 value={supervisorPin}
                 onChange={(e) => setSupervisorPin(e.target.value)}
-                placeholder="PIN e.g. 1234"
-                className="flex-1 h-9 px-3 rounded-lg border border-border bg-card text-xs font-mono font-bold text-text focus:outline-none"
+                placeholder={language === 'th' ? 'รหัสผ่านบัญชีผู้จัดการ' : 'Supervisor account password'}
+                className="flex-1 min-h-[44px] h-11 px-3 rounded-xl border border-border bg-card text-xs font-mono tabular-nums font-bold text-text focus:outline-none focus-visible:ring-2 focus-visible:ring-cta"
               />
               <Button size="sm" variant="primary" type="submit" leftIcon={<ShieldCheck className="h-4 w-4" />}>
-                {language === 'th' ? 'ยืนยัน PIN' : 'Verify'}
+                {language === 'th' ? 'ยืนยันรหัสผ่าน' : 'Verify Password'}
               </Button>
             </div>
           </form>
@@ -320,7 +321,7 @@ export const ReturnsAuthorizationModule: React.FC<ReturnsAuthorizationModuleProp
               <div className="text-[11px] font-bold text-emerald-800 dark:text-emerald-300 uppercase">
                 {language === 'th' ? 'อนุมัติยอดเงินคืนรวม' : 'Authorized Refund Total'}
               </div>
-              <div className="text-2xl font-black font-mono text-emerald-600 dark:text-emerald-400">
+              <div className="text-2xl font-black font-mono tabular-nums text-emerald-600 dark:text-emerald-400">
                 {formatMoney(totalReturnMoney)}
               </div>
             </div>

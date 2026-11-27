@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
-import { createPostgresPool, resolveConfiguredDatabaseUrl } from './db/postgres';
+import { createPostgresPool } from './db/postgres';
+import { resolveDisposableTestDatabaseUrl } from './db/test-database-guard';
 
 const workspaceRoot = process.cwd();
 
@@ -77,7 +78,7 @@ test('Security Gate 3: Refund and Returns UI modules contain zero hardcoded supe
 });
 
 test('Database & Security Gate 4: PostgreSQL append-only audit trigger, RLS, and least-privilege prodx_app role are enforced', async (t) => {
-  const databaseUrl = resolveConfiguredDatabaseUrl(process.env.DATABASE_URL);
+  const databaseUrl = resolveDisposableTestDatabaseUrl(process.env.DATABASE_URL, 'server/phase4-architecture-security-gates.test.ts');
   if (!databaseUrl) {
     t.skip('DATABASE_URL not configured');
     return;
@@ -270,4 +271,57 @@ test('Security Gate 9: PRODX public tables and RPC functions are backend-only', 
   const runner = fs.readFileSync(path.join(workspaceRoot, 'scripts/migrate.ts'), 'utf8');
   assert.match(runner, /REVOKE\s+ALL\s+PRIVILEGES\s+ON\s+TABLE\s+public\.%I\s+FROM\s+PUBLIC/i);
   assert.match(runner, /REVOKE\s+EXECUTE\s+ON\s+FUNCTION\s+%s\s+FROM\s+PUBLIC/i);
+  assert.match(runner, /p\.prorettype\s*=\s*'pg_catalog\.trigger'::regtype/i);
+  assert.match(runner, /REVOKE\s+EXECUTE\s+ON\s+FUNCTION\s+%s\s+FROM\s+prodx_app/i);
 });
+
+test('Security Gate 10: supervisor authorization uses narrow SECURITY DEFINER RPCs and never touches prodx_user_credentials or prodx_security_audit_events directly', () => {
+  for (const relativePath of ['server/auth/supervisor-authorization.ts', 'server/entrypoint.js']) {
+    const content = fs.readFileSync(
+      path.join(workspaceRoot, relativePath),
+      'utf8',
+    );
+    assert.match(content, /prodx_supervisor_find_credential/, `${relativePath} must use prodx_supervisor_find_credential`);
+    assert.match(content, /prodx_supervisor_record_failed_attempt/, `${relativePath} must use prodx_supervisor_record_failed_attempt`);
+    assert.match(content, /prodx_supervisor_reset_failed_attempts/, `${relativePath} must use prodx_supervisor_reset_failed_attempts`);
+    assert.match(content, /prodx_record_supervisor_authorization_event/, `${relativePath} must use prodx_record_supervisor_authorization_event`);
+    assert.doesNotMatch(
+      content,
+      /\b(FROM|JOIN|UPDATE|INSERT\s+INTO|DELETE\s+FROM)\s+(public\.)?prodx_user_credentials\b/i,
+      `${relativePath} must not query or mutate prodx_user_credentials directly because prodx_app has no table privileges on it`,
+    );
+    assert.doesNotMatch(
+      content,
+      /\b(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+(public\.)?prodx_security_audit_events\b/i,
+      `${relativePath} must not mutate prodx_security_audit_events directly`,
+    );
+  }
+});
+
+test('Security Gate 11: AI frontend-assistant endpoint is governed by installAIHttpRoute with requirePermission("ai:use") and never bypassed in infrastructureRoutes', () => {
+  const infraRoutes = fs.readFileSync(
+    path.join(workspaceRoot, 'server/http/infrastructureRoutes.ts'),
+    'utf8',
+  );
+  assert.doesNotMatch(
+    infraRoutes,
+    /frontend-assistant/,
+    'infrastructureRoutes.ts must not register an unguarded /api/v1/ai/frontend-assistant route outside the AI gateway',
+  );
+  assert.doesNotMatch(
+    infraRoutes,
+    /@google\/genai|GoogleGenAI/,
+    'infrastructureRoutes.ts must not instantiate GoogleGenAI directly',
+  );
+
+  const aiHttpRoute = fs.readFileSync(
+    path.join(workspaceRoot, 'server/ai/http-route.ts'),
+    'utf8',
+  );
+  assert.match(
+    aiHttpRoute,
+    /router\.post\(\s*['"]\/frontend-assistant['"]\s*,\s*requirePermission\(permission\)/,
+    'server/ai/http-route.ts must guard /frontend-assistant with requirePermission(permission)',
+  );
+});
+

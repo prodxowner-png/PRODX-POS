@@ -1,6 +1,6 @@
 import React from 'react';
 import { useOffline } from '../../context/OfflineContext';
-import { WifiOff, RefreshCw, AlertTriangle } from 'lucide-react';
+import { WifiOff, RefreshCw } from 'lucide-react';
 import { Button } from '../common/Button';
 
 export const OfflineBanner: React.FC = () => {
@@ -16,9 +16,17 @@ export const OfflineBanner: React.FC = () => {
   if (isOnline && pendingCount === 0) return null;
 
   return (
-    <div className="bg-amber-500/15 border-b border-amber-500/30 px-4 py-2 text-amber-900 dark:text-amber-200 text-xs font-medium flex items-center justify-between z-20 shrink-0 select-none">
+    <div
+      role="status"
+      aria-live="polite"
+      className="bg-warning-subtle border-b border-warning/30 px-4 py-2 text-warning-text text-xs font-medium flex items-center justify-between z-20 shrink-0 select-none"
+    >
       <div className="flex items-center gap-2">
-        <WifiOff className="h-4 w-4 text-amber-600 shrink-0 animate-pulse" />
+        {!isOnline ? (
+          <WifiOff className="h-4 w-4 text-warning shrink-0 animate-pulse" />
+        ) : (
+          <RefreshCw className="h-4 w-4 text-warning shrink-0" />
+        )}
         <div>
           <span className="font-bold">
             {!isOnline ? 'Offline Mode Active:' : 'Pending Synchronization:'}
@@ -36,7 +44,7 @@ export const OfflineBanner: React.FC = () => {
           <button
             type="button"
             onClick={toggleSimulatedOffline}
-            className="text-[11px] underline hover:no-underline font-semibold text-amber-800 dark:text-amber-300 cursor-pointer"
+            className="text-[11px] underline hover:no-underline font-semibold text-warning-text cursor-pointer"
           >
             End Simulation
           </button>
@@ -49,7 +57,7 @@ export const OfflineBanner: React.FC = () => {
             onClick={() => triggerSync()}
             isLoading={isSyncing}
             leftIcon={<RefreshCw className={`h-3 w-3 ${isSyncing ? 'animate-spin' : ''}`} />}
-            className="border-amber-400 dark:border-amber-700 text-amber-900 dark:text-amber-200"
+            className="border-warning/40 text-warning-text hover:bg-warning/10"
           >
             Sync Now
           </Button>

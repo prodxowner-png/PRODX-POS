@@ -130,7 +130,7 @@ export const InventoryAiOptimizationModal: React.FC<InventoryAiOptimizationModal
               size="sm"
               onClick={handleRunOptimization}
               disabled={isLoading}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold"
+              className="bg-primary hover:bg-primary/90 text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta font-semibold"
             >
               {isLoading ? (
                 <>
@@ -155,7 +155,7 @@ export const InventoryAiOptimizationModal: React.FC<InventoryAiOptimizationModal
             aiReport
           ) : (
             <div className="h-44 flex flex-col items-center justify-center text-center text-slate-400">
-              <Boxes className="h-8 w-8 text-indigo-400 mb-2 opacity-80" />
+              <Boxes className="h-8 w-8 text-primary mb-2 opacity-80" />
               <p className="text-xs font-medium text-slate-600 dark:text-slate-300">
                 {isThai
                   ? 'กดปุ่ม "วิเคราะห์และวางแผนสต็อก" เพื่อให้ AI แนะนำรายการสั่งของ'

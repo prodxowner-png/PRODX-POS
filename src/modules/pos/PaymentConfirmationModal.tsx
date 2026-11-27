@@ -19,6 +19,8 @@ import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
 import { ReceiptPrintModal } from '../../components/receipt/ReceiptPrintModal';
 import { FullTaxInvoiceModal } from '../../components/receipt/FullTaxInvoiceModal';
+import { SupervisorAuthModal } from '../../components/auth/SupervisorAuthModal';
+import type { User as AuthUser } from '../../domain/auth';
 import { QuickCashCalculator } from './QuickCashCalculator';
 import { playScannerSound } from '../../services/soundService';
 import { triggerHaptic } from '../../services/hapticService';
@@ -39,6 +41,11 @@ import {
   formatMoney,
 } from '../../domain/money';
 import { createOrderTransactionApi } from '../../adapters/orderTransactionApiFactory';
+import type { CheckoutRequest } from '../../adapters/types';
+import { createProductionSupervisorAuthorizationApi } from '../../adapters/productionSupervisorAuthorizationApi';
+import { createProductionDiscountPolicyApi, getLocalDiscountPolicy } from '../../adapters/productionDiscountPolicyApi';
+import { hasProductionUrl } from '../../adapters/env';
+import { withCheckoutMutation } from '../../services/checkoutMutationTracker';
 import {
   Banknote,
   CreditCard,
@@ -123,10 +130,10 @@ const PAYMENT_METHOD_TABS: PaymentTabOption[] = [
     hotkey: '2',
     themeColor: 'purple',
     activeClass:
-      'bg-purple-500/10 border-purple-500 text-purple-900 dark:text-purple-200 font-bold shadow-md shadow-purple-500/10',
-    activeRing: 'ring-2 ring-purple-500/60 ring-offset-2 ring-offset-card',
-    activeBadgeBg: 'bg-purple-600 text-white',
-    iconColor: 'text-purple-600 dark:text-purple-400',
+      'bg-brand-surface-selected border-primary text-text font-bold shadow-md shadow-primary/10',
+    activeRing: 'ring-2 ring-primary/60 ring-offset-2 ring-offset-card',
+    activeBadgeBg: 'bg-primary text-primary-foreground',
+    iconColor: 'text-brand-text-accent',
   },
   {
     id: 'card',
@@ -202,6 +209,8 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
   const [isItemListExpanded, setIsItemListExpanded] = useState(false);
   const [cardAuthReference, setCardAuthReference] = useState('');
   const [orderRemarkNote, setOrderRemarkNote] = useState(notes || '');
+  const [pendingDiscountCheckout, setPendingDiscountCheckout] = useState<CheckoutRequest | null>(null);
+  const [isDiscountSupervisorModalOpen, setIsDiscountSupervisorModalOpen] = useState(false);
 
   const grandTotal = totals.grandTotal;
   const currency = grandTotal.currency;
@@ -293,6 +302,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
 
       if (e.key === 'Escape') {
         e.preventDefault();
+        if (isProcessing) return;
         onClose();
         return;
       }
@@ -316,7 +326,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, completedOrder, onClose]);
+  }, [isOpen, completedOrder, isProcessing, onClose]);
 
   if (!session) return null;
 
@@ -382,10 +392,12 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
     });
   };
 
-  const handleConfirmPayment = async () => {
-    let finalPayments: TenderPayment[] = [];
+  const handleConfirmPayment = async (authorizedPayload?: CheckoutRequest) => {
+    let finalPayments: TenderPayment[] = authorizedPayload ? [...authorizedPayload.payments] : [];
 
-    if (isSplitMode || stagedPayments.length > 0) {
+    if (authorizedPayload) {
+      // Reuse the exact command and idempotency key approved by the supervisor.
+    } else if (isSplitMode || stagedPayments.length > 0) {
       if (!isFullyTendered || stagedPayments.length === 0 || isProcessing) return;
       finalPayments = [...stagedPayments];
     } else {
@@ -415,9 +427,12 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
     }
 
     setIsProcessing(true);
-    const idempotencyKey = `idemp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const idempotencyKey = authorizedPayload?.idempotencyKey ?? `idemp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
-    const checkoutPayload = {
+    const orderDiscountBps = totals.grossSubtotal.amountInCents > totals.itemDiscounts.amountInCents
+      ? Math.round(totals.orderDiscount.amountInCents / (totals.grossSubtotal.amountInCents - totals.itemDiscounts.amountInCents) * 10000)
+      : 0;
+    const checkoutPayload: CheckoutRequest = authorizedPayload ?? {
       idempotencyKey,
       storeId: session.currentStore.id,
       registerId: session.registerId,
@@ -432,12 +447,28 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
         : undefined,
       items,
       totals,
+      orderDiscountBps,
       payments: finalPayments,
       notes: orderRemarkNote || notes,
       isOfflineSubmission: !isOnline,
     };
 
     try {
+      const hasDiscount = items.some((item) => item.discountBps > 0) || totals.orderDiscount.amountInCents > 0;
+      if (authorizedPayload && !isOnline && hasProductionUrl()) throw new Error('A server-issued discount approval cannot be replayed while offline.');
+      if (!authorizedPayload && hasDiscount) {
+        if (!isOnline && hasProductionUrl()) throw new Error(language === 'th' ? 'ไม่สามารถใช้ส่วนลดออฟไลน์ได้ เนื่องจากต้องยืนยันสิทธิ์ผู้จัดการกับเซิร์ฟเวอร์' : 'Discounted checkout requires an online server authorization.');
+        const policy = hasProductionUrl() ? await createProductionDiscountPolicyApi(session.token).getPolicy() : getLocalDiscountPolicy();
+        const grossCents = totals.grossSubtotal.amountInCents;
+        const effectiveDiscountBps = grossCents > 0 ? Math.round((grossCents - totals.grandTotal.amountInCents) / grossCents * 10000) : 0;
+        const maxDiscountBps = Math.max(effectiveDiscountBps, orderDiscountBps, ...items.map((item) => item.discountBps), 0);
+        if (policy.requireSupervisorApproval && maxDiscountBps > policy.maxDiscountWithoutApprovalBps) {
+          setPendingDiscountCheckout(checkoutPayload);
+          setIsDiscountSupervisorModalOpen(true);
+          setIsProcessing(false);
+          return;
+        }
+      }
       if (!isOnline) {
         // Queue in offline outbox
         await queueOutboxItem('order_transaction', idempotencyKey, checkoutPayload);
@@ -502,7 +533,9 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
         });
       } else {
         // Live server checkout
-        const response = await productionOrderApi.createOrder(checkoutPayload);
+        const response = await withCheckoutMutation(() =>
+          productionOrderApi.createOrder(checkoutPayload)
+        );
         setCompletedOrder(response.order);
         onOrderCompleted?.(response.order);
         clearPaymentTenders();
@@ -560,6 +593,30 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
     }
   };
 
+  const handleDiscountSupervisorAuthorized = async (supervisor: AuthUser, _notes?: string, proof?: string) => {
+    if (!pendingDiscountCheckout) return;
+    if (!hasProductionUrl()) {
+      const payload = pendingDiscountCheckout;
+      setPendingDiscountCheckout(null);
+      setIsDiscountSupervisorModalOpen(false);
+      await handleConfirmPayment(payload);
+      return;
+    }
+    if (!session?.token || !proof || proof.length < 20) return;
+    try {
+      const grant = await createProductionSupervisorAuthorizationApi(session.token).authorize({
+        action: 'discount', checkout: pendingDiscountCheckout,
+        supervisorUserId: supervisor.id, supervisorAccessToken: proof,
+      });
+      const payload = { ...pendingDiscountCheckout, supervisorAuthorizationToken: grant.authorizationToken };
+      setPendingDiscountCheckout(null);
+      setIsDiscountSupervisorModalOpen(false);
+      await handleConfirmPayment(payload);
+    } catch (error) {
+      addToast({ title: language === 'th' ? 'อนุมัติส่วนลดไม่สำเร็จ' : 'Discount Approval Failed', message: error instanceof Error ? error.message : String(error), type: 'error' });
+    }
+  };
+
   const handleNextSale = () => {
     triggerHaptic('medium');
     setCompletedOrder(null);
@@ -593,7 +650,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
             onClose();
           }}
           disabled={isProcessing}
-          className="min-h-[48px] h-12 w-full px-4 rounded-xl border border-border bg-card hover:bg-background text-text/80 hover:text-text font-bold text-xs sm:text-sm flex items-center justify-center gap-2.5 transition-all theme-btn-radius active-scale cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-2xs hover:border-rose-500/40 hover:text-rose-600 dark:hover:text-rose-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/30"
+          className="group min-h-[48px] h-12 w-full px-4 rounded-xl border border-border bg-card hover:bg-background text-text/80 hover:text-text font-bold text-xs sm:text-sm flex items-center justify-center gap-2.5 transition-all theme-btn-radius active-scale cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-2xs hover:border-rose-500/40 hover:text-rose-600 dark:hover:text-rose-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/30"
         >
           <X className="h-4.5 w-4.5 shrink-0 text-text/50 group-hover:text-rose-500" />
           <span className="truncate">
@@ -612,10 +669,10 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
             handleConfirmPayment();
           }}
           disabled={isConfirmDisabled}
-          className={`min-h-[48px] h-12 w-full px-4 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-between gap-3 transition-all theme-btn-radius active-scale shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40 ${
+          className={`min-h-[48px] h-12 w-full px-4 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-between gap-3 transition-all theme-btn-radius active-scale shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta/40 ${
             isConfirmDisabled
               ? 'bg-border/60 text-text/40 border border-border/50 cursor-not-allowed opacity-60'
-              : 'bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white cursor-pointer ring-2 ring-emerald-600/30 hover:shadow-emerald-600/25 shadow-md'
+              : 'bg-cta hover:bg-cta-hover active:bg-cta-pressed text-cta-text cursor-pointer ring-2 ring-cta/30 hover:shadow-cta/25 shadow-md'
           }`}
         >
           <div className="flex items-center gap-2 truncate">
@@ -661,7 +718,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
       <Modal
         isOpen={isOpen}
         fullScreenOnMobile={true}
-        onClose={completedOrder ? handleNextSale : onClose}
+        onClose={completedOrder ? handleNextSale : () => { if (!isProcessing) onClose(); }}
         title={
           title ||
           (completedOrder
@@ -699,7 +756,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
                   </div>
                 ) : (
                   <div className="h-14 w-14 rounded-full bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center">
-                    <WifiOff className="h-9 w-9 text-amber-600 dark:text-amber-400 animate-pulse" />
+                    <WifiOff className="h-9 w-9 text-amber-600 dark:text-amber-400" aria-hidden="true" />
                   </div>
                 )}
               </div>
@@ -863,14 +920,20 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
             {/* ======================================================= */}
             <div className="lg:col-span-7 space-y-4">
               {/* 1. Tender Mode Selector (Single vs Split) */}
-              <div className="flex items-center p-1 bg-background rounded-xl border border-border shadow-2xs">
+              <div
+                role="tablist"
+                aria-label={language === 'th' ? 'รูปแบบการชำระเงิน' : 'Payment tender mode'}
+                className="flex items-center p-1 bg-background rounded-xl border border-border shadow-2xs"
+              >
                 <button
                   type="button"
+                  role="tab"
+                  aria-selected={!isSplitMode}
                   onClick={() => {
                     playScannerSound('click');
                     setIsSplitMode(false);
                   }}
-                  className={`flex-1 min-h-[40px] py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-2 theme-btn-radius active-scale ${
+                  className={`flex-1 min-h-[44px] py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-2 theme-btn-radius active-scale focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta ${
                     !isSplitMode
                       ? 'bg-card text-text border border-border shadow-xs'
                       : 'text-text/60 hover:text-text transparent border border-transparent'
@@ -882,20 +945,22 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
 
                 <button
                   type="button"
+                  role="tab"
+                  aria-selected={isSplitMode}
                   onClick={() => {
                     playScannerSound('click');
                     setIsSplitMode(true);
                   }}
-                  className={`flex-1 min-h-[40px] py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-2 theme-btn-radius active-scale ${
+                  className={`flex-1 min-h-[44px] py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-2 theme-btn-radius active-scale focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta ${
                     isSplitMode
-                      ? 'bg-primary text-white border border-primary shadow-xs'
+                      ? 'bg-primary text-primary-foreground border border-primary shadow-xs'
                       : 'text-text/60 hover:text-text transparent border border-transparent'
                   }`}
                 >
                   <Split className="h-3.5 w-3.5" />
                   <span>{language === 'th' ? 'แบ่งชำระหลายช่องทาง' : 'Split Multi-Tender'}</span>
                   {stagedPayments.length > 0 && (
-                    <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-white/25 text-white font-mono font-bold">
+                    <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-white/25 text-primary-foreground font-mono font-bold">
                       {stagedPayments.length}
                     </span>
                   )}
@@ -1007,6 +1072,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
                         <div className="relative">
                           <input
                             type="number"
+                            inputMode="decimal"
                             step="0.01"
                             value={(singleCashTenderedCents / 100).toFixed(2)}
                             onFocus={(e) => e.target.select()}
@@ -1092,9 +1158,9 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
 
                   {/* 3.2 PROMPTPAY QR PAYMENT FLOW */}
                   {method === 'qr_digital' && (
-                    <div className="p-4 rounded-xl border border-purple-500/30 bg-card text-center space-y-3.5 shadow-2xs">
-                      <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-purple-100 dark:bg-purple-950/50 border border-purple-300 dark:border-purple-800 text-purple-800 dark:text-purple-200 text-xs font-bold">
-                        <QrCode className="h-3.5 w-3.5 text-purple-600" />
+                    <div className="p-4 rounded-xl border border-primary/30 bg-card text-center space-y-3.5 shadow-2xs">
+                      <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-brand-surface-selected border border-primary/30 text-brand-text-accent text-xs font-bold">
+                        <QrCode className="h-3.5 w-3.5 text-brand-text-accent" />
                         <span>
                           {language === 'th'
                             ? 'พร้อมเพย์ QR Code ชำระเงิน'
@@ -1103,14 +1169,14 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
                       </div>
 
                       {/* Dynamic QR Display Graphic */}
-                      <div className="p-4 max-w-[210px] mx-auto bg-white rounded-2xl border-2 border-purple-600/30 shadow-md space-y-2">
+                      <div className="p-4 max-w-[210px] mx-auto bg-white text-slate-900 rounded-2xl border-2 border-primary/30 shadow-md space-y-2">
                         <div className="aspect-square bg-slate-900 rounded-xl flex flex-col items-center justify-center p-3 text-white">
                           <QrCode className="h-28 w-28 text-white" />
-                          <span className="text-[9px] font-mono tracking-wider mt-1 text-slate-300">
+                          <span className="text-[10px] font-mono tracking-wider mt-1 text-slate-300">
                             THAI QR • PROMPTPAY
                           </span>
                         </div>
-                        <div className="text-slate-800 font-mono font-black text-sm">
+                        <div className="text-slate-900 font-mono font-black text-sm tabular-nums">
                           {formatMoney(grandTotal)}
                         </div>
                       </div>
@@ -1133,9 +1199,9 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
 
                   {/* 3.3 CREDIT / DEBIT CARD FLOW */}
                   {method === 'card' && (
-                    <div className="p-4 rounded-xl border border-blue-500/30 bg-card text-center space-y-3.5 shadow-2xs">
-                      <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-100 dark:bg-blue-950/50 border border-blue-300 dark:border-blue-800 text-blue-800 dark:text-blue-200 text-xs font-bold">
-                        <CardIcon className="h-3.5 w-3.5 text-blue-600" />
+                    <div className="p-4 rounded-xl border border-brand-border bg-card text-center space-y-3.5 shadow-2xs">
+                      <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-brand-surface-selected border border-brand-border-strong text-brand-text text-xs font-bold">
+                        <CardIcon className="h-3.5 w-3.5 text-brand-text-accent" />
                         <span>
                           {language === 'th'
                             ? 'เครื่องรูดบัตร EDC: TRM-VERIFONE-01'
@@ -1144,7 +1210,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
                       </div>
 
                       {/* Card Illustration */}
-                      <div className="p-4 max-w-[280px] mx-auto rounded-2xl bg-gradient-to-r from-blue-700 to-indigo-900 text-white shadow-md text-left space-y-3">
+                      <div className="p-4 max-w-[280px] mx-auto rounded-2xl bg-brand-primary text-brand-primary-text shadow-md text-left space-y-3">
                         <div className="flex justify-between items-center">
                           <div className="h-7 w-9 rounded bg-amber-400/80 border border-amber-300 flex items-center justify-center">
                             <div className="h-4 w-6 border border-amber-600/40 rounded-sm" />
@@ -1153,17 +1219,17 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
                             PRODX PAY
                           </span>
                         </div>
-                        <div className="font-mono text-sm tracking-widest">
+                        <div className="font-mono text-sm tracking-widest tabular-nums">
                           •••• •••• •••• 4242
                         </div>
                         <div className="flex justify-between items-end text-[10px]">
                           <div>
-                            <div className="opacity-60 text-[8px]">CARDHOLDER</div>
+                            <div className="opacity-75 text-[10px]">CARDHOLDER</div>
                             <div className="font-bold">
                               {customer ? customer.name.toUpperCase() : 'VALUED CUSTOMER'}
                             </div>
                           </div>
-                          <div className="font-mono font-bold">12/28</div>
+                          <div className="font-mono font-bold tabular-nums">12/28</div>
                         </div>
                       </div>
 
@@ -1309,6 +1375,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
                         </label>
                         <input
                           type="number"
+                          inputMode="decimal"
                           step="0.01"
                           value={(splitTenderAmountCents / 100).toFixed(2)}
                           onFocus={(e) => e.target.select()}
@@ -1332,6 +1399,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
                           </label>
                           <input
                             type="number"
+                            inputMode="decimal"
                             step="0.01"
                             value={(splitCashGivenCents / 100).toFixed(2)}
                             onFocus={(e) => e.target.select()}
@@ -1563,7 +1631,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
                 <div className="flex items-center gap-1.5">
                   <span
                     className={`h-2 w-2 rounded-full ${
-                      isOnline ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'
+                      isOnline ? 'bg-emerald-500' : 'bg-amber-500'
                     }`}
                   />
                   <span>
@@ -1584,6 +1652,17 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
           </div>
         )}
       </Modal>
+
+      {isDiscountSupervisorModalOpen && pendingDiscountCheckout && (
+        <SupervisorAuthModal
+          isOpen={isDiscountSupervisorModalOpen}
+          onClose={() => { setIsDiscountSupervisorModalOpen(false); setPendingDiscountCheckout(null); }}
+          title={language === 'th' ? 'อนุมัติส่วนลดรายการขาย' : 'Authorize Checkout Discount'}
+          actionDescription={language === 'th' ? 'ส่วนลดเกินวงเงินที่กำหนด กรุณาให้ผู้จัดการยืนยันรหัสผ่านบัญชี POS Auth' : 'Discount exceeds the store policy threshold. A manager must reauthenticate with their POS Auth account.'}
+          requiredRole="manager"
+          onAuthorized={handleDiscountSupervisorAuthorized}
+        />
+      )}
 
       {/* Submodals for Receipt Preview & Full Tax Invoice */}
       {completedOrder && (

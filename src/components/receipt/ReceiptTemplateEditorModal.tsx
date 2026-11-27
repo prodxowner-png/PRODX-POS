@@ -194,9 +194,9 @@ export const ReceiptTemplateEditorModal: React.FC<ReceiptTemplateEditorModalProp
                 <button
                   type="button"
                   onClick={() => handlePaperWidthChange('58mm')}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold transition-all cursor-pointer ${
+                  className={`px-2.5 py-1 rounded-lg text-xs font-mono tabular-nums font-bold transition-all cursor-pointer ${
                     currentTemplate.paperWidth === '58mm'
-                      ? 'bg-primary text-white shadow-2xs'
+                      ? 'bg-primary text-primary-foreground shadow-2xs'
                       : 'bg-background dark:bg-white/5 text-text/70 dark:text-white/60 hover:bg-zinc-200'
                   }`}
                 >
@@ -205,9 +205,9 @@ export const ReceiptTemplateEditorModal: React.FC<ReceiptTemplateEditorModalProp
                 <button
                   type="button"
                   onClick={() => handlePaperWidthChange('80mm')}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold transition-all cursor-pointer ${
+                  className={`px-2.5 py-1 rounded-lg text-xs font-mono tabular-nums font-bold transition-all cursor-pointer ${
                     currentTemplate.paperWidth === '80mm'
-                      ? 'bg-primary text-white shadow-2xs'
+                      ? 'bg-primary text-primary-foreground shadow-2xs'
                       : 'bg-background dark:bg-white/5 text-text/70 dark:text-white/60 hover:bg-zinc-200'
                   }`}
                 >
@@ -289,7 +289,7 @@ export const ReceiptTemplateEditorModal: React.FC<ReceiptTemplateEditorModalProp
                   type="text"
                   value={currentTemplate.branding.taxId}
                   onChange={(e) => handleFieldChange('branding', 'taxId', e.target.value)}
-                  className="w-full h-9 rounded-xl border border-border border-crisp bg-card px-3 font-mono text-text focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  className="w-full h-9 rounded-xl border border-border border-crisp bg-card px-3 font-mono tabular-nums text-text focus:outline-none focus:ring-2 focus:ring-primary/30"
                 />
               </div>
 
@@ -433,7 +433,7 @@ export const ReceiptTemplateEditorModal: React.FC<ReceiptTemplateEditorModalProp
                   <select
                     value={currentTemplate.layout.dividerStyle}
                     onChange={(e) => handleFieldChange('layout', 'dividerStyle', e.target.value)}
-                    className="w-full h-9 rounded-xl border border-border border-crisp bg-card px-3 font-mono text-text focus:outline-none"
+                    className="w-full h-9 rounded-xl border border-border border-crisp bg-card px-3 font-mono tabular-nums text-text focus:outline-none"
                   >
                     <option value="=">= (Double Line)</option>
                     <option value="-">- (Dashed Line)</option>
@@ -451,7 +451,7 @@ export const ReceiptTemplateEditorModal: React.FC<ReceiptTemplateEditorModalProp
                     type="text"
                     value={currentTemplate.layout.qrCodeUrlPrefix}
                     onChange={(e) => handleFieldChange('layout', 'qrCodeUrlPrefix', e.target.value)}
-                    className="w-full h-9 rounded-xl border border-border border-crisp bg-card px-3 font-mono text-text focus:outline-none"
+                    className="w-full h-9 rounded-xl border border-border border-crisp bg-card px-3 font-mono tabular-nums text-text focus:outline-none"
                   />
                 </div>
               </div>
@@ -527,6 +527,7 @@ export const ReceiptTemplateEditorModal: React.FC<ReceiptTemplateEditorModalProp
                     </label>
                     <input
                       type="number"
+                    inputMode="decimal"
                       min={0}
                       max={10}
                       value={currentTemplate.hardware.feedLinesBeforeCut}
@@ -605,7 +606,7 @@ export const ReceiptTemplateEditorModal: React.FC<ReceiptTemplateEditorModalProp
               <Sparkles className="h-3.5 w-3.5 text-primary" />
               <span>Live Thermal Simulator</span>
             </span>
-            <span className="text-[11px] font-mono text-text/50">
+            <span className="text-[11px] font-mono tabular-nums text-brand-text-secondary">
               {currentTemplate.paperWidth} · {currentTemplate.characterColumns}c
             </span>
           </div>

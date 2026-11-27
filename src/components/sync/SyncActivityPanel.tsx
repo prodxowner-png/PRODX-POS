@@ -241,7 +241,7 @@ export const SyncActivityPanel: React.FC<SyncActivityPanelProps> = ({ isOpen, on
               type="button"
               onClick={() => triggerSync()}
               disabled={isSyncing || !isOnline}
-              className="flex items-center gap-1.5 px-3 py-2 min-h-[40px] rounded-xl bg-primary hover:bg-primary/90 disabled:opacity-50 text-white text-xs font-bold transition-all shadow-sm active:scale-95 cursor-pointer"
+              className="flex items-center gap-1.5 px-3 py-2 min-h-[40px] rounded-xl bg-primary hover:bg-primary/90 disabled:opacity-50 text-primary-foreground text-xs font-bold transition-all shadow-sm active:scale-95 cursor-pointer"
               title="สั่งรันการซิงก์ข้อมูลคิวออฟไลน์ทันที"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
@@ -293,7 +293,7 @@ export const SyncActivityPanel: React.FC<SyncActivityPanelProps> = ({ isOpen, on
         <div className="grid grid-cols-2 md:grid-cols-5 gap-2.5 sm:gap-3 p-4 sm:px-6 bg-background/50 border-b border-border border-crisp text-xs shrink-0">
           {/* 1. Connection & Cloud State */}
           <div className="bg-card p-3 rounded-2xl border border-border border-crisp shadow-xs">
-            <div className="text-[10px] font-bold text-text/50 uppercase tracking-wider flex items-center justify-between">
+            <div className="text-[10px] font-bold text-brand-text-secondary uppercase tracking-wider flex items-center justify-between">
               <span>{language === 'th' ? 'สถานะคลาวด์' : 'Cloud Link'}</span>
               <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
             </div>
@@ -310,22 +310,22 @@ export const SyncActivityPanel: React.FC<SyncActivityPanelProps> = ({ isOpen, on
                 </>
               )}
             </div>
-            <div className="text-[10px] text-text/50 mt-0.5 truncate">
+            <div className="text-[10px] text-brand-text-secondary mt-0.5 truncate">
               {syncLatencyMs !== null ? `${syncLatencyMs} ms (${syncLatencyQuality})` : (language === 'th' ? 'ไม่เชื่อมต่อ' : 'Disconnected')}
             </div>
           </div>
 
           {/* 2. Local POS Cache (Outbox Queue) */}
           <div className="bg-card p-3 rounded-2xl border border-border border-crisp shadow-xs">
-            <div className="text-[10px] font-bold text-text/50 uppercase tracking-wider flex items-center justify-between">
+            <div className="text-[10px] font-bold text-brand-text-secondary uppercase tracking-wider flex items-center justify-between">
               <span>{language === 'th' ? 'Local POS Cache' : 'Local Cache'}</span>
-              <HardDrive className="w-3.5 h-3.5 text-text/40" />
+              <HardDrive className="w-3.5 h-3.5 text-brand-text-secondary" />
             </div>
             <div className="text-sm font-bold text-text mt-1 flex items-center gap-1.5">
-              <Database className="w-4 h-4 text-indigo-500" />
+              <Database className="w-4 h-4 text-brand-text-accent" />
               <span>{outbox.length} {language === 'th' ? 'รายการในแคช' : 'Cached Items'}</span>
             </div>
-            <div className="text-[10px] text-text/50 mt-0.5 flex items-center gap-1">
+            <div className="text-[10px] text-brand-text-secondary mt-0.5 flex items-center gap-1">
               <span className={pendingCount > 0 ? 'text-amber-600 dark:text-amber-400 font-bold' : ''}>
                 {pendingCount} {language === 'th' ? 'รอส่ง' : 'pending'}
               </span>
@@ -336,7 +336,7 @@ export const SyncActivityPanel: React.FC<SyncActivityPanelProps> = ({ isOpen, on
 
           {/* 3. Success Rate */}
           <div className="bg-card p-3 rounded-2xl border border-border border-crisp shadow-xs">
-            <div className="text-[10px] font-bold text-text/50 uppercase tracking-wider flex items-center justify-between">
+            <div className="text-[10px] font-bold text-brand-text-secondary uppercase tracking-wider flex items-center justify-between">
               <span>{language === 'th' ? 'อัตราสำเร็จ' : 'Success Rate'}</span>
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
             </div>
@@ -344,14 +344,14 @@ export const SyncActivityPanel: React.FC<SyncActivityPanelProps> = ({ isOpen, on
               <CheckCircle2 className="w-4 h-4" />
               <span>{successRate}%</span>
             </div>
-            <div className="text-[10px] text-text/50 mt-0.5">
+            <div className="text-[10px] text-brand-text-secondary mt-0.5">
               {successCount} / {totalEvents} {language === 'th' ? 'เหตุการณ์สำเร็จ' : 'events confirmed'}
             </div>
           </div>
 
           {/* 4. Failed / Issues */}
           <div className="bg-card p-3 rounded-2xl border border-border border-crisp shadow-xs">
-            <div className="text-[10px] font-bold text-text/50 uppercase tracking-wider flex items-center justify-between">
+            <div className="text-[10px] font-bold text-brand-text-secondary uppercase tracking-wider flex items-center justify-between">
               <span>{language === 'th' ? 'ข้อขัดข้อง / รอซ้ำ' : 'Failed / Retries'}</span>
               <AlertTriangle className="w-3.5 h-3.5 text-rose-500" />
             </div>
@@ -359,21 +359,21 @@ export const SyncActivityPanel: React.FC<SyncActivityPanelProps> = ({ isOpen, on
               <AlertCircle className="w-4 h-4 text-rose-500" />
               <span>{failedEventsCount} {language === 'th' ? 'รายการขัดข้อง' : 'failed'}</span>
             </div>
-            <div className="text-[10px] text-text/50 mt-0.5">
+            <div className="text-[10px] text-brand-text-secondary mt-0.5">
               {failedCount > 0 ? `${failedCount} รายการใน Outbox กำลังรอ Replay` : (language === 'th' ? 'ไม่มีข้อผิดพลาดค้าง' : 'Zero unhandled errors')}
             </div>
           </div>
 
           {/* 5. Last Sync Cycle */}
           <div className="col-span-2 md:col-span-1 bg-card p-3 rounded-2xl border border-border border-crisp shadow-xs">
-            <div className="text-[10px] font-bold text-text/50 uppercase tracking-wider flex items-center justify-between">
+            <div className="text-[10px] font-bold text-brand-text-secondary uppercase tracking-wider flex items-center justify-between">
               <span>{language === 'th' ? 'ซิงก์ล่าสุด' : 'Last Synced'}</span>
-              <Clock className="w-3.5 h-3.5 text-text/40" />
+              <Clock className="w-3.5 h-3.5 text-brand-text-secondary" />
             </div>
             <div className="text-sm font-bold text-text mt-1 truncate">
               {formatTimeOnly(lastSyncedAt)}
             </div>
-            <div className="text-[10px] text-text/50 mt-0.5 truncate">
+            <div className="text-[10px] text-brand-text-secondary mt-0.5 truncate">
               {avgSyncLatencyMs > 0 ? `Avg Latency: ${avgSyncLatencyMs} ms` : 'Authoritative Cloud Heartbeat'}
             </div>
           </div>
@@ -402,11 +402,11 @@ export const SyncActivityPanel: React.FC<SyncActivityPanelProps> = ({ isOpen, on
                   onClick={() => setFilter(tab.id as SyncActivityFilter)}
                   className={`px-3 py-1.5 rounded-xl text-xs font-semibold shrink-0 transition-all cursor-pointer ${
                     isActive
-                      ? 'bg-primary text-white shadow-xs'
+                      ? 'bg-primary text-primary-foreground shadow-xs'
                       : 'bg-background hover:bg-card border border-border border-crisp text-text/70 hover:text-text'
                   }`}
                 >
-                  {tab.label} <span className="opacity-75 font-mono text-[11px]">({tab.count})</span>
+                  {tab.label} <span className="opacity-75 font-mono tabular-nums text-[11px]">({tab.count})</span>
                 </button>
               );
             })}
@@ -414,19 +414,19 @@ export const SyncActivityPanel: React.FC<SyncActivityPanelProps> = ({ isOpen, on
 
           {/* Search Box */}
           <div className="relative min-w-[220px] sm:w-64">
-            <Search className="w-3.5 h-3.5 text-text/40 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <Search className="w-3.5 h-3.5 text-brand-text-secondary absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder={language === 'th' ? 'ค้นหา Order ID, SKU, Idempotency...' : 'Search by ID, Key, Error...'}
-              className="w-full pl-8 pr-7 py-1.5 rounded-xl bg-background border border-border border-crisp text-xs text-text placeholder:text-text/40 focus:outline-none focus:border-primary transition-colors"
+              className="w-full pl-8 pr-7 py-1.5 rounded-xl bg-background border border-border border-crisp text-xs text-text placeholder:text-brand-text-secondary focus:outline-none focus:border-primary transition-colors"
             />
             {searchQuery && (
               <button
                 type="button"
                 onClick={() => setSearchQuery('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text/40 hover:text-text p-0.5 cursor-pointer"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-brand-text-secondary hover:text-text p-0.5 cursor-pointer"
               >
                 <X className="w-3 h-3" />
               </button>
@@ -440,7 +440,7 @@ export const SyncActivityPanel: React.FC<SyncActivityPanelProps> = ({ isOpen, on
         <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 space-y-3.5 bg-background/30">
           {filteredEvents.length === 0 ? (
             <div className="py-16 flex flex-col items-center justify-center text-center">
-              <div className="w-14 h-14 rounded-3xl bg-background border border-border border-crisp flex items-center justify-center text-text/30 mb-3">
+              <div className="w-14 h-14 rounded-3xl bg-background border border-border border-crisp flex items-center justify-center text-brand-text-secondary mb-3">
                 <Filter className="w-7 h-7" />
               </div>
               <h4 className="text-sm font-bold text-text">
@@ -488,7 +488,7 @@ export const SyncActivityPanel: React.FC<SyncActivityPanelProps> = ({ isOpen, on
                             ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
                             : isFailed
                             ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20'
-                            : 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20'
+                            : 'bg-primary/10 text-brand-text-accent border-primary/20'
                         }`}
                       >
                         {isSuccess && <CheckCircle2 className="w-5 h-5" />}
@@ -502,14 +502,14 @@ export const SyncActivityPanel: React.FC<SyncActivityPanelProps> = ({ isOpen, on
                             {event.entityName || event.summary}
                           </span>
                           {/* Event Type Pill */}
-                          <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-md bg-background border border-border border-crisp text-text/70 uppercase">
+                          <span className="text-[10px] font-mono tabular-nums font-semibold px-2 py-0.5 rounded-md bg-background border border-border border-crisp text-text/70 uppercase">
                             {event.eventType.replace('_', ' ')}
                           </span>
                           {/* Direction Indicator */}
                           <span className="text-[10px] font-semibold flex items-center gap-1 text-text/60 bg-background/80 px-2 py-0.5 rounded-md border border-border border-crisp">
                             {event.direction === 'local_to_cloud' ? (
                               <>
-                                <CloudUpload className="w-3 h-3 text-indigo-500" />
+                                <CloudUpload className="w-3 h-3 text-brand-text-accent" />
                                 <span>Local Cache ➔ Cloud DB</span>
                               </>
                             ) : event.direction === 'cloud_to_local' ? (
@@ -531,7 +531,7 @@ export const SyncActivityPanel: React.FC<SyncActivityPanelProps> = ({ isOpen, on
                         </p>
 
                         {event.details && (
-                          <p className="text-[11px] text-text/50 mt-0.5 leading-normal">
+                          <p className="text-[11px] text-brand-text-secondary mt-0.5 leading-normal">
                             {event.details}
                           </p>
                         )}
@@ -541,13 +541,13 @@ export const SyncActivityPanel: React.FC<SyncActivityPanelProps> = ({ isOpen, on
                     {/* Right: Timestamps & Key Metrics */}
                     <div className="flex flex-wrap items-center md:items-end justify-between md:justify-end gap-3 w-full md:w-auto shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-border border-crisp">
                       {/* Success / Failure Timestamps Display */}
-                      <div className="flex flex-col md:items-end text-xs font-mono">
+                      <div className="flex flex-col md:items-end text-xs font-mono tabular-nums">
                         <div className="flex items-center gap-1 text-text/80 font-bold">
-                          <Clock className="w-3 h-3 text-text/40" />
+                          <Clock className="w-3 h-3 text-brand-text-secondary" />
                           <span>{formatTimeOnly(event.timestamp)}</span>
                           {event.completedAt && (
                             <>
-                              <span className="text-text/40">➔</span>
+                              <span className="text-brand-text-secondary">➔</span>
                               <span className={isSuccess ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}>
                                 {formatTimeOnly(event.completedAt)}
                               </span>
@@ -555,7 +555,7 @@ export const SyncActivityPanel: React.FC<SyncActivityPanelProps> = ({ isOpen, on
                           )}
                         </div>
 
-                        <div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-text/50">
+                        <div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-brand-text-secondary">
                           <span>{formatDateTime(event.timestamp)}</span>
                           {event.durationMs !== undefined && (
                             <span className="px-1.5 py-0.2 rounded bg-background border border-border border-crisp text-text/70 font-semibold">
@@ -594,7 +594,7 @@ export const SyncActivityPanel: React.FC<SyncActivityPanelProps> = ({ isOpen, on
 
                   {/* Failure Error Message Callout */}
                   {isFailed && event.errorMessage && (
-                    <div className="mx-4 mb-3 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-700 dark:text-rose-300 text-xs flex items-start gap-2.5 font-mono">
+                    <div className="mx-4 mb-3 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-700 dark:text-rose-300 text-xs flex items-start gap-2.5 font-mono tabular-nums">
                       <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
                       <div className="flex-1">
                         <div className="font-bold uppercase tracking-wider text-[10px]">
@@ -609,21 +609,21 @@ export const SyncActivityPanel: React.FC<SyncActivityPanelProps> = ({ isOpen, on
                   {isExpanded && (
                     <div className="p-4 border-t border-border border-crisp bg-background/50 space-y-3 text-xs animate-in fade-in duration-100">
                       {/* Metadata Grid */}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-[11px] font-mono">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-[11px] font-mono tabular-nums">
                         <div className="bg-card p-2.5 rounded-xl border border-border border-crisp">
-                          <div className="text-text/50 text-[10px] uppercase">Event ID</div>
+                          <div className="text-brand-text-secondary text-[10px] uppercase">Event ID</div>
                           <div className="font-bold text-text truncate mt-0.5">{event.id}</div>
                         </div>
 
                         <div className="bg-card p-2.5 rounded-xl border border-border border-crisp">
-                          <div className="text-text/50 text-[10px] uppercase">Idempotency Key</div>
+                          <div className="text-brand-text-secondary text-[10px] uppercase">Idempotency Key</div>
                           <div className="font-bold text-text flex items-center justify-between mt-0.5">
                             <span className="truncate">{event.idempotencyKey || 'N/A'}</span>
                             {event.idempotencyKey && (
                               <button
                                 type="button"
                                 onClick={() => handleCopy(event.idempotencyKey!, 'Idempotency Key')}
-                                className="text-text/40 hover:text-text p-0.5 ml-1 cursor-pointer shrink-0"
+                                className="text-brand-text-secondary hover:text-text p-0.5 ml-1 cursor-pointer shrink-0"
                                 title="Copy Idempotency Key"
                               >
                                 {copiedKey === event.idempotencyKey ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
@@ -633,14 +633,14 @@ export const SyncActivityPanel: React.FC<SyncActivityPanelProps> = ({ isOpen, on
                         </div>
 
                         <div className="bg-card p-2.5 rounded-xl border border-border border-crisp">
-                          <div className="text-text/50 text-[10px] uppercase">Cloud Confirmed ID</div>
+                          <div className="text-brand-text-secondary text-[10px] uppercase">Cloud Confirmed ID</div>
                           <div className="font-bold text-emerald-600 dark:text-emerald-400 truncate mt-0.5">
                             {event.serverConfirmedId || (isSuccess ? 'CONFIRMED' : 'PENDING_COMMIT')}
                           </div>
                         </div>
 
                         <div className="bg-card p-2.5 rounded-xl border border-border border-crisp">
-                          <div className="text-text/50 text-[10px] uppercase">Attempts / Retries</div>
+                          <div className="text-brand-text-secondary text-[10px] uppercase">Attempts / Retries</div>
                           <div className="font-bold text-text mt-0.5">
                             {event.attempts || 1} {event.attempts && event.attempts > 1 ? '(Replayed)' : '(Single Shot)'}
                           </div>
@@ -653,10 +653,10 @@ export const SyncActivityPanel: React.FC<SyncActivityPanelProps> = ({ isOpen, on
                           {event.localPayload && (
                             <div>
                               <div className="text-[10px] font-bold text-text/60 uppercase tracking-wider mb-1 flex items-center gap-1">
-                                <Database className="w-3 h-3 text-indigo-500" />
+                                <Database className="w-3 h-3 text-brand-text-accent" />
                                 <span>Local Cache Payload (IndexedDB)</span>
                               </div>
-                              <pre className="p-3 rounded-xl bg-card border border-border border-crisp text-[11px] font-mono text-text/80 overflow-x-auto max-h-48 leading-relaxed">
+                              <pre className="p-3 rounded-xl bg-card border border-border border-crisp text-[11px] font-mono tabular-nums text-text/80 overflow-x-auto max-h-48 leading-relaxed">
                                 {JSON.stringify(event.localPayload, null, 2)}
                               </pre>
                             </div>
@@ -668,7 +668,7 @@ export const SyncActivityPanel: React.FC<SyncActivityPanelProps> = ({ isOpen, on
                                 <Server className="w-3 h-3 text-emerald-500" />
                                 <span>Cloud Authoritative Response (PostgreSQL)</span>
                               </div>
-                              <pre className="p-3 rounded-xl bg-card border border-border border-crisp text-[11px] font-mono text-text/80 overflow-x-auto max-h-48 leading-relaxed">
+                              <pre className="p-3 rounded-xl bg-card border border-border border-crisp text-[11px] font-mono tabular-nums text-text/80 overflow-x-auto max-h-48 leading-relaxed">
                                 {JSON.stringify(event.cloudPayload, null, 2)}
                               </pre>
                             </div>
@@ -687,7 +687,7 @@ export const SyncActivityPanel: React.FC<SyncActivityPanelProps> = ({ isOpen, on
         {/* PANEL FOOTER */}
         {/* ========================================================================= */}
         <div className="px-5 py-3.5 sm:px-6 border-t border-border border-crisp bg-card flex flex-wrap items-center justify-between gap-3 text-xs shrink-0">
-          <div className="flex items-center gap-2 text-text/60 font-mono text-[11px]">
+          <div className="flex items-center gap-2 text-text/60 font-mono tabular-nums text-[11px]">
             <span className="w-2 h-2 rounded-full bg-emerald-500" />
             <span>Authoritative Persistence: PostgreSQL Transaction Boundaries & IndexedDB Resilience</span>
           </div>
@@ -719,7 +719,7 @@ export const SyncActivityPanel: React.FC<SyncActivityPanelProps> = ({ isOpen, on
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-1.5 rounded-xl bg-primary text-white font-bold hover:bg-primary/90 transition-all cursor-pointer shadow-xs active:scale-95"
+              className="px-4 py-1.5 rounded-xl bg-primary text-primary-foreground font-bold hover:bg-primary/90 transition-all cursor-pointer shadow-xs active:scale-95"
             >
               {language === 'th' ? 'ปิดหน้าต่าง' : 'Close'}
             </button>

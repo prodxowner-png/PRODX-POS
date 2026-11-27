@@ -52,6 +52,7 @@ export interface BiometricLoginRequest {
   storeCode: string;
   registerId: string;
   organizationContext?: OrganizationLoginContext;
+  username?: string;
   targetUser?: { id: string; email: string; name: string };
   requireAdminRole?: boolean;
 }
@@ -64,6 +65,10 @@ export interface CheckoutRequest {
   customer?: { id: string; name: string; phone: string; email: string };
   items: readonly CartLineItem[];
   totals: CartTotals;
+  /** Optional order-level discount; the backend validates permission and recalculates it. */
+  orderDiscountBps?: number;
+  /** Short-lived server-issued supervisor grant; excluded from semantic idempotency fingerprint. */
+  supervisorAuthorizationToken?: string;
   payments: readonly TenderPayment[];
   notes?: string;
   isOfflineSubmission?: boolean;
@@ -129,7 +134,7 @@ export interface RefundItemRestock {
 
 export interface IOrderApi {
   createOrder(req: CheckoutRequest): Promise<CheckoutResponse>;
-  getOrders(storeId: string, limit?: number, registerId?: string): Promise<readonly Order[]>;
+  getOrders(storeId: string, limit?: number, registerId?: string, options?: { from?: string; to?: string; offset?: number }): Promise<readonly Order[]>;
   getOrderById(storeId: string, orderId: string): Promise<Order | null>;
   voidOrder(storeId: string, orderId: string, reason: string, authorizedByUserId: string): Promise<Order>;
   refundOrder(

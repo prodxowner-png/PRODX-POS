@@ -429,7 +429,7 @@ export const ShiftScreen: React.FC = () => {
                 variant="secondary"
                 size="md"
                 onClick={() => setIsBreakdownModalOpen(true)}
-                leftIcon={<PieChart className="h-4 w-4 text-purple-600 dark:text-purple-400" />}
+                leftIcon={<PieChart className="h-4 w-4 text-brand-text-accent" />}
                 className="whitespace-nowrap min-h-[44px]"
               >
                 {language === 'th' ? 'กราฟสรุปยอดชำระ' : 'Payment Breakdown'}
@@ -488,10 +488,10 @@ export const ShiftScreen: React.FC = () => {
             <Card className="shadow-2xs">
               <CardBody className="p-5">
                 <div className="text-xs font-semibold text-text/70 uppercase tracking-wider">{t.shift.openingCash}</div>
-                <div className="text-2xl font-black font-mono mt-2 text-text">
+                <div className="text-2xl font-black font-mono tabular-nums mt-2 text-text">
                   {formatMoney(currentShift.openingFloat)}
                 </div>
-                <div className="text-[11px] text-text/50 mt-1">
+                <div className="text-[11px] text-brand-text-secondary mt-1">
                   {language === 'th' ? 'เปิดกะเวลา' : 'Opened at'} {new Date(currentShift.openedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </div>
               </CardBody>
@@ -500,31 +500,31 @@ export const ShiftScreen: React.FC = () => {
             <Card className="shadow-2xs">
               <CardBody className="p-5">
                 <div className="text-xs font-semibold text-text/70 uppercase tracking-wider">{t.shift.cashSales}</div>
-                <div className="text-2xl font-black font-mono mt-2 text-emerald-600 dark:text-emerald-400">
+                <div className="text-2xl font-black font-mono tabular-nums mt-2 text-emerald-600 dark:text-emerald-400">
                   +{formatMoney(currentShift.totalCashSales)}
                 </div>
-                <div className="text-[11px] text-text/50 mt-1">{language === 'th' ? 'ยอดเงินสดที่รับชำระทั้งหมด' : 'Collected from cash tenders'}</div>
+                <div className="text-[11px] text-brand-text-secondary mt-1">{language === 'th' ? 'ยอดเงินสดที่รับชำระทั้งหมด' : 'Collected from cash tenders'}</div>
               </CardBody>
             </Card>
 
             <Card className="shadow-2xs">
               <CardBody className="p-5">
                 <div className="text-xs font-semibold text-text/70 uppercase tracking-wider">{t.shift.paidIn} / {t.shift.paidOut}</div>
-                <div className="flex items-center gap-3 mt-2 font-mono text-sm font-bold">
+                <div className="flex items-center gap-3 mt-2 font-mono tabular-nums text-sm font-bold">
                   <span className="text-emerald-600 dark:text-emerald-400">+{formatMoney(currentShift.totalPaidIn)}</span>
                   <span className="text-rose-600 dark:text-rose-400">-{formatMoney(currentShift.totalPaidOut)}</span>
                 </div>
-                <div className="text-[11px] text-text/50 mt-1">{language === 'th' ? 'การนำเงินเข้าและหยอดเซฟ' : 'Cash drops and floats'}</div>
+                <div className="text-[11px] text-brand-text-secondary mt-1">{language === 'th' ? 'การนำเงินเข้าและหยอดเซฟ' : 'Cash drops and floats'}</div>
               </CardBody>
             </Card>
 
             <Card className="shadow-2xs">
               <CardBody className="p-5">
                 <div className="text-xs font-semibold text-text/70 uppercase tracking-wider">{t.shift.expectedInDrawer}</div>
-                <div className="text-2xl font-black font-mono mt-2 text-text">
+                <div className="text-2xl font-black font-mono tabular-nums mt-2 text-text">
                   {formatMoney(currentShift.expectedCashInDrawer)}
                 </div>
-                <div className="text-[11px] text-text/50 mt-1">{language === 'th' ? 'เงินทอน + ยอดขาย + ยอดเคลื่อนไหวสุทธิ' : 'Float + Sales + Net Movements'}</div>
+                <div className="text-[11px] text-brand-text-secondary mt-1">{language === 'th' ? 'เงินทอน + ยอดขาย + ยอดเคลื่อนไหวสุทธิ' : 'Float + Sales + Net Movements'}</div>
               </CardBody>
             </Card>
           </div>
@@ -554,17 +554,17 @@ export const ShiftScreen: React.FC = () => {
                     <th className="py-3 px-5 text-right">{language === 'th' ? 'จำนวนเงิน' : 'Amount'}</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-border font-mono">
+                <tbody className="divide-y divide-border font-mono tabular-nums">
                   {currentShift.movements.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="py-8 text-center text-text/50 font-sans">
+                      <td colSpan={5} className="py-8 text-center text-brand-text-secondary font-sans">
                         {language === 'th' ? 'ยังไม่มีรายการเคลื่อนไหวเงินสดในกะนี้' : 'No manual cash movements in this shift yet.'}
                       </td>
                     </tr>
                   ) : (
                     currentShift.movements.map((m) => (
                       <tr key={m.id} className="hover:bg-background">
-                        <td className="py-3 px-5 text-text/50">
+                        <td className="py-3 px-5 text-brand-text-secondary">
                           {new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </td>
                         <td className="py-3 px-4 font-sans">
@@ -585,11 +585,11 @@ export const ShiftScreen: React.FC = () => {
                               : m.type.replace('_', ' ').toUpperCase()}
                           </Badge>
                         </td>
-                        <td className="py-3 px-4 font-mono text-xs text-text/50">{m.performedByUserId}</td>
+                        <td className="py-3 px-4 font-mono tabular-nums text-xs text-brand-text-secondary">{m.performedByUserId}</td>
                         <td className="py-3 px-4 font-sans text-text/70">
                           {m.reason}
                         </td>
-                        <td className="py-3 px-5 text-right font-mono font-bold text-text">
+                        <td className="py-3 px-5 text-right font-mono tabular-nums font-bold text-text">
                           {formatMoney(m.amount)}
                         </td>
                       </tr>
@@ -604,11 +604,11 @@ export const ShiftScreen: React.FC = () => {
       ) : (
         /* No Shift Open Empty State */
         <Card className="text-center py-16 px-4">
-          <Banknote className="h-12 w-12 mx-auto text-text/30 mb-3" />
+          <Banknote className="h-12 w-12 mx-auto text-brand-text-secondary mb-3" />
           <h3 className="text-base font-bold text-text">
             {t.shift.noActiveShift} ({language === 'th' ? 'เครื่อง' : 'Register'} {session.registerId})
           </h3>
-          <p className="text-xs text-text/50 max-w-sm mx-auto mt-1 mb-6">
+          <p className="text-xs text-brand-text-secondary max-w-sm mx-auto mt-1 mb-6">
             {t.shift.noShiftPrompt}
           </p>
           <Button
@@ -639,10 +639,11 @@ export const ShiftScreen: React.FC = () => {
             </label>
             <input
               type="number"
+              inputMode="decimal"
               step="0.01"
               value={openingFloatDollars}
               onChange={(e) => setOpeningFloatDollars(e.target.value)}
-              className="w-full rounded-lg border-crisp border border-border bg-card text-lg font-mono font-bold py-2.5 px-3 text-text focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+              className="w-full rounded-lg border-crisp border border-border bg-card text-lg font-mono tabular-nums font-bold py-2.5 px-3 text-text focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
             />
           </div>
 
@@ -674,7 +675,7 @@ export const ShiftScreen: React.FC = () => {
           <div className="space-y-4">
             <div className="p-3.5 rounded-lg border-crisp border border-border bg-card flex justify-between items-center text-xs">
               <span className="text-text/70">{t.shift.expectedInDrawer}:</span>
-              <span className="font-mono font-bold text-base text-text">
+              <span className="font-mono tabular-nums font-bold text-base text-text">
                 {formatMoney(currentShift.expectedCashInDrawer)}
               </span>
             </div>
@@ -685,10 +686,11 @@ export const ShiftScreen: React.FC = () => {
               </label>
               <input
                 type="number"
+                inputMode="decimal"
                 step="0.01"
                 value={countedDollars}
                 onChange={(e) => setCountedDollars(e.target.value)}
-                className="w-full rounded-lg border-crisp border border-border bg-card text-xl font-mono font-bold py-2.5 px-3 text-text focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                className="w-full rounded-lg border-crisp border border-border bg-card text-xl font-mono tabular-nums font-bold py-2.5 px-3 text-text focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
               />
             </div>
 
@@ -711,7 +713,7 @@ export const ShiftScreen: React.FC = () => {
                     <Scale className="h-4 w-4" />
                     <span>{t.shift.variance}:</span>
                   </span>
-                  <span className="font-mono font-bold text-sm">
+                  <span className="font-mono tabular-nums font-bold text-sm">
                     {varianceCents === 0
                       ? `${t.shift.balanced} ($0.00)`
                       : `${isOver ? '+' : '-'}$${centsToDecimalString(Math.abs(varianceCents))} (${isOver ? (language === 'th' ? 'เกิน' : 'Over') : (language === 'th' ? 'ขาด' : 'Short')})`}
@@ -767,10 +769,11 @@ export const ShiftScreen: React.FC = () => {
             </label>
             <input
               type="number"
+              inputMode="decimal"
               step="0.01"
               value={movementAmountDollars}
               onChange={(e) => setMovementAmountDollars(e.target.value)}
-              className="w-full rounded-lg border-crisp border border-border bg-card text-base font-mono font-bold py-2.5 px-3 text-text focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+              className="w-full rounded-lg border-crisp border border-border bg-card text-base font-mono tabular-nums font-bold py-2.5 px-3 text-text focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
             />
           </div>
 

@@ -52,6 +52,8 @@ interface OfflineContextType {
   isOnline: boolean;
   isSimulatedOffline: boolean;
   outbox: OutboxItem[];
+  isOutboxReady: boolean;
+  hasUnresolvedOutbox: boolean;
   pendingCount: number;
   syncedCount: number;
   failedCount: number;
@@ -82,7 +84,7 @@ interface OfflineContextType {
   clearSyncActivityHistory: () => void;
 }
 
-const OfflineContext = createContext<OfflineContextType | undefined>(undefined);
+export const OfflineContext = createContext<OfflineContextType | undefined>(undefined);
 
 const OUTBOX_STORAGE_KEY = 'prodx_pos_outbox';
 const LAST_SYNCED_STORAGE_KEY = 'prodx_pos_last_synced';
@@ -226,13 +228,15 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   });
   const [outbox, setOutbox] = useState<OutboxItem[]>([]);
+  const [isOutboxReady, setIsOutboxReady] = useState(false);
   const outboxReadyRef = useRef<Promise<void> | null>(null);
   const ensureOutboxReady = useCallback((): Promise<void> => {
     if (!outboxReadyRef.current) {
-      outboxReadyRef.current = (async () => {
+      const initialization = (async () => {
         const stored = normalizeOutboxForRecovery(await loadOutboxItems());
         if (stored.length > 0) {
           setOutbox(stored.sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
+          setIsOutboxReady(true);
           return;
         }
 
@@ -252,7 +256,14 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
         } else {
           setOutbox([]);
         }
+        setIsOutboxReady(true);
       })();
+
+      outboxReadyRef.current = initialization.catch((error) => {
+        // Keep the update gate closed and permit a later operation to retry initialization.
+        outboxReadyRef.current = null;
+        throw error;
+      });
     }
     return outboxReadyRef.current;
   }, []);
@@ -604,6 +615,7 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
     void clearOutboxItems().then(() => setOutbox([]));
   };
 
+  const hasUnresolvedOutbox = outbox.some((item) => item.syncState !== 'synced');
   const pendingCount = outbox.filter((i) => i.syncState === 'queued' || i.syncState === 'failed').length;
   const syncedCount = outbox.filter((i) => i.syncState === 'synced').length;
   const failedCount = outbox.filter((i) => i.syncState === 'failed').length;
@@ -733,6 +745,8 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
         isOnline: isEffectiveOnline,
         isSimulatedOffline,
         outbox,
+        isOutboxReady,
+        hasUnresolvedOutbox,
         pendingCount,
         syncedCount,
         failedCount,

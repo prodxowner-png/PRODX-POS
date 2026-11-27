@@ -95,13 +95,31 @@ export interface GlobalErrorRecoveryContextType {
   simulateFailure: (type: CriticalFailureType) => string;
   isOverlayOpen: boolean;
   setIsOverlayOpen: (open: boolean) => void;
-  forceReloadAndClearCache: () => void;
+  reloadPreservingTransactionData: () => void;
 }
 
 const GlobalErrorRecoveryContext = createContext<GlobalErrorRecoveryContextType | undefined>(undefined);
 
 const AUDIT_STORAGE_KEY = 'prodx_recovery_audit_log';
 const MAX_LOG_HISTORY = 40;
+
+export function getSafeRuntimeErrorName(error: unknown): string | null {
+  if (!(error instanceof Error)) return null;
+  const name = typeof error.name === 'string' ? error.name : '';
+  return /^[A-Za-z][A-Za-z0-9_]{0,79}$/.test(name) ? name : 'Error';
+}
+
+export function reloadApplicationPreservingLocalData(
+  transientStorage: { removeItem(key: string): void } | undefined,
+  reload: () => void,
+): void {
+  try {
+    transientStorage?.removeItem('prodx_temp_query_cache');
+  } catch {
+    // Reload is still safe when the transient cache is unavailable.
+  }
+  reload();
+}
 
 // Internal boundary for React render crashes
 interface ErrorBoundaryProps {
@@ -111,16 +129,17 @@ interface ErrorBoundaryProps {
 
 interface ErrorBoundaryState {
   hasError: boolean;
+  error: Error | null;
 }
 
-class InternalCrashBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+export class InternalCrashBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   constructor(props: ErrorBoundaryProps) {
     super(props);
-    this.state = { hasError: false };
+    this.state = { hasError: false, error: null };
   }
 
-  static getDerivedStateFromError(): ErrorBoundaryState {
-    return { hasError: true };
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
   }
 
   override componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
@@ -128,7 +147,214 @@ class InternalCrashBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryS
   }
 
   override render(): ReactNode {
+    if (this.state.hasError) {
+      return (
+        <main
+          id="global-crash-boundary-fallback"
+          role="alert"
+          aria-live="assertive"
+          className="min-h-screen flex flex-col items-center justify-center gap-4 bg-slate-950 px-6 py-10 text-center text-white"
+        >
+          <div className="max-w-lg space-y-3">
+            <h1 className="text-xl font-bold">PRODX POS encountered a runtime error</h1>
+            <p className="text-sm text-slate-300">
+              The application stopped rendering safely. Your stored transaction data has not been cleared.
+            </p>
+            <p className="rounded-lg border border-rose-500/30 bg-rose-950/40 p-3 text-left text-sm text-rose-200">
+              An unexpected rendering error occurred. Reload the application to try again.
+            </p>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+            >
+              Reload application
+            </button>
+          </div>
+        </main>
+      );
+    }
+
     return this.props.children;
+  }
+}
+
+export interface StateSanitationResult {
+  success: boolean;
+  message: string;
+  quarantinedKeys?: string[];
+}
+
+const VALID_OUTBOX_TYPES = new Set(['order_transaction', 'shift_movement', 'stock_adjustment']);
+const VALID_SYNC_STATES = new Set(['queued', 'syncing', 'synced', 'failed', 'conflict_requires_attention']);
+
+export function isValidOutboxQueueItem(item: any): boolean {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
+  if (typeof item.id !== 'string' || item.id.trim() === '') return false;
+  if (!VALID_OUTBOX_TYPES.has(item.type)) return false;
+  if (typeof item.idempotencyKey !== 'string' || item.idempotencyKey.trim() === '') return false;
+  if (!item.payload || typeof item.payload !== 'object') return false;
+  if (typeof item.createdAt !== 'string' || isNaN(Date.parse(item.createdAt))) return false;
+  if (item.syncState !== undefined && !VALID_SYNC_STATES.has(item.syncState)) return false;
+  if (item.attempts !== undefined && (typeof item.attempts !== 'number' || item.attempts < 0 || !Number.isFinite(item.attempts))) return false;
+  return true;
+}
+
+function generateQuarantineKey(prefix: string): string {
+  const entropy = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID().replace(/-/g, '')
+    : `${Date.now()}_${Math.random().toString(36).substring(2, 12)}`;
+  return `${prefix}_${Date.now()}_${entropy}`;
+}
+
+function safeQuarantineWrite(
+  store: { getItem(k: string): string | null; setItem(k: string, v: string): void },
+  key: string,
+  value: string
+): boolean {
+  try {
+    store.setItem(key, value);
+    const readBack = store.getItem(key);
+    return readBack === value;
+  } catch {
+    return false;
+  }
+}
+
+// State sanitation helper: cleans corrupt keys while preserving critical offline outbox, session & inventory integrity
+export function sanitizeAndRestoreAppState(
+  target: 'cart' | 'outbox' | 'cache' | 'all' = 'all',
+  storage?: {
+    getItem(key: string): string | null;
+    setItem(key: string, value: string): void;
+    removeItem(key: string): void;
+  }
+): StateSanitationResult {
+  const store = storage || (typeof localStorage !== 'undefined' ? localStorage : null);
+  if (!store) {
+    return {
+      success: true,
+      message: 'No web storage available in runtime environment',
+      quarantinedKeys: [],
+    };
+  }
+
+  const actionsTaken: string[] = [];
+  const quarantinedKeys: string[] = [];
+  let hasFailure = false;
+  let failureReason = '';
+
+  try {
+    if (target === 'cart' || target === 'all') {
+      const heldCarts = store.getItem('prodx_held_carts');
+      if (heldCarts) {
+        try {
+          const parsed = JSON.parse(heldCarts);
+          if (!Array.isArray(parsed)) {
+            const qKey = generateQuarantineKey('prodx_held_carts_quarantine');
+            if (safeQuarantineWrite(store, qKey, heldCarts)) {
+              quarantinedKeys.push(qKey);
+              store.setItem('prodx_held_carts', JSON.stringify([]));
+              actionsTaken.push(`Quarantined malformed held carts to ${qKey}`);
+            } else {
+              hasFailure = true;
+              failureReason = 'Failed to quarantine malformed held carts (storage write error); preserved intact without reset.';
+            }
+          }
+        } catch {
+          const qKey = generateQuarantineKey('prodx_held_carts_quarantine');
+          if (safeQuarantineWrite(store, qKey, heldCarts)) {
+            quarantinedKeys.push(qKey);
+            store.setItem('prodx_held_carts', JSON.stringify([]));
+            actionsTaken.push(`Quarantined unparseable held carts to ${qKey}`);
+          } else {
+            hasFailure = true;
+            failureReason = 'Failed to quarantine unparseable held carts (storage write error); preserved intact without reset.';
+          }
+        }
+      }
+      actionsTaken.push('Verified in-memory decimal financial invariants');
+    }
+
+    if (target === 'outbox' || target === 'all') {
+      const outbox = store.getItem('prodx_pos_outbox');
+      if (outbox) {
+        try {
+          const parsed = JSON.parse(outbox);
+          if (Array.isArray(parsed)) {
+            // Validate items against full production OutboxItem domain schema
+            const validItems = parsed.filter(isValidOutboxQueueItem);
+            const corruptedItems = parsed.filter((item) => !isValidOutboxQueueItem(item));
+
+            if (corruptedItems.length > 0) {
+              const qKey = generateQuarantineKey('prodx_pos_outbox_quarantine');
+              if (safeQuarantineWrite(store, qKey, JSON.stringify(corruptedItems))) {
+                quarantinedKeys.push(qKey);
+                store.setItem('prodx_pos_outbox', JSON.stringify(validItems));
+                actionsTaken.push(
+                  `Quarantined ${corruptedItems.length} corrupted outbox queue items to ${qKey}; preserved ${validItems.length} valid pending transactions`
+                );
+              } else {
+                hasFailure = true;
+                failureReason = `Storage failure while quarantining ${corruptedItems.length} corrupted outbox items; fail-closed preservation kept original outbox intact.`;
+              }
+            } else {
+              actionsTaken.push(`Verified ${validItems.length} pending offline transactions intact`);
+            }
+          } else {
+            // Malformed queue: parsed is not an array.
+            // Invariant: Do not overwrite outbox with "[]" without quarantine backup.
+            const qKey = generateQuarantineKey('prodx_pos_outbox_quarantine');
+            const quarantined = safeQuarantineWrite(store, qKey, outbox);
+            if (quarantined) {
+              quarantinedKeys.push(qKey);
+            }
+            hasFailure = true;
+            failureReason = `Offline outbox is not a valid queue array. Original content preserved${quarantined ? ` and quarantined to ${qKey}` : ' intact (quarantine write failed)'}. Automated recovery failed to protect unsynced transactions.`;
+          }
+        } catch {
+          // Invariant 1: Never delete or overwrite offline outbox that cannot be parsed.
+          // Invariant 2: Never change outbox to "[]" without backup and quarantining the original.
+          // Invariant 4: Never report recovery success when data recovery failed.
+          const qKey = generateQuarantineKey('prodx_pos_outbox_quarantine');
+          const quarantined = safeQuarantineWrite(store, qKey, outbox);
+          if (quarantined) {
+            quarantinedKeys.push(qKey);
+          }
+          hasFailure = true;
+          failureReason = quarantined
+            ? `Offline outbox contains unparseable corrupted JSON. Raw content quarantined to ${qKey} and original preserved intact to prevent transaction data loss.`
+            : 'Offline outbox contains unparseable corrupted JSON. Quarantine backup failed; original content preserved intact to prevent transaction data loss.';
+        }
+      }
+    }
+
+    if (target === 'cache' || target === 'all') {
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.removeItem('prodx_temp_query_cache');
+        actionsTaken.push('Flushed volatile session query cache');
+      }
+    }
+
+    if (hasFailure) {
+      return {
+        success: false,
+        message: failureReason,
+        quarantinedKeys,
+      };
+    }
+
+    return {
+      success: true,
+      message: actionsTaken.length > 0 ? actionsTaken.join(' • ') : 'State sanity check passed with 0 corruptions',
+      quarantinedKeys,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      message: 'State sanitation failed due to an unexpected error. Verify local transaction data before retrying.',
+      quarantinedKeys,
+    };
   }
 }
 
@@ -185,86 +411,19 @@ export const GlobalErrorRecoveryProvider: React.FC<{ children: ReactNode }> = ({
     }
   };
 
-  // State sanitation: cleans corrupt keys while preserving critical session & inventory integrity
+  // State sanitation wrapper
   const sanitizeAndRestoreState = useCallback((target: 'cart' | 'outbox' | 'cache' | 'all' = 'all') => {
-    const actionsTaken: string[] = [];
-
-    try {
-      if (target === 'cart' || target === 'all') {
-        // Verify cart items in storage
-        const heldCarts = localStorage.getItem('prodx_held_carts');
-        if (heldCarts) {
-          try {
-            const parsed = JSON.parse(heldCarts);
-            if (!Array.isArray(parsed)) {
-              localStorage.removeItem('prodx_held_carts');
-              actionsTaken.push('Reset corrupted held carts array to clean empty list');
-            }
-          } catch {
-            localStorage.removeItem('prodx_held_carts');
-            actionsTaken.push('Purged unparseable held carts JSON payload');
-          }
-        }
-        actionsTaken.push('Verified in-memory decimal financial invariants');
-      }
-
-      if (target === 'outbox' || target === 'all') {
-        const outbox = localStorage.getItem('prodx_pos_outbox');
-        if (outbox) {
-          try {
-            const parsed = JSON.parse(outbox);
-            if (Array.isArray(parsed)) {
-              // Filter out corrupt items without payload or id
-              const sanitized = parsed.filter((item) => item && typeof item === 'object' && item.id && item.idempotencyKey);
-              if (sanitized.length !== parsed.length) {
-                localStorage.setItem('prodx_pos_outbox', JSON.stringify(sanitized));
-                actionsTaken.push(`Quarantined ${parsed.length - sanitized.length} corrupted outbox queue items`);
-              }
-            } else {
-              localStorage.setItem('prodx_pos_outbox', JSON.stringify([]));
-              actionsTaken.push('Re-initialized outbox to clean array');
-            }
-          } catch {
-            localStorage.setItem('prodx_pos_outbox', JSON.stringify([]));
-            actionsTaken.push('Repaired malformed outbox queue storage');
-          }
-        }
-      }
-
-      if (target === 'cache' || target === 'all') {
-        // Clear stale temporary telemetry / query caches
-        sessionStorage.removeItem('prodx_temp_query_cache');
-        actionsTaken.push('Flushed volatile session query cache');
-      }
-
-      return {
-        success: true,
-        message: actionsTaken.length > 0 ? actionsTaken.join(' • ') : 'State sanity check passed with 0 corruptions',
-      };
-    } catch (err: any) {
-      return {
-        success: false,
-        message: `State sanitation failed: ${err?.message || 'Unknown error'}`,
-      };
-    }
+    return sanitizeAndRestoreAppState(target);
   }, []);
 
-  // Force hard reload & clear local cache
-  const forceReloadAndClearCache = useCallback(() => {
-    try {
-      localStorage.clear();
-      sessionStorage.clear();
-      if (typeof window !== 'undefined' && 'caches' in window) {
-        caches.keys().then((names) => {
-          names.forEach((name) => caches.delete(name));
-        }).catch(() => {});
-      }
-    } catch (e) {
-      console.error('[GlobalErrorRecovery] Cache clearing error:', e);
-    }
-    setTimeout(() => {
-      window.location.href = window.location.origin + window.location.pathname;
-    }, 300);
+  // A crash-recovery reload must never clear POS sessions, durable outbox,
+  // carts, inventory snapshots, or application caches. Only remove this
+  // explicitly disposable query-cache entry before reloading.
+  const reloadPreservingTransactionData = useCallback(() => {
+    reloadApplicationPreservingLocalData(
+      typeof sessionStorage !== 'undefined' ? sessionStorage : undefined,
+      () => window.location.reload(),
+    );
   }, []);
 
   // Core Auto-Recovery Engine
@@ -354,15 +513,17 @@ export const GlobalErrorRecoveryProvider: React.FC<{ children: ReactNode }> = ({
 
         case 'RUNTIME_CRASH':
         default: {
-          sanitizeAndRestoreState('all');
-          recoverySuccess = true;
-          resolutionMessage = 'Runtime boundary sanitized. State restored to clean deterministic snapshot.';
+          const res = sanitizeAndRestoreState('all');
+          recoverySuccess = res.success;
+          resolutionMessage = res.success
+            ? (res.message || 'Runtime boundary sanitized. State restored to clean deterministic snapshot.')
+            : (res.message || 'Runtime state sanitation failed.');
           break;
         }
       }
     } catch (err: any) {
       recoverySuccess = false;
-      resolutionMessage = `Auto-recovery routine exception: ${err?.message || 'Unknown error'}`;
+      resolutionMessage = 'Auto-recovery failed due to an unexpected error. Manual review is required.';
     }
 
     const durationMs = Math.round(performance.now() - startTime);
@@ -432,17 +593,21 @@ export const GlobalErrorRecoveryProvider: React.FC<{ children: ReactNode }> = ({
       const id = `crit-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
       const strategy = input.strategy || getRecommendedStrategy(input.type);
 
-      const errObj = input.error instanceof Error ? input.error : undefined;
-      const errorStack = errObj?.stack || (typeof input.error === 'string' ? input.error : undefined);
+      // Runtime exception messages and stacks can contain access tokens,
+      // SQL, request bodies, or customer data. Keep raw exception objects
+      // out of browser state, audit payloads, and cashier-visible diagnostics.
+      const safeMessage = input.error
+        ? 'An unexpected application error occurred. Sensitive details are withheld.'
+        : input.message;
 
       const newFailure: CriticalFailure = {
         id,
         type: input.type,
         title: input.title,
-        message: input.message,
+        message: safeMessage,
         module: input.module || 'pos_core',
         timestamp: new Date().toISOString(),
-        errorStack,
+        errorStack: undefined,
         contextData: input.contextData,
         autoRecoveryAttempt: 0,
         maxAttempts: 3,
@@ -451,7 +616,7 @@ export const GlobalErrorRecoveryProvider: React.FC<{ children: ReactNode }> = ({
         recoveryStrategy: strategy,
       };
 
-      console.warn(`[GlobalErrorRecovery] Critical failure intercepted [${input.type} in ${newFailure.module}]:`, input.message);
+      console.warn(`[GlobalErrorRecovery] Critical failure intercepted [${input.type} in ${newFailure.module}]`, { failureId: id });
 
       // Persist diagnostics through the authenticated PostgreSQL-backed audit API.
       // Never write browser diagnostics directly to a retired Firebase project.
@@ -475,9 +640,9 @@ export const GlobalErrorRecoveryProvider: React.FC<{ children: ReactNode }> = ({
               details: {
                 id,
                 title: input.title,
-                message: input.message,
+                message: safeMessage,
                 module: newFailure.module,
-                errorStack: errorStack || null,
+                errorName: getSafeRuntimeErrorName(input.error),
                 timestamp: newFailure.timestamp,
               },
             }),
@@ -485,8 +650,8 @@ export const GlobalErrorRecoveryProvider: React.FC<{ children: ReactNode }> = ({
           if (!response.ok) {
             console.warn('[GlobalErrorRecovery] PostgreSQL audit API rejected diagnostic log:', response.status);
           }
-        } catch (error) {
-          console.warn('[GlobalErrorRecovery] Failed to persist diagnostic log to PostgreSQL audit API:', error);
+        } catch {
+          console.warn('[GlobalErrorRecovery] Failed to persist diagnostic log to PostgreSQL audit API.', { failureId: id });
         }
       })();
 
@@ -590,7 +755,7 @@ export const GlobalErrorRecoveryProvider: React.FC<{ children: ReactNode }> = ({
   useEffect(() => {
     const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
       const reason = event.reason;
-      const message = reason?.message || String(reason || 'Unhandled Promise Rejection');
+      const message = 'An unhandled asynchronous error interrupted the application.';
       reportCriticalFailure({
         type: 'RUNTIME_CRASH',
         title: 'Unhandled Async Promise Rejection',
@@ -604,7 +769,7 @@ export const GlobalErrorRecoveryProvider: React.FC<{ children: ReactNode }> = ({
       reportCriticalFailure({
         type: 'RUNTIME_CRASH',
         title: 'Global JavaScript Exception',
-        message: event.message || 'Unknown window runtime error',
+        message: 'An unhandled browser runtime error interrupted the application.',
         error: event.error,
         module: 'global_window',
       });
@@ -667,17 +832,24 @@ export const GlobalErrorRecoveryProvider: React.FC<{ children: ReactNode }> = ({
     simulateFailure,
     isOverlayOpen,
     setIsOverlayOpen,
-    forceReloadAndClearCache,
+    reloadPreservingTransactionData,
   };
 
   const handleCrashBoundaryCatch = useCallback(
     (error: Error, info: ErrorInfo) => {
+      // Retain only a validated error class for audit metadata; never forward
+      // the original exception object or its message/stack.
+      const safeError = new Error('A React render error was caught.');
+      safeError.name = getSafeRuntimeErrorName(error) ?? 'Error';
       reportCriticalFailure({
         type: 'RUNTIME_CRASH',
         title: 'Application Core Loop Render Crash',
-        message: error.message,
-        error,
-        contextData: { componentStack: info.componentStack },
+        message: 'A React render error was caught. Sensitive error details are withheld.',
+        error: safeError,
+        contextData: {
+          errorName: safeError.name,
+          componentStack: info.componentStack,
+        },
         module: 'react_core_tree',
       });
     },
