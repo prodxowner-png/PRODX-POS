@@ -145,14 +145,14 @@ export const TopNav: React.FC<TopNavProps> = ({
               <span className="max-w-[60px] min-[360px]:max-w-[85px] sm:max-w-[130px] md:max-w-[170px] lg:max-w-[200px] truncate">
                 {session.currentStore.name}
               </span>
-              <ChevronDown className="h-3.5 w-3.5 text-text/50 shrink-0" />
+              <ChevronDown className="h-3.5 w-3.5 text-brand-text-secondary shrink-0" />
             </button>
 
             {isStoreMenuOpen && (
               <div
                 className={`${getZIndexClass('dropdown')} absolute left-0 mt-2 w-72 sm:w-80 max-w-[95vw] rounded-2xl border border-border border-crisp bg-card shadow-2xl py-2 animate-in fade-in zoom-in-95 duration-100`}
               >
-                <div className="px-3 py-1.5 text-[10px] font-bold text-text/50 uppercase tracking-wider">
+                <div className="px-3 py-1.5 text-[10px] font-bold text-brand-text-secondary uppercase tracking-wider">
                   {t.topNav.selectStore}
                 </div>
                 {session.organization.stores.map((store) => (
@@ -171,7 +171,7 @@ export const TopNav: React.FC<TopNavProps> = ({
                   >
                     <div>
                       <div className="font-bold">{store.name}</div>
-                      <div className="text-[11px] text-text/50 font-mono mt-0.5">{store.code} · {store.timezone}</div>
+                      <div className="text-[11px] text-brand-text-secondary font-mono tabular-nums mt-0.5">{store.code} · {store.timezone}</div>
                     </div>
                     {store.id === session.currentStore.id && (
                       <Check className="h-4 w-4 text-primary" />
@@ -183,7 +183,7 @@ export const TopNav: React.FC<TopNavProps> = ({
           </div>
 
           {/* Terminal / POS Register Tag */}
-          <div className="hidden xl:flex items-center px-2.5 py-1.5 min-h-[44px] rounded-xl bg-background/80 border border-border border-crisp text-text/70 text-[11px] font-mono shrink-0">
+          <div className="hidden xl:flex items-center px-2.5 py-1.5 min-h-[44px] rounded-xl bg-background/80 border border-border border-crisp text-text/70 text-[11px] font-mono tabular-nums shrink-0">
             {session.registerId}
           </div>
 
@@ -214,7 +214,7 @@ export const TopNav: React.FC<TopNavProps> = ({
             aria-label="Search Products, Customers, Orders (Ctrl+K)"
           >
             <Search className="h-4 w-4 text-text/60" />
-            <span className="hidden sm:inline-flex ml-1.5 font-mono text-[10px] bg-card px-1.5 py-0.5 rounded border border-border/60">
+            <span className="hidden sm:inline-flex ml-1.5 font-mono tabular-nums text-[10px] bg-card px-1.5 py-0.5 rounded border border-border/60">
               Ctrl+K
             </span>
           </button>
@@ -229,7 +229,7 @@ export const TopNav: React.FC<TopNavProps> = ({
             <ShoppingCart className="h-4 w-4 text-text/70" />
             <span className="hidden xl:inline">{language === 'th' ? 'พักบิล' : 'Held'}</span>
             {heldCarts.length > 0 && (
-              <span className="absolute -top-1.5 -right-1.5 bg-primary text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center shadow-xs">
+              <span className="absolute -top-1.5 -right-1.5 bg-primary text-primary-foreground text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center shadow-xs">
                 {heldCarts.length}
               </span>
             )}
@@ -272,9 +272,9 @@ export const TopNav: React.FC<TopNavProps> = ({
               className="flex items-center gap-1.5 px-2.5 sm:px-3 py-2 min-h-[44px] min-w-[44px] justify-center rounded-xl border border-border border-crisp bg-background/80 hover:bg-background text-text/80 hover:text-text text-xs font-bold transition-all duration-150 cursor-pointer active:scale-95"
               title={language === 'th' ? 'เปลี่ยนสกุลเงินหลัก' : 'Switch Base Currency'}
             >
-              <span className="text-text font-mono">{getCurrentCurrencySymbol()}</span>
-              <span className="font-mono hidden sm:inline">{session.currentStore.currency || 'THB'}</span>
-              <ChevronDown className="h-3 w-3 text-text/50" />
+              <span className="text-text font-mono tabular-nums">{getCurrentCurrencySymbol()}</span>
+              <span className="font-mono tabular-nums hidden sm:inline">{session.currentStore.currency || 'THB'}</span>
+              <ChevronDown className="h-3 w-3 text-brand-text-secondary" />
             </button>
 
             {isCurrencyMenuOpen && (
@@ -282,7 +282,7 @@ export const TopNav: React.FC<TopNavProps> = ({
                 className={`${getZIndexClass('dropdown')} absolute right-0 mt-2 w-48 max-w-[90vw] overflow-x-hidden rounded-2xl border border-border border-crisp bg-card shadow-2xl py-2 animate-in fade-in zoom-in-95 duration-100`}
                 onMouseLeave={() => setIsCurrencyMenuOpen(false)}
               >
-                <div className="px-3 py-1.5 text-[10px] font-bold text-text/50 uppercase tracking-wider">
+                <div className="px-3 py-1.5 text-[10px] font-bold text-brand-text-secondary uppercase tracking-wider">
                   {language === 'th' ? 'สกุลเงินหลัก' : 'Base Currency'}
                 </div>
                 {[
@@ -347,7 +347,7 @@ export const TopNav: React.FC<TopNavProps> = ({
             >
               <div className="flex flex-col items-end hidden xl:flex">
                 <span className="text-xs font-bold text-text leading-tight">{session.currentUser.name}</span>
-                <span className="text-[10px] font-bold text-text/50 uppercase leading-tight">{session.currentUser.role}</span>
+                <span className="text-[10px] font-bold text-brand-text-secondary uppercase leading-tight">{session.currentUser.role}</span>
               </div>
               {/* User Profile Avatar with Online Status Indicator Dot */}
               <StaffAvatar
@@ -373,7 +373,7 @@ export const TopNav: React.FC<TopNavProps> = ({
                     <span className="px-2 py-0.5 rounded-md bg-background border border-border text-[10px] font-bold text-text/70 uppercase">
                       {session.currentUser.role}
                     </span>
-                    <span className="text-[10px] text-text/50 font-mono">
+                    <span className="text-[10px] text-brand-text-secondary font-mono tabular-nums">
                       {session.currentUser.employeeCode}
                     </span>
                   </div>
@@ -436,7 +436,7 @@ export const TopNav: React.FC<TopNavProps> = ({
                               : 'Store Settings'}
                           </span>
                         </span>
-                        <span className="font-mono text-[9px] uppercase px-1.5 py-0.5 rounded bg-primary/10 text-primary">
+                        <span className="font-mono tabular-nums text-[9px] uppercase px-1.5 py-0.5 rounded bg-primary/10 text-primary">
                           {session.currentUser.role === 'admin' ? 'FULL ORG' : 'STORE'}
                         </span>
                       </button>
@@ -482,9 +482,9 @@ export const TopNav: React.FC<TopNavProps> = ({
 
                 {/* Quick Staff User Switcher */}
                 <div className="py-2 px-3 border-t border-border border-crisp">
-                  <div className="text-[10px] font-bold text-text/50 uppercase tracking-wider mb-2 flex items-center justify-between">
+                  <div className="text-[10px] font-bold text-brand-text-secondary uppercase tracking-wider mb-2 flex items-center justify-between">
                     <span>{language === 'th' ? 'สลับบัญชีผู้ใช้งาน' : 'Switch Staff'}</span>
-                    <span className="font-mono text-[9px] text-text/40">{staffUsers.length}</span>
+                    <span className="font-mono tabular-nums text-[9px] text-brand-text-secondary">{staffUsers.length}</span>
                   </div>
                   <div className="max-h-36 overflow-y-auto space-y-1 pr-0.5">
                     {staffUsers.map((user) => {
@@ -505,7 +505,7 @@ export const TopNav: React.FC<TopNavProps> = ({
                         >
                           <div className="truncate pr-2">
                             <span className="truncate block font-medium">{user.name}</span>
-                            <span className="text-[10px] text-text/50 font-mono block">
+                            <span className="text-[10px] text-brand-text-secondary font-mono tabular-nums block">
                               {user.employeeCode} • {user.role}
                             </span>
                           </div>
@@ -518,7 +518,7 @@ export const TopNav: React.FC<TopNavProps> = ({
 
                 {/* Quick Role Switcher for testing RBAC boundaries */}
                 <div className="py-2 px-3 border-t border-border border-crisp">
-                  <div className="text-[10px] font-bold text-text/50 uppercase tracking-wider mb-2">
+                  <div className="text-[10px] font-bold text-brand-text-secondary uppercase tracking-wider mb-2">
                     {t.topNav.testRbac}
                   </div>
                   <div className="grid grid-cols-3 gap-1.5">
@@ -532,7 +532,7 @@ export const TopNav: React.FC<TopNavProps> = ({
                         }}
                         className={`text-[10px] py-2 min-h-[40px] rounded-lg font-bold text-center capitalize cursor-pointer transition-colors active:scale-95 ${
                           session.currentUser.role === r
-                            ? 'bg-primary text-white shadow-xs'
+                            ? 'bg-primary text-primary-foreground shadow-xs'
                             : 'bg-background border border-border text-text/70 hover:text-text'
                         }`}
                       >
@@ -570,7 +570,7 @@ export const TopNav: React.FC<TopNavProps> = ({
               <button
                 type="button"
                 onClick={() => setShowLogoutModal(false)}
-                className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-text/50 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-background transition-colors cursor-pointer"
+                className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-brand-text-secondary hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-background transition-colors cursor-pointer"
               >
                 <X className="h-4 w-4" />
               </button>

@@ -84,7 +84,7 @@ export const StartShiftModal: React.FC<StartShiftModalProps> = ({ isOpen, onClos
               <span className="font-bold">{session.currentUser.name}</span>
               <span className="text-slate-400">({session.currentUser.role.toUpperCase()})</span>
             </div>
-            <span className="text-[10px] font-mono font-bold bg-slate-200 text-slate-700 px-2 py-0.5 rounded">
+            <span className="text-[10px] font-mono tabular-nums font-bold bg-slate-200 text-slate-700 px-2 py-0.5 rounded">
               {session.currentUser.employeeCode}
             </span>
           </div>
@@ -105,21 +105,22 @@ export const StartShiftModal: React.FC<StartShiftModalProps> = ({ isOpen, onClos
         <div className="space-y-2">
           <label className="text-xs font-black uppercase text-slate-700 flex items-center justify-between">
             <span>{isThai ? 'เงินทอนเริ่มต้น (Opening Float)' : 'Opening Float Amount'}</span>
-            <span className="text-xs font-mono font-bold text-primary">{currency}</span>
+            <span className="text-xs font-mono tabular-nums font-bold text-primary">{currency}</span>
           </label>
 
           <div className="relative">
-            <div className="absolute left-3.5 top-1/2 -translate-y-1/2 font-mono font-black text-slate-400 text-base">
+            <div className="absolute left-3.5 top-1/2 -translate-y-1/2 font-mono tabular-nums font-black text-slate-400 text-base">
               {isTHB ? '฿' : '$'}
             </div>
             <input
               type="number"
+              inputMode="decimal"
               step="0.01"
               min="0"
               required
               value={floatBahtOrUSD}
               onChange={(e) => setFloatBahtOrUSD(e.target.value)}
-              className="w-full h-12 bg-white border-2 border-slate-200 rounded-xl pl-9 pr-4 text-xl font-mono font-black text-slate-900 outline-none focus:border-primary transition-all"
+              className="w-full h-12 bg-white border-2 border-slate-200 rounded-xl pl-9 pr-4 text-xl font-mono tabular-nums font-black text-slate-900 outline-none focus:border-primary transition-all"
               placeholder="0.00"
             />
           </div>
@@ -161,7 +162,7 @@ export const StartShiftModal: React.FC<StartShiftModalProps> = ({ isOpen, onClos
           <button
             type="submit"
             disabled={isSubmitting || isShiftLoading}
-            className="px-5 py-2.5 rounded-xl bg-primary text-white font-black text-xs hover:bg-primary-dark transition-all disabled:opacity-50 cursor-pointer shadow-md shadow-primary/20 inline-flex items-center gap-2"
+            className="px-5 py-2.5 rounded-xl bg-primary text-primary-foreground font-black text-xs hover:bg-primary/90 min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta transition-all disabled:opacity-50 cursor-pointer shadow-md shadow-primary/20 inline-flex items-center gap-2"
           >
             {isSubmitting ? (
               <>

@@ -94,8 +94,8 @@ export const CustomerDisplayView: React.FC = () => {
             </div>
           )}
 
-          <div className="flex items-center gap-2 text-text/70 font-mono text-sm">
-            <Clock className="h-4 w-4 text-text/40" />
+          <div className="flex items-center gap-2 text-text/70 font-mono tabular-nums text-sm">
+            <Clock className="h-4 w-4 text-brand-text-secondary" />
             <span>{currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
           </div>
 
@@ -130,7 +130,7 @@ export const CustomerDisplayView: React.FC = () => {
                 <p className="text-text/70 text-sm">
                   ขอบคุณที่ใช้บริการค่ะ / Thank you for shopping with us!
                 </p>
-                <div className="font-mono text-xs text-text/50 pt-1">
+                <div className="font-mono tabular-nums text-xs text-brand-text-secondary pt-1">
                   หมายเลขคำสั่งซื้อ: {completedOrder.orderNumber}
                 </div>
               </div>
@@ -141,7 +141,7 @@ export const CustomerDisplayView: React.FC = () => {
                     <Sparkles className="h-4 w-4 text-amber-400" />
                     <span>คะแนนสะสมที่ได้รับ</span>
                   </div>
-                  <span className="font-bold text-amber-400 font-mono text-sm">
+                  <span className="font-bold text-amber-400 font-mono tabular-nums text-sm">
                     +{Math.round(completedOrder.totals.grandTotal.amountInCents / 1000)} แต้ม
                   </span>
                 </div>
@@ -151,7 +151,7 @@ export const CustomerDisplayView: React.FC = () => {
             /* Scanned Items Feed */
             <div className="flex-1 flex flex-col overflow-hidden">
               <div className="p-4 sm:px-6 border-b border-border border-crisp flex items-center justify-between text-xs font-bold text-text/70 uppercase tracking-wider">
-                <span>รายการสินค้า (<span className="font-mono">{totals.totalItemsCount}</span> ชิ้น)</span>
+                <span>รายการสินค้า (<span className="font-mono tabular-nums">{totals.totalItemsCount}</span> ชิ้น)</span>
                 <span>ราคา / ยอดรวม</span>
               </div>
 
@@ -170,11 +170,11 @@ export const CustomerDisplayView: React.FC = () => {
                           {item.product.name}
                         </div>
                         <div className="flex items-center gap-3 mt-1 text-xs text-text/70">
-                          <span className="font-mono font-medium">
+                          <span className="font-mono tabular-nums font-medium">
                             {formatMoney(item.unitPrice)} × {item.quantity} {item.product.unitOfMeasure}
                           </span>
                           {item.discountBps > 0 && (
-                            <span className="px-2 py-0.5 rounded-md bg-rose-500/20 text-rose-300 font-mono font-bold text-[10px]">
+                            <span className="px-2 py-0.5 rounded-md bg-rose-500/20 text-rose-300 font-mono tabular-nums font-bold text-[10px]">
                               ลด {item.discountBps / 100}%
                             </span>
                           )}
@@ -182,11 +182,11 @@ export const CustomerDisplayView: React.FC = () => {
                       </div>
 
                       <div className="text-right shrink-0">
-                        <div className="text-lg font-bold font-mono text-text">
+                        <div className="text-lg font-bold font-mono tabular-nums text-text">
                           {formatMoney(item.lineTotal)}
                         </div>
                         {item.discountBps > 0 && (
-                          <div className="text-xs text-text/50 line-through font-mono">
+                          <div className="text-xs text-brand-text-secondary line-through font-mono tabular-nums">
                             {formatMoney(createMoney(item.unitPrice.amountInCents * item.quantity))}
                           </div>
                         )}
@@ -265,7 +265,7 @@ export const CustomerDisplayView: React.FC = () => {
 
               <div className="space-y-1">
                 <div className="text-xs text-text/70">ยอดเงินที่ต้องชำระ (Amount Due)</div>
-                <div className="text-3xl font-black font-mono text-primary">
+                <div className="text-3xl font-black font-mono tabular-nums text-primary">
                   {formatMoney(totals.grandTotal)}
                 </div>
               </div>
@@ -281,14 +281,14 @@ export const CustomerDisplayView: React.FC = () => {
               <div className="w-full max-w-xs space-y-2 p-4 rounded-lg bg-card border border-border border-crisp text-sm">
                 <div className="flex justify-between text-text/70">
                   <span>รับเงินสดมา</span>
-                  <span className="font-mono text-text font-bold">
+                  <span className="font-mono tabular-nums text-text font-bold">
                     {activePayment.tenderedCents ? formatMoney(createMoney(activePayment.tenderedCents)) : formatMoney(totals.grandTotal)}
                   </span>
                 </div>
                 {activePayment.changeCents && activePayment.changeCents > 0 ? (
                   <div className="flex justify-between text-amber-400 font-bold text-base pt-2 border-t border-border">
                     <span>เงินทอน</span>
-                    <span className="font-mono">
+                    <span className="font-mono tabular-nums">
                       {formatMoney(createMoney(activePayment.changeCents))}
                     </span>
                   </div>
@@ -304,27 +304,27 @@ export const CustomerDisplayView: React.FC = () => {
 
               <div className="space-y-2.5 text-sm">
                 <div className="flex justify-between text-text/70">
-                  <span>ยอดรวมสินค้า (<span className="font-mono">{totals.totalItemsCount}</span> ชิ้น)</span>
-                  <span className="font-mono text-text font-medium">{formatMoney(totals.grossSubtotal)}</span>
+                  <span>ยอดรวมสินค้า (<span className="font-mono tabular-nums">{totals.totalItemsCount}</span> ชิ้น)</span>
+                  <span className="font-mono tabular-nums text-text font-medium">{formatMoney(totals.grossSubtotal)}</span>
                 </div>
 
                 {totals.itemDiscounts.amountInCents > 0 && (
                   <div className="flex justify-between text-rose-400 font-semibold">
                     <span>ส่วนลดรายการ</span>
-                    <span className="font-mono">-{formatMoney(totals.itemDiscounts)}</span>
+                    <span className="font-mono tabular-nums">-{formatMoney(totals.itemDiscounts)}</span>
                   </div>
                 )}
 
                 {totals.orderDiscount.amountInCents > 0 && (
                   <div className="flex justify-between text-rose-400 font-semibold">
                     <span>ส่วนลดท้ายบิล</span>
-                    <span className="font-mono">-{formatMoney(totals.orderDiscount)}</span>
+                    <span className="font-mono tabular-nums">-{formatMoney(totals.orderDiscount)}</span>
                   </div>
                 )}
 
                 <div className="flex justify-between text-text/70">
                   <span>ภาษีมูลค่าเพิ่ม (VAT 7% รวมแล้ว)</span>
-                  <span className="font-mono text-text">{formatMoney(totals.totalTax)}</span>
+                  <span className="font-mono tabular-nums text-text">{formatMoney(totals.totalTax)}</span>
                 </div>
               </div>
             </div>
@@ -336,11 +336,11 @@ export const CustomerDisplayView: React.FC = () => {
               <span className="text-base font-bold text-text uppercase tracking-wide">
                 ยอดสุทธิ (Total Due)
               </span>
-              <span className="text-4xl sm:text-5xl font-black font-mono text-primary tracking-tight">
+              <span className="text-4xl sm:text-5xl font-black font-mono tabular-nums text-primary tracking-tight">
                 {formatMoney(totals.grandTotal)}
               </span>
             </div>
-            <div className="text-[11px] text-text/50 text-right">
+            <div className="text-[11px] text-brand-text-secondary text-right">
               ราคารวมภาษีมูลค่าเพิ่มแล้ว (All prices include VAT)
             </div>
           </div>

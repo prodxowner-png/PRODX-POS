@@ -102,7 +102,7 @@ export const ConfirmationDialogProvider: React.FC<{ children: ReactNode }> = ({ 
       case 'alert':
         return <AlertOctagon className="h-6 w-6 text-rose-600" />;
       case 'shield':
-        return <ShieldAlert className="h-6 w-6 text-purple-600" />;
+        return <ShieldAlert className="h-6 w-6 text-brand-text-accent" />;
       case 'warning':
       default:
         return <AlertTriangle className="h-6 w-6 text-amber-600" />;
@@ -191,7 +191,7 @@ export const ConfirmationDialogProvider: React.FC<{ children: ReactNode }> = ({ 
                         }`}
                       >
                         <span>{item.label}</span>
-                        <span className="font-mono font-black">{item.value}</span>
+                        <span className="font-mono tabular-nums font-black">{item.value}</span>
                       </div>
                     ))}
                   </div>
@@ -214,7 +214,7 @@ export const ConfirmationDialogProvider: React.FC<{ children: ReactNode }> = ({ 
                   placeholder={options.requireMatchText}
                   value={userInputMatch}
                   onChange={(e) => setUserInputMatch(e.target.value)}
-                  className="w-full px-3 py-2 text-xs font-mono font-bold bg-white border-2 border-rose-300 focus:border-rose-600 rounded-xl outline-hidden text-rose-950 placeholder:text-slate-300"
+                  className="w-full px-3 py-2 text-xs font-mono tabular-nums font-bold bg-white border-2 border-rose-300 focus:border-rose-600 rounded-xl outline-hidden text-rose-950 placeholder:text-slate-300"
                 />
               </div>
             )}
@@ -240,7 +240,7 @@ export const ConfirmationDialogProvider: React.FC<{ children: ReactNode }> = ({ 
                     ? 'bg-rose-600 hover:bg-rose-700 text-white shadow-rose-600/20'
                     : isWarning
                     ? 'bg-amber-600 hover:bg-amber-700 text-white shadow-amber-600/20'
-                    : 'bg-primary hover:bg-primary/90 text-white'
+                    : 'bg-primary hover:bg-primary/90 text-primary-foreground'
                 }`}
               >
                 {isSubmitting ? (

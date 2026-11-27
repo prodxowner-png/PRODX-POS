@@ -13,6 +13,7 @@ import { createTransactionalPostgresExecutor } from './db/transaction.ts';
 import { createAIGatewayService } from './ai/production-composition.ts';
 import { registerCheckoutRoute } from './http/checkout-route.ts';
 import { registerAuthRoutes } from './http/auth-route.ts';
+import { registerWebAuthnRoutes } from './http/webauthn-route.ts';
 import { createApp } from './http/createApp.ts';
 import { registerRefundRoute } from './http/refund-route.ts';
 import { registerAuditRoute } from './http/audit-route.ts';
@@ -72,6 +73,7 @@ export const createProductionApp = async (options: ProductionAppOptions = {}) =>
           config: readFirstTenantBootstrapConfig(process.env),
         },
       });
+      registerWebAuthnRoutes(configuredApp, requestScopedSql, sessions);
       registerPublicInfrastructureRoutes(configuredApp, pool);
     },
     authenticateRequest: async (request) => {

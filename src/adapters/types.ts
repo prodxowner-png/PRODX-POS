@@ -52,6 +52,7 @@ export interface BiometricLoginRequest {
   storeCode: string;
   registerId: string;
   organizationContext?: OrganizationLoginContext;
+  username?: string;
   targetUser?: { id: string; email: string; name: string };
   requireAdminRole?: boolean;
 }

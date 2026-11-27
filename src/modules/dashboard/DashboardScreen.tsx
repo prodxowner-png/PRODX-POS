@@ -471,7 +471,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
               </span>
             </span>
             <span className="inline-flex items-center gap-1 text-label-xs text-emerald-600 dark:text-emerald-400">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" aria-hidden="true" />
               <span>{language === 'th' ? 'ระบบพร้อมบันทึกการขาย' : 'Live Point-of-Sale'}</span>
             </span>
           </div>
@@ -484,7 +484,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
           </p>
         </div>
 
-        <div className="flex items-center gap-2 sm:gap-2.5 overflow-x-auto no-scrollbar py-1 shrink-0">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-2.5 py-1 shrink-0">
           <Button
             id="dashboard-header-customize-layout-btn"
             variant={isCustomizeMode ? 'primary' : 'outline'}
@@ -529,22 +529,22 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
              <Monitor className="h-6 w-6" />
           </div>
           <div>
-            <div className="text-[10px] font-black uppercase tracking-widest text-text/40">{language === 'th' ? 'รหัสเครื่องบันทึก' : 'Terminal Identity'}</div>
+            <div className="text-[11px] font-bold uppercase tracking-wider text-brand-text-secondary">{language === 'th' ? 'รหัสเครื่องบันทึก' : 'Terminal Identity'}</div>
             <div className="text-sm font-black text-text mt-0.5">{session?.registerId || 'REG-001'}</div>
             <div className="flex items-center gap-1.5 mt-1">
                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-               <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">Authenticated & Secure</span>
+               <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400">{language === 'th' ? 'ยืนยันตัวตนและปลอดภัยแล้ว' : 'Authenticated & Secure'}</span>
             </div>
           </div>
         </div>
 
         <div className="p-4 rounded-2xl border border-border border-crisp bg-card/60 flex items-center gap-4 shadow-2xs group hover:bg-card transition-colors">
-          <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform ${isFinancialAuthorized ? 'bg-indigo-500/10 text-indigo-500' : 'bg-amber-500/10 text-amber-500'}`}>
+          <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform ${isFinancialAuthorized ? 'bg-brand-surface-selected text-brand-text-accent' : 'bg-warning-subtle text-warning-text'}`}>
              <ShieldCheck className="h-6 w-6" />
           </div>
           <div>
-            <div className="text-[10px] font-black uppercase tracking-widest text-text/40">{language === 'th' ? 'สิทธิ์การใช้งาน' : 'Access Authorization'}</div>
-            <div className="text-sm font-black text-text mt-0.5 capitalize">{userRole} Level</div>
+            <div className="text-[11px] font-bold uppercase tracking-wider text-brand-text-secondary">{language === 'th' ? 'สิทธิ์การใช้งาน' : 'Access Authorization'}</div>
+            <div className="text-sm font-black text-text mt-0.5 capitalize">{language === 'th' ? `ระดับ ${userRole}` : `${userRole} Level`}</div>
             <div className="flex items-center gap-1.5 mt-1">
                <span className="text-[10px] font-bold text-text/60">{language === 'th' ? 'ขอบเขตสิทธิ์: ' : 'Scoped to: '}{session?.currentStore.code}</span>
             </div>
@@ -556,11 +556,11 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
              {pendingCount > 0 ? <RotateCcw className="h-6 w-6 animate-spin-slow" /> : <CheckCircle2 className="h-6 w-6" />}
           </div>
           <div>
-            <div className="text-[10px] font-black uppercase tracking-widest text-text/40">{language === 'th' ? 'สถานะการเชื่อมต่อ' : 'Connectivity & Sync'}</div>
-            <div className="text-sm font-black text-text mt-0.5">{pendingCount > 0 ? `${pendingCount} รายการรอซิงก์` : 'ไม่มีรายการรอซิงก์'}</div>
+            <div className="text-[11px] font-bold uppercase tracking-wider text-brand-text-secondary">{language === 'th' ? 'สถานะการเชื่อมต่อ' : 'Connectivity & Sync'}</div>
+            <div className="text-sm font-black text-text mt-0.5 tabular-nums">{pendingCount > 0 ? (language === 'th' ? `${pendingCount} รายการรอซิงก์` : `${pendingCount} pending sync`) : (language === 'th' ? 'ไม่มีรายการรอซิงก์' : 'All orders synced')}</div>
             <div className="flex items-center gap-1.5 mt-1">
                <span className={`w-1.5 h-1.5 rounded-full ${pendingCount > 0 ? 'bg-amber-500' : 'bg-emerald-500'}`} />
-               <span className={`text-[10px] font-bold ${pendingCount > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>{pendingCount > 0 ? 'Awaiting Upload' : 'No Pending Sync'}</span>
+               <span className={`text-[11px] font-bold ${pendingCount > 0 ? 'text-warning-text' : 'text-emerald-600 dark:text-emerald-400'}`}>{pendingCount > 0 ? (language === 'th' ? 'รออัปโหลดข้อมูล' : 'Awaiting Upload') : (language === 'th' ? 'ซิงก์ข้อมูลครบถ้วน' : 'No Pending Sync')}</span>
             </div>
           </div>
         </div>
@@ -573,7 +573,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
       {isCustomizeMode && (
         <div className="p-4 rounded-xl bg-primary/15 border border-primary/30 flex flex-col sm:flex-row items-center justify-between gap-4 animate-in fade-in slide-in-from-top-2 shadow-sm">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-primary text-white shrink-0">
+            <div className="p-2.5 rounded-xl bg-primary text-primary-foreground shrink-0">
               <SlidersHorizontal className="h-5 w-5" />
             </div>
             <div>
@@ -591,14 +591,14 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
             <button
               type="button"
               onClick={resetWidgetOrder}
-              className="px-3.5 py-2 rounded-lg border border-border bg-card text-xs font-semibold hover:bg-background transition-colors cursor-pointer"
+              className="min-h-[40px] px-3.5 py-2 rounded-lg border border-brand-border-strong bg-card text-xs font-semibold hover:bg-background transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta"
             >
               {language === 'th' ? 'รีเซ็ตค่าเริ่มต้น' : 'Reset Default'}
             </button>
             <button
               type="button"
               onClick={() => setIsCustomizeMode(false)}
-              className="px-4 py-2 rounded-lg bg-primary text-white text-xs font-bold hover:bg-primary/95 transition-colors cursor-pointer flex items-center gap-1.5"
+              className="min-h-[40px] px-4 py-2 rounded-lg bg-primary text-primary-foreground text-xs font-bold hover:bg-primary/95 transition-colors cursor-pointer flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta"
             >
               <Check className="h-4 w-4" />
               <span>{language === 'th' ? 'เสร็จสิ้น (Done)' : 'Done'}</span>
@@ -673,7 +673,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
             type="button"
             id="dashboard-reset-today-btn"
             onClick={handleResetToday}
-            className="min-h-[44px] px-3.5 py-1.5 rounded-lg border-border border-crisp bg-card hover:bg-background text-text/80 text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs active:scale-95"
+            className="min-h-[44px] px-3.5 py-1.5 rounded-lg border-brand-border-strong border-crisp bg-card hover:bg-background text-text/80 text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta"
             title="Reset to today"
           >
             <RotateCcw className="h-3.5 w-3.5" />
@@ -738,8 +738,8 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
               widgetContent = (
                 <div className="p-4 sm:p-5 rounded-lg bg-amber-500/10 border-border border-crisp shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4 animate-in fade-in duration-200">
                   <div className="flex items-start gap-3.5 min-w-0">
-                    <div className="p-2.5 rounded-lg bg-amber-500 text-white shrink-0 shadow-xs flex items-center justify-center">
-                      <AlertTriangle className="h-5 w-5 animate-bounce" />
+                    <div className="p-2.5 rounded-lg bg-warning-subtle text-warning-text border border-warning/30 shrink-0 shadow-xs flex items-center justify-center">
+                      <AlertTriangle className="h-5 w-5" aria-hidden="true" />
                     </div>
                     <div className="min-w-0">
                       <h3 className="text-sm font-black text-amber-900 dark:text-amber-200 flex items-center gap-2">
@@ -856,7 +856,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
               {isCustomizeMode && (
                 <div className="flex items-center justify-between pb-2 mb-2.5 border-b border-border/60">
                   <div className="flex items-center gap-2 text-xs font-bold text-text">
-                    <GripVertical className="h-4 w-4 text-text/40 group-hover:text-primary transition-colors cursor-grab" />
+                    <GripVertical className="h-4 w-4 text-brand-text-secondary group-hover:text-primary transition-colors cursor-grab" />
                     <span className="px-2 py-0.5 rounded bg-primary/10 text-primary font-mono text-[11px]">
                       #{index + 1}
                     </span>
@@ -868,7 +868,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
                       onClick={() => moveWidgetDirection(widgetId, 'up')}
                       disabled={index === 0}
                       aria-label={language === 'th' ? 'ย้ายวิดเจ็ทขึ้น' : 'Move widget up'}
-                      className="min-h-[44px] min-w-[44px] rounded-lg border border-border bg-card hover:bg-background disabled:opacity-30 transition-colors text-text text-xs cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                      className="min-h-[44px] min-w-[44px] rounded-lg border border-border bg-card hover:bg-background disabled:opacity-30 transition-colors text-text text-xs cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta"
                       title={language === 'th' ? 'ย้ายขึ้น' : 'Move Up'}
                     >
                       <ArrowUp className="h-3.5 w-3.5" />
@@ -878,7 +878,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
                       onClick={() => moveWidgetDirection(widgetId, 'down')}
                       disabled={index === widgetOrder.length - 1}
                       aria-label={language === 'th' ? 'ย้ายวิดเจ็ทลง' : 'Move widget down'}
-                      className="min-h-[44px] min-w-[44px] rounded-lg border border-border bg-card hover:bg-background disabled:opacity-30 transition-colors text-text text-xs cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                      className="min-h-[44px] min-w-[44px] rounded-lg border border-border bg-card hover:bg-background disabled:opacity-30 transition-colors text-text text-xs cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta"
                       title={language === 'th' ? 'ย้ายลง' : 'Move Down'}
                     >
                       <ArrowDown className="h-3.5 w-3.5" />
@@ -896,4 +896,3 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
     </div>
   );
 };
-
