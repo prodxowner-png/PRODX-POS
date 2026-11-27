@@ -4,11 +4,20 @@ import type { AIChatRequest, AIChatResponse, AIProvider } from './types';
 const DEFAULT_MODEL = 'google/gemini-3.8-flash';
 const MAX_MESSAGES = 50;
 const MAX_MESSAGE_CHARS = 20_000;
+const DEFAULT_TIMEOUT_MS = 30_000;
+const MAX_TIMEOUT_MS = 120_000;
 
 export interface VercelGatewayProviderConfig {
   defaultModel?: string;
   allowedModels?: readonly string[];
   fetch?: typeof globalThis.fetch;
+  timeoutMs?: number;
+}
+
+function resolveTimeout(value: number | string | undefined): number {
+  const parsed = typeof value === 'number' ? value : Number.parseInt(value ?? '', 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_TIMEOUT_MS;
+  return Math.min(MAX_TIMEOUT_MS, Math.max(1_000, Math.trunc(parsed)));
 }
 
 function readAllowedModels(config: VercelGatewayProviderConfig, defaultModel: string): ReadonlySet<string> {
@@ -23,11 +32,13 @@ export class VercelGatewayProvider implements AIProvider {
   private readonly gateway;
   private readonly defaultModel: string;
   private readonly allowedModels: ReadonlySet<string>;
+  private readonly timeoutMs: number;
 
   constructor(config: VercelGatewayProviderConfig = {}) {
     this.gateway = createGateway(config.fetch ? { fetch: config.fetch } : undefined);
     this.defaultModel = config.defaultModel ?? process.env.AI_GATEWAY_MODEL ?? DEFAULT_MODEL;
     this.allowedModels = readAllowedModels({ ...config, defaultModel: this.defaultModel }, this.defaultModel);
+    this.timeoutMs = resolveTimeout(config.timeoutMs ?? process.env.AI_GATEWAY_TIMEOUT_MS);
   }
 
   async chat(request: AIChatRequest): Promise<AIChatResponse> {
@@ -48,14 +59,24 @@ export class VercelGatewayProvider implements AIProvider {
       .map(({ role, content }) => ({ role: role as 'user' | 'assistant', content }));
     if (messages.length === 0) throw new Error('AI Gateway request must contain a user or assistant message.');
 
-    const result = await generateText({
-      model: this.gateway.languageModel(model),
-      ...(systemInstructions ? { instructions: systemInstructions } : {}),
-      messages,
-      ...(request.temperature === undefined ? {} : { temperature: request.temperature }),
-      ...(request.max_tokens === undefined ? {} : { maxOutputTokens: request.max_tokens }),
-      maxRetries: 2,
-    });
+    const timeoutSignal = AbortSignal.timeout(this.timeoutMs);
+    let result;
+    try {
+      result = await generateText({
+        model: this.gateway.languageModel(model),
+        ...(systemInstructions ? { instructions: systemInstructions } : {}),
+        messages,
+        ...(request.temperature === undefined ? {} : { temperature: request.temperature }),
+        ...(request.max_tokens === undefined ? {} : { maxOutputTokens: request.max_tokens }),
+        maxRetries: 2,
+        abortSignal: timeoutSignal,
+      });
+    } catch (error) {
+      if (timeoutSignal.aborted) {
+        throw new Error(`AI Gateway request timed out after ${this.timeoutMs}ms.`);
+      }
+      throw error;
+    }
 
     return {
       id: result.response.id,
