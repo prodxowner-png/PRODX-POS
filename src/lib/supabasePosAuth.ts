@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { createSupabasePosAuthOptions } from './supabasePosAuthStorage';
 
 // POS staff identities use PRODX-ORG. Owner Console authorization remains a separate server-side concern.
 export class SupabaseAuthConfigurationError extends Error {
@@ -15,8 +16,6 @@ export const getSupabasePosAuthClient = () => {
   const url = import.meta.env.VITE_SUPABASE_URL?.trim();
   const publishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim();
   if (!url || !publishableKey) throw new SupabaseAuthConfigurationError();
-  supabaseClient = createClient(url, publishableKey, {
-    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
-  });
+  supabaseClient = createClient(url, publishableKey, createSupabasePosAuthOptions());
   return supabaseClient;
 };

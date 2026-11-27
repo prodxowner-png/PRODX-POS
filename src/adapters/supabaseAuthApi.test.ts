@@ -25,7 +25,7 @@ test('Supabase email login exchanges the access token and forwards server-enforc
   let requestBody: Record<string, unknown> | undefined;
   let authorization: string | null = null;
   const fetcher: typeof fetch = async (_input, init) => { requestBody = JSON.parse(String(init?.body)); authorization = new Headers(init?.headers).get('authorization'); return new Response(JSON.stringify(session), { status: 200, headers: { 'content-type': 'application/json' } }); };
-  assert.deepEqual(await createSupabaseAuthApi({ getClient: () => client, fetcher }).login(loginRequest), session);
+  assert.deepEqual(await createSupabaseAuthApi({ getClient: () => client, fetcher }).login(loginRequest), { ...session, authProvider: 'supabase' });
   assert.equal(authorization, 'Bearer supabase-access-token');
   assert.deepEqual(requestBody, { organizationSlug: 'demo-org', storeCode: 'STORE-01', registerId: 'ADMIN-CONSOLE', requireAdminRole: true });
   assert.deepEqual(calls.signIn, { email: 'admin@example.test', password: 'test-password' });
@@ -41,13 +41,26 @@ test('failed POS session exchange clears only the local Supabase session', async
 test('PIN identities stay on server-authoritative PostgreSQL auth', async () => {
   let called = false;
   const api = createSupabaseAuthApi({ getClient: () => { throw new Error('must not initialize Supabase'); }, fetcher: async () => { throw new Error('network must not be called'); }, fallbackApi: fallbackApi({ login: async (request) => { called = true; assert.equal(request.emailOrPin, '123456'); return session as never; } }) });
-  assert.deepEqual(await api.login({ ...loginRequest, emailOrPin: '123456' }), session);
+  assert.deepEqual(await api.login({ ...loginRequest, emailOrPin: '123456' }), { ...session, authProvider: 'pin' });
   assert.equal(called, true);
 });
 
 test('failed server logout does not clear local identity and mask revocation failure', async () => {
   const api = createSupabaseAuthApi({ getClient: () => { throw new Error('must not sign out locally'); }, fetcher: async () => new Response('unavailable', { status: 503 }) });
   await assert.rejects(api.logout('pos-session-token'), /Authentication logout failed/);
+});
+
+test('PIN logout revokes the POS bearer without signing out a browser-global Supabase identity', async () => {
+  const { client, calls } = makeClient();
+  const api = createSupabaseAuthApi({
+    getClient: () => client,
+    fetcher: async (input) => {
+      assert.equal(String(input), '/auth/logout');
+      return new Response(null, { status: 204 });
+    },
+  });
+  await api.logout('pos-session-token', 'pin');
+  assert.deepEqual(calls.signOut, []);
 });
 
 test('Supabase renewal refreshes the provider token and exchanges it with the existing POS bearer', async () => {
@@ -59,7 +72,7 @@ test('Supabase renewal refreshes the provider token and exchanges it with the ex
     headers = new Headers(init?.headers);
     return new Response(JSON.stringify(session), { status: 200, headers: { 'content-type': 'application/json' } });
   };
-  const renewed = await createSupabaseAuthApi({ getClient: () => client, fetcher }).renewSession('pos-session-token');
+  const renewed = await createSupabaseAuthApi({ getClient: () => client, fetcher }).renewSession('pos-session-token', 'supabase');
   assert.deepEqual(renewed, session);
   assert.equal(requestUrl, '/auth/supabase/renew');
   assert.equal(headers?.get('authorization'), 'Bearer pos-session-token');
@@ -67,15 +80,13 @@ test('Supabase renewal refreshes the provider token and exchanges it with the ex
   assert.equal(calls.refresh, 1);
 });
 
-test('Supabase renewal is a no-op for password/PIN sessions without a Supabase identity session', async () => {
+test('PIN renewal ignores a browser-global Supabase session belonging to another tab/user', async () => {
   const { client, calls } = makeClient();
-  (client.auth as unknown as { getSession: () => Promise<unknown> }).getSession = async () => ({
-    data: { session: null }, error: null,
-  });
   const api = createSupabaseAuthApi({ getClient: () => client, fetcher: async () => {
-    throw new Error('must not call renewal endpoint without Supabase identity');
+    throw new Error('PIN sessions must not call the Supabase renewal endpoint');
   } });
-  assert.equal(await api.renewSession('pos-session-token'), null);
+  assert.equal(await api.renewSession('pos-session-token', 'pin'), null);
+  assert.equal(await api.renewSession('legacy-pos-session-token'), null);
   assert.equal(calls.refresh, 0);
 });
 
@@ -85,7 +96,7 @@ test('Supabase renewal preserves HTTP status so revoked POS sessions fail closed
     getClient: () => client,
     fetcher: async () => new Response(JSON.stringify({ error: { message: 'Session revoked' } }), { status: 401 }),
   });
-  await assert.rejects(api.renewSession('pos-session-token'), (error: unknown) => {
+  await assert.rejects(api.renewSession('pos-session-token', 'supabase'), (error: unknown) => {
     assert.equal((error as { status?: number }).status, 401);
     assert.match((error as Error).message, /Session revoked/);
     return true;
@@ -101,5 +112,25 @@ test('successful POS logout tolerates missing local Supabase configuration after
       return new Response(null, { status: 204 });
     },
   });
-  await assert.doesNotReject(api.logout('pos-session-token'));
+  await assert.doesNotReject(api.logout('pos-session-token', 'supabase'));
+});
+
+
+test('retiring a previous POS bearer during unlock preserves the replacement Supabase session', async () => {
+  const { client, calls } = makeClient();
+  let revokedToken: string | null = null;
+  const api = createSupabaseAuthApi({
+    getClient: () => client,
+    fetcher: async (input, init) => {
+      assert.equal(String(input), '/auth/logout');
+      revokedToken = new Headers(init?.headers).get('authorization');
+      return new Response(null, { status: 204 });
+    },
+  });
+
+  // AuthContext intentionally omits authProvider when retiring the old bearer:
+  // the browser Supabase client already holds the replacement login session.
+  await api.logout('previous-pos-session-token');
+  assert.equal(revokedToken, 'Bearer previous-pos-session-token');
+  assert.deepEqual(calls.signOut, []);
 });

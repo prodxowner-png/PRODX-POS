@@ -50,7 +50,10 @@ export const createSupabaseAuthApi = ({
   async login(request) {
     const identity = request.emailOrPin.trim();
     // PIN identities remain verified by the PostgreSQL credential path.
-    if (!identity.includes('@')) return fallbackApi.login(request);
+    if (!identity.includes('@')) {
+      const session = await fallbackApi.login(request);
+      return { ...session, authProvider: 'pin' };
+    }
 
     const client = getClient();
     const { data, error } = await client.auth.signInWithPassword({
@@ -61,20 +64,22 @@ export const createSupabaseAuthApi = ({
       throw new Error(error?.message ?? 'Supabase sign-in did not return a session.');
     }
     try {
-      return await exchangeToken(data.session.access_token, request, fetcher);
+      const session = await exchangeToken(data.session.access_token, request, fetcher);
+      return { ...session, authProvider: 'supabase' };
     } catch (error) {
       await client.auth.signOut({ scope: 'local' }).catch(() => undefined);
       throw error;
     }
   },
 
-  async logout(token) {
+  async logout(token, authProvider) {
     const response = await fetcher(`${baseUrl()}/auth/logout`, {
       method: 'POST',
       credentials: 'include',
       headers: { Accept: 'application/json', Authorization: `Bearer ${requireToken(token)}` },
     });
     if (!response.ok && response.status !== 401) throw new Error('Authentication logout failed.');
+    if (authProvider !== 'supabase') return;
     try {
       const { error } = await getClient().auth.signOut({ scope: 'local' });
       if (error) throw error;
@@ -84,7 +89,8 @@ export const createSupabaseAuthApi = ({
     }
   },
 
-  async renewSession(token) {
+  async renewSession(token, authProvider) {
+    if (authProvider !== 'supabase') return null;
     const normalizedPosToken = requireToken(token);
     const client = getClient();
     const current = await client.auth.getSession();
