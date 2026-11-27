@@ -18,7 +18,7 @@ export const PWAInstallButton: React.FC = () => {
     return (
       <button
         onClick={install}
-        className="flex items-center gap-2 rounded-xl bg-primary text-white px-4 py-2 text-xs font-bold shadow-md hover:bg-primary-dark transition active:scale-95 cursor-pointer"
+        className="flex items-center gap-2 rounded-xl bg-primary text-primary-foreground px-4 py-2 text-xs font-bold shadow-md hover:bg-primary-dark transition active:scale-95 cursor-pointer"
       >
         <Download className="w-3.5 h-3.5" />
         <span>{language === 'th' ? 'ติดตั้งแอป POS บนเครื่อง' : 'Install POS App'}</span>
@@ -49,7 +49,7 @@ export const PWAInstallButton: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setShowIOSGuide(false)}
-                  className="p-1 rounded-md hover:bg-background text-text/50 hover:text-slate-700 dark:hover:text-slate-200 transition-colors cursor-pointer"
+                  className="p-1 rounded-md hover:bg-background text-brand-text-secondary hover:text-slate-700 dark:hover:text-slate-200 transition-colors cursor-pointer"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -57,13 +57,13 @@ export const PWAInstallButton: React.FC = () => {
               <div className="text-xs text-text/70 leading-relaxed space-y-2">
                 {language === 'th' ? (
                   <>
-                    <p>1. แตะปุ่ม <strong>แชร์ (Share)</strong> <span className="inline-block px-1.5 py-0.5 bg-background rounded text-text font-mono">⎋</span> ที่แถบเครื่องมือ Safari</p>
+                    <p>1. แตะปุ่ม <strong>แชร์ (Share)</strong> <span className="inline-block px-1.5 py-0.5 bg-background rounded text-text font-mono tabular-nums">⎋</span> ที่แถบเครื่องมือ Safari</p>
                     <p>2. เลื่อนลงด้านล่างแล้วเลือก <strong>เพิ่มไปยังหน้าจอโฮม (Add to Home Screen)</strong></p>
                     <p>3. แตะ <strong>เพิ่ม (Add)</strong> มุมขวาบนเพื่อยืนยันการติดตั้ง</p>
                   </>
                 ) : (
                   <>
-                    <p>1. Tap the <strong>Share</strong> button <span className="inline-block px-1.5 py-0.5 bg-background rounded text-text font-mono">⎋</span> in the Safari toolbar.</p>
+                    <p>1. Tap the <strong>Share</strong> button <span className="inline-block px-1.5 py-0.5 bg-background rounded text-text font-mono tabular-nums">⎋</span> in the Safari toolbar.</p>
                     <p>2. Scroll down and tap <strong>Add to Home Screen</strong>.</p>
                     <p>3. Tap <strong>Add</strong> in the top-right corner to install.</p>
                   </>

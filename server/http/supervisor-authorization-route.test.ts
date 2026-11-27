@@ -231,7 +231,10 @@ test('discount supervisor route binds approval to server policy, checkout finger
     assert.match(String(insert.parameters[9]), /^[0-9a-f]{64}$/);
     assert.equal(insert.parameters[10], 1500);
     assert.equal(insert.parameters[11], true);
-    assert.ok(inserted.some(({ sql }) => sql.includes('SUPERVISOR_AUTHORIZATION_REQUESTED')));
+    const requestAudit = inserted.find(({ sql }) => sql.includes('SUPERVISOR_AUTHORIZATION_REQUESTED'));
+    assert.ok(requestAudit);
+    const requestAuditMetadata = JSON.parse(String(requestAudit.parameters[3])) as Record<string, unknown>;
+    assert.equal(requestAuditMetadata.storeId, principal.storeId, 'audit metadata must persist the authenticated store');
   } finally { await server.close(); }
 });
 

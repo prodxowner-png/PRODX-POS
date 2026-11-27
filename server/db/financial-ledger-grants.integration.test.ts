@@ -1,13 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Pool } from 'pg';
-import { assertDisposableTestDatabaseUrl } from './test-database-guard';
+import { resolveDisposableTestDatabaseUrl } from './test-database-guard';
 
-const configuredDatabaseUrl = process.env.DATABASE_URL?.trim();
-const databaseUrl = configuredDatabaseUrl
-  ? assertDisposableTestDatabaseUrl(configuredDatabaseUrl, 'server/db/financial-ledger-grants.integration.test.ts')
-  : null;
-const shouldRun = Boolean(databaseUrl) && process.env.NODE_ENV !== 'production';
+const databaseUrl = resolveDisposableTestDatabaseUrl(process.env.DATABASE_URL, 'server/db/financial-ledger-grants.integration.test.ts');
+const shouldRun = Boolean(databaseUrl);
 
 test('runtime role preserves append-only financial ledger grants', { skip: !shouldRun }, async () => {
   const pool = new Pool({ connectionString: databaseUrl ?? undefined, max: 1 });

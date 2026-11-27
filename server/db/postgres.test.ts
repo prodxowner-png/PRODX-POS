@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { classifyProductionDatabaseTarget, createProductionPostgresPool, resolveConfiguredDatabaseUrl, resolveProductionDatabaseUrl } from './postgres';
+import { assertDisposableTestDatabaseUrl } from './test-database-guard';
 
 const APPROVED_DATABASE_URL = 'postgresql://prodx_app.wcyqyiewbzpmrekoljfw:test-only-password@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres?sslmode=require';
 
@@ -243,6 +244,64 @@ test('resolveConfiguredDatabaseUrl preserves valid URLs and rejects placeholder 
     async () => {
       assert.equal(resolveConfiguredDatabaseUrl('postgresql://...'), undefined);
       assert.equal(resolveConfiguredDatabaseUrl('   '), undefined);
+    },
+  );
+});
+
+test('createPostgresPool applies safe default timeouts and respects explicit config and env overrides', async () => {
+  const { createPostgresPool } = await import('./postgres');
+
+  await withEnvironment(
+    {
+      DATABASE_URL: assertDisposableTestDatabaseUrl('postgresql://postgres@127.0.0.1:5432/prodx_test', 'server/db/postgres.test.ts', { NODE_ENV: 'test' }),
+      PG_CONNECTION_TIMEOUT_MS: undefined,
+      PG_IDLE_TIMEOUT_MS: undefined,
+      PG_STATEMENT_TIMEOUT_MS: undefined,
+    },
+    async () => {
+      const defaultPool = createPostgresPool();
+      try {
+        const opts = (defaultPool as unknown as { options: Record<string, unknown> }).options;
+        assert.equal(opts.connectionTimeoutMillis, 10_000);
+        assert.equal(opts.idleTimeoutMillis, 30_000);
+        assert.equal(opts.statement_timeout, 30_000);
+      } finally {
+        await defaultPool.end();
+      }
+
+      const explicitPool = createPostgresPool({
+        connectionTimeoutMillis: 2500,
+        idleTimeoutMillis: 5000,
+        statement_timeout: 0,
+      });
+      try {
+        const opts = (explicitPool as unknown as { options: Record<string, unknown> }).options;
+        assert.equal(opts.connectionTimeoutMillis, 2500);
+        assert.equal(opts.idleTimeoutMillis, 5000);
+        assert.equal(opts.statement_timeout, 0);
+      } finally {
+        await explicitPool.end();
+      }
+    },
+  );
+
+  await withEnvironment(
+    {
+      DATABASE_URL: assertDisposableTestDatabaseUrl('postgresql://postgres@127.0.0.1:5432/prodx_test', 'server/db/postgres.test.ts', { NODE_ENV: 'test' }),
+      PG_CONNECTION_TIMEOUT_MS: '4000',
+      PG_IDLE_TIMEOUT_MS: '12000',
+      PG_STATEMENT_TIMEOUT_MS: '15000',
+    },
+    async () => {
+      const envPool = createPostgresPool();
+      try {
+        const opts = (envPool as unknown as { options: Record<string, unknown> }).options;
+        assert.equal(opts.connectionTimeoutMillis, 4000);
+        assert.equal(opts.idleTimeoutMillis, 12000);
+        assert.equal(opts.statement_timeout, 15000);
+      } finally {
+        await envPool.end();
+      }
     },
   );
 });

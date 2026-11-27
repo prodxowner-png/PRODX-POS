@@ -484,13 +484,13 @@ export const DraftPurchaseOrderModal: React.FC<DraftPurchaseOrderModalProps> = (
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3 w-full">
           <div className="flex items-center gap-2 text-xs text-text/60">
             <span>{language === 'th' ? 'รายการรวม:' : 'Total Items:'}</span>
-            <span className="font-mono font-black text-primary">
+            <span className="font-mono tabular-nums font-black text-primary">
               {lineItems.length} {language === 'th' ? 'รายการ' : 'SKUs'} ({financialTotals.totalUnits}{' '}
               {language === 'th' ? 'หน่วย' : 'units'})
             </span>
             <span className="mx-1 text-border">|</span>
             <span>{language === 'th' ? 'ยอดรวมสุทธิ:' : 'Grand Total:'}</span>
-            <span className="font-mono font-black text-emerald-600 dark:text-emerald-400 text-sm">
+            <span className="font-mono tabular-nums font-black text-emerald-600 dark:text-emerald-400 text-sm">
               {formatMoney(financialTotals.grandTotal)}
             </span>
           </div>
@@ -561,7 +561,7 @@ export const DraftPurchaseOrderModal: React.FC<DraftPurchaseOrderModalProps> = (
               disabled={isSubmitting || lineItems.length === 0}
               isLoading={isSubmitting}
               leftIcon={<Send className="h-4 w-4" />}
-              className="text-xs font-bold bg-primary hover:bg-primary/90 text-white shadow-xs cursor-pointer"
+              className="text-xs font-bold bg-primary hover:bg-primary/90 text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta shadow-xs cursor-pointer"
             >
               {language === 'th' ? 'อนุมัติ & ส่งซัพพลายเออร์' : 'Issue PO to Supplier'}
             </Button>
@@ -583,7 +583,7 @@ export const DraftPurchaseOrderModal: React.FC<DraftPurchaseOrderModalProps> = (
               <div className="text-[11px] text-text/60">
                 {session?.currentStore.address || 'Flagship Store'}
               </div>
-              <div className="text-[10px] text-text/50 font-mono">
+              <div className="text-[10px] text-brand-text-secondary font-mono tabular-nums">
                 {language === 'th' ? 'ผู้เปิด PO:' : 'Issued by:'} {session?.currentUser.name} (
                 {session?.currentUser.role})
               </div>
@@ -637,7 +637,7 @@ export const DraftPurchaseOrderModal: React.FC<DraftPurchaseOrderModalProps> = (
                   type="date"
                   value={expectedDeliveryDate}
                   onChange={(e) => setExpectedDeliveryDate(e.target.value)}
-                  className="h-7 flex-1 px-2 rounded-lg border border-border bg-card text-xs text-text font-mono focus:outline-none focus:border-primary"
+                  className="h-7 flex-1 px-2 rounded-lg border border-border bg-card text-xs text-text font-mono tabular-nums focus:outline-none focus:border-primary"
                 />
               </div>
 
@@ -700,9 +700,9 @@ export const DraftPurchaseOrderModal: React.FC<DraftPurchaseOrderModalProps> = (
                       >
                         <div className="truncate mr-2">
                           <div className="font-bold text-text truncate">{prod.name}</div>
-                          <div className="text-[10px] text-text/50 font-mono">{prod.sku}</div>
+                          <div className="text-[10px] text-brand-text-secondary font-mono tabular-nums">{prod.sku}</div>
                         </div>
-                        <span className="font-mono text-primary font-bold text-[11px] shrink-0">
+                        <span className="font-mono tabular-nums text-primary font-bold text-[11px] shrink-0">
                           {formatMoney(prod.costPrice)}
                         </span>
                       </button>
@@ -730,7 +730,7 @@ export const DraftPurchaseOrderModal: React.FC<DraftPurchaseOrderModalProps> = (
               <tbody className="divide-y divide-border/60">
                 {lineItems.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="py-10 text-center text-text/50">
+                    <td colSpan={7} className="py-10 text-center text-brand-text-secondary">
                       {language === 'th' ? 'ไม่มีรายการสินค้าในใบสั่งซื้อ' : 'No items in this purchase order.'}
                     </td>
                   </tr>
@@ -741,11 +741,11 @@ export const DraftPurchaseOrderModal: React.FC<DraftPurchaseOrderModalProps> = (
 
                     return (
                       <tr key={item.id} className="hover:bg-muted/40 transition-colors">
-                        <td className="py-2.5 px-3 text-text/40 font-mono text-[11px]">{index + 1}</td>
+                        <td className="py-2.5 px-3 text-brand-text-secondary font-mono tabular-nums text-[11px]">{index + 1}</td>
 
                         <td className="py-2.5 px-3">
                           <div className="font-bold text-text">{item.productName}</div>
-                          <div className="text-[10px] text-text/50 font-mono flex items-center gap-1.5 mt-0.5">
+                          <div className="text-[10px] text-brand-text-secondary font-mono tabular-nums flex items-center gap-1.5 mt-0.5">
                             <span>SKU: {item.sku}</span>
                             <span>•</span>
                             <span className="text-primary">{item.categoryName}</span>
@@ -757,7 +757,7 @@ export const DraftPurchaseOrderModal: React.FC<DraftPurchaseOrderModalProps> = (
                           </div>
                         </td>
 
-                        <td className="py-2.5 px-2 text-center font-mono">
+                        <td className="py-2.5 px-2 text-center font-mono tabular-nums">
                           <span
                             className={`font-bold text-xs ${
                               item.currentStock <= 0 ? 'text-rose-500' : 'text-amber-500'
@@ -779,13 +779,14 @@ export const DraftPurchaseOrderModal: React.FC<DraftPurchaseOrderModalProps> = (
                             </button>
                             <input
                               type="number"
+                              inputMode="numeric"
                               min="1"
                               value={item.quantity}
                               onChange={(e) => {
                                 const val = parseInt(e.target.value, 10);
                                 handleQuantityChange(item.id, isNaN(val) ? 1 : val);
                               }}
-                              className="w-12 text-center font-mono font-black text-xs text-primary bg-transparent border-none p-0 focus:outline-none"
+                              className="w-12 text-center font-mono tabular-nums font-black text-xs text-primary bg-transparent border-none p-0 focus:outline-none"
                             />
                             <button
                               type="button"
@@ -798,23 +799,24 @@ export const DraftPurchaseOrderModal: React.FC<DraftPurchaseOrderModalProps> = (
                         </td>
 
                         {/* Unit Cost Editor */}
-                        <td className="py-2.5 px-3 text-right font-mono">
+                        <td className="py-2.5 px-3 text-right font-mono tabular-nums">
                           <div className="inline-flex items-center justify-end">
                             <input
                               type="number"
+                              inputMode="decimal"
                               step="0.5"
                               value={(item.unitCostCents / 100).toFixed(2)}
                               onChange={(e) => {
                                 const val = parseFloat(e.target.value);
                                 handleUnitCostChange(item.id, isNaN(val) ? 0 : Math.round(val * 100));
                               }}
-                              className="w-20 text-right font-mono text-xs text-text bg-background border border-border border-crisp rounded-lg px-2 py-1 focus:outline-none focus:border-primary"
+                              className="w-20 text-right font-mono tabular-nums text-xs text-text bg-background border border-border border-crisp rounded-lg px-2 py-1 focus:outline-none focus:border-primary"
                             />
                           </div>
                         </td>
 
                         {/* Line Total */}
-                        <td className="py-2.5 px-4 text-right font-mono font-bold text-xs text-emerald-600 dark:text-emerald-400">
+                        <td className="py-2.5 px-4 text-right font-mono tabular-nums font-bold text-xs text-emerald-600 dark:text-emerald-400">
                           {formatMoney(lineCost)}
                         </td>
 
@@ -823,7 +825,7 @@ export const DraftPurchaseOrderModal: React.FC<DraftPurchaseOrderModalProps> = (
                           <button
                             type="button"
                             onClick={() => handleRemoveItem(item.id)}
-                            className="p-1 rounded-lg text-text/40 hover:text-rose-500 hover:bg-rose-500/10 transition-colors cursor-pointer"
+                            className="p-1 rounded-lg text-brand-text-secondary hover:text-rose-500 hover:bg-rose-500/10 transition-colors cursor-pointer"
                             title={language === 'th' ? 'ลบรายการนี้' : 'Remove from PO'}
                           >
                             <Trash2 className="h-3.5 w-3.5" />
@@ -862,14 +864,14 @@ export const DraftPurchaseOrderModal: React.FC<DraftPurchaseOrderModalProps> = (
           <div className="p-3.5 rounded-2xl bg-card border border-border border-crisp space-y-2 text-xs">
             <div className="flex items-center justify-between text-text/70">
               <span>{language === 'th' ? 'ยอดรวมสินค้า (Subtotal):' : 'Items Subtotal:'}</span>
-              <span className="font-mono font-bold text-text">
+              <span className="font-mono tabular-nums font-bold text-text">
                 {formatMoney(financialTotals.subtotal)}
               </span>
             </div>
 
             <div className="flex items-center justify-between text-text/70">
               <span>{language === 'th' ? 'ภาษีมูลค่าเพิ่ม (VAT 7%):' : 'Estimated VAT (7%):'}</span>
-              <span className="font-mono font-bold text-text">
+              <span className="font-mono tabular-nums font-bold text-text">
                 {formatMoney(financialTotals.taxAmount)}
               </span>
             </div>
@@ -878,16 +880,17 @@ export const DraftPurchaseOrderModal: React.FC<DraftPurchaseOrderModalProps> = (
               <span>{language === 'th' ? 'ค่าขนส่ง (Shipping):' : 'Shipping / Freight:'}</span>
               <input
                 type="number"
+                inputMode="decimal"
                 min="0"
                 value={shippingFee}
                 onChange={(e) => setShippingFee(Math.max(0, parseFloat(e.target.value) || 0))}
-                className="w-20 text-right font-mono text-xs text-text bg-background border border-border rounded-lg px-2 py-0.5 focus:outline-none focus:border-primary"
+                className="w-20 text-right font-mono tabular-nums text-xs text-text bg-background border border-border rounded-lg px-2 py-0.5 focus:outline-none focus:border-primary"
               />
             </div>
 
             <div className="pt-2 border-t border-border flex items-center justify-between text-sm font-black text-text">
               <span>{language === 'th' ? 'ยอดรวมสุทธิ (Grand Total):' : 'Grand Total:'}</span>
-              <span className="font-mono text-base text-emerald-600 dark:text-emerald-400">
+              <span className="font-mono tabular-nums text-base text-emerald-600 dark:text-emerald-400">
                 {formatMoney(financialTotals.grandTotal)}
               </span>
             </div>

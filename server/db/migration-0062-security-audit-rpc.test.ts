@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 const migration = readFileSync(
-  new URL('../../db/migrations/0059_security_harden_discount_authorization_rpcs.sql', import.meta.url),
+  new URL('../../db/migrations/0062_security_harden_discount_authorization_rpcs.sql', import.meta.url),
   'utf8',
 );
 
@@ -58,7 +58,9 @@ test('new privileged functions explicitly revoke PUBLIC and Supabase API-role ex
   }
 });
 
-test('security audit RPC locks requester/actor/permission rows and enforces storeId on rejection', () => {
+test('security audit RPC locks requester/actor/permission rows and enforces storeId on request and rejection', () => {
+  assert.match(migration, /v_allowed_keys := ARRAY\['action', 'storeId', 'idempotencyKey', 'payloadHash', 'thresholdBps'\]/);
+  assert.match(migration, /security audit store is required for discount authorization request/);
   assert.match(migration, /FOR SHARE OF requester, membership;/);
   assert.match(migration, /FOR SHARE OF actor, membership;/);
   assert.match(migration, /FOR SHARE OF actor, m, ur, r, rp, permission;/);

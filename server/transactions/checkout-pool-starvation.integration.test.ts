@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createHash, randomUUID } from 'node:crypto';
 import { createPostgresPool } from '../db/postgres';
+import { resolveDisposableTestDatabaseUrl } from '../db/test-database-guard';
 import { createTransactionalPostgresExecutor } from '../db/transaction';
-import { assertDisposableTestDatabaseUrl } from '../db/test-database-guard';
 import type { CheckoutRequest } from '../../src/adapters/types';
 import {
   CheckoutAuthorizationError,
@@ -13,10 +13,7 @@ import {
 } from './checkout-service';
 import { runWithRequestContext } from '../http/request-context-storage';
 
-const url = process.env.DATABASE_URL?.trim();
-if (url) {
-  assertDisposableTestDatabaseUrl(url);
-}
+const url = resolveDisposableTestDatabaseUrl(process.env.DATABASE_URL, 'server/transactions/checkout-pool-starvation.integration.test.ts');
 
 // Pool max: 1 strictly enforces that no open transaction can request a second connection.
 // A connectionTimeoutMillis of 2000 ensures that any connection pool starvation immediately deadlocks/times out.

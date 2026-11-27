@@ -3,6 +3,7 @@
  */
 
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
+import { startAuthentication } from '@simplewebauthn/browser';
 import {
   User,
   Store,
@@ -28,6 +29,7 @@ import {
   saveStoredCustomPermissionSets,
 } from '../domain/permissionSets';
 import { authApi } from '../adapters/authApiFactory';
+import { webauthnApi } from '../adapters/webauthnApi';
 import { validateOrgBranchTerminalBatch } from '../services/orgBranchTerminalValidator';
 import { aiService } from '../services/aiService';
 import { LoginRequest, BiometricLoginRequest } from '../adapters/types';
@@ -69,6 +71,7 @@ interface AuthContextType {
   operationalScope: OperationalScope | null;
   setOperationalScope: (scope: OperationalScope | null) => void;
   isLoading: boolean;
+  isInitializing: boolean;
   isLocked: boolean;
   inactivityTimeoutMinutes: number;
   autoLogoutTimeoutMinutes: number;
@@ -179,6 +182,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     getStoredOperationalScope(),
   );
   const [isLoading, setIsLoading] = useState(true);
+  const [isInitializing, setIsInitializing] = useState(true);
   const [isLocked, setIsLocked] = useState(false);
   const [staffUsers, setStaffUsers] = useState<User[]>(() =>
     IS_DEVELOPMENT ? getStoredStaffDirectory() : [],
@@ -484,6 +488,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (persistedToken) clearRestoredSessionIfCurrent(persistedToken);
       } finally {
         setIsLoading(false);
+        setIsInitializing(false);
       }
     }
     restoreSession();
@@ -686,48 +691,61 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  /**
-   * Executes the full WebAuthn Biometric Challenge-Response login flow:
-   * 1. Issues a single-use cryptographic challenge in AuthContext
-   * 2. Requests fingerprint / facial recognition assertion from the authenticator
-   * 3. Verifies clientDataJSON, authenticatorData (UP/UV flags, signCount), and scope linkage
-   * 4. Establishes the authenticated POS session
-   */
+  /** Server-issued WebAuthn ceremony; the browser never verifies or fabricates credentials. */
   const loginWithBiometrics = async (
     biometricReq: BiometricLoginRequest,
   ): Promise<WebAuthnVerificationResult> => {
-    const challengeRecord = issueWebAuthnChallenge(biometricReq.targetUser);
-
-    const authResult = await authenticatePasskey(biometricReq.targetUser, challengeRecord);
-    if (!authResult.success || !authResult.credential || !authResult.assertion) {
-      throw new Error(
-        authResult.error || 'Biometric fingerprint / facial recognition verification failed.',
-      );
+    setIsLoading(true);
+    try {
+      if (IS_DEVELOPMENT) {
+        throw new Error('Passkey sign-in is available only through the configured production authentication server.');
+      }
+      const username = biometricReq.username?.trim();
+      if (!username) throw new Error('Enter your account username before using a passkey.');
+      const status = await webauthnApi.status();
+      if (!status.enabled) throw new Error(status.error || 'Server-side passkey authentication is not configured.');
+      const scope = biometricReq.organizationContext ?? operationalScope ?? undefined;
+      const optionsResponse = await webauthnApi.loginOptions({
+        organizationSlug: scope?.organizationSlug || biometricReq.organizationSlug,
+        storeCode: scope?.branchCode || scope?.branchName || biometricReq.storeCode,
+        registerId: scope?.terminalCode || biometricReq.registerId,
+        username,
+        requireAdminRole: biometricReq.requireAdminRole,
+      });
+      const assertion = await startAuthentication({ optionsJSON: optionsResponse.options });
+      const issued = await webauthnApi.verifyLogin(optionsResponse.challengeId, assertion);
+      const rawSession = await authApi.verifySession(issued.token);
+      if (!rawSession) {
+        await authApi.logout(issued.token).catch(() => undefined);
+        throw new Error('Passkey was verified but the issued POS session could not be validated.');
+      }
+      if (scope) {
+        setOperationalScopeState(scope);
+        saveStoredOperationalScope(scope);
+      }
+      const newSession = applyOperationalScopeToSession(rawSession, scope ?? rawSession.operationalScope ?? null);
+      try {
+        writePersistedSession(sessionStorage, newSession.token);
+      } catch (error) {
+        await authApi.logout(newSession.token).catch(() => undefined);
+        throw error;
+      }
+      try { localStorage.removeItem(STORAGE_KEY); } catch {}
+      setSession(newSession);
+      setIsLocked(false);
+      lastActivityRef.current = Date.now();
+      return {
+        verified: true,
+        challengeId: optionsResponse.challengeId,
+        userPresent: true,
+        userVerified: true,
+        origin: typeof window !== 'undefined' ? window.location.origin : undefined,
+        rpId: status.rpId ?? undefined,
+        authMethod: 'passkey',
+      };
+    } finally {
+      setIsLoading(false);
     }
-
-    const verification = await verifyWebAuthnChallengeResponse(
-      authResult.assertion,
-      authResult.credential.userEmail,
-    );
-
-    if (!verification.verified || !verification.credential) {
-      throw new Error(
-        verification.error || 'WebAuthn challenge-response verification failed.',
-      );
-    }
-
-    await login({
-      organizationSlug: biometricReq.organizationSlug,
-      storeCode: biometricReq.storeCode,
-      registerId: biometricReq.registerId,
-      emailOrPin: verification.credential.userEmail,
-      passwordOrPin: `WEBAUTHN_VERIFIED:${verification.credential.id}:${verification.challengeId}`,
-      organizationContext: biometricReq.organizationContext,
-      requireAdminRole: biometricReq.requireAdminRole,
-      biometricVerified: true,
-    });
-
-    return verification;
   };
 
   const logout = async (expectedToken?: string) => {
@@ -1153,6 +1171,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         operationalScope,
         setOperationalScope,
         isLoading,
+        isInitializing,
         isLocked,
         inactivityTimeoutMinutes,
         autoLogoutTimeoutMinutes,
@@ -1210,6 +1229,7 @@ export function useAuth(): AuthContextType {
     operationalScope: null,
     setOperationalScope: () => {},
     isLoading: false,
+    isInitializing: false,
     isLocked: false,
     inactivityTimeoutMinutes: 15,
     autoLogoutTimeoutMinutes: 30,

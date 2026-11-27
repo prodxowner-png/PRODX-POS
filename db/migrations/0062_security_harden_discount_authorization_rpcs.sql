@@ -1,4 +1,4 @@
--- 0059: close the remaining authorization and audit-integrity gaps introduced by 0058.
+-- 0062: close the remaining authorization and audit-integrity gaps introduced by 0058.
 -- This is additive: existing ledger rows and authorization grants are not rewritten.
 
 CREATE OR REPLACE FUNCTION public.prodx_seed_discount_policy_for_store()
@@ -398,8 +398,18 @@ BEGIN
       END IF;
 
     WHEN 'SUPERVISOR_AUTHORIZATION_REQUESTED' THEN
-      v_allowed_keys := ARRAY['action', 'idempotencyKey', 'payloadHash', 'thresholdBps'];
+      v_allowed_keys := ARRAY['action', 'storeId', 'idempotencyKey', 'payloadHash', 'thresholdBps'];
       v_actor_must_be_requester := TRUE;
+      IF NOT (p_metadata ? 'storeId')
+         OR pg_catalog.jsonb_typeof(p_metadata->'storeId') IS DISTINCT FROM 'string'
+         OR (p_metadata->>'storeId') !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' THEN
+        RAISE EXCEPTION 'security audit store is required for discount authorization request'
+          USING ERRCODE = '22023';
+      END IF;
+      IF (p_metadata->>'storeId')::uuid IS DISTINCT FROM v_context_store THEN
+        RAISE EXCEPTION 'security audit store does not match authenticated store'
+          USING ERRCODE = '42501';
+      END IF;
       v_idempotency_key := p_metadata->>'idempotencyKey';
       v_checkout_hash := p_metadata->>'payloadHash';
       IF v_action IS DISTINCT FROM 'discount'
@@ -867,5 +877,5 @@ COMMENT ON FUNCTION public.prodx_record_security_audit_event(uuid, uuid, uuid, t
   'Append-only security audit writer restricted to the authenticated store, approved event contracts, verified actors, and persisted authorization state.';
 
 INSERT INTO public.prodx_schema_migrations(version)
-VALUES ('0059_security_harden_discount_authorization_rpcs')
+VALUES ('0062_security_harden_discount_authorization_rpcs')
 ON CONFLICT (version) DO NOTHING;

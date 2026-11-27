@@ -1,4 +1,4 @@
--- 0062: Durable payment webhook replay inbox + FORCE RLS on prodx_supervisor_authorizations.
+-- 0065: Durable payment webhook replay inbox + FORCE RLS on prodx_supervisor_authorizations.
 -- Enforces:
 --   1. Deduplicated, append-only (no-DELETE) webhook event inbox with UNIQUE (provider, provider_event_id),
 --      SHA-256 payload hash validation, and tenant-scoped RLS + FORCE ROW LEVEL SECURITY.
@@ -393,5 +393,5 @@ GRANT EXECUTE ON FUNCTION public.prodx_payment_webhook_update_status(UUID, TEXT,
 ALTER TABLE public.prodx_supervisor_authorizations FORCE ROW LEVEL SECURITY;
 
 INSERT INTO public.prodx_schema_migrations(version)
-VALUES ('0062_payment_webhook_inbox_and_discount_force_rls')
+VALUES ('0065_payment_webhook_inbox_and_discount_force_rls')
 ON CONFLICT (version) DO NOTHING;
