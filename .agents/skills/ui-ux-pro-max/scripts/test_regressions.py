@@ -57,7 +57,13 @@ class PySideExampleTests(unittest.TestCase):
             "11": ("QTimer.singleShot(200, self.on_ready)", "time.sleep(0.2)"),
             "9": ("self._expand_anim = QPropertyAnimation(self, b'maximumWidth')", "anim = QPropertyAnimation(self, b'maximumWidth')"),
             "15": ("self.worker.progress.connect(self.on_progress, Qt.QueuedConnection)", "self.worker.progress.connect(self.on_progress)"),
+            "25": ("box.setDefaultButton(cancel_btn)", "box.setDefaultButton(delete_btn)"),
             "28": ("btn.setAccessibleName('Close window')", "btn.setToolTip('Close window')"),
+            "44": (
+                "box = QMessageBox(QMessageBox.Question, 'Move to Recycle Bin', 'Move 120 items?')\nbox.setDefaultButton(cancel_btn)",
+                "box = QMessageBox(QMessageBox.Question, 'Move to Recycle Bin', 'Move 120 items?')\nbox.setDefaultButton(delete_btn)",
+            ),
+            "62": ("if not self.isVisible(): return", "def paintEvent(self, event): self._render_frame()"),
         }
         for number, (good, bad) in expected.items():
             with self.subTest(row=number):
