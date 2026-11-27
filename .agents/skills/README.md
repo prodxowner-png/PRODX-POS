@@ -22,6 +22,7 @@ These agent skills turn PRODX-POS production principles into repeatable review p
 - [prodx-ai-tooling](prodx-ai-tooling/SKILL.md) — safe AI tool-calling, permission boundaries, prompt injection, idempotency, and auditable execution.
 
 - [modern-web-guidance](modern-web-guidance/SKILL.md) — modern HTML/CSS/DOM/browser APIs, accessibility, responsive UI, performance, security, and evidence-based implementation guidance.
+- [frontend-design](frontend-design/SKILL.md) — production-grade frontend design guidance, design tokens, typography, palettes, component generation, and accessibility analysis; obeys PRODX integration guardrails.
 
 ## Required evidence vocabulary
 Every skill must distinguish:
