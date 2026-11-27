@@ -111,6 +111,9 @@ OFFICIAL_SOURCE_HOSTS = {
     "cheatsheetseries.owasp.org", "docs.mapbox.com",
     "earthobservatory.nasa.gov", "leafletjs.com", "maplibre.org",
     "osmfoundation.org", "pro.arcgis.com",
+    # UX research publishers and a government design system cited by the
+    # form error-handling guidelines.
+    "baymard.com", "designsystem.ontario.ca", "www.nngroup.com",
 }
 STACK_OFFICIAL_HOSTS = {
     "react": {"react.dev"},
@@ -135,6 +138,7 @@ STACK_OFFICIAL_HOSTS = {
     "javafx": {"openjfx.io", "mkpaz.github.io", "www.w3.org"},
     "threejs": {"threejs.org", "github.com", "www.npmjs.com", "www.w3.org"},
     "laravel": {"laravel.com"},
+    "pyside6-qss": {"doc.qt.io", "qfluentwidgets.com"},
 }
 REQUIRED_UX_GUIDANCE = {
     "Focus Not Obscured (Minimum)": "Web",

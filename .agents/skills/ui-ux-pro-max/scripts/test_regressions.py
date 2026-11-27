@@ -1,0 +1,86 @@
+#!/usr/bin/env python3
+"""Regression tests for vendored UI/UX Pro Max upstream fixes."""
+
+import csv
+import sys
+import unittest
+from pathlib import Path
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+SKILL_DIR = SCRIPT_DIR.parent
+sys.path.insert(0, str(SCRIPT_DIR))
+
+from core import search  # noqa: E402
+from design_system import resolve_preview_locale, _query_wants_dark  # noqa: E402
+
+
+class PreviewLocaleTests(unittest.TestCase):
+    def test_ambiguous_rtl_scripts_do_not_guess_language(self):
+        for sample in ("العربية", "فارسی", "اردو", "ייִדיש"):
+            with self.subTest(sample=sample):
+                self.assertEqual(resolve_preview_locale(sample), ("und", "rtl"))
+
+    def test_explicit_rtl_locale_is_preserved(self):
+        self.assertEqual(resolve_preview_locale("فارسی", lang="fa-IR"), ("fa-IR", "rtl"))
+
+    def test_explicit_rtl_script_subtag_controls_direction(self):
+        self.assertEqual(resolve_preview_locale("Azeri", lang="az-Arab"), ("az-Arab", "rtl"))
+        self.assertEqual(resolve_preview_locale("Azeri", lang="az-Latn"), ("az-Latn", "ltr"))
+
+    def test_explicit_direction_overrides_locale_default(self):
+        self.assertEqual(resolve_preview_locale("English", lang="en", direction="rtl"), ("en", "rtl"))
+
+
+class DarkModeAliasTests(unittest.TestCase):
+    def test_arabic_dark_mode_aliases_select_dark_mode(self):
+        self.assertTrue(_query_wants_dark("داكن"))
+        self.assertTrue(_query_wants_dark("مظلم"))
+
+    def test_hyphenated_and_compact_dark_mode_aliases_select_dark_mode(self):
+        self.assertTrue(_query_wants_dark("dark-mode"))
+        self.assertTrue(_query_wants_dark("darkmode"))
+
+    def test_oled_substring_in_words_does_not_select_dark_mode(self):
+        self.assertFalse(_query_wants_dark("homeschooled"))
+        self.assertFalse(_query_wants_dark("water-cooled"))
+
+
+class ColorSearchTests(unittest.TestCase):
+    def test_three_digit_hex_matches_equivalent_six_digit_hex(self):
+        short = search("#fff", "color", 5)
+        full = search("#ffffff", "color", 5)
+        self.assertGreater(short["count"], 0)
+        self.assertEqual(short["results"], full["results"])
+
+
+class PySideExampleTests(unittest.TestCase):
+    def test_good_and_bad_examples_are_not_reversed(self):
+        path = SKILL_DIR / "data" / "stacks" / "pyside6-qss.csv"
+        with path.open(encoding="utf-8", newline="") as handle:
+            rows = {row["No"]: row for row in csv.DictReader(handle)}
+
+        expected = {
+            "2": ("setThemeColor(ThemeColor.LIGHT_1)", 'widget.setStyleSheet("color: #3B82F6")'),
+            "4": ("layout.setSpacing(16)", "layout = QVBoxLayout(); layout.addWidget(card)"),
+            "9": ("self._expand_anim = QPropertyAnimation(self, b'maximumWidth')", "anim = QPropertyAnimation(self, b'maximumWidth')"),
+            "10": ("if self._anim.isRunning(): return", "self._anim.stop(); self._anim.start()"),
+            "11": ("QTimer.singleShot(200, self.on_ready)", "time.sleep(0.2)"),
+            "15": ("self.worker.progress.connect(self.on_progress, Qt.QueuedConnection)", "self.worker.progress.connect(self.on_progress)"),
+            "16": ("label = BodyLabel('Scan results'); label.setFontSize(14)", "label = BodyLabel('Scan results'); label.setFontSize(10)"),
+            "25": ("box.setDefaultButton(cancel_btn)", "box.setDefaultButton(delete_btn)"),
+            "28": ("btn.setAccessibleName('Close window')", "btn.setToolTip('Close window')"),
+            "33": ("if reduced_motion: widget.setValue(target)", "anim.setDuration(400); anim.start()"),
+            "44": (
+                "box = QMessageBox(QMessageBox.Question, 'Move to Recycle Bin', 'Move 120 items?')\nbox.setDefaultButton(cancel_btn)",
+                "box = QMessageBox(QMessageBox.Question, 'Move to Recycle Bin', 'Move 120 items?')\nbox.setDefaultButton(delete_btn)",
+            ),
+            "62": ("if not self.isVisible(): return", "def paintEvent(self, event): self._render_frame()"),
+        }
+        for number, (good, bad) in expected.items():
+            with self.subTest(row=number):
+                self.assertEqual(rows[number]["Code Good"], good)
+                self.assertEqual(rows[number]["Code Bad"], bad)
+
+
+if __name__ == "__main__":
+    unittest.main()
