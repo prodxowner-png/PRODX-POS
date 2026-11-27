@@ -201,6 +201,7 @@ test('discount supervisor route binds approval to server policy, checkout finger
       query: async <T extends Record<string, unknown>>(sql: string, parameters: readonly unknown[] = []) => {
         inserted.push({ sql, parameters });
         if (sql.includes('FROM prodx_discount_policies')) return { rows: [{ require_supervisor_approval: true, max_discount_without_approval_bps: 1500 }] as unknown as T[] };
+        if (sql.includes('FROM prodx_products')) return { rows: [{ id: 'product-1', price_amount: '10.00', currency: 'THB' }] as unknown as T[] };
         if (sql.includes('prodx_supervisor_find_credential') || sql.includes('prodx_auth_find_supervisor_credential')) return { rows: [{ userId: 'manager-1', organizationId: principal.organizationId, status: 'active', secretHash, failedAttempts: 0, lockedUntil: null }] as unknown as T[] };
         if (sql.includes('SELECT m.user_id AS "userId"')) return { rows: [{ userId: 'manager-1' }] as unknown as T[] };
         return { rows: [] as T[] };
@@ -232,8 +233,74 @@ test('discount supervisor route binds approval to server policy, checkout finger
     assert.equal(insert.parameters[11], true);
     const requestAudit = inserted.find(({ sql }) => sql.includes('SUPERVISOR_AUTHORIZATION_REQUESTED'));
     assert.ok(requestAudit);
-    const requestAuditMetadata = JSON.parse(String(requestAudit.parameters[3])) as { storeId?: string };
-    assert.equal(requestAuditMetadata.storeId, principal.storeId);
+    const requestAuditMetadata = JSON.parse(String(requestAudit.parameters[3])) as Record<string, unknown>;
+    assert.equal(requestAuditMetadata.storeId, principal.storeId, 'audit metadata must persist the authenticated store');
+  } finally { await server.close(); }
+});
+
+test('discount supervisor route ignores tampered client checkout.totals and enforces server catalog BigInt discount threshold', async () => {
+  const secretHash = await hashPassword('manager-pin-1234');
+  let issuedCount = 0;
+  const db: TransactionalSqlExecutor = {
+    query: async () => { throw new Error('direct query must not be used'); },
+    transaction: async (work) => work({
+      query: async <T extends Record<string, unknown>>(sql: string) => {
+        if (sql.includes('FROM prodx_discount_policies')) return { rows: [{ require_supervisor_approval: true, max_discount_without_approval_bps: 1500 }] as unknown as T[] };
+        if (sql.includes('FROM prodx_products')) return { rows: [{ id: 'product-1', price_amount: '10.00', currency: 'THB' }] as unknown as T[] };
+        if (sql.includes('prodx_supervisor_find_credential') || sql.includes('prodx_auth_find_supervisor_credential')) return { rows: [{ userId: 'manager-1', organizationId: principal.organizationId, status: 'active', secretHash, failedAttempts: 0, lockedUntil: null }] as unknown as T[] };
+        if (sql.includes('SELECT m.user_id AS "userId"')) return { rows: [{ userId: 'manager-1' }] as unknown as T[] };
+        if (sql.includes('INSERT INTO prodx_supervisor_authorizations')) { issuedCount += 1; return { rows: [] as T[] }; }
+        return { rows: [] as T[] };
+      },
+    }),
+  };
+  const app = createApp({
+    authenticateRequest: () => principal,
+    authorizeRequest: (_context, permission) => permission === 'pos.discount',
+    configureRoutes: (configuredApp) => registerSupervisorAuthorizationRoute(configuredApp, db),
+  });
+  const server = await start(app);
+  try {
+    // Case 1: Actual server-catalog discount is 5% (<= 15% policy threshold),
+    // but client tampers totals to falsely claim a 50% discount. Must be rejected (403).
+    const inflatedClientTotals = {
+      idempotencyKey: 'discount-tampered-inflated', storeId: principal.storeId, registerId: 'register-1', cashierId: principal.userId,
+      items: [{ lineId: 'line-1', product: { id: 'product-1' }, quantity: 1, discountBps: 500,
+        unitPrice: { amountInCents: 1000, currency: 'THB' }, lineSubtotal: { amountInCents: 500, currency: 'THB' },
+        lineTax: { amountInCents: 0, currency: 'THB' }, lineTotal: { amountInCents: 500, currency: 'THB' } }],
+      totals: { grossSubtotal: { amountInCents: 1000, currency: 'THB' }, itemDiscounts: { amountInCents: 500, currency: 'THB' },
+        orderDiscount: { amountInCents: 0, currency: 'THB' }, netSubtotal: { amountInCents: 500, currency: 'THB' },
+        totalTax: { amountInCents: 0, currency: 'THB' }, grandTotal: { amountInCents: 500, currency: 'THB' }, totalItemsCount: 1 },
+      payments: [{ id: 'payment-tamper-1', method: 'cash', amount: { amountInCents: 500, currency: 'THB' },
+        tenderedCash: { amountInCents: 500, currency: 'THB' }, changeGiven: { amountInCents: 0, currency: 'THB' }, timestamp: '2026-11-01T00:00:00.000Z' }],
+    };
+    const rejected = await fetch(`${server.baseUrl}/api/v1/authorizations/supervisor`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ action: 'discount', checkout: inflatedClientTotals, supervisorUsername: 'manager', supervisorSecret: 'manager-pin-1234' }),
+    });
+    assert.equal(rejected.status, 403, 'tampered client totals claiming 50% discount must not override authoritative 5% catalog calculation');
+    assert.equal(issuedCount, 0);
+
+    // Case 2: Combined 10% item + 10% order discount = 19% effective (> 15% threshold),
+    // even when client tampers checkout.totals to claim only 1% discount. Must succeed (201).
+    const understatedClientTotals = {
+      idempotencyKey: 'discount-tampered-understated', storeId: principal.storeId, registerId: 'register-1', cashierId: principal.userId,
+      orderDiscountBps: 1000,
+      items: [{ lineId: 'line-1', product: { id: 'product-1' }, quantity: 1, discountBps: 1000,
+        unitPrice: { amountInCents: 1000, currency: 'THB' }, lineSubtotal: { amountInCents: 990, currency: 'THB' },
+        lineTax: { amountInCents: 0, currency: 'THB' }, lineTotal: { amountInCents: 990, currency: 'THB' } }],
+      totals: { grossSubtotal: { amountInCents: 10000, currency: 'THB' }, itemDiscounts: { amountInCents: 100, currency: 'THB' },
+        orderDiscount: { amountInCents: 0, currency: 'THB' }, netSubtotal: { amountInCents: 9900, currency: 'THB' },
+        totalTax: { amountInCents: 0, currency: 'THB' }, grandTotal: { amountInCents: 9900, currency: 'THB' }, totalItemsCount: 1 },
+      payments: [{ id: 'payment-tamper-2', method: 'cash', amount: { amountInCents: 9900, currency: 'THB' },
+        tenderedCash: { amountInCents: 9900, currency: 'THB' }, changeGiven: { amountInCents: 0, currency: 'THB' }, timestamp: '2026-11-01T00:00:00.000Z' }],
+    };
+    const granted = await fetch(`${server.baseUrl}/api/v1/authorizations/supervisor`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ action: 'discount', checkout: understatedClientTotals, supervisorUsername: 'manager', supervisorSecret: 'manager-pin-1234' }),
+    });
+    assert.equal(granted.status, 201, 'authoritative 1900 bps combined discount must trigger approval even when client totals claim 1%');
+    assert.equal(issuedCount, 1);
   } finally { await server.close(); }
 });
 
@@ -245,6 +312,7 @@ test('discount supervisor route accepts a verified Supabase subject without requ
       query: async <T extends Record<string, unknown>>(sql: string, parameters: readonly unknown[] = []) => {
         calls.push({ sql, parameters });
         if (sql.includes('FROM prodx_discount_policies')) return { rows: [{ require_supervisor_approval: true, max_discount_without_approval_bps: 1500 }] as unknown as T[] };
+        if (sql.includes('FROM prodx_products')) return { rows: [{ id: 'product-1', price_amount: '10.00', currency: 'THB' }] as unknown as T[] };
         if (sql.includes('prodx_auth_find_supervisor_by_supabase_subject')) return { rows: [{ userId: 'manager-1', status: 'active' }] as unknown as T[] };
         if (sql.includes('SELECT m.user_id AS "userId"')) return { rows: [{ userId: 'manager-1' }] as unknown as T[] };
         if (sql.includes('prodx_auth_find_supervisor_credential') || sql.includes('prodx_supervisor_find_credential')) throw new Error('Supabase identity must not require a local password credential');

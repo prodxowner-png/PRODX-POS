@@ -46,8 +46,43 @@ const EXPECTED_36_TENANT_SENSITIVE_RLS_TABLES = [
 ] as const;
 
 const EXPECTED_37_TENANT_SENSITIVE_RLS_TABLES = [
-  ...EXPECTED_36_TENANT_SENSITIVE_RLS_TABLES,
+  'prodx_audit_log',
+  'prodx_cash_movements',
+  'prodx_catalog_import_operations',
+  'prodx_catalog_pricing_operations',
+  'prodx_categories',
+  'prodx_devices',
+  'prodx_discount_policies',
+  'prodx_inventory_adjustments',
+  'prodx_inventory_ledger',
+  'prodx_order_items',
+  'prodx_orders',
+  'prodx_organizations',
+  'prodx_payment_attempts',
   'prodx_payment_webhook_events',
+  'prodx_payments',
+  'prodx_products',
+  'prodx_refund_items',
+  'prodx_refunds',
+  'prodx_registers',
+  'prodx_role_permissions',
+  'prodx_roles',
+  'prodx_security_audit_events',
+  'prodx_sessions',
+  'prodx_shift_operations',
+  'prodx_shifts',
+  'prodx_store_memberships',
+  'prodx_stores',
+  'prodx_supervisor_authorizations',
+  'prodx_tasks',
+  'prodx_timeclock_auth_attempts',
+  'prodx_timeclock_credentials',
+  'prodx_timeclock_operations',
+  'prodx_timeclock_records',
+  'prodx_user_credentials',
+  'prodx_user_roles',
+  'prodx_users',
+  'prodx_voids',
 ] as const;
 
 const EXPECTED_1_FORCE_RLS_TABLES = ['prodx_discount_policies'] as const;
@@ -109,7 +144,7 @@ test('postgres-recovery-drill.yml verifies RLS across all 36 migration-backed te
   assert.match(workflow, /left\(c\.relname,\s*6\)\s*=\s*'prodx_'\s*AND\s*NOT\s*c\.relrowsecurity/i);
   assert.match(workflow, /rel\.oid\s*=\s*t\.tgrelid/i);
   assert.match(workflow, /rel\.relname\s*=\s*expected\.relname/i);
-  assert.match(workflow, /version = '0062_payment_webhook_inbox_and_discount_force_rls'/);
+  assert.match(workflow, /version = '0065_payment_webhook_inbox_and_discount_force_rls'/);
   assert.match(workflow, /'prodx_payment_webhook_events_no_delete_guard','prodx_payment_webhook_events'/);
   assert.match(workflow, /"rlsExpectedCoreTableCount":\s*\$\{rls_expected_count\}/);
   assert.match(workflow, /"unprotectedProdxTableCount":\s*0/);
@@ -253,7 +288,7 @@ if (shouldRunPgIntegration) {
       try {
         const migrationResult = await sourcePool.query<{ count: string }>(
           `SELECT count(*)::text AS count FROM public.prodx_schema_migrations
-           WHERE version = '0062_payment_webhook_inbox_and_discount_force_rls'`,
+           WHERE version = '0065_payment_webhook_inbox_and_discount_force_rls'`,
         );
         has0062 = Number(migrationResult.rows[0]?.count ?? 0) === 1;
         // Seed synthetic PII, secrets, financial transactions, inventory ledger, and supervisor authorization rows
