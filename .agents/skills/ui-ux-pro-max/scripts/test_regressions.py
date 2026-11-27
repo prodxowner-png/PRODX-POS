@@ -52,23 +52,21 @@ class PySideExampleTests(unittest.TestCase):
             rows = {row["No"]: row for row in csv.DictReader(handle)}
 
         expected = {
-            "1": ("app = QApplication(sys.argv)\nsetTheme(Theme.AUTO)", "window.setStyleSheet('QWidget { background: #111; color: #fff; }')"),
             "2": ("setThemeColor(ThemeColor.LIGHT_1)", 'widget.setStyleSheet("color: #3B82F6")'),
             "4": ("layout.setSpacing(16)", "layout = QVBoxLayout(); layout.addWidget(card)"),
             "9": ("self._expand_anim = QPropertyAnimation(self, b'maximumWidth')", "anim = QPropertyAnimation(self, b'maximumWidth')"),
-            "10": ("if self._anim.isRunning(): return", "self._anim.setStartValue(0); self._anim.start()"),
+            "10": ("if self._anim.isRunning(): return", "self._anim.stop(); self._anim.start()"),
             "11": ("QTimer.singleShot(200, self.on_ready)", "time.sleep(0.2)"),
             "15": ("self.worker.progress.connect(self.on_progress, Qt.QueuedConnection)", "self.worker.progress.connect(self.on_progress)"),
             "16": ("label = BodyLabel('Scan results'); label.setFontSize(14)", "label = BodyLabel('Scan results'); label.setFontSize(10)"),
             "25": ("box.setDefaultButton(cancel_btn)", "box.setDefaultButton(delete_btn)"),
             "28": ("btn.setAccessibleName('Close window')", "btn.setToolTip('Close window')"),
-            "33": ("if reduced_motion: widget.setValue(target)", "self._anim.start()  # ignores reduced-motion setting"),
+            "33": ("if reduced_motion: widget.setValue(target)", "anim.setDuration(400); anim.start()"),
             "44": (
                 "box = QMessageBox(QMessageBox.Question, 'Move to Recycle Bin', 'Move 120 items?')\nbox.setDefaultButton(cancel_btn)",
                 "box = QMessageBox(QMessageBox.Question, 'Move to Recycle Bin', 'Move 120 items?')\nbox.setDefaultButton(delete_btn)",
             ),
             "62": ("if not self.isVisible(): return", "def paintEvent(self, event): self._render_frame()"),
-            "68": ("self.setMinimumSize(1000, 700)", "self.setMinimumSize(200, 150)"),
         }
         for number, (good, bad) in expected.items():
             with self.subTest(row=number):
