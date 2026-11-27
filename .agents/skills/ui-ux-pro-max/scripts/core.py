@@ -10,6 +10,7 @@ import re
 from pathlib import Path
 from math import log
 from collections import defaultdict
+from itertools import islice
 
 # ============ CONFIGURATION ============
 DATA_DIR = Path(__file__).parent.parent / "data"
@@ -118,6 +119,7 @@ STACK_CONFIG = {
     "avalonia":         {"file": "stacks/avalonia.csv"},
     "uno":              {"file": "stacks/uno.csv"},
     "uwp":              {"file": "stacks/uwp.csv"},
+    "pyside6-qss":      {"file": "stacks/pyside6-qss.csv"},
 }
 
 # Common columns for all stacks
@@ -153,6 +155,7 @@ STACK_CURRENT_VERSIONS = {
     "javafx": (26,),
     "threejs": (0, 185),
     "laravel": (13,),
+    "pyside6-qss": (6, 12),
 }
 LEGACY_ONLY_STACKS = frozenset({"uwp"})
 STACK_CURRENT_APPLICABILITY = {
@@ -178,6 +181,7 @@ STACK_CURRENT_APPLICABILITY = {
     "javafx": "javafx 26",
     "threejs": "threejs 0.185.1",
     "laravel": "laravel 13.x",
+    "pyside6-qss": "pyside6-qss 6.12",
 }
 
 _STACK_QUERY_NAMES = {
@@ -199,6 +203,7 @@ _STACK_QUERY_NAMES = {
     "javafx": r"javafx",
     "threejs": r"three(?:\.js|js)?",
     "laravel": r"laravel",
+    "pyside6-qss": r"(?:pyside6|pyqt6|qfluentwidgets|qt\s*qml)",
 }
 
 AVAILABLE_STACKS = list(STACK_CONFIG.keys())
@@ -271,17 +276,56 @@ _SYNONYMS = {
     "organisation": "organization",
     "behaviour": "behavior",
     "ux/ui": "ux ui",
+    # Arabic & MENA bilingual domain/style/product synonyms
+    "تداول": "trading crypto fintech",
+    "مالية": "fintech finance banking",
+    "مالي": "fintech finance banking",
+    "بنك": "banking fintech finance",
+    "مصرف": "banking fintech finance",
+    "ذكاء اصطناعي": "ai artificial intelligence",
+    "عيادة": "healthcare medical clinic",
+    "طبي": "healthcare medical clinic",
+    "طبية": "healthcare medical clinic",
+    "مستشفى": "healthcare hospital medical",
+    "متجر": "ecommerce store shopping",
+    "تجارة إلكترونية": "ecommerce shopping retail",
+    "لوحة تحكم": "dashboard analytics saas",
+    "تحليلات": "analytics dashboard data",
+    "عقارات": "real estate property",
+    "تعليم": "education learning course",
+    "أكاديمية": "education learning academy",
+    "تدريب": "education learning training",
+    "فندق": "hotel hospitality booking",
+    "سياحة": "travel hospitality booking",
+    "مطعم": "restaurant food delivery",
+    "أمن سيبراني": "cybersecurity security",
+    "ألعاب": "gaming game",
+    "معرض أعمال": "portfolio agency creative",
+    "داكن": "dark mode",
+    "مظلم": "dark mode",
+    "زجاجي": "glassmorphism glass",
+    "بسيط": "minimalism clean",
 }
+
+# Arabic-scoped diacritics (harakat/tashkeel) and tatweel; no-op on non-Arabic text.
+_ARABIC_DIACRITICS_RE = re.compile(r"[\u0617-\u061A\u064B-\u0652\u0640]")
 
 _SYNONYM_PATTERNS = [
     (re.compile(r"(?<!\w)" + re.escape(variant) + r"(?!\w)", re.IGNORECASE), canonical)
     for variant, canonical in sorted(_SYNONYMS.items(), key=lambda item: len(item[0]), reverse=True)
 ]
 
+_SYNONYM_CANDIDATE_RE = re.compile(
+    r"(?<!\w)(?:" + "|".join(map(re.escape, _SYNONYMS)) + r")(?!\w)",
+    re.IGNORECASE,
+)
+
 
 def _normalize(text):
-    """Apply longest-first synonym substitution at token boundaries."""
-    normalized = str(text)
+    """Apply Arabic diacritic stripping and longest-first synonym substitution at token boundaries."""
+    normalized = _ARABIC_DIACRITICS_RE.sub("", str(text))
+    if not _SYNONYM_CANDIDATE_RE.search(normalized):
+        return normalized
     for pattern, canonical in _SYNONYM_PATTERNS:
         normalized = pattern.sub(canonical, normalized)
     return normalized
@@ -447,6 +491,20 @@ def _search_csv_detailed(filepath, search_cols, output_cols, query, max_results,
         data = [row for row in data if row_filter(row)]
         if not data:
             return [], None, {"reason": "empty-data"}
+
+    if routing_domain == "color" and re.fullmatch(r"#[0-9a-fA-F]{6}", query.strip()):
+        hex_value = query.strip().lower()
+        color_columns = [col for col in output_cols if col not in ("Product Type", "Notes")]
+        matches = (
+            row for row in data
+            if any((row.get(col) or "").strip().lower() == hex_value for col in color_columns)
+        )
+        results = [_project_row(row, output_cols) for row in islice(matches, max_results)]
+        reason = "exact-color" if results else "no-exact-color"
+        diagnostic = _exact_match_diagnostic(query, reason)
+        if not results:
+            diagnostic.update(abstained=True, token_coverage=0.0)
+        return results, None, diagnostic
 
     bm25 = _get_bm25(filepath, search_cols, data, signature, cache_variant)
     search_query, rewrites = _rewrite_query_for_domain(query, routing_domain, bm25)
