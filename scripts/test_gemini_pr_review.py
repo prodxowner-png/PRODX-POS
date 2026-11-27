@@ -378,5 +378,43 @@ class GeminiReviewContractTests(unittest.TestCase):
         self.assertIn("author_association == 'COLLABORATOR'", text)
         self.assertNotIn("workflow_dispatch", text)
 
+
+    def test_closed_merged_pull_request_is_a_successful_skip(self):
+        import os
+        import gemini_pr_review as review
+        from unittest.mock import patch
+
+        closed_pr = {
+            "state": "closed", "merged": True,
+            "head": {"sha": "a" * 40},
+        }
+        env = {
+            "GITHUB_REPOSITORY": "org/repo",
+            "GITHUB_TOKEN": "token",
+            "PR_NUMBER": "402",
+        }
+        with patch.dict(os.environ, env), \\
+             patch.object(review, "fetch_pr", return_value=closed_pr), \\
+             patch.object(review, "global_review_throttle_reason") as throttle:
+            self.assertEqual(review.main(), 0)
+            throttle.assert_not_called()
+
+    def test_gemini_http_error_includes_safe_google_reason(self):
+        import gemini_pr_review as review
+        import io
+        from unittest.mock import patch
+        from urllib.error import HTTPError
+
+        error = HTTPError(
+            review.GEMINI_API, 403, "Forbidden", {},
+            io.BytesIO(b'{"error":{"status":"PERMISSION_DENIED","message":"API key is restricted"}}'),
+        )
+        with patch.object(review.urllib.request, "urlopen", side_effect=error):
+            with self.assertRaises(review.ReviewError) as raised:
+                review._request_json(review.GEMINI_API, api_key="not-a-real-key", method="POST", payload={})
+        self.assertIn("HTTP 403", str(raised.exception))
+        self.assertIn("PERMISSION_DENIED", str(raised.exception))
+        self.assertIn("API key is restricted", str(raised.exception))
+
 if __name__ == "__main__":
     unittest.main()
