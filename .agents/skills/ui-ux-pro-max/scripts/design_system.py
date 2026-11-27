@@ -44,7 +44,15 @@ _RTL_LANGUAGES = {"ar", "fa", "he", "ps", "ur", "yi"}
 def resolve_preview_locale(text: str, lang: str = None, direction: str = None) -> tuple:
     """Resolve preview language and direction; only letters count for inference."""
     if lang:
-        default_direction = "rtl" if lang.split("-")[0].lower() in _RTL_LANGUAGES else "ltr"
+        subtags = lang.split("-")
+        script = next((part.title() for part in subtags[1:] if len(part) == 4 and part.isalpha()), None)
+        rtl_scripts = {"Adlm", "Arab", "Hebr", "Nkoo", "Rohg", "Syrc", "Thaa"}
+        default_direction = (
+            "rtl" if script in rtl_scripts
+            else "ltr" if script
+            else "rtl" if subtags[0].lower() in _RTL_LANGUAGES
+            else "ltr"
+        )
         return lang, direction or default_direction
 
     for character in text:
