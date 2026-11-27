@@ -8,10 +8,12 @@ import { Money, createMoney } from '../domain/money';
 import { createShiftApi } from '../adapters/productionShiftApiFactory';
 import { useAuth } from './AuthContext';
 import { useToast } from './ToastContext';
+import { getShiftScopeKey, isShiftStateKnownForScope } from '../services/shiftStatePolicy';
 
 interface ShiftContextType {
   currentShift: Shift | null;
   isLoading: boolean;
+  isShiftStateKnown: boolean;
   openShift: (openingFloat: Money) => Promise<Shift | undefined>;
   closeShift: (actualCountedCash: Money, notes?: string) => Promise<Shift>;
   recordCashMovement: (type: CashMovementType, amount: Money, reason: string) => Promise<void>;
@@ -26,6 +28,14 @@ export const ShiftProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const { addToast } = useToast();
   const [currentShift, setCurrentShift] = useState<Shift | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [loadedShiftScopeKey, setLoadedShiftScopeKey] = useState<string | null>(null);
+  const refreshSequence = useRef(0);
+  const shiftScopeKey = getShiftScopeKey(session ? {
+    storeId: session.currentStore.id,
+    registerId: session.registerId,
+    userId: session.currentUser.id,
+  } : null);
+  const isShiftStateKnown = isShiftStateKnownForScope(shiftScopeKey, loadedShiftScopeKey);
   const pendingIdempotency = useRef(new Map<string, { fingerprint: string; key: string }>());
   const getIdempotencyKey = (operation: string, fingerprint: string) => {
     const existing = pendingIdempotency.current.get(operation);
@@ -37,19 +47,27 @@ export const ShiftProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const clearIdempotencyKey = (operation: string) => pendingIdempotency.current.delete(operation);
 
   const refreshShift = useCallback(async () => {
+    const requestSequence = ++refreshSequence.current;
     if (!session) {
       setCurrentShift(null);
+      setLoadedShiftScopeKey(null);
       setIsLoading(false);
       return;
     }
     try {
       setIsLoading(true);
       const shift = await shiftApi!.getCurrentShift(session.currentStore.id, session.registerId);
+      // Ignore stale responses when the authenticated scope changed during the request.
+      if (requestSequence !== refreshSequence.current) return;
       setCurrentShift(shift);
+      setLoadedShiftScopeKey(shiftScopeKey);
     } catch (err) {
+      // A failed authoritative read must never be interpreted as a closed shift.
+      if (requestSequence !== refreshSequence.current) return;
+      setLoadedShiftScopeKey(null);
       console.error('[ShiftContext] Error loading shift:', err);
     } finally {
-      setIsLoading(false);
+      if (requestSequence === refreshSequence.current) setIsLoading(false);
     }
   }, [session]);
 
@@ -70,6 +88,7 @@ export const ShiftProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       );
       clearIdempotencyKey('open-shift');
       setCurrentShift(shift);
+      setLoadedShiftScopeKey(shiftScopeKey);
       addToast({
         title: 'Shift Opened',
         message: `Register ${session.registerId} active with opening float of $${(openingFloat.amountInCents / 100).toFixed(2)}`,
@@ -93,6 +112,7 @@ export const ShiftProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const closed = await shiftApi!.closeShift(currentShift.id, actualCountedCash, notes, key);
       clearIdempotencyKey('close-shift');
       setCurrentShift(null);
+      setLoadedShiftScopeKey(shiftScopeKey);
       addToast({
         title: 'Shift Closed & Reconciled',
         message: `Actual cash: $${(actualCountedCash.amountInCents / 100).toFixed(2)}`,
@@ -142,6 +162,7 @@ export const ShiftProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       value={{
         currentShift,
         isLoading,
+        isShiftStateKnown,
         openShift,
         closeShift,
         recordCashMovement,

@@ -52,6 +52,7 @@ import { RbacGuard } from './components/auth/RbacGuard';
 import { FrontendAssistant } from './components/ai/FrontendAssistant';
 import { useShift } from './context/ShiftContext';
 import { StartShiftModal } from './components/shift/StartShiftModal';
+import { PwaUpdateGate } from './components/pwa/PwaUpdateGate';
 
 const TaskManagementScreen = React.lazy(() => import('./modules/tasks/TaskManagementScreen'));
 
@@ -547,6 +548,7 @@ export default function App() {
                     <AuthProvider>
                       <OfflineProvider>
                         <ShiftProvider>
+                          <PwaUpdateGate />
                           <CartProvider>
                             <ReceiptPrinterProvider>
                               <VisualInspectorProvider>
