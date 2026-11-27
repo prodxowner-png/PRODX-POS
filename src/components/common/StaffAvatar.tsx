@@ -55,7 +55,7 @@ export const StaffAvatar: React.FC<StaffAvatarProps> = ({
           className="w-full h-full rounded-xl object-cover border border-slate-200/80 dark:border-slate-800 shadow-xs"
         />
       ) : (
-        <div className="w-full h-full rounded-xl bg-gradient-to-br from-[#1e293b] to-[#0f172a] text-[#ff6b1a] font-black flex items-center justify-center border border-slate-800 shadow-xs">
+        <div className="w-full h-full rounded-xl bg-brand-primary text-brand-primary-text font-black flex items-center justify-center border border-brand-border shadow-xs">
           {initials}
         </div>
       )}

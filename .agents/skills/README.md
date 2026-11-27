@@ -17,6 +17,7 @@ These agent skills turn PRODX-POS production principles into repeatable review p
 - [prodx-backup-recovery](prodx-backup-recovery/SKILL.md) — restore drills, integrity checks, RPO/RTO, and DR.
 - [prodx-production-infrastructure](prodx-production-infrastructure/SKILL.md) — platform wiring, network/TLS, secrets delivery, runtime health, capacity, and operational configuration.
 - [prodx-production-readiness](prodx-production-readiness/SKILL.md) — aggregate hard-gate decision and status reporting.
+- [ui-ux-pro-max](ui-ux-pro-max/SKILL.md) — searchable UI/UX design systems, accessibility, responsive layout, interaction, typography, and stack-specific frontend guidance; follow its PRODX guardrails.
 - [prodx-code-review](prodx-code-review/SKILL.md) — adversarial pull-request review contract already present in this repository.
 - [prodx-ai-tooling](prodx-ai-tooling/SKILL.md) — safe AI tool-calling, permission boundaries, prompt injection, idempotency, and auditable execution.
 

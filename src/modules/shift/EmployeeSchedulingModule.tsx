@@ -169,7 +169,7 @@ export const EmployeeSchedulingModule: React.FC = () => {
             </h3>
             <p className="text-xs text-text/60 mt-0.5">
               {weekDays[0].dateStr} — {weekDays[6].dateStr} · {language === 'th' ? 'ประมาณการค่าแรงสัปดาห์นี้:' : 'Est. Weekly Labor:'}{' '}
-              <span className="font-mono font-bold text-primary">
+              <span className="font-mono tabular-nums font-bold text-primary">
                 {formatMoney(createMoney(totalEstLaborCostCents, session.currentStore.currency || 'THB'))}
               </span>
             </p>
@@ -224,8 +224,8 @@ export const EmployeeSchedulingModule: React.FC = () => {
               <th className="py-3 px-4 w-48">{language === 'th' ? 'พนักงาน' : 'Staff Member'}</th>
               {weekDays.map((day) => (
                 <th key={day.dateStr} className="py-3 px-2 text-center border-l border-border/40 min-w-[90px]">
-                  <div className="text-[10px] uppercase text-text/50">{language === 'th' ? day.dayLabelTh : day.dayLabelEn}</div>
-                  <div className="font-mono text-xs font-bold text-text">{day.date.getDate()}</div>
+                  <div className="text-[10px] uppercase text-brand-text-secondary">{language === 'th' ? day.dayLabelTh : day.dayLabelEn}</div>
+                  <div className="font-mono tabular-nums text-xs font-bold text-text">{day.date.getDate()}</div>
                 </th>
               ))}
             </tr>
@@ -235,7 +235,7 @@ export const EmployeeSchedulingModule: React.FC = () => {
               <tr key={staff.id} className="hover:bg-background/40 transition-colors">
                 <td className="py-3 px-4 font-bold text-text">
                   <div className="font-bold text-xs text-text">{staff.name}</div>
-                  <div className="text-[10px] text-text/50 font-mono">{staff.role}</div>
+                  <div className="text-[10px] text-brand-text-secondary font-mono tabular-nums">{staff.role}</div>
                 </td>
 
                 {weekDays.map((day) => {
@@ -254,21 +254,21 @@ export const EmployeeSchedulingModule: React.FC = () => {
                     >
                       {shift ? (
                         <div
-                          className={`p-1.5 rounded-lg text-[10px] font-bold border font-mono ${
+                          className={`p-1.5 rounded-lg text-[10px] font-bold border font-mono tabular-nums ${
                             shift.shiftType === 'morning'
                               ? 'bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-300'
                               : shift.shiftType === 'evening'
-                              ? 'bg-purple-500/10 border-purple-500/30 text-purple-700 dark:text-purple-300'
+                              ? 'bg-brand-surface-selected border-primary/35 text-brand-text-accent'
                               : shift.shiftType === 'full'
                               ? 'bg-blue-500/10 border-blue-500/30 text-blue-700 dark:text-blue-300'
-                              : 'bg-card border-border text-text/40'
+                              : 'bg-card border-border text-brand-text-secondary'
                           }`}
                         >
                           <div className="uppercase font-black">{shift.shiftType}</div>
                           <div className="text-[9px] opacity-80">{shift.startTime} - {shift.endTime}</div>
                         </div>
                       ) : (
-                        <span className="text-[10px] text-text/30 font-mono hover:text-primary">+ {language === 'th' ? 'จัดกะ' : 'Assign'}</span>
+                        <span className="text-[10px] text-brand-text-secondary font-mono tabular-nums hover:text-primary">+ {language === 'th' ? 'จัดกะ' : 'Assign'}</span>
                       )}
                     </td>
                   );
@@ -312,7 +312,7 @@ export const EmployeeSchedulingModule: React.FC = () => {
               type="date"
               value={selectedDateStr}
               onChange={(e) => setSelectedDateStr(e.target.value)}
-              className="w-full h-10 px-3 rounded-lg border border-border bg-background text-xs font-mono font-bold text-text"
+              className="w-full h-10 px-3 rounded-lg border border-border bg-background text-xs font-mono tabular-nums font-bold text-text"
             />
           </div>
 
