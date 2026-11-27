@@ -393,8 +393,8 @@ class GeminiReviewContractTests(unittest.TestCase):
             "GITHUB_TOKEN": "token",
             "PR_NUMBER": "402",
         }
-        with patch.dict(os.environ, env), \\
-             patch.object(review, "fetch_pr", return_value=closed_pr), \\
+        with patch.dict(os.environ, env), \
+             patch.object(review, "fetch_pr", return_value=closed_pr), \
              patch.object(review, "global_review_throttle_reason") as throttle:
             self.assertEqual(review.main(), 0)
             throttle.assert_not_called()
