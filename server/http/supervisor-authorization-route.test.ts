@@ -128,6 +128,12 @@ test('supervisor authorization route rejects malformed requests before database 
   try {
     const response = await fetch(`${server.baseUrl}/api/v1/authorizations/supervisor`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'refund', orderId: '', supervisorUsername: 'supervisor', supervisorSecret: '' }) });
     assert.equal(response.status, 400);
+    const oversized = await fetch(`${server.baseUrl}/api/v1/authorizations/supervisor`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ action: 'refund', orderId: 'order-1', supervisorUserId: 'x'.repeat(129), supervisorAccessToken: 'invalid-token' }),
+    });
+    assert.equal(oversized.status, 400);
     assert.equal(databaseReached, false);
   } finally { await server.close(); }
 });
@@ -224,7 +230,10 @@ test('discount supervisor route binds approval to server policy, checkout finger
     assert.match(String(insert.parameters[9]), /^[0-9a-f]{64}$/);
     assert.equal(insert.parameters[10], 1500);
     assert.equal(insert.parameters[11], true);
-    assert.ok(inserted.some(({ sql }) => sql.includes('SUPERVISOR_AUTHORIZATION_REQUESTED')));
+    const requestAudit = inserted.find(({ sql }) => sql.includes('SUPERVISOR_AUTHORIZATION_REQUESTED'));
+    assert.ok(requestAudit);
+    const requestAuditMetadata = JSON.parse(String(requestAudit.parameters[3])) as { storeId?: string };
+    assert.equal(requestAuditMetadata.storeId, principal.storeId);
   } finally { await server.close(); }
 });
 

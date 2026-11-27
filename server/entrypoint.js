@@ -1047,6 +1047,9 @@ var assertCheckoutRequest = (value) => {
       throw new CheckoutValidationError(`${field} is required.`);
     }
   }
+  if ([...value.idempotencyKey].length > 256) {
+    throw new CheckoutValidationError("idempotencyKey must be at most 256 characters.");
+  }
   if (!Array.isArray(value.items) || value.items.length === 0) {
     throw new CheckoutValidationError("At least one checkout item is required.");
   }
@@ -1202,9 +1205,16 @@ var createSupervisorAuthorizationService = (db, now = () => /* @__PURE__ */ new 
         await recordSecurityEvent(db, {
           organizationId: input.organizationId,
           storeId: input.storeId,
-          userId: credential?.userId ?? null,
+          userId: input.action === "discount" && credential?.status === "disabled" ? null : credential?.userId ?? null,
           eventType: "SUPERVISOR_AUTH_REJECTED",
-          metadata: { action: input.action, orderId: input.orderId, requesterUserId: input.requesterUserId, reason: "invalid_or_locked" }
+          metadata: {
+            action: input.action,
+            ...input.action === "discount" ? { storeId: input.storeId } : {},
+            orderId: input.orderId,
+            requesterUserId: input.requesterUserId,
+            ...input.action === "discount" && credential?.status === "disabled" ? { requestedSupervisorUserId: credential.userId } : {},
+            reason: "invalid_or_locked"
+          }
         });
         throw new SupervisorAuthorizationError("INVALID_CREDENTIALS");
       }
@@ -1295,7 +1305,19 @@ var createSupervisorAuthorizationService = (db, now = () => /* @__PURE__ */ new 
       storeId: input.storeId,
       userId: supervisorUserId,
       eventType: "SUPERVISOR_AUTHORIZATION_GRANTED",
-      metadata: { action: input.action, orderId: input.orderId, requesterUserId: input.requesterUserId, requesterSessionId: input.requesterSessionId, expiresAt: expiresAt2.toISOString() }
+      metadata: {
+        action: input.action,
+        orderId: input.orderId,
+        requesterUserId: input.requesterUserId,
+        requesterSessionId: input.requesterSessionId,
+        expiresAt: expiresAt2.toISOString(),
+        ...input.action === "discount" ? {
+          checkoutIdempotencyKey: input.checkoutIdempotencyKey,
+          checkoutPayloadHash: input.checkoutPayloadHash,
+          policyThresholdBps: input.policyThresholdBps,
+          policyRequiresApproval: input.policyRequiresApproval
+        } : {}
+      }
     });
     return { authorizationToken: token, supervisorUserId, expiresAt: expiresAt2.toISOString() };
   },
@@ -1339,7 +1361,17 @@ var createSupervisorAuthorizationService = (db, now = () => /* @__PURE__ */ new 
         storeId: input.storeId,
         userId: rows[0].supervisorUserId,
         eventType: "SUPERVISOR_AUTHORIZATION_CONSUMED",
-        metadata: { action: input.action, orderId: input.orderId ?? null, idempotencyKey: input.checkoutIdempotencyKey ?? null, requesterUserId: input.requesterUserId }
+        metadata: {
+          action: input.action,
+          orderId: input.orderId ?? null,
+          idempotencyKey: input.checkoutIdempotencyKey ?? null,
+          requesterUserId: input.requesterUserId,
+          ...input.action === "discount" ? {
+            checkoutPayloadHash: input.checkoutPayloadHash,
+            policyThresholdBps: input.policyThresholdBps,
+            policyRequiresApproval: input.policyRequiresApproval
+          } : {}
+        }
       });
       return { supervisorUserId: rows[0].supervisorUserId };
     }
@@ -1378,7 +1410,17 @@ var createSupervisorAuthorizationService = (db, now = () => /* @__PURE__ */ new 
         storeId: input.storeId,
         userId: input.requesterUserId,
         eventType: "SUPERVISOR_AUTHORIZATION_REPLAYED",
-        metadata: { action: input.action, orderId: input.orderId ?? null, idempotencyKey: input.checkoutIdempotencyKey ?? null }
+        metadata: {
+          action: input.action,
+          orderId: input.orderId ?? null,
+          idempotencyKey: input.checkoutIdempotencyKey ?? null,
+          requesterUserId: input.requesterUserId,
+          ...input.action === "discount" ? {
+            checkoutPayloadHash: input.checkoutPayloadHash,
+            policyThresholdBps: input.policyThresholdBps,
+            policyRequiresApproval: input.policyRequiresApproval
+          } : {}
+        }
       });
       throw new SupervisorAuthorizationError("AUTHORIZATION_REPLAYED");
     }
@@ -4883,7 +4925,7 @@ import crypto18 from "node:crypto";
 var valid = (value) => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const body = value;
-  if (!["refund", "void", "discount"].includes(String(body.action)) || typeof body.supervisorUsername !== "string" && typeof body.supervisorUserId !== "string" || !(typeof body.supervisorSecret === "string" && body.supervisorSecret.length > 0 && body.supervisorSecret.length <= 1024 || typeof body.supervisorAccessToken === "string" && body.supervisorAccessToken.length > 0 && body.supervisorAccessToken.length <= 8192) || typeof body.supervisorAccessToken === "string" && typeof body.supervisorUserId !== "string") return false;
+  if (!["refund", "void", "discount"].includes(String(body.action)) || typeof body.supervisorUsername !== "string" && typeof body.supervisorUserId !== "string" || typeof body.supervisorUserId === "string" && (body.supervisorUserId.trim().length === 0 || body.supervisorUserId.length > 128) || !(typeof body.supervisorSecret === "string" && body.supervisorSecret.length > 0 && body.supervisorSecret.length <= 1024 || typeof body.supervisorAccessToken === "string" && body.supervisorAccessToken.length > 0 && body.supervisorAccessToken.length <= 8192) || typeof body.supervisorAccessToken === "string" && typeof body.supervisorUserId !== "string") return false;
   if (body.action === "discount") {
     if (!body.checkout || typeof body.checkout !== "object" || Array.isArray(body.checkout)) return false;
     try {
@@ -5018,7 +5060,7 @@ var registerSupervisorAuthorizationRoute = (app, db, verifySupervisorToken) => {
               crypto18.randomUUID(),
               context.principal.organizationId,
               context.principal.userId,
-              JSON.stringify({ action: "discount", idempotencyKey: checkout.idempotencyKey, payloadHash: checkoutAuthorizationFingerprint(checkout), thresholdBps: Number(policy.max_discount_without_approval_bps) })
+              JSON.stringify({ action: "discount", storeId: context.principal.storeId, idempotencyKey: checkout.idempotencyKey, payloadHash: checkoutAuthorizationFingerprint(checkout), thresholdBps: Number(policy.max_discount_without_approval_bps) })
             ]
           );
           const result2 = await service.authorize({

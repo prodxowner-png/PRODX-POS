@@ -2,15 +2,15 @@ import crypto from 'node:crypto';
 import type { SqlExecutor } from '../auth/postgres-repository';
 import { AIGatewayService, type AIAuthorizer, type AIAuditEvent, type AIAuditor, type AIScope } from './gateway';
 import { createAIProviderRegistry } from './core';
-import { GeminiProvider } from './geminiProvider';
+import { VercelGatewayProvider } from './vercelGatewayProvider';
 import type { RequestContext } from '../http/types';
 
 export const createAIGatewayService = (
   db: SqlExecutor,
   authorizeRequest: (context: RequestContext, permission: string) => Promise<boolean>,
 ): AIGatewayService => {
-  const provider = new GeminiProvider();
-  const registry = createAIProviderRegistry([provider], 'gemini');
+  const provider = new VercelGatewayProvider();
+  const registry = createAIProviderRegistry([provider], 'vercel-ai-gateway');
 
   const authorizer: AIAuthorizer = {
     authorize: (scope: AIScope, permission: string) =>

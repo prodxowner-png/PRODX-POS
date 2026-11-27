@@ -1,4 +1,5 @@
 import type { InventoryLedgerEntry, StockMovementReason } from '../domain/catalog';
+import { withInventoryMutation } from '../services/inventoryMutationTracker';
 
 const configuredBaseUrl = (): string | undefined => import.meta.env?.VITE_AUTH_API_BASE_URL;
 
@@ -45,14 +46,14 @@ const mapEntry = (e: ServerEntry): InventoryLedgerEntry => ({
 
 export function createProductionInventoryAdjustmentApi(token: string, baseUrl?: string) {
   return {
-    adjustStock: async (
+    adjustStock: (
       _storeId: string,
       productId: string,
       quantityDelta: number,
       reason: StockMovementReason,
       _userId: string,
       notes?: string,
-    ) => {
+    ) => withInventoryMutation(async () => {
       const normalizedToken = requireToken(token);
       const host = requireBaseUrl(baseUrl);
       const response = await fetch(`${host}/api/v1/inventory/adjustments`, {
@@ -79,15 +80,15 @@ export function createProductionInventoryAdjustmentApi(token: string, baseUrl?: 
         throw new Error('Inventory adjustment API returned an invalid response.');
       }
       return mapEntry(payload.entries[0]);
-    },
-    bulkAdjustStock: async (
+    }),
+    bulkAdjustStock: (
       _storeId: string,
       productIds: readonly string[],
       quantityDelta: number,
       reason: StockMovementReason,
       _userId: string,
       notes?: string,
-    ) => {
+    ) => withInventoryMutation(async () => {
       const normalizedToken = requireToken(token);
       const host = requireBaseUrl(baseUrl);
       const response = await fetch(`${host}/api/v1/inventory/adjustments`, {
@@ -114,6 +115,6 @@ export function createProductionInventoryAdjustmentApi(token: string, baseUrl?: 
         throw new Error('Bulk inventory adjustment API returned an invalid response.');
       }
       return payload.entries.map(mapEntry);
-    },
+    }),
   };
 }

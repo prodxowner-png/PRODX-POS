@@ -170,7 +170,7 @@ export const BundleSizeTrendsModule: React.FC = () => {
               <h1 className="text-xl font-black tracking-tight text-white">
                 {isThai ? 'แนวโน้มขนาดชุดข้อมูล (Bundle Size Trends)' : 'Bundle Size Trends & Metafile Analytics'}
               </h1>
-              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-primary/20 text-orange-300 border border-primary/30">
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono tabular-nums font-bold bg-primary/20 text-orange-300 border border-primary/30">
                 PRODX BUILD ANALYTICS
               </span>
             </div>
@@ -199,7 +199,7 @@ export const BundleSizeTrendsModule: React.FC = () => {
           <span className="text-xs font-medium text-slate-500">
             {isThai ? 'ขนาด Bundle ปัจจุบัน (Current Size)' : 'Current Total Bundle Size'}
           </span>
-          <div className="text-2xl font-black font-mono text-slate-900">
+          <div className="text-2xl font-black font-mono tabular-nums text-slate-900">
             {historicalTimeline[historicalTimeline.length - 1].totalSizeKb} <span className="text-xs font-normal text-slate-500">KB</span>
           </div>
           <div className="text-[11px] text-emerald-600 flex items-center gap-1 pt-1 font-medium">
@@ -212,7 +212,7 @@ export const BundleSizeTrendsModule: React.FC = () => {
           <span className="text-xs font-medium text-slate-500">
             {isThai ? 'อัตราการเติบโตสะสม (Cumulative Growth)' : 'Historical Growth Rate'}
           </span>
-          <div className="text-2xl font-black font-mono text-blue-600">
+          <div className="text-2xl font-black font-mono tabular-nums text-blue-600">
             +{totalGrowthPercent}%
           </div>
           <div className="text-[11px] text-slate-500 pt-1">
@@ -224,10 +224,10 @@ export const BundleSizeTrendsModule: React.FC = () => {
           <span className="text-xs font-medium text-slate-500">
             {isThai ? 'React Vendor Chunk' : 'React Core Chunk'}
           </span>
-          <div className="text-2xl font-black font-mono text-slate-900">
+          <div className="text-2xl font-black font-mono tabular-nums text-slate-900">
             {historicalTimeline[historicalTimeline.length - 1].vendorReactKb} <span className="text-xs font-normal text-slate-500">KB</span>
           </div>
-          <div className="text-[11px] text-slate-500 pt-1 font-mono">
+          <div className="text-[11px] text-slate-500 pt-1 font-mono tabular-nums">
             Optimized & Precached
           </div>
         </div>
@@ -236,10 +236,10 @@ export const BundleSizeTrendsModule: React.FC = () => {
           <span className="text-xs font-medium text-slate-500">
             {isThai ? 'Firebase SDK Chunk' : 'Firebase SDK Chunk'}
           </span>
-          <div className="text-2xl font-black font-mono text-slate-900">
+          <div className="text-2xl font-black font-mono tabular-nums text-slate-900">
             {historicalTimeline[historicalTimeline.length - 1].vendorFirebaseKb} <span className="text-xs font-normal text-slate-500">KB</span>
           </div>
-          <div className="text-[11px] text-slate-500 pt-1 font-mono">
+          <div className="text-[11px] text-slate-500 pt-1 font-mono tabular-nums">
             Lazy loaded modules
           </div>
         </div>
@@ -270,7 +270,7 @@ export const BundleSizeTrendsModule: React.FC = () => {
             <button
               onClick={() => setSelectedSeries('total')}
               className={`px-3 py-1.5 text-xs font-bold rounded-lg transition ${
-                selectedSeries === 'total' ? 'bg-primary text-white shadow' : 'text-slate-600 hover:text-slate-900'
+                selectedSeries === 'total' ? 'bg-primary text-primary-foreground shadow' : 'text-slate-600 hover:text-slate-900'
               }`}
             >
               Total Size
@@ -389,7 +389,7 @@ export const BundleSizeTrendsModule: React.FC = () => {
                 <span>{hoveredPoint.version}</span>
                 <span className="text-[10px] text-slate-400 font-normal">{hoveredPoint.date}</span>
               </div>
-              <div className="grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-[11px] pt-1">
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1 font-mono tabular-nums text-[11px] pt-1">
                 <span className="text-orange-400">Total: {hoveredPoint.totalSizeKb} KB</span>
                 <span className="text-blue-400">React: {hoveredPoint.vendorReactKb} KB</span>
                 <span className="text-amber-400">Firebase: {hoveredPoint.vendorFirebaseKb} KB</span>
@@ -443,13 +443,13 @@ export const BundleSizeTrendsModule: React.FC = () => {
             <tbody className="divide-y divide-slate-100">
               {historicalTimeline.map((item, idx) => (
                 <tr key={idx} className="hover:bg-slate-50 transition">
-                  <td className="py-3 px-4 font-bold text-slate-900 font-mono">{item.version}</td>
+                  <td className="py-3 px-4 font-bold text-slate-900 font-mono tabular-nums">{item.version}</td>
                   <td className="py-3 px-4 text-slate-600">{item.date}</td>
-                  <td className="py-3 px-4 font-mono font-bold text-primary">{item.totalSizeKb} KB</td>
-                  <td className="py-3 px-4 font-mono text-slate-700">{item.vendorReactKb} KB</td>
-                  <td className="py-3 px-4 font-mono text-slate-700">{item.vendorFirebaseKb} KB</td>
-                  <td className="py-3 px-4 font-mono text-slate-700">{item.vendorLibsKb} KB</td>
-                  <td className="py-3 px-4 font-mono text-slate-700">{item.indexKb} KB</td>
+                  <td className="py-3 px-4 font-mono tabular-nums font-bold text-primary">{item.totalSizeKb} KB</td>
+                  <td className="py-3 px-4 font-mono tabular-nums text-slate-700">{item.vendorReactKb} KB</td>
+                  <td className="py-3 px-4 font-mono tabular-nums text-slate-700">{item.vendorFirebaseKb} KB</td>
+                  <td className="py-3 px-4 font-mono tabular-nums text-slate-700">{item.vendorLibsKb} KB</td>
+                  <td className="py-3 px-4 font-mono tabular-nums text-slate-700">{item.indexKb} KB</td>
                 </tr>
               ))}
             </tbody>

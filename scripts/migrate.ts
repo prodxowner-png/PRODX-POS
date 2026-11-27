@@ -116,7 +116,10 @@ try {
 
       FOR object_signature, is_trigger_function IN
         SELECT p.oid::regprocedure::text,
-               (p.prorettype = 'pg_catalog.trigger'::regtype)
+               (
+                 p.prorettype = 'pg_catalog.trigger'::regtype
+                 OR p.oid = to_regprocedure('public.prodx_auth_find_supervisor_credential(uuid, uuid, text)')
+               )
           FROM pg_proc p
           JOIN pg_namespace n ON n.oid = p.pronamespace
          WHERE n.nspname = 'public' AND left(p.proname, 6) = 'prodx_'
