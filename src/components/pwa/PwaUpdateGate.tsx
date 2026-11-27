@@ -7,6 +7,7 @@ import { useOffline } from '../../context/OfflineContext';
 import { useShift } from '../../context/ShiftContext';
 import { canApplyPwaUpdate, getPwaUpdateBlockers } from '../../services/pwaUpdatePolicy';
 import { applyPwaUpdate, getPwaUpdateSnapshot, subscribePwaUpdate } from '../../services/pwaUpdateService';
+import { getActiveInventoryMutationCount, subscribeInventoryMutations } from '../../services/inventoryMutationTracker';
 
 const blockerMessages = {
   offline: { th: 'รอการเชื่อมต่ออินเทอร์เน็ต', en: 'Waiting for an online connection' },
@@ -16,6 +17,7 @@ const blockerMessages = {
   'shift-loading': { th: 'กำลังตรวจสอบสถานะกะ', en: 'Checking the current shift' },
   'shift-unknown': { th: 'ยังยืนยันสถานะกะจากเซิร์ฟเวอร์ไม่ได้', en: 'The shift state is not authoritatively confirmed' },
   'active-shift': { th: 'มีกะขายเปิดอยู่ ต้องปิดกะก่อนอัปเดต', en: 'An active shift must be closed before updating' },
+  'inventory-mutation': { th: 'กำลังบันทึกการปรับสต็อก รอให้รายการเสร็จก่อน', en: 'An inventory write is in progress; wait for it to finish' },
 } as const;
 
 interface PwaUpdateBannerProps {
@@ -36,7 +38,7 @@ const PwaUpdateBanner: React.FC<PwaUpdateBannerProps> = ({
 
   const handleApplyUpdate = useCallback(async () => {
     // Recheck the current render's operational state immediately before SKIP_WAITING.
-    if (!update.updateAvailable || !isSafeToUpdate) return;
+    if (!update.updateAvailable || !isSafeToUpdate || getActiveInventoryMutationCount() > 0) return;
     setApplyError(null);
     const appRoot = document.getElementById('root');
     // Lock the UI synchronously so no new action starts during activation.
@@ -114,6 +116,11 @@ export const PwaUpdateGate: React.FC = () => {
   const { language } = useLanguage();
   const { isOnline, isOutboxReady, hasUnresolvedOutbox, isSyncing } = useOffline();
   const { currentShift, isLoading: isShiftLoading, isShiftStateKnown } = useShift();
+  const activeInventoryMutations = useSyncExternalStore(
+    subscribeInventoryMutations,
+    getActiveInventoryMutationCount,
+    getActiveInventoryMutationCount,
+  );
   const isThai = language === 'th';
 
   const safetyState = {
@@ -124,6 +131,7 @@ export const PwaUpdateGate: React.FC = () => {
     isShiftLoading,
     isShiftStateKnown,
     hasActiveShift: currentShift !== null,
+    hasInventoryMutationInFlight: activeInventoryMutations > 0,
   };
   const blockers = getPwaUpdateBlockers(safetyState);
   const isSafeToUpdate = canApplyPwaUpdate(safetyState);
@@ -151,6 +159,11 @@ export const PwaUpdateGate: React.FC = () => {
  */
 export const StandalonePwaUpdateGate: React.FC = () => {
   const { language } = useLanguage();
+  const activeInventoryMutations = useSyncExternalStore(
+    subscribeInventoryMutations,
+    getActiveInventoryMutationCount,
+    getActiveInventoryMutationCount,
+  );
   const [isOnline, setIsOnline] = useState<boolean>(
     () => (typeof navigator !== 'undefined' ? navigator.onLine : true),
   );
@@ -169,13 +182,15 @@ export const StandalonePwaUpdateGate: React.FC = () => {
 
   return (
     <PwaUpdateBanner
-      isSafeToUpdate={isOnline}
+      isSafeToUpdate={isOnline && activeInventoryMutations === 0}
       safeMessage={
         isThai
           ? 'พร้อมอัปเดตหน้าจอแสดงผลเป็นเวอร์ชันล่าสุดอย่างปลอดภัย'
           : 'Ready to safely update this display to the latest version'
       }
-      blockerMessage={isOnline ? null : blockerMessages.offline[isThai ? 'th' : 'en']}
+      blockerMessage={!isOnline
+        ? blockerMessages.offline[isThai ? 'th' : 'en']
+        : (activeInventoryMutations > 0 ? blockerMessages['inventory-mutation'][isThai ? 'th' : 'en'] : null)}
     />
   );
 };

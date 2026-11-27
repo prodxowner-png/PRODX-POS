@@ -5,7 +5,8 @@ export type PwaUpdateBlocker =
   | 'outbox-unresolved'
   | 'shift-loading'
   | 'shift-unknown'
-  | 'active-shift';
+  | 'active-shift'
+  | 'inventory-mutation';
 
 export interface PwaUpdateSafetyState {
   readonly isOnline: boolean;
@@ -15,6 +16,7 @@ export interface PwaUpdateSafetyState {
   readonly isShiftLoading: boolean;
   readonly isShiftStateKnown: boolean;
   readonly hasActiveShift: boolean;
+  readonly hasInventoryMutationInFlight: boolean;
 }
 
 /**
@@ -31,6 +33,7 @@ export function getPwaUpdateBlockers(state: PwaUpdateSafetyState): PwaUpdateBloc
   if (state.isShiftLoading) blockers.push('shift-loading');
   if (!state.isShiftStateKnown) blockers.push('shift-unknown');
   if (state.hasActiveShift) blockers.push('active-shift');
+  if (state.hasInventoryMutationInFlight) blockers.push('inventory-mutation');
 
   return blockers;
 }

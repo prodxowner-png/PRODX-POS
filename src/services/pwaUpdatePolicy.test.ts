@@ -10,6 +10,7 @@ const safeState: PwaUpdateSafetyState = {
   isShiftLoading: false,
   isShiftStateKnown: true,
   hasActiveShift: false,
+  hasInventoryMutationInFlight: false,
 };
 
 test('PWA update is allowed only when all safety gates are clear', () => {
@@ -47,8 +48,17 @@ test('multiple unsafe states report every blocker in deterministic order', () =>
       isShiftLoading: true,
       isShiftStateKnown: false,
       hasActiveShift: true,
+      hasInventoryMutationInFlight: true,
     }),
-    ['offline', 'outbox-loading', 'syncing', 'outbox-unresolved', 'shift-loading', 'shift-unknown', 'active-shift'],
+    ['offline', 'outbox-loading', 'syncing', 'outbox-unresolved', 'shift-loading', 'shift-unknown', 'active-shift', 'inventory-mutation'],
   );
   assert.equal(canApplyPwaUpdate({ ...safeState, hasActiveShift: true }), false);
+});
+
+test('an in-flight inventory mutation blocks PWA activation', () => {
+  assert.deepEqual(
+    getPwaUpdateBlockers({ ...safeState, hasInventoryMutationInFlight: true }),
+    ['inventory-mutation'],
+  );
+  assert.equal(canApplyPwaUpdate({ ...safeState, hasInventoryMutationInFlight: true }), false);
 });
