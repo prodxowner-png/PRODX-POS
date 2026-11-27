@@ -45,7 +45,7 @@ const COLOR_MAP: Record<
     text: 'text-primary dark:text-primary-light',
     glow: 'shadow-[0_0_16px_rgba(20,184,166,0.25)]',
     gradient: 'bg-gradient-to-br from-primary/15 via-primary/5 to-transparent',
-    badgeBg: 'bg-primary text-white',
+    badgeBg: 'bg-primary text-primary-foreground',
     badgeText: 'text-primary',
   },
   emerald: {
@@ -117,7 +117,7 @@ const COLOR_MAP: Record<
     text: 'text-primary dark:text-orange-400',
     glow: 'shadow-[0_0_16px_rgba(249,115,22,0.25)]',
     gradient: 'bg-gradient-to-br from-orange-500/15 via-orange-500/5 to-transparent',
-    badgeBg: 'bg-primary text-white',
+    badgeBg: 'bg-primary text-primary-foreground',
     badgeText: 'text-primary',
   },
   slate: {
@@ -228,7 +228,7 @@ export const GraphicIcon: React.FC<GraphicIconProps> = ({
       {renderIcon()}
       {badgeText && (
         <span
-          className={`absolute ${s.badge} font-mono font-black uppercase rounded-full shadow-xs ${c.badgeBg}`}
+          className={`absolute ${s.badge} font-mono tabular-nums font-black uppercase rounded-full shadow-xs ${c.badgeBg}`}
         >
           {badgeText}
         </span>
