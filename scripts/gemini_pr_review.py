@@ -605,7 +605,7 @@ def main() -> int:
 
     review_summary = result.get("summary", "")
     if result.get("verdict") == "BLOCKED":
-        final_status = "API_ERROR" if re.search(r"HTTP \\d{3}", review_summary) else "BLOCKED"
+        final_status = "API_ERROR" if re.search(r"HTTP \d{3}", review_summary) else "BLOCKED"
     else:
         final_status = "REVIEWED"
     print(json.dumps({
