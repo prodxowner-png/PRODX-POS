@@ -143,8 +143,7 @@ var checkPasswordCompromise = async (password, options = {}) => {
   const hash2 = crypto2.createHash("sha1").update(password, "utf8").digest("hex").toUpperCase();
   const prefix = hash2.slice(0, 5);
   const suffix = hash2.slice(5);
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const signal = AbortSignal.timeout(Math.max(0, timeoutMs));
   try {
     const response = await fetchImpl(HIBP_RANGE_URL + prefix, {
       method: "GET",
@@ -152,7 +151,7 @@ var checkPasswordCompromise = async (password, options = {}) => {
         "user-agent": "PRODX-POS/1.0 password-security",
         "add-padding": "true"
       },
-      signal: controller.signal
+      signal
     });
     if (!response.ok) throw new PasswordCompromiseCheckUnavailable();
     const body = await response.text();
@@ -166,8 +165,6 @@ var checkPasswordCompromise = async (password, options = {}) => {
   } catch (error4) {
     if (error4 instanceof PasswordCompromiseCheckUnavailable) throw error4;
     throw new PasswordCompromiseCheckUnavailable();
-  } finally {
-    clearTimeout(timer);
   }
 };
 
