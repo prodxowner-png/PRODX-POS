@@ -107,7 +107,7 @@ test('supervisor authorization works end-to-end under the real prodx_app runtime
         FROM expected ORDER BY signature::text`);
     assert.deepEqual(functionPrivileges.rows, [
       { signature: 'prodx_auth_find_supervisor_by_supabase_subject(uuid,uuid,uuid)', anon: false, authenticated: false, service_role: false, prodx_app: true },
-      { signature: 'prodx_auth_find_supervisor_credential(uuid,uuid,text)', anon: false, authenticated: false, service_role: false, prodx_app: true },
+      { signature: 'prodx_auth_find_supervisor_credential(uuid,uuid,text)', anon: false, authenticated: false, service_role: false, prodx_app: false },
       { signature: 'prodx_record_security_audit_event(uuid,uuid,uuid,text,jsonb)', anon: false, authenticated: false, service_role: false, prodx_app: true },
       { signature: 'prodx_seed_discount_policy_for_store()', anon: false, authenticated: false, service_role: false, prodx_app: false },
     ]);
