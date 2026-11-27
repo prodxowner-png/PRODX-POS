@@ -52,9 +52,9 @@ export const StaffOperationalKPIs: React.FC<StaffOperationalKPIsProps> = ({
               {isLoading ? (
                 <Skeleton className="h-9 w-24 mt-2" />
               ) : (
-                <div className="mt-2 text-2xl sm:text-3xl font-black font-mono tracking-tight text-text">
+                <div className="mt-2 text-2xl sm:text-3xl font-black font-mono tabular-nums tracking-tight text-text">
                   {metrics.ordersCount}{' '}
-                  <span className="text-xs font-sans font-medium text-text/50">
+                  <span className="text-xs font-sans font-medium text-brand-text-secondary">
                     {language === 'th' ? 'บิลขาย' : 'orders'}
                   </span>
                 </div>
@@ -71,21 +71,21 @@ export const StaffOperationalKPIs: React.FC<StaffOperationalKPIsProps> = ({
         </Card>
 
         {/* Card 2: Total Units & Items Movement Velocity */}
-        <Card id="staff-kpi-items" className="hover:border-indigo-500/40 transition-all shadow-2xs">
+        <Card id="staff-kpi-items" className="hover:border-primary/40 transition-all shadow-2xs">
           <CardBody className="p-4 sm:p-5 lg:p-6 flex flex-col justify-between h-full">
             <div>
               <div className="flex items-center justify-between text-xs font-semibold text-text/70 uppercase tracking-wider">
                 <span>{language === 'th' ? 'จำนวนชิ้นที่สแกนขาย' : 'Units Sold & Scanned'}</span>
-                <div className="p-1.5 rounded-lg bg-indigo-500/10 text-indigo-500">
+                <div className="p-1.5 rounded-lg bg-brand-surface-selected text-brand-text-accent">
                   <PackageCheck className="h-4 w-4" />
                 </div>
               </div>
               {isLoading ? (
                 <Skeleton className="h-9 w-24 mt-2" />
               ) : (
-                <div className="mt-2 text-2xl sm:text-3xl font-black font-mono tracking-tight text-text">
+                <div className="mt-2 text-2xl sm:text-3xl font-black font-mono tabular-nums tracking-tight text-text">
                   {metrics.totalItemsSold}{' '}
-                  <span className="text-xs font-sans font-medium text-text/50">
+                  <span className="text-xs font-sans font-medium text-brand-text-secondary">
                     {language === 'th' ? 'ชิ้นสินค้า' : 'units'}
                   </span>
                 </div>
@@ -147,7 +147,7 @@ export const StaffOperationalKPIs: React.FC<StaffOperationalKPIsProps> = ({
                 </div>
               </div>
               <div className="mt-2 flex items-baseline gap-2">
-                <span className="text-2xl sm:text-3xl font-black font-mono text-text">
+                <span className="text-2xl sm:text-3xl font-black font-mono tabular-nums text-text">
                   {metrics.lowStockCount + metrics.outOfStockCount}
                 </span>
                 <span className="text-xs text-text/70">
@@ -173,9 +173,9 @@ export const StaffOperationalKPIs: React.FC<StaffOperationalKPIsProps> = ({
             <Boxes className="h-3.5 w-3.5 text-primary" />
             <span>{language === 'th' ? 'จำนวนชิ้นที่ขาย' : 'Units Sold'}</span>
           </div>
-          <div className="mt-1 text-lg sm:text-xl font-mono font-black text-text">
+          <div className="mt-1 text-lg sm:text-xl font-mono tabular-nums font-black text-text">
             {metrics.totalItemsSold}{' '}
-            <span className="text-[11px] font-sans font-normal text-text/50">
+            <span className="text-[11px] font-sans font-normal text-brand-text-secondary">
               {language === 'th' ? 'ชิ้น' : 'units'}
             </span>
           </div>
@@ -187,9 +187,9 @@ export const StaffOperationalKPIs: React.FC<StaffOperationalKPIsProps> = ({
             <ShoppingBag className="h-3.5 w-3.5 text-emerald-500" />
             <span>{language === 'th' ? 'สินค้าเฉลี่ยต่อบิล' : 'Units / Order'}</span>
           </div>
-          <div className="mt-1 text-lg sm:text-xl font-mono font-black text-text">
+          <div className="mt-1 text-lg sm:text-xl font-mono tabular-nums font-black text-text">
             {metrics.avgItemsPerOrder}{' '}
-            <span className="text-[11px] font-sans font-normal text-text/50">
+            <span className="text-[11px] font-sans font-normal text-brand-text-secondary">
               {language === 'th' ? 'ชิ้น' : 'items'}
             </span>
           </div>
@@ -198,7 +198,7 @@ export const StaffOperationalKPIs: React.FC<StaffOperationalKPIsProps> = ({
         {/* Metric C: Payment Method Distribution Count (Pure Volume Counts, No Financial $) */}
         <div className="p-3.5 sm:p-4 rounded-lg border-border border-crisp bg-card shadow-2xs">
           <div className="flex items-center gap-2 text-text/70 text-xs font-medium">
-            <CreditCard className="h-3.5 w-3.5 text-indigo-500" />
+            <CreditCard className="h-3.5 w-3.5 text-brand-text-accent" />
             <span>{language === 'th' ? 'การรับชำระ (บิล)' : 'Tender Mix (Count)'}</span>
           </div>
           <div className="mt-1 text-sm sm:text-base font-mono font-bold text-text truncate">
@@ -211,12 +211,12 @@ export const StaffOperationalKPIs: React.FC<StaffOperationalKPIsProps> = ({
         {/* Metric D: Active Catalog SKU Count */}
         <div className="p-3.5 sm:p-4 rounded-lg border-border border-crisp bg-card shadow-2xs">
           <div className="flex items-center gap-2 text-text/70 text-xs font-medium">
-            <Layers className="h-3.5 w-3.5 text-text/50" />
+            <Layers className="h-3.5 w-3.5 text-brand-text-secondary" />
             <span>{language === 'th' ? 'สินค้าในแคตตาล็อก' : 'Active Catalog'}</span>
           </div>
-          <div className="mt-1 text-lg sm:text-xl font-mono font-black text-text">
+          <div className="mt-1 text-lg sm:text-xl font-mono tabular-nums font-black text-text">
             {metrics.totalInventoryCount}{' '}
-            <span className="text-[11px] font-sans font-normal text-text/50">SKUs</span>
+            <span className="text-[11px] font-sans font-normal text-brand-text-secondary">SKUs</span>
           </div>
         </div>
       </div>

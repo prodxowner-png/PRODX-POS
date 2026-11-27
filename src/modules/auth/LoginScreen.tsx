@@ -5,14 +5,17 @@ import {
   Clock3,
   Globe2,
   Lock,
+  Moon,
   RefreshCw,
   ShieldCheck,
+  Sun,
   WifiOff,
   X,
 } from 'lucide-react';
 import { auditService } from '../../services/auditService';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
+import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import {
   getOrganizations,
@@ -30,7 +33,7 @@ import {
   PasskeyCredentialRecord,
   WebAuthnCapability,
 } from '../../services/webauthnService';
-import { PasskeyEnrollModal } from '../../components/auth/PasskeyEnrollModal';
+import { webauthnApi } from '../../adapters/webauthnApi';
 
 import { TerminalScopeBar } from './TerminalScopeBar';
 import { OperatorPinPad } from './OperatorPinPad';
@@ -39,7 +42,6 @@ import { QrBadgeScannerPanel } from './QrBadgeScannerPanel';
 import { EmailPasswordForm } from './EmailPasswordForm';
 
 const BIOMETRIC_REMEMBER_STORAGE_KEY = 'prodx.auth.remember_biometrics';
-const BIOMETRIC_REMEMBER_PASSKEY_ID_KEY = 'prodx.auth.remembered_passkey_id';
 
 const readTerminalValue = (key: string, env?: string) => {
   if (typeof window === 'undefined') return env?.trim() ?? '';
@@ -67,8 +69,10 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
   const { login, loginWithBiometrics, forgotPin, isLoading, operationalScope, setOperationalScope } =
     useAuth();
   const { language, setLanguage } = useLanguage();
+  const { theme, toggleTheme } = useTheme();
   const { addToast } = useToast();
   const isThai = language === 'th';
+  const isDark = theme === 'dark';
 
   const [selectedOrgId, setSelectedOrgId] = useState<string>(
     () => operationalScope?.organizationId || readTerminalValue(TERMINAL_SCOPE_STORAGE_KEYS.organization),
@@ -96,19 +100,13 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
   const [isScopeBarExpanded, setIsScopeBarExpanded] = useState<boolean>(false);
 
   const [webauthnCapability, setWebauthnCapability] = useState<WebAuthnCapability | null>(null);
+  const [webauthnServerEnabled, setWebauthnServerEnabled] = useState(false);
+  const [biometricUsername, setBiometricUsername] = useState('');
   const [enrolledPasskeys, setEnrolledPasskeys] = useState<PasskeyCredentialRecord[]>(() =>
     getRegisteredPasskeys(),
   );
-  const [selectedPasskeyId, setSelectedPasskeyId] = useState<string>(() => {
-    const keys = getRegisteredPasskeys();
-    const rememberedId = readTerminalValue(BIOMETRIC_REMEMBER_PASSKEY_ID_KEY);
-    if (rememberedId && keys.some((k) => k.id === rememberedId)) {
-      return rememberedId;
-    }
-    return keys[0]?.id || '';
-  });
+  const [selectedPasskeyId, setSelectedPasskeyId] = useState<string>('');
   const [isBiometricVerifying, setIsBiometricVerifying] = useState<boolean>(false);
-  const [isEnrollModalOpen, setIsEnrollModalOpen] = useState<boolean>(false);
   const hasAutoInitiatedBiometricRef = useRef<boolean>(false);
 
   type LoginErrorType = 'network' | 'credentials' | 'mapping' | null;
@@ -395,11 +393,14 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
   const handlePinDelete = () => setPin((prev) => prev.slice(0, -1));
 
   const refreshPasskeysAndCapability = useCallback(async () => {
-    const keys = getRegisteredPasskeys();
-    setEnrolledPasskeys(keys);
-    setSelectedPasskeyId((prev) => (keys.some((k) => k.id === prev) ? prev : keys[0]?.id || ''));
-    const cap = await checkWebAuthnCapability();
-    setWebauthnCapability(cap);
+    setEnrolledPasskeys([]);
+    setSelectedPasskeyId('');
+    const [capability, serverStatus] = await Promise.all([
+      checkWebAuthnCapability(),
+      webauthnApi.status().catch(() => null),
+    ]);
+    setWebauthnCapability(capability);
+    setWebauthnServerEnabled(serverStatus?.enabled === true);
   }, []);
 
   useEffect(() => {
@@ -420,7 +421,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
   }, [isThai]);
 
   const handleBiometricLogin = useCallback(
-    async (targetRecord?: PasskeyCredentialRecord) => {
+    async () => {
       if (isLoading || isBiometricVerifying) return;
       if (!terminalReady || !organizationContext) {
         setIsScopeBarExpanded(true);
@@ -432,11 +433,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
         return;
       }
 
-      const chosenPasskey =
-        targetRecord ||
-        enrolledPasskeys.find((k) => k.id === selectedPasskeyId) ||
-        enrolledPasskeys[0];
-
       setIsBiometricVerifying(true);
       setLoginError(null);
 
@@ -444,25 +440,19 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
         persistTerminal();
         const verification = await loginWithBiometrics({
           organizationSlug: organizationContext.organizationSlug,
-          storeCode: organizationContext.branchName,
+          storeCode: organizationContext.branchCode || organizationContext.branchName,
           registerId: organizationContext.terminalCode,
           organizationContext,
-          targetUser: chosenPasskey
-            ? {
-                id: chosenPasskey.userId,
-                email: chosenPasskey.userEmail,
-                name: chosenPasskey.userName,
-              }
-            : undefined,
+          username: biometricUsername.trim(),
         });
 
-        if (!verification.verified || !verification.credential) {
-          throw new Error(verification.error || 'Biometric verification failed.');
+        if (!verification.verified) {
+          throw new Error(verification.error || 'Passkey verification failed.');
         }
 
         addToast({
           title: isThai ? 'ยืนยันตัวตนชีวมิติสำเร็จ' : 'Biometric Verified',
-          message: `Signed in as ${verification.credential.userName}`,
+          message: isThai ? 'เข้าสู่ระบบด้วย Passkey สำเร็จ' : 'Signed in with your passkey.',
           type: 'success',
         });
       } catch (err) {
@@ -473,11 +463,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
         setIsBiometricVerifying(false);
       }
     },
-    [isLoading, isBiometricVerifying, terminalReady, organizationContext, enrolledPasskeys, selectedPasskeyId, isThai, addToast, loginWithBiometrics],
+    [isLoading, isBiometricVerifying, terminalReady, organizationContext, biometricUsername, isThai, addToast, loginWithBiometrics],
   );
 
   return (
-    <main className="h-[100svh] w-screen overflow-hidden bg-brand-bg text-brand-text font-sans flex flex-col lg:grid lg:grid-cols-[40%_60%]">
+    <main className="min-h-[100svh] w-full bg-brand-bg text-brand-text font-sans flex flex-col lg:grid lg:grid-cols-[40%_60%]">
       {/* Visual Sidebar */}
       <section className="relative hidden overflow-hidden bg-brand-primary text-brand-primary-text lg:flex flex-col justify-between p-10 border-r border-brand-border/40">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(232,137,74,0.18),transparent_42%),radial-gradient(circle_at_80%_80%,rgba(15,42,34,0.38),transparent_42%)]" />
@@ -485,9 +475,9 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
           <ProdxVectorMark size={48} className="shadow-2xl rounded-2xl" />
           <div>
             <div className="text-2xl font-black tracking-tighter">
-              PRODX<span className="font-light text-slate-300">POS</span>
+              PRODX<span className="font-light text-cta">POS</span>
             </div>
-            <div className="text-[10px] font-bold uppercase tracking-[0.3em] text-brand-gold-500">
+            <div className="text-xs font-bold uppercase tracking-[0.24em] text-brand-gold-500">
               Enterprise POS Engine
             </div>
           </div>
@@ -496,49 +486,82 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
         <div className="relative z-10 max-w-md my-auto space-y-4">
           <div className="inline-flex items-center gap-2 rounded-md bg-white/10 border border-white/20 px-3 py-1">
             <ShieldCheck className="w-3.5 h-3.5 text-brand-gold-500" />
-            <span className="text-[10px] font-bold uppercase tracking-wider text-brand-primary-text">{copy.verified}</span>
+            <span className="text-xs font-bold uppercase tracking-wider text-brand-primary-text">{copy.verified}</span>
           </div>
           <h1 className="text-4xl xl:text-5xl font-black tracking-tight leading-tight">
             {isThai ? 'จุดชำระเงินอัจฉริยะ' : 'High-Performance'} <br />
             <span className="text-cta">{isThai ? 'ระดับองค์กร' : 'Retail POS Station'}</span>
           </h1>
-          <p className="text-sm text-slate-200 leading-relaxed">
+          <p className="text-sm text-brand-primary-text/80 leading-relaxed">
             {isThai
               ? 'ระบบจัดการหน้าร้านความเร็วสูง รองรับออฟไลน์ซิงค์และบันทึกความปลอดภัยระดับสูงสุด'
               : 'Empowering enterprise retail with rapid checkout, offline resilience, and secure auditing.'}
           </p>
         </div>
 
-        <div className="relative z-10 pt-6 border-t border-white/15 flex items-center justify-between text-xs text-slate-300 font-bold">
+        <div className="relative z-10 pt-6 border-t border-white/15 flex items-center justify-between text-xs text-brand-primary-text/80 font-bold">
           <span>POS Terminal Operator Authentication</span>
           <div>© PRODX POS</div>
         </div>
       </section>
 
-      {/* Main Zero-Scroll Authentication Panel */}
-      <section className="flex-1 flex flex-col justify-between bg-brand-surface text-brand-text overflow-hidden p-4 sm:p-6 lg:p-8">
-        <header className="flex items-center justify-between gap-2 sm:gap-4 pb-4 border-b border-brand-border shrink-0">
-          <div className="lg:hidden flex items-center gap-2 shrink-0">
-            <div className="h-8 w-8 rounded-lg bg-brand-primary text-brand-primary-text font-black flex items-center justify-center text-sm">P</div>
-            <span className="font-black text-base sm:text-lg">PRODX<span className="text-brand-primary">POS</span></span>
+      {/* Main Authentication Panel */}
+      <section className="relative flex-1 flex flex-col justify-between bg-brand-surface text-brand-text overflow-y-auto overflow-x-hidden p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-6 lg:p-8">
+        {/* Subtle Forest × Orange Top Corner Ribbon Accent */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-brand-primary via-cta to-brand-gold-500 opacity-90"
+        />
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -top-20 -right-20 h-44 w-44 rounded-full bg-cta/10 blur-3xl"
+        />
+
+        <header className="relative z-10 flex items-center justify-between gap-2 sm:gap-4 pb-4 border-b border-brand-border shrink-0">
+          <div className="lg:hidden flex items-center gap-2.5 shrink-0">
+            <ProdxVectorMark size={36} className="rounded-xl shadow-xs" />
+            <span className="font-black text-base sm:text-lg tracking-tight text-brand-text">
+              PRODX <span className="text-brand-text-accent dark:text-cta">POS</span>
+            </span>
           </div>
           <div className="flex items-center gap-1.5 sm:gap-2 ml-auto shrink-0">
-            <div className="hidden sm:flex items-center gap-1.5 px-3 py-2 bg-brand-surface-muted border border-brand-border rounded-lg text-xs font-bold text-brand-text">
+            <div className="hidden sm:flex items-center gap-1.5 px-3 py-2 min-h-[44px] bg-brand-surface-muted border border-brand-border rounded-lg text-xs font-bold text-brand-text">
               <Clock3 className="w-3.5 h-3.5 text-brand-text-secondary" />
-              <span>{clock}</span>
+              <span className="font-mono tabular-nums">{clock}</span>
             </div>
             <button
               type="button"
               onClick={navigateToAdminLogin}
-              className="flex items-center gap-1.5 px-2.5 sm:px-3.5 py-2 min-h-[40px] bg-brand-primary text-brand-primary-text rounded-lg text-xs font-black hover:bg-brand-primary-hover focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2 transition-all shadow-xs cursor-pointer whitespace-nowrap"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3.5 py-2 min-h-[44px] bg-brand-primary text-brand-primary-text rounded-lg text-xs font-black hover:bg-brand-primary-hover active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2 transition-all shadow-xs cursor-pointer whitespace-nowrap"
             >
               <ShieldCheck className="w-3.5 h-3.5 text-brand-gold-500 shrink-0" />
               <span>{copy.adminLoginBtn}</span>
             </button>
             <button
               type="button"
+              onClick={toggleTheme}
+              aria-pressed={isDark}
+              aria-label={
+                isDark
+                  ? isThai
+                    ? 'สลับเป็นโหมดสว่าง'
+                    : 'Switch to light mode'
+                  : isThai
+                    ? 'สลับเป็นโหมดมืด'
+                    : 'Switch to dark mode'
+              }
+              className="flex items-center justify-center min-h-[44px] min-w-[44px] px-2.5 py-2 border border-brand-border-strong bg-brand-surface hover:bg-brand-surface-hover rounded-lg text-brand-text active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2 transition-all cursor-pointer"
+            >
+              {isDark ? (
+                <Sun className="w-4 h-4 text-cta shrink-0" />
+              ) : (
+                <Moon className="w-4 h-4 text-brand-text shrink-0" />
+              )}
+            </button>
+            <button
+              type="button"
               onClick={() => setLanguage(isThai ? 'en' : 'th')}
-              className="flex items-center gap-1.5 px-2.5 sm:px-3.5 py-2 min-h-[40px] border-2 border-brand-border rounded-lg text-xs font-black text-brand-text hover:border-brand-border-strong focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2 cursor-pointer whitespace-nowrap"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3.5 py-2 min-h-[44px] border border-brand-border-strong bg-brand-surface hover:bg-brand-surface-hover rounded-lg text-xs font-black text-brand-text active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2 transition-all cursor-pointer whitespace-nowrap"
             >
               <Globe2 className="w-3.5 h-3.5 text-brand-text-secondary shrink-0" />
               <span>{copy.language}</span>
@@ -546,14 +569,14 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
           </div>
         </header>
 
-        {/* Dynamic Body: Zero-Scroll Compact Layout */}
-        <div className="flex-1 flex flex-col justify-center max-w-[440px] mx-auto w-full py-4 space-y-4">
+        {/* Dynamic Body: Responsive Compact Layout */}
+        <div className="relative z-10 flex-1 flex flex-col justify-center max-w-[440px] mx-auto w-full py-4 space-y-4">
           <div>
-            <div className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-text-accent mb-1">
+            <div className="text-xs font-black uppercase tracking-[0.16em] text-brand-text-accent dark:text-cta mb-1">
               {copy.eyebrow}
             </div>
-            <h2 className="text-2xl font-black text-brand-text tracking-tight">{copy.title}</h2>
-            <p className="text-xs text-brand-text-secondary font-medium">{copy.subtitle}</p>
+            <h2 className="text-2xl font-black text-brand-text tracking-tight leading-snug">{copy.title}</h2>
+            <p className="text-xs text-brand-text-secondary font-medium leading-relaxed">{copy.subtitle}</p>
           </div>
 
           {/* Compact Terminal Scope Bar */}
@@ -582,13 +605,21 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
 
           {/* Login Error Notification Banner */}
           {loginError && (
-            <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 flex items-start gap-2.5 text-xs text-rose-900">
-              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-              <div className="flex-1">
+            <div
+              role="alert"
+              className="rounded-xl border border-danger/40 bg-danger-subtle p-3 flex items-start gap-2.5 text-xs text-danger-text"
+            >
+              <AlertCircle className="w-4 h-4 text-danger shrink-0 mt-0.5" />
+              <div className="flex-1 leading-relaxed">
                 <div className="font-black">{loginError.title}</div>
                 <div>{loginError.message}</div>
               </div>
-              <button type="button" onClick={() => setLoginError(null)} className="text-rose-400 hover:text-rose-600">
+              <button
+                type="button"
+                onClick={() => setLoginError(null)}
+                aria-label={isThai ? 'ปิดข้อความแจ้งเตือน' : 'Dismiss error message'}
+                className="min-h-[44px] min-w-[44px] -my-1.5 -mr-1.5 flex items-center justify-center text-danger-text/80 hover:text-danger-text rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger cursor-pointer"
+              >
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -627,12 +658,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
                 terminalReady={terminalReady}
                 isLoading={isLoading}
                 isBiometricVerifying={isBiometricVerifying}
-                enrolledPasskeys={enrolledPasskeys}
-                selectedPasskeyId={selectedPasskeyId}
+                username={biometricUsername}
+                onUsernameChange={setBiometricUsername}
                 webauthnCapability={webauthnCapability}
-                onSelectPasskey={setSelectedPasskeyId}
-                onScanBiometric={handleBiometricLogin}
-                onOpenEnrollModal={() => setIsEnrollModalOpen(true)}
+                serverEnabled={webauthnServerEnabled}
+                onScanBiometric={() => void handleBiometricLogin()}
                 onSwitchMode={(mode) => setLoginMode(mode)}
               />
             )}
@@ -666,25 +696,15 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOpenAdminLogin }) =>
           </div>
         </div>
 
-        <footer className="pt-3 border-t border-brand-border flex items-center justify-between text-[11px] text-brand-text-secondary font-medium shrink-0">
+        <footer className="relative z-10 pt-3 border-t border-brand-border flex items-center justify-between text-xs text-brand-text-secondary font-medium shrink-0">
           <div>PRODX POS v2.5 · Enterprise Edition</div>
           <div className="flex items-center gap-1.5">
-            <Lock className="w-3 h-3 text-emerald-600" />
-            <span className="text-emerald-700 font-bold">Encrypted Session</span>
+            <Lock className="w-3 h-3 text-emerald-700 dark:text-emerald-400" />
+            <span className="text-emerald-800 dark:text-emerald-300 font-bold">Encrypted Session</span>
           </div>
         </footer>
       </section>
 
-      {/* Passkey Enrollment Modal */}
-      {isEnrollModalOpen && (
-        <PasskeyEnrollModal
-          isOpen={isEnrollModalOpen}
-          onClose={() => {
-            setIsEnrollModalOpen(false);
-            void refreshPasskeysAndCapability();
-          }}
-        />
-      )}
     </main>
   );
 };
