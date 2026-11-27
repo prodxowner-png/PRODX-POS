@@ -42,7 +42,7 @@ class PySideExampleTests(unittest.TestCase):
             rows = {row["No"]: row for row in csv.DictReader(handle)}
 
         expected = {
-            "2": ("setThemeColor(ThemeColor.LIGHT_1)", 'setThemeColor("#3B82F6")'),
+            "2": ("setThemeColor(ThemeColor.LIGHT_1)", 'widget.setStyleSheet("color: #3B82F6")'),
             "4": ("layout.setSpacing(16)", "layout = QVBoxLayout(); layout.addWidget(card)"),
             "11": ("QTimer.singleShot(200, self.on_ready)", "time.sleep(0.2)"),
             "28": ("btn.setAccessibleName('Close window')", "btn.setToolTip('Close window')"),
