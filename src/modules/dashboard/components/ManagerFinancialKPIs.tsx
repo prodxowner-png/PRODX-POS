@@ -73,7 +73,7 @@ export const ManagerFinancialKPIs: React.FC<ManagerFinancialKPIsProps> = ({
               <span
                 className={`flex items-center gap-1 font-semibold ${
                   !momMetrics.hasComparablePriorPeriod
-                    ? 'text-text/50'
+                    ? 'text-brand-text-secondary'
                     : momMetrics.isGrowth
                       ? 'text-emerald-600 dark:text-emerald-400'
                       : 'text-rose-600 dark:text-rose-400'
@@ -113,7 +113,7 @@ export const ManagerFinancialKPIs: React.FC<ManagerFinancialKPIsProps> = ({
               ) : (
                 <div className="mt-2 text-2xl sm:text-3xl font-black font-mono tracking-tight text-text tabular-nums">
                   {metrics.ordersCount}{' '}
-                  <span className="text-xs font-sans font-medium text-text/50">
+                  <span className="text-xs font-sans font-medium text-brand-text-secondary">
                     {language === 'th' ? 'บิล' : 'bills'}
                   </span>
                 </div>
@@ -174,7 +174,7 @@ export const ManagerFinancialKPIs: React.FC<ManagerFinancialKPIsProps> = ({
                 </div>
               </div>
               <div className="mt-2 flex items-baseline gap-2">
-                <span className="text-2xl sm:text-3xl font-black font-mono text-text">
+                <span className="text-2xl sm:text-3xl font-black font-mono tabular-nums text-text">
                   {metrics.lowStockCount + metrics.outOfStockCount}
                 </span>
                 <span className="text-xs text-text/70">
@@ -200,9 +200,9 @@ export const ManagerFinancialKPIs: React.FC<ManagerFinancialKPIsProps> = ({
             <Boxes className="h-3.5 w-3.5 text-primary" />
             <span>{language === 'th' ? 'จำนวนชิ้นที่ขาย' : 'Items Sold'}</span>
           </div>
-          <div className="mt-1 text-lg sm:text-xl font-mono font-black text-text">
+          <div className="mt-1 text-lg sm:text-xl font-mono tabular-nums font-black text-text">
             {metrics.totalItemsSold}{' '}
-            <span className="text-[11px] font-sans font-normal text-text/50">
+            <span className="text-[11px] font-sans font-normal text-brand-text-secondary">
               {language === 'th' ? 'ชิ้น' : 'units'}
             </span>
           </div>
@@ -214,7 +214,7 @@ export const ManagerFinancialKPIs: React.FC<ManagerFinancialKPIsProps> = ({
             <Banknote className="h-3.5 w-3.5 text-emerald-500" />
             <span>{language === 'th' ? 'ยอดขายเงินสด' : 'Cash Sales'}</span>
           </div>
-          <div className="mt-1 text-lg sm:text-xl font-mono font-black text-text">
+          <div className="mt-1 text-lg sm:text-xl font-mono tabular-nums font-black text-text">
             {formatMoney(metrics.cashSales)}
           </div>
         </div>
@@ -222,10 +222,10 @@ export const ManagerFinancialKPIs: React.FC<ManagerFinancialKPIsProps> = ({
         {/* Metric C: Digital Payments (Card / QR) */}
         <div className="p-3.5 sm:p-4 rounded-lg border-border border-crisp bg-card shadow-2xs">
           <div className="flex items-center gap-2 text-text/70 text-xs font-medium">
-            <QrCode className="h-3.5 w-3.5 text-indigo-500" />
+            <QrCode className="h-3.5 w-3.5 text-brand-text-accent" />
             <span>{language === 'th' ? 'ยอดขายพร้อมเพย์ / บัตร' : 'Digital / QR'}</span>
           </div>
-          <div className="mt-1 text-lg sm:text-xl font-mono font-black text-text">
+          <div className="mt-1 text-lg sm:text-xl font-mono tabular-nums font-black text-text">
             {formatMoney(metrics.digitalSales)}
           </div>
         </div>
@@ -233,12 +233,12 @@ export const ManagerFinancialKPIs: React.FC<ManagerFinancialKPIsProps> = ({
         {/* Metric D: Active Catalog SKU Count */}
         <div className="p-3.5 sm:p-4 rounded-lg border-border border-crisp bg-card shadow-2xs">
           <div className="flex items-center gap-2 text-text/70 text-xs font-medium">
-            <Layers className="h-3.5 w-3.5 text-text/50" />
+            <Layers className="h-3.5 w-3.5 text-brand-text-secondary" />
             <span>{language === 'th' ? 'สินค้าในแคตตาล็อก' : 'Catalog Items'}</span>
           </div>
-          <div className="mt-1 text-lg sm:text-xl font-mono font-black text-text">
+          <div className="mt-1 text-lg sm:text-xl font-mono tabular-nums font-black text-text">
             {metrics.totalInventoryCount}{' '}
-            <span className="text-[11px] font-sans font-normal text-text/50">SKUs</span>
+            <span className="text-[11px] font-sans font-normal text-brand-text-secondary">SKUs</span>
           </div>
         </div>
       </div>

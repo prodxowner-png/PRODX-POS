@@ -1,15 +1,15 @@
+import { resolveProductionApiBaseUrl } from './apiBaseUrl';
 export type ProductionDiscountPolicy = {
   requireSupervisorApproval: boolean;
   maxDiscountWithoutApprovalBps: number;
 };
 
-const API_BASE_URL = import.meta.env.VITE_AUTH_API_BASE_URL;
+const API_BASE_URL = resolveProductionApiBaseUrl(import.meta.env.VITE_AUTH_API_BASE_URL);
 
 export function createProductionDiscountPolicyApi(token: string) {
   return {
     async getPolicy(): Promise<ProductionDiscountPolicy> {
       if (!token.trim()) throw new Error('Authenticated session token is required to read discount policy.');
-      if (!API_BASE_URL) throw new Error('Production authentication API is not configured.');
       const response = await fetch(API_BASE_URL.replace(/\/$/, '') + '/api/v1/security/discount-policy', {
         method: 'GET', credentials: 'include', headers: { Accept: 'application/json', Authorization: `Bearer ${token.trim()}` },
       });
@@ -25,7 +25,6 @@ export function createProductionDiscountPolicyApi(token: string) {
     },
     async updatePolicy(policy: ProductionDiscountPolicy): Promise<ProductionDiscountPolicy> {
       if (!token.trim()) throw new Error('Authenticated session token is required to update discount policy.');
-      if (!API_BASE_URL) throw new Error('Production authentication API is not configured.');
       if (typeof policy.requireSupervisorApproval !== 'boolean' || !Number.isInteger(policy.maxDiscountWithoutApprovalBps) || policy.maxDiscountWithoutApprovalBps < 0 || policy.maxDiscountWithoutApprovalBps > 10000) throw new Error('Discount policy threshold must be an integer from 0 to 10000 basis points.');
       const response = await fetch(API_BASE_URL.replace(/\/$/, '') + '/api/v1/security/discount-policy', {
         method: 'PUT', credentials: 'include',

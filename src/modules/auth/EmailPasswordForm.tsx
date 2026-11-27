@@ -33,7 +33,7 @@ export const EmailPasswordForm: React.FC<EmailPasswordFormProps> = ({
       <div className="space-y-1">
         <label
           htmlFor="operator-login-email"
-          className="text-[11px] font-black uppercase text-brand-text-secondary cursor-pointer"
+          className="text-xs font-black uppercase text-brand-text-secondary cursor-pointer"
         >
           {isThai ? 'อีเมลบัญชีผู้ใช้' : 'Account Email'}
         </label>
@@ -49,7 +49,7 @@ export const EmailPasswordForm: React.FC<EmailPasswordFormProps> = ({
             autoComplete="username"
             spellCheck={false}
             required
-            className="w-full h-11 bg-brand-surface border-2 border-brand-border rounded-xl pl-9 pr-3 text-base sm:text-sm font-bold text-brand-text outline-none focus:border-cta focus:ring-2 focus:ring-cta/30 transition-all disabled:opacity-50"
+            className="w-full min-h-[44px] h-11 bg-brand-surface border-2 border-brand-border-strong rounded-xl pl-9 pr-3 text-base sm:text-sm font-bold text-brand-text outline-none focus:border-cta focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta transition-all disabled:opacity-50"
           />
         </div>
       </div>
@@ -57,7 +57,7 @@ export const EmailPasswordForm: React.FC<EmailPasswordFormProps> = ({
       <div className="space-y-1">
         <label
           htmlFor="operator-login-password"
-          className="text-[11px] font-black uppercase text-brand-text-secondary cursor-pointer"
+          className="text-xs font-black uppercase text-brand-text-secondary cursor-pointer"
         >
           {isThai ? 'รหัสผ่าน' : 'Password'}
         </label>
@@ -72,13 +72,21 @@ export const EmailPasswordForm: React.FC<EmailPasswordFormProps> = ({
             placeholder="••••••••"
             autoComplete="current-password"
             required
-            className="w-full h-11 bg-brand-surface border-2 border-brand-border rounded-xl pl-9 pr-11 text-base sm:text-sm font-bold text-brand-text outline-none focus:border-cta focus:ring-2 focus:ring-cta/30 transition-all disabled:opacity-50"
+            className="w-full min-h-[44px] h-11 bg-brand-surface border-2 border-brand-border-strong rounded-xl pl-9 pr-12 text-base sm:text-sm font-bold text-brand-text outline-none focus:border-cta focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta transition-all disabled:opacity-50"
           />
           <button
             type="button"
             onClick={() => setShowPassword((prev) => !prev)}
-            className="absolute right-2 top-1/2 -translate-y-1/2 min-h-[36px] min-w-[36px] flex items-center justify-center text-brand-text-secondary hover:text-brand-text rounded-md focus-visible:ring-2 focus-visible:ring-cta cursor-pointer"
-            aria-label={showPassword ? 'Hide password' : 'Show password'}
+            className="absolute right-1 top-1/2 -translate-y-1/2 min-h-[44px] min-w-[44px] flex items-center justify-center text-brand-text-secondary hover:text-brand-text rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta cursor-pointer"
+            aria-label={
+              showPassword
+                ? isThai
+                  ? 'ซ่อนรหัสผ่าน'
+                  : 'Hide password'
+                : isThai
+                  ? 'แสดงรหัสผ่าน'
+                  : 'Show password'
+            }
           >
             {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
           </button>
@@ -88,7 +96,11 @@ export const EmailPasswordForm: React.FC<EmailPasswordFormProps> = ({
       <button
         type="submit"
         disabled={!terminalReady || !email.trim() || !password || isLoading}
-        className="w-full h-12 px-4 bg-cta text-cta-text rounded-xl font-black text-xs flex items-center justify-center gap-2 hover:bg-cta-hover active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2 transition-all disabled:opacity-30 disabled:cursor-not-allowed shadow-md shadow-cta/20 cursor-pointer whitespace-nowrap"
+        className={`w-full min-h-[48px] h-12 px-4 rounded-xl font-black text-sm flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2 transition-all whitespace-nowrap ${
+          !terminalReady || !email.trim() || !password || isLoading
+            ? 'bg-brand-surface-muted border border-brand-border text-brand-text-muted shadow-none cursor-not-allowed'
+            : 'bg-cta text-cta-text hover:bg-cta-hover active:bg-cta-pressed active:scale-[0.98] shadow-md shadow-cta/25 cursor-pointer'
+        }`}
       >
         {isLoading ? (
           <Loader2 className="w-4 h-4 animate-spin shrink-0" />

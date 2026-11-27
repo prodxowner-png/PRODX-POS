@@ -45,6 +45,7 @@ import type { CheckoutRequest } from '../../adapters/types';
 import { createProductionSupervisorAuthorizationApi } from '../../adapters/productionSupervisorAuthorizationApi';
 import { createProductionDiscountPolicyApi, getLocalDiscountPolicy } from '../../adapters/productionDiscountPolicyApi';
 import { hasProductionUrl } from '../../adapters/env';
+import { withCheckoutMutation } from '../../services/checkoutMutationTracker';
 import {
   Banknote,
   CreditCard,
@@ -129,10 +130,10 @@ const PAYMENT_METHOD_TABS: PaymentTabOption[] = [
     hotkey: '2',
     themeColor: 'purple',
     activeClass:
-      'bg-purple-500/10 border-purple-500 text-purple-900 dark:text-purple-200 font-bold shadow-md shadow-purple-500/10',
-    activeRing: 'ring-2 ring-purple-500/60 ring-offset-2 ring-offset-card',
-    activeBadgeBg: 'bg-purple-600 text-white',
-    iconColor: 'text-purple-600 dark:text-purple-400',
+      'bg-brand-surface-selected border-primary text-text font-bold shadow-md shadow-primary/10',
+    activeRing: 'ring-2 ring-primary/60 ring-offset-2 ring-offset-card',
+    activeBadgeBg: 'bg-primary text-primary-foreground',
+    iconColor: 'text-brand-text-accent',
   },
   {
     id: 'card',
@@ -301,6 +302,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
 
       if (e.key === 'Escape') {
         e.preventDefault();
+        if (isProcessing) return;
         onClose();
         return;
       }
@@ -324,7 +326,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, completedOrder, onClose]);
+  }, [isOpen, completedOrder, isProcessing, onClose]);
 
   if (!session) return null;
 
@@ -531,7 +533,9 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
         });
       } else {
         // Live server checkout
-        const response = await productionOrderApi.createOrder(checkoutPayload);
+        const response = await withCheckoutMutation(() =>
+          productionOrderApi.createOrder(checkoutPayload)
+        );
         setCompletedOrder(response.order);
         onOrderCompleted?.(response.order);
         clearPaymentTenders();
@@ -714,7 +718,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
       <Modal
         isOpen={isOpen}
         fullScreenOnMobile={true}
-        onClose={completedOrder ? handleNextSale : onClose}
+        onClose={completedOrder ? handleNextSale : () => { if (!isProcessing) onClose(); }}
         title={
           title ||
           (completedOrder
@@ -752,7 +756,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
                   </div>
                 ) : (
                   <div className="h-14 w-14 rounded-full bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center">
-                    <WifiOff className="h-9 w-9 text-amber-600 dark:text-amber-400 animate-pulse" />
+                    <WifiOff className="h-9 w-9 text-amber-600 dark:text-amber-400" aria-hidden="true" />
                   </div>
                 )}
               </div>
@@ -1068,6 +1072,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
                         <div className="relative">
                           <input
                             type="number"
+                            inputMode="decimal"
                             step="0.01"
                             value={(singleCashTenderedCents / 100).toFixed(2)}
                             onFocus={(e) => e.target.select()}
@@ -1153,9 +1158,9 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
 
                   {/* 3.2 PROMPTPAY QR PAYMENT FLOW */}
                   {method === 'qr_digital' && (
-                    <div className="p-4 rounded-xl border border-purple-500/30 bg-card text-center space-y-3.5 shadow-2xs">
-                      <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-purple-100 dark:bg-purple-950/50 border border-purple-300 dark:border-purple-800 text-purple-800 dark:text-purple-200 text-xs font-bold">
-                        <QrCode className="h-3.5 w-3.5 text-purple-600" />
+                    <div className="p-4 rounded-xl border border-primary/30 bg-card text-center space-y-3.5 shadow-2xs">
+                      <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-brand-surface-selected border border-primary/30 text-brand-text-accent text-xs font-bold">
+                        <QrCode className="h-3.5 w-3.5 text-brand-text-accent" />
                         <span>
                           {language === 'th'
                             ? 'พร้อมเพย์ QR Code ชำระเงิน'
@@ -1164,7 +1169,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
                       </div>
 
                       {/* Dynamic QR Display Graphic */}
-                      <div className="p-4 max-w-[210px] mx-auto bg-white text-slate-900 rounded-2xl border-2 border-purple-600/30 shadow-md space-y-2">
+                      <div className="p-4 max-w-[210px] mx-auto bg-white text-slate-900 rounded-2xl border-2 border-primary/30 shadow-md space-y-2">
                         <div className="aspect-square bg-slate-900 rounded-xl flex flex-col items-center justify-center p-3 text-white">
                           <QrCode className="h-28 w-28 text-white" />
                           <span className="text-[10px] font-mono tracking-wider mt-1 text-slate-300">
@@ -1370,6 +1375,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
                         </label>
                         <input
                           type="number"
+                          inputMode="decimal"
                           step="0.01"
                           value={(splitTenderAmountCents / 100).toFixed(2)}
                           onFocus={(e) => e.target.select()}
@@ -1393,6 +1399,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
                           </label>
                           <input
                             type="number"
+                            inputMode="decimal"
                             step="0.01"
                             value={(splitCashGivenCents / 100).toFixed(2)}
                             onFocus={(e) => e.target.select()}
@@ -1624,7 +1631,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
                 <div className="flex items-center gap-1.5">
                   <span
                     className={`h-2 w-2 rounded-full ${
-                      isOnline ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'
+                      isOnline ? 'bg-emerald-500' : 'bg-amber-500'
                     }`}
                   />
                   <span>

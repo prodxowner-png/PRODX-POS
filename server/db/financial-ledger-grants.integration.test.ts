@@ -7,7 +7,7 @@ const databaseUrl = resolveDisposableTestDatabaseUrl(process.env.DATABASE_URL, '
 const shouldRun = Boolean(databaseUrl);
 
 test('runtime role preserves append-only financial ledger grants', { skip: !shouldRun }, async () => {
-  const pool = new Pool({ connectionString: databaseUrl, max: 1 });
+  const pool = new Pool({ connectionString: databaseUrl ?? undefined, max: 1 });
   try {
     const result = await pool.query<{
       cash_select: boolean; cash_insert: boolean; cash_update: boolean; cash_delete: boolean;

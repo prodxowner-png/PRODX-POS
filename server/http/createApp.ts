@@ -22,6 +22,7 @@ declare global {
       traceId: string;
       traceparent: string;
       prodxContext?: RequestContext;
+      rawBody?: Buffer;
     }
   }
 }
@@ -158,7 +159,12 @@ export const createApp = (options: BackendBoundaryOptions) => {
 
   // Attach correlation and access logging before parsing so malformed JSON receives request & trace ids too.
   app.use(attachCorrelationAndAccessLog(log));
-  app.use(express.json({ limit: '1mb' }));
+  app.use(express.json({
+    limit: '1mb',
+    verify: (request, _response, buffer) => {
+      (request as Request).rawBody = Buffer.from(buffer);
+    },
+  }));
   app.locals.prodxAuthorize = options.authorizeRequest;
   options.configurePublicRoutes?.(app);
   app.get('/api/v1/healthz', (_request, response) => {

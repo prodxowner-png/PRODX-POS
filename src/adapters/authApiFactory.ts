@@ -6,10 +6,13 @@
 import type { IAuthApi } from './types';
 import { createProductionAuthApi } from './productionAuthApi';
 import { createSupabaseAuthApi } from './supabaseAuthApi';
+import { isProductionApiBaseUrl } from './apiBaseUrl';
+import { shouldReadMock } from './env';
 
 export interface AuthApiResolutionOptions {
   isDev: boolean;
   provider?: string;
+  apiBaseUrl?: string;
 }
 
 export interface AuthApiResolutionDependencies {
@@ -25,15 +28,15 @@ export const UNCONFIGURED_AUTH_PROVIDER_ERROR =
 const productionAuthApi: IAuthApi = createProductionAuthApi();
 const supabaseAuthApi: IAuthApi = createSupabaseAuthApi();
 
-// Supabase Auth is opt-in until first-tenant bootstrap and identity binding are fully verified.
-// Only explicit local development may load the isolated mock adapter.
 export const createUnconfiguredAuthApi = (): IAuthApi => {
   const failClosed = async (): Promise<never> => {
+    // Keep the literal message stable for the production fail-closed wiring gate.
     throw new Error('Authentication provider must be explicitly configured for non-development builds.');
   };
   return {
     login: failClosed,
     logout: failClosed,
+    renewSession: failClosed,
     verifySession: failClosed,
     getStores: failClosed,
     forgotPin: failClosed,
@@ -48,6 +51,10 @@ const createDevelopmentMockAuthApi = (): IAuthApi => ({
   async logout(token) {
     const { developmentMockAuthApi } = await import('./developmentMockAuthApi');
     return developmentMockAuthApi.logout(token);
+  },
+  async renewSession(token) {
+    const { developmentMockAuthApi } = await import('./developmentMockAuthApi');
+    return developmentMockAuthApi.renewSession(token);
   },
   async verifySession(token) {
     const { developmentMockAuthApi } = await import('./developmentMockAuthApi');
@@ -68,12 +75,17 @@ export const resolveAuthApi = (
   deps: AuthApiResolutionDependencies = {},
 ): IAuthApi => {
   if (options.isDev) {
-    if (deps.developmentMockApi) {
-      return deps.developmentMockApi;
-    }
+    if (deps.developmentMockApi) return deps.developmentMockApi;
     if (typeof import.meta.env !== 'undefined' && import.meta.env.DEV) {
       return createDevelopmentMockAuthApi();
     }
+    return deps.unconfiguredApi ?? createUnconfiguredAuthApi();
+  }
+
+  // Validate explicit production API routing without a module-top-level throw;
+  // invalid configuration resolves to the same fail-closed adapter as a missing provider.
+  const apiBaseUrl = options.apiBaseUrl?.trim() ?? '';
+  if (apiBaseUrl && !isProductionApiBaseUrl(apiBaseUrl)) {
     return deps.unconfiguredApi ?? createUnconfiguredAuthApi();
   }
 
@@ -86,13 +98,16 @@ export const resolveAuthApi = (
     : (deps.productionApi ?? productionAuthApi);
 };
 
+const useDevelopmentMock = shouldReadMock();
+const runtimeEnvironment = typeof import.meta.env !== 'undefined' ? import.meta.env : undefined;
+
 export const authApi: IAuthApi =
   typeof import.meta.env !== 'undefined' && import.meta.env.DEV
     ? createDevelopmentMockAuthApi()
-    : resolveAuthApi({
-        isDev: false,
-        provider:
-          typeof import.meta.env !== 'undefined'
-            ? import.meta.env.VITE_AUTH_PROVIDER
-            : undefined,
-      });
+    : useDevelopmentMock
+      ? createDevelopmentMockAuthApi()
+      : resolveAuthApi({
+          isDev: false,
+          provider: runtimeEnvironment?.VITE_AUTH_PROVIDER,
+          apiBaseUrl: runtimeEnvironment?.VITE_AUTH_API_BASE_URL,
+        });

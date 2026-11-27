@@ -352,7 +352,7 @@ export const SupervisorAuthModal: React.FC<SupervisorAuthModalProps> = ({
               placeholder={language === 'th' ? 'กรอกรหัสผ่านผู้จัดการ' : 'Enter supervisor account password'}
             />
             {errorMsg && <div className="text-xs font-semibold text-rose-600 dark:text-rose-400 flex items-center gap-1"><AlertCircle className="h-3.5 w-3.5" /><span>{errorMsg}</span></div>}
-            <p className="text-[11px] text-text/50">{language === 'th' ? 'เซิร์ฟเวอร์จะตรวจสอบอีเมล รหัสผ่าน ตัวตน และสิทธิ์อนุมัติทุกครั้ง' : 'The server verifies the email, password, identity, and approval permission for every request.'}</p>
+            <p className="text-[11px] text-brand-text-secondary">{language === 'th' ? 'เซิร์ฟเวอร์จะตรวจสอบอีเมล รหัสผ่าน ตัวตน และสิทธิ์อนุมัติทุกครั้ง' : 'The server verifies the email, password, identity, and approval permission for every request.'}</p>
             </div>
           </div>
         ) : (
@@ -360,7 +360,7 @@ export const SupervisorAuthModal: React.FC<SupervisorAuthModalProps> = ({
             {/* PIN Input Indicator */}
             <div className="text-center py-2 space-y-2">
               <div className="flex justify-center items-center gap-2">
-                <Lock className="h-4 w-4 text-text/50" />
+                <Lock className="h-4 w-4 text-brand-text-secondary" />
                 <span className="text-xs font-semibold text-text/80">
                   {language === 'th' ? 'ใส่รหัส PIN 4-6 หลัก' : 'Enter 4-6 Digit Security PIN'}
                 </span>
@@ -374,16 +374,16 @@ export const SupervisorAuthModal: React.FC<SupervisorAuthModalProps> = ({
               {errorMsg ? (
                 <div className="text-xs font-semibold text-rose-600 dark:text-rose-400 flex items-center justify-center gap-1"><AlertCircle className="h-3.5 w-3.5" /><span>{errorMsg}</span></div>
               ) : (
-                <div className="text-[11px] text-text/50">{language === 'th' ? (import.meta.env.DEV ? 'คำใบ้ทดสอบ: Admin = 1234, Manager = 5678' : 'การอนุมัติจะตรวจสอบกับเซิร์ฟเวอร์') : (import.meta.env.DEV ? 'Demo Hint: Admin = 1234, Manager = 5678' : 'Supervisor authorization is verified by the server')}</div>
+                <div className="text-[11px] text-brand-text-secondary">{language === 'th' ? (import.meta.env.DEV ? 'คำใบ้ทดสอบ: Admin = 1234, Manager = 5678' : 'การอนุมัติจะตรวจสอบกับเซิร์ฟเวอร์') : (import.meta.env.DEV ? 'Demo Hint: Admin = 1234, Manager = 5678' : 'Supervisor authorization is verified by the server')}</div>
               )}
             </div>
             {/* Numeric Keypad */}
             <div className="grid grid-cols-3 gap-2 max-w-xs mx-auto">
               {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((digit) => (
-                <button key={digit} type="button" onClick={() => handleKeyPress(digit)} className="h-11 rounded-lg bg-background hover:bg-background dark:hover:bg-slate-700 active:bg-primary active:text-white font-mono font-semibold text-sm text-text border border-border border-crisp transition-all cursor-pointer shadow-2xs">{digit}</button>
+                <button key={digit} type="button" onClick={() => handleKeyPress(digit)} className="h-11 rounded-lg bg-background hover:bg-background dark:hover:bg-slate-700 active:bg-primary active:text-primary-foreground font-mono tabular-nums font-semibold text-sm text-text border border-border border-crisp transition-all cursor-pointer shadow-2xs">{digit}</button>
               ))}
               <button type="button" onClick={handleClear} className="h-11 rounded-lg bg-background hover:bg-background dark:hover:bg-slate-700 text-xs font-semibold text-text/70 border border-border border-crisp transition-all cursor-pointer">{language === 'th' ? 'ล้าง' : 'Clear'}</button>
-              <button type="button" onClick={() => handleKeyPress('0')} className="h-11 rounded-lg bg-background hover:bg-background dark:hover:bg-slate-700 active:bg-primary active:text-white font-mono font-semibold text-sm text-text border border-border border-crisp transition-all cursor-pointer shadow-2xs">0</button>
+              <button type="button" onClick={() => handleKeyPress('0')} className="h-11 rounded-lg bg-background hover:bg-background dark:hover:bg-slate-700 active:bg-primary active:text-primary-foreground font-mono tabular-nums font-semibold text-sm text-text border border-border border-crisp transition-all cursor-pointer shadow-2xs">0</button>
               <button type="button" onClick={handleDelete} className="h-11 rounded-lg bg-background hover:bg-background dark:hover:bg-slate-700 flex items-center justify-center text-text/70 border border-border border-crisp transition-all cursor-pointer"><Delete className="h-4 w-4" /></button>
             </div>
           </>

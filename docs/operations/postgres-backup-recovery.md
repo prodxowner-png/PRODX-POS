@@ -30,7 +30,7 @@ It then verifies:
 
 1. the `public` schema can be queried;
 2. the `prodx_schema_migrations` table exists and contains the expected applied migrations;
-3. Row Level Security (`RLS`) is enabled on all 36 tenant-sensitive tables created by the baseline migrations (and every `public.prodx_*` table has `relrowsecurity = true`); when migration `0062_payment_webhook_inbox_and_discount_force_rls` is applied, the webhook inbox is included for 37 tables; `FORCE ROW LEVEL SECURITY` is required on `prodx_discount_policies` (and on `prodx_payment_webhook_events` when migration 0062 is applied);
+3. Row Level Security (`RLS`) is enabled on all 36 tenant-sensitive tables created by the baseline migrations (and every `public.prodx_*` table has `relrowsecurity = true`); when migration `0065_payment_webhook_inbox_and_discount_force_rls` is applied, the webhook inbox is included for 37 tables; `FORCE ROW LEVEL SECURITY` is required on `prodx_discount_policies` (and on `prodx_payment_webhook_events` when migration 0062 is applied);
 4. append-only immutability triggers (`prodx_audit_log_immutable_guard`, `prodx_security_audit_events_immutable_guard`, `prodx_refund_immutable_guard`, `prodx_void_immutable_guard`) remain enabled; the webhook inbox delete guard is additionally required when migration 0062 is applied;
 5. dump and restore timings and dump byte size are recorded in a sanitized verification report (`artifacts/recovery-drill-report.json`).
 
