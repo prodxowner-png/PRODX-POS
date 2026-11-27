@@ -215,6 +215,31 @@ test('supervisor authorization works end-to-end under the real prodx_app runtime
       (error: unknown) => (error as { code?: string }).code === '22023',
     );
     await assert.rejects(
+      asRuntimeRole(client, context, 'rejection_with_foreign_store', () => client.query(
+        `SELECT public.prodx_record_security_audit_event($1, $2, $3, 'SUPERVISOR_AUTHORIZATION_REQUESTED', $4::jsonb)`,
+        [randomUUID(), ids.org, ids.requester, JSON.stringify({
+          action: 'discount',
+          storeId: ids.otherStore,
+          idempotencyKey: `foreign-store-${suffix}`,
+          payloadHash: 'c'.repeat(64),
+          thresholdBps: 1500,
+        })],
+      )),
+      (error: unknown) => (error as { code?: string }).code === '42501',
+    );
+    await assert.rejects(
+      asRuntimeRole(client, context, 'discount_request_without_store', () => client.query(
+        `SELECT public.prodx_record_security_audit_event($1, $2, $3, 'SUPERVISOR_AUTHORIZATION_REQUESTED', $4::jsonb)`,
+        [randomUUID(), ids.org, ids.requester, JSON.stringify({
+          action: 'discount',
+          idempotencyKey: `missing-store-${suffix}`,
+          payloadHash: 'd'.repeat(64),
+          thresholdBps: 1500,
+        })],
+      )),
+      (error: unknown) => (error as { code?: string }).code === '22023',
+    );
+    await assert.rejects(
       asRuntimeRole(client, context, 'rejection_without_store', () => client.query(
         `SELECT public.prodx_record_security_audit_event($1, $2, NULL, 'SUPERVISOR_AUTH_REJECTED', $3::jsonb)`,
         [randomUUID(), ids.org, JSON.stringify({

@@ -45,6 +45,16 @@ For every assigned task or PR, execute the following deterministic loop:
 12. **CI Verification:** Verify the exact pushed HEAD SHA against GitHub Actions / CI workflow results.
 13. **Termination:** Continue until all gates are genuinely verified or an explicit external blocker triggers the circuit breaker.
 
+## Modern Web Guidance Gate
+
+- Before changing client-facing HTML, CSS, DOM, browser APIs, React UI, forms, accessibility, responsive layouts, animation, theme behavior, PWA behavior, or client-side performance/security, read `.agents/skills/modern-web-guidance/SKILL.md`, run a focused `search`, and `retrieve` the matching guide(s) before implementation.
+- Follow the installed Skill's command and version instructions. If the CLI reports a newer Skill version, review the update and report it; do not silently overwrite an untracked/local Skill directory.
+- Use Baseline Widely available features by default. Adopt Newly available features only with documented browser-support review and graceful fallback/feature detection; do not opt into Origin Trials or volatile features without explicit approval.
+- For broad, open-ended modernization only, run `legacy-scan --json` and verify every finding against its `keepWhen` / `dropWhen` rubric and real source context. Do not run it for a narrowly scoped feature task, and never optimize for a zero-finding count.
+- Adapt guidance to the existing React/TypeScript and design-token architecture. Prefer native platform semantics, but do not introduce a new dependency or change framework/toolchain targets solely to satisfy a scanner suggestion.
+- Modern Web Guidance changes must not alter server authority, monetary precision, financial/inventory ledgers, idempotency, tenant/store isolation, authentication/RBAC, RLS, audit append-only guarantees, offline replay, or database/migration invariants.
+- Do not edit generated/bundled artifacts when the TypeScript source is authoritative. Verify changes with typecheck/build and focused UI/accessibility tests where available; report unsupported browser assumptions and false positives explicitly.
+
 ## PR & Runner Safety
 
 Autonomous write execution is strictly restricted to repository-owned trusted branches. Never execute untrusted code from an external fork through a privileged self-hosted runner or expose repository secrets to fork workflows.

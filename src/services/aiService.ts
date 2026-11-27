@@ -9,7 +9,7 @@ export interface AiConfig {
 export const AI_BACKEND_CHAT_PATH = '/api/v1/ai/chat';
 
 export const DEFAULT_AI_CONFIG: AiConfig = {
-  model: 'gemini-3.8-flash',
+  model: 'google/gemini-3.8-flash',
   enabled: true,
   temperature: 0.7,
 };
@@ -54,7 +54,8 @@ export class AiService {
   }
 
   private sanitize(value: Record<string, unknown>): AiConfig {
-    const model = typeof value.model === 'string' && value.model.trim() ? value.model.trim() : DEFAULT_AI_CONFIG.model;
+    const requestedModel = typeof value.model === 'string' && value.model.trim() ? value.model.trim() : DEFAULT_AI_CONFIG.model;
+    const model = requestedModel === 'gemini-3.8-flash' ? DEFAULT_AI_CONFIG.model : requestedModel;
     const temperature = typeof value.temperature === 'number' && Number.isFinite(value.temperature)
       ? Math.min(1, Math.max(0, value.temperature))
       : DEFAULT_AI_CONFIG.temperature;
@@ -77,7 +78,7 @@ export class AiService {
       method: 'POST',
       credentials: 'include',
       headers,
-      body: JSON.stringify({ messages, model: config.model, temperature: config.temperature }),
+      body: JSON.stringify({ messages, model: config.model === DEFAULT_AI_CONFIG.model ? undefined : config.model, temperature: config.temperature }),
     });
 
     if (!res.ok) {
@@ -94,7 +95,7 @@ export class AiService {
 
     const data = await res.json();
     const reply = data?.choices?.[0]?.message?.content;
-    if (typeof reply !== 'string' || !reply.trim()) throw new Error('ไม่พบคำตอบจาก Gemini AI');
+    if (typeof reply !== 'string' || !reply.trim()) throw new Error('ไม่พบคำตอบจาก AI Gateway');
     return reply;
   }
 
@@ -117,7 +118,7 @@ export class AiService {
       body: JSON.stringify({
         prompt,
         history,
-        model: config.model,
+        model: config.model === DEFAULT_AI_CONFIG.model ? undefined : config.model,
         temperature: config.temperature,
       }),
     });
@@ -132,7 +133,7 @@ export class AiService {
     const reply = typeof data?.response === 'string' && data.response.trim()
       ? data.response.trim()
       : data?.choices?.[0]?.message?.content;
-    if (typeof reply !== 'string' || !reply.trim()) throw new Error('ไม่พบคำตอบจาก Gemini AI');
+    if (typeof reply !== 'string' || !reply.trim()) throw new Error('ไม่พบคำตอบจาก AI Gateway');
     return reply;
   }
 
@@ -165,7 +166,7 @@ export class AiService {
     try {
       return JSON.parse(raw.replace(/\`\`\`json/gi, '').replace(/\`\`\`/gi, '').trim());
     } catch {
-      throw new Error('Gemini AI returned invalid product JSON.');
+      throw new Error('AI Gateway returned invalid product JSON.');
     }
   }
 }

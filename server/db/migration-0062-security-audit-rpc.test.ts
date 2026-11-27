@@ -65,6 +65,8 @@ test('security audit RPC locks requester/actor/permission rows and enforces stor
   assert.match(migration, /FOR SHARE OF actor, membership;/);
   assert.match(migration, /FOR SHARE OF actor, m, ur, r, rp, permission;/);
   assert.match(migration, /security audit store is required for supervisor rejection/);
+  assert.match(migration, /WHEN 'SUPERVISOR_AUTHORIZATION_REQUESTED' THEN[\s\S]*?v_allowed_keys := ARRAY\['action', 'storeId'/);
+  assert.match(migration, /security audit store is required for discount authorization request/);
   assert.match(migration, /security audit store does not match authenticated store/);
 });
 

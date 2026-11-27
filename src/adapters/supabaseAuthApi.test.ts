@@ -114,3 +114,23 @@ test('successful POS logout tolerates missing local Supabase configuration after
   });
   await assert.doesNotReject(api.logout('pos-session-token', 'supabase'));
 });
+
+
+test('retiring a previous POS bearer during unlock preserves the replacement Supabase session', async () => {
+  const { client, calls } = makeClient();
+  let revokedToken: string | null = null;
+  const api = createSupabaseAuthApi({
+    getClient: () => client,
+    fetcher: async (input, init) => {
+      assert.equal(String(input), '/auth/logout');
+      revokedToken = new Headers(init?.headers).get('authorization');
+      return new Response(null, { status: 204 });
+    },
+  });
+
+  // AuthContext intentionally omits authProvider when retiring the old bearer:
+  // the browser Supabase client already holds the replacement login session.
+  await api.logout('previous-pos-session-token');
+  assert.equal(revokedToken, 'Bearer previous-pos-session-token');
+  assert.deepEqual(calls.signOut, []);
+});

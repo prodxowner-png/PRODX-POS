@@ -52,6 +52,7 @@ import { RbacGuard } from './components/auth/RbacGuard';
 import { FrontendAssistant } from './components/ai/FrontendAssistant';
 import { useShift } from './context/ShiftContext';
 import { StartShiftModal } from './components/shift/StartShiftModal';
+import { PwaUpdateGate, StandalonePwaUpdateGate } from './components/pwa/PwaUpdateGate';
 
 const TaskManagementScreen = React.lazy(() => import('./modules/tasks/TaskManagementScreen'));
 
@@ -496,6 +497,7 @@ export default function App() {
           <AuthProvider>
             <ThemeProvider>
               <LanguageProvider>
+                <StandalonePwaUpdateGate />
                 <React.Suspense fallback={<div className="min-h-screen bg-brand-bg flex items-center justify-center"><Loader2 className="animate-spin text-primary h-12 w-12" /></div>}>
                   <KitchenDisplayScreen />
                 </React.Suspense>
@@ -513,6 +515,7 @@ export default function App() {
         <GlobalErrorRecoveryProvider>
           <ThemeProvider>
             <LanguageProvider>
+              <StandalonePwaUpdateGate />
               <ReceiptValidationPortal />
             </LanguageProvider>
           </ThemeProvider>
@@ -527,6 +530,7 @@ export default function App() {
         <GlobalErrorRecoveryProvider>
           <ThemeProvider>
             <LanguageProvider>
+              <StandalonePwaUpdateGate />
               <CustomerDisplayView />
             </LanguageProvider>
           </ThemeProvider>
@@ -548,6 +552,7 @@ export default function App() {
                       <OfflineProvider>
                         <ShiftProvider>
                           <CartProvider>
+                            <PwaUpdateGate />
                             <ReceiptPrinterProvider>
                               <VisualInspectorProvider>
                                 <BreadcrumbProvider>
