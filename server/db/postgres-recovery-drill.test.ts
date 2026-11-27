@@ -251,10 +251,11 @@ test('PostgreSQL recovery integration is opt-in, rejects non-disposable DATABASE
   assert.doesNotMatch(source, /CREATE TABLE IF NOT EXISTS public\.prodx_payment_webhook_events/);
 });
 
-test(
-  'PostgreSQL backup/restore drill verifies all 36 RLS tables, the baseline FORCE RLS table, and produces a sanitized report with zero dump contents or PII',
-  { skip: !shouldRunPgIntegration, timeout: 120_000 },
-  async () => {
+if (shouldRunPgIntegration) {
+  test(
+    'PostgreSQL backup/restore drill verifies all 36 RLS tables, the baseline FORCE RLS table, and produces a sanitized report with zero dump contents or PII',
+    { timeout: 120_000 },
+    async () => {
     const baseDatabaseUrl = databaseUrl!;
     const suffix = `${process.pid}_${Date.now()}`;
     const sourceDbName = `prodx_dr_src_${suffix}`;
@@ -594,4 +595,5 @@ test(
       rmSync(tempDir, { recursive: true, force: true });
     }
   },
-);
+  );
+}
