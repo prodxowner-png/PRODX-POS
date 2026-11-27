@@ -97,11 +97,11 @@ export const ThemePicker: React.FC = () => {
                   </div>
 
                   <div className="flex items-center gap-1">
-                    <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-md bg-card text-text/60 border border-border">
+                    <span className="text-[9px] font-mono tabular-nums font-bold px-1.5 py-0.5 rounded-md bg-card text-text/60 border border-border">
                       {preset.badge}
                     </span>
                     {isActive && (
-                      <div className="w-5 h-5 rounded-full bg-primary text-white flex items-center justify-center">
+                      <div className="w-5 h-5 rounded-full bg-primary text-primary-foreground flex items-center justify-center">
                         <Check className="h-3 w-3 stroke-[3]" />
                       </div>
                     )}
@@ -162,7 +162,7 @@ export const ThemePicker: React.FC = () => {
                 onChange={(e) => setCustomAccentColor(e.target.value)}
                 className="w-6 h-6 rounded-lg border-0 cursor-pointer overflow-hidden p-0 bg-transparent shrink-0"
               />
-              <span className="text-[11px] font-mono font-bold text-text/70 pr-1 select-all uppercase">
+              <span className="text-[11px] font-mono tabular-nums font-bold text-text/70 pr-1 select-all uppercase">
                 {customAccentColor || 'Default'}
               </span>
             </div>
@@ -205,7 +205,7 @@ export const ThemePicker: React.FC = () => {
                   referrerPolicy="no-referrer"
                 />
               ) : (
-                <ImageIcon className="h-6 w-6 text-text/40" />
+                <ImageIcon className="h-6 w-6 text-brand-text-secondary" />
               )}
             </div>
 
@@ -239,7 +239,7 @@ export const ThemePicker: React.FC = () => {
                 onChange={handleLogoUpload}
                 className="hidden"
               />
-              <span className="text-[10px] text-text/40">
+              <span className="text-[10px] text-brand-text-secondary">
                 {language === 'th' ? 'แนะนำสัดส่วน 1:1, รองรับไฟล์ JPG, PNG, SVG (สูงสุด 1MB)' : '1:1 ratio recommended. Supports JPG, PNG, SVG up to 1MB.'}
               </span>
             </div>

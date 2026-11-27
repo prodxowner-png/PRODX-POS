@@ -382,8 +382,8 @@ export const OrderRefundModal: React.FC<OrderRefundModalProps> = ({
             </div>
 
             <div className="text-right">
-              <div className="text-[11px] text-text/50">{language === 'th' ? 'ยอดเดิมของบิล' : 'Original Total'}</div>
-              <div className="text-sm font-bold font-mono text-text">
+              <div className="text-[11px] text-brand-text-secondary">{language === 'th' ? 'ยอดเดิมของบิล' : 'Original Total'}</div>
+              <div className="text-sm font-bold font-mono tabular-nums text-text">
                 {formatMoney(order.totals.grandTotal)}
               </div>
             </div>
@@ -398,7 +398,7 @@ export const OrderRefundModal: React.FC<OrderRefundModalProps> = ({
               <button
                 type="button"
                 onClick={() => setRefundMode('full')}
-                className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all flex flex-col gap-1 ${
+                className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all flex flex-col gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta ${
                   refundMode === 'full'
                     ? 'border-primary bg-primary/10 text-primary font-bold ring-1 ring-primary'
                     : 'border-border hover:bg-background text-text/70'
@@ -416,7 +416,7 @@ export const OrderRefundModal: React.FC<OrderRefundModalProps> = ({
               <button
                 type="button"
                 onClick={() => setRefundMode('itemized')}
-                className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all flex flex-col gap-1 ${
+                className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all flex flex-col gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta ${
                   refundMode === 'itemized'
                     ? 'border-primary bg-primary/10 text-primary font-bold ring-1 ring-primary'
                     : 'border-border hover:bg-background text-text/70'
@@ -434,7 +434,7 @@ export const OrderRefundModal: React.FC<OrderRefundModalProps> = ({
               <button
                 type="button"
                 onClick={() => setRefundMode('custom_amount')}
-                className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all flex flex-col gap-1 ${
+                className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all flex flex-col gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta ${
                   refundMode === 'custom_amount'
                     ? 'border-primary bg-primary/10 text-primary font-bold ring-1 ring-primary'
                     : 'border-border hover:bg-background text-text/70'
@@ -456,7 +456,7 @@ export const OrderRefundModal: React.FC<OrderRefundModalProps> = ({
             <div className="p-3 rounded-xl border border-border bg-background/50 space-y-2.5">
               <div className="flex items-center justify-between text-xs font-bold text-text">
                 <span>{language === 'th' ? 'เลือกสินค้าที่ลูกค้านำมาคืน:' : 'Select Items to Return:'}</span>
-                <span className="text-text/60">
+                <span className="text-brand-text-secondary">
                   {itemReturns.filter((i) => i.isSelected).length} / {itemReturns.length}{' '}
                   {language === 'th' ? 'รายการที่เลือก' : 'selected'}
                 </span>
@@ -466,27 +466,26 @@ export const OrderRefundModal: React.FC<OrderRefundModalProps> = ({
                 {itemReturns.map((it) => (
                   <div
                     key={it.lineId}
-                    onClick={() => toggleItemSelection(it.lineId)}
-                    className={`p-2 rounded-lg border text-xs flex items-center justify-between transition-all cursor-pointer ${
+                    className={`min-h-[44px] px-2.5 py-2 rounded-lg border text-xs flex items-center justify-between gap-2 transition-all ${
                       it.isSelected
                         ? 'border-primary/50 bg-primary/5 text-text'
-                        : 'border-border bg-card text-text/50 opacity-60'
+                        : 'border-border bg-card text-brand-text-secondary opacity-75'
                     }`}
                   >
-                    <div className="flex items-center gap-2.5 min-w-0">
+                    <label className="flex items-center gap-2.5 min-w-0 flex-1 min-h-[44px] cursor-pointer">
                       <input
                         type="checkbox"
                         checked={it.isSelected}
-                        onChange={() => {}} // Handled by container onClick
-                        className="h-4 w-4 rounded accent-primary cursor-pointer shrink-0"
+                        onChange={() => toggleItemSelection(it.lineId)}
+                        className="h-4 w-4 rounded accent-primary cursor-pointer shrink-0 focus-visible:ring-2 focus-visible:ring-cta"
                       />
                       <div className="min-w-0">
                         <div className="font-bold truncate text-text">{it.productName}</div>
-                        <div className="text-[10px] text-text/60 font-mono">
+                        <div className="text-xs text-brand-text-secondary font-mono tabular-nums">
                           {it.sku} · {formatMoney(createMoney(it.unitPriceCents, order.totals.grandTotal.currency))}/ชิ้น
                         </div>
                       </div>
-                    </div>
+                    </label>
 
                     {/* Quantity Stepper */}
                     <div
@@ -495,22 +494,24 @@ export const OrderRefundModal: React.FC<OrderRefundModalProps> = ({
                     >
                       <button
                         type="button"
+                        aria-label={language === 'th' ? `ลดจำนวนคืน ${it.productName}` : `Decrease return quantity for ${it.productName}`}
                         onClick={() => updateItemReturnQty(it.lineId, -1)}
                         disabled={it.returnQty <= 1}
-                        className="h-6 w-6 rounded bg-card border border-border flex items-center justify-center hover:bg-background disabled:opacity-30 cursor-pointer"
+                        className="min-h-[32px] min-w-[32px] rounded bg-card border border-border flex items-center justify-center hover:bg-background disabled:opacity-30 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta"
                       >
-                        <Minus className="h-3 w-3" />
+                        <Minus className="h-3.5 w-3.5" />
                       </button>
-                      <span className="w-8 text-center font-mono font-bold text-xs">
+                      <span className="w-8 text-center font-mono tabular-nums font-bold text-xs">
                         {it.returnQty}/{it.originalQty}
                       </span>
                       <button
                         type="button"
+                        aria-label={language === 'th' ? `เพิ่มจำนวนคืน ${it.productName}` : `Increase return quantity for ${it.productName}`}
                         onClick={() => updateItemReturnQty(it.lineId, 1)}
                         disabled={it.returnQty >= it.originalQty}
-                        className="h-6 w-6 rounded bg-card border border-border flex items-center justify-center hover:bg-background disabled:opacity-30 cursor-pointer"
+                        className="min-h-[32px] min-w-[32px] rounded bg-card border border-border flex items-center justify-center hover:bg-background disabled:opacity-30 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta"
                       >
-                        <Plus className="h-3 w-3" />
+                        <Plus className="h-3.5 w-3.5" />
                       </button>
                     </div>
                   </div>
@@ -528,6 +529,7 @@ export const OrderRefundModal: React.FC<OrderRefundModalProps> = ({
               <div className="relative">
                 <input
                   type="number"
+                  inputMode="decimal"
                   step="0.01"
                   min="0"
                   max={centsToDecimalString(order.totals.grandTotal.amountInCents)}
@@ -535,10 +537,10 @@ export const OrderRefundModal: React.FC<OrderRefundModalProps> = ({
                   onChange={(e) => {
                     setCustomAmountCents(Math.max(0, parseDecimalToCents(e.target.value)));
                   }}
-                  className="w-full h-10 px-3 font-mono font-bold text-base rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary"
+                  className="w-full min-h-[44px] h-11 px-3 font-mono font-bold tabular-nums text-base rounded-xl border border-brand-border-strong bg-background focus:outline-none focus-visible:ring-2 focus-visible:ring-cta"
                 />
               </div>
-              <div className="text-[11px] text-text/60">
+              <div className="text-[11px] text-brand-text-secondary font-mono tabular-nums">
                 {language === 'th'
                   ? `สูงสุดไม่เกินยอดบิล: ${formatMoney(order.totals.grandTotal)}`
                   : `Maximum allowable: ${formatMoney(order.totals.grandTotal)}`}
@@ -552,7 +554,7 @@ export const OrderRefundModal: React.FC<OrderRefundModalProps> = ({
               <div className="text-xs font-semibold text-rose-800 dark:text-rose-300">
                 {language === 'th' ? 'ยอดเงินที่ต้องคืนลูกค้า (Total Refund):' : 'Total Refund to Customer:'}
               </div>
-              <div className="text-2xl font-black font-mono text-rose-600 dark:text-rose-400">
+              <div className="text-2xl font-black font-mono tabular-nums text-rose-600 dark:text-rose-400">
                 {formatMoney(effectiveRefundAmount)}
               </div>
             </div>
@@ -597,7 +599,7 @@ export const OrderRefundModal: React.FC<OrderRefundModalProps> = ({
                 type="checkbox"
                 checked={restockItems}
                 onChange={(e) => setRestockItems(e.target.checked)}
-                className="h-4 w-4 rounded accent-primary cursor-pointer"
+                className="h-4 w-4 rounded accent-primary cursor-pointer focus-visible:ring-2 focus-visible:ring-cta"
               />
             </div>
 
@@ -619,7 +621,7 @@ export const OrderRefundModal: React.FC<OrderRefundModalProps> = ({
                         <span className="font-semibold text-text truncate max-w-[140px]">
                           {itemMatch?.product.name || it.productId}
                         </span>
-                        <span className="font-mono text-emerald-600 dark:text-emerald-400 font-bold shrink-0">
+                        <span className="font-mono tabular-nums text-emerald-600 dark:text-emerald-400 font-bold shrink-0">
                           {currentStock} ➔ {currentStock + it.quantity} (+{it.quantity})
                         </span>
                       </div>
@@ -639,7 +641,7 @@ export const OrderRefundModal: React.FC<OrderRefundModalProps> = ({
               <button
                 type="button"
                 onClick={() => setRefundMethod('cash')}
-                className={`p-2.5 rounded-xl border text-center cursor-pointer transition-all flex flex-col items-center gap-1 ${
+                className={`p-2.5 rounded-xl border text-center cursor-pointer transition-all flex flex-col items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta ${
                   refundMethod === 'cash'
                     ? 'border-primary bg-primary/10 text-primary font-bold ring-1 ring-primary'
                     : 'border-border hover:bg-background text-text/70'
@@ -652,7 +654,7 @@ export const OrderRefundModal: React.FC<OrderRefundModalProps> = ({
               <button
                 type="button"
                 onClick={() => setRefundMethod('card')}
-                className={`p-2.5 rounded-xl border text-center cursor-pointer transition-all flex flex-col items-center gap-1 ${
+                className={`p-2.5 rounded-xl border text-center cursor-pointer transition-all flex flex-col items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta ${
                   refundMethod === 'card'
                     ? 'border-primary bg-primary/10 text-primary font-bold ring-1 ring-primary'
                     : 'border-border hover:bg-background text-text/70'
@@ -665,7 +667,7 @@ export const OrderRefundModal: React.FC<OrderRefundModalProps> = ({
               <button
                 type="button"
                 onClick={() => setRefundMethod('qr_digital')}
-                className={`p-2.5 rounded-xl border text-center cursor-pointer transition-all flex flex-col items-center gap-1 ${
+                className={`p-2.5 rounded-xl border text-center cursor-pointer transition-all flex flex-col items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta ${
                   refundMethod === 'qr_digital'
                     ? 'border-primary bg-primary/10 text-primary font-bold ring-1 ring-primary'
                     : 'border-border hover:bg-background text-text/70'
@@ -690,7 +692,7 @@ export const OrderRefundModal: React.FC<OrderRefundModalProps> = ({
                     key={r.id}
                     type="button"
                     onClick={() => setRefundReason(r.id)}
-                    className={`p-2 rounded-xl border text-left text-xs cursor-pointer transition-all flex items-center justify-between ${
+                    className={`p-2 rounded-xl border text-left text-xs cursor-pointer transition-all flex items-center justify-between focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta ${
                       isSelected
                         ? 'border-rose-500 bg-rose-500/10 text-rose-900 dark:text-rose-200 font-bold ring-1 ring-rose-500'
                         : 'border-border hover:bg-background text-text/80'
@@ -709,7 +711,7 @@ export const OrderRefundModal: React.FC<OrderRefundModalProps> = ({
               placeholder={language === 'th' ? 'หมายเหตุเพิ่มเติม (ถ้ามี)...' : 'Additional refund note (optional)...'}
               value={customReasonNote}
               onChange={(e) => setCustomReasonNote(e.target.value)}
-              className="w-full mt-2 h-8 px-3 text-xs rounded-lg border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary"
+              className="w-full mt-2 min-h-[40px] h-10 px-3 text-sm rounded-lg border border-brand-border-strong bg-background focus:outline-none focus-visible:ring-2 focus-visible:ring-cta"
             />
           </div>
 

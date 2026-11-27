@@ -110,7 +110,7 @@ export const CustomersScreen: React.FC = () => {
               <Users className="h-4 w-4" />
             </div>
           </div>
-          <div className="mt-2 text-2xl font-black font-mono tracking-tight text-text">
+          <div className="mt-2 text-2xl font-black font-mono tabular-nums tracking-tight text-text">
             {customers.length} <span className="text-caption font-sans font-medium text-text/60">{language === 'th' ? 'คน' : 'members'}</span>
           </div>
           <div className="mt-1.5 text-caption-sm text-text/60">
@@ -121,11 +121,11 @@ export const CustomersScreen: React.FC = () => {
         <div className="p-4 rounded-xl border border-border border-crisp bg-card shadow-2xs flex flex-col justify-between">
           <div className="flex items-center justify-between text-xs font-semibold text-text/60 uppercase tracking-wider">
             <span>{language === 'th' ? 'สมาชิกระดับ VIP' : 'VIP Members'}</span>
-            <div className="p-1.5 rounded-lg bg-purple-500/10 text-purple-600 dark:text-purple-400">
+            <div className="p-1.5 rounded-lg bg-primary/10 text-brand-text-accent">
               <Star className="h-4 w-4" />
             </div>
           </div>
-          <div className="mt-2 text-2xl font-black font-mono tracking-tight text-purple-600 dark:text-purple-400">
+          <div className="mt-2 text-2xl font-black font-mono tabular-nums tracking-tight text-brand-text-accent">
             {vipCount} <span className="text-xs font-sans font-medium text-text/60">{language === 'th' ? 'คน' : 'VIP'}</span>
           </div>
           <div className="mt-1.5 text-[11px] text-text/60">
@@ -140,7 +140,7 @@ export const CustomersScreen: React.FC = () => {
               <Star className="h-4 w-4" />
             </div>
           </div>
-          <div className="mt-2 text-2xl font-black font-mono tracking-tight text-amber-500">
+          <div className="mt-2 text-2xl font-black font-mono tabular-nums tracking-tight text-amber-500">
             {totalPoints.toLocaleString()} <span className="text-xs font-sans font-medium text-text/60">{language === 'th' ? 'แต้ม' : 'pts'}</span>
           </div>
           <div className="mt-1.5 text-[11px] text-text/60">
@@ -155,7 +155,7 @@ export const CustomersScreen: React.FC = () => {
               <Users className="h-4 w-4" />
             </div>
           </div>
-          <div className="mt-2 text-2xl font-black font-mono tracking-tight text-text">
+          <div className="mt-2 text-2xl font-black font-mono tabular-nums tracking-tight text-text">
             {filtered.length} <span className="text-xs font-sans font-medium text-text/60">{language === 'th' ? 'รายการ' : 'matching'}</span>
           </div>
           <div className="mt-1.5 text-[11px] text-text/60">
@@ -190,12 +190,12 @@ export const CustomersScreen: React.FC = () => {
             <tbody className="divide-y divide-border">
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="py-12 text-center text-text/50">
-                    <Users className="h-8 w-8 mx-auto text-text/30 mb-2" />
+                  <td colSpan={5} className="py-12 text-center text-brand-text-secondary">
+                    <Users className="h-8 w-8 mx-auto text-brand-text-secondary mb-2" />
                     <p className="text-xs font-semibold text-text">
                       {language === 'th' ? 'ไม่พบข้อมูลลูกค้า' : 'No customers found'}
                     </p>
-                    <p className="text-[11px] text-text/50 mt-0.5">
+                    <p className="text-[11px] text-brand-text-secondary mt-0.5">
                       {language === 'th' ? 'ลองค้นหาด้วยชื่อ เบอร์โทร หรืออีเมลอื่น' : 'Try searching by a different name, phone, or email.'}
                     </p>
                   </td>
@@ -206,13 +206,13 @@ export const CustomersScreen: React.FC = () => {
                     <td className="py-3.5 px-5 font-bold text-text">
                       {c.name}
                     </td>
-                    <td className="py-3.5 px-4 text-text/70 font-mono flex items-center gap-1.5">
-                      <Phone className="h-3 w-3 text-text/40" />
+                    <td className="py-3.5 px-4 text-text/70 font-mono tabular-nums flex items-center gap-1.5">
+                      <Phone className="h-3 w-3 text-brand-text-secondary" />
                       <span>{c.phone}</span>
                     </td>
                     <td className="py-3.5 px-4 text-text/70">
                       <span className="flex items-center gap-1.5">
-                        <Mail className="h-3 w-3 text-text/40" />
+                        <Mail className="h-3 w-3 text-brand-text-secondary" />
                         <span>{c.email}</span>
                       </span>
                     </td>
@@ -221,7 +221,7 @@ export const CustomersScreen: React.FC = () => {
                         {c.loyaltyTier}
                       </Badge>
                     </td>
-                    <td className="py-3.5 px-5 text-right font-mono font-bold text-primary">
+                    <td className="py-3.5 px-5 text-right font-mono tabular-nums font-bold text-primary">
                       {c.loyaltyPoints} {language === 'th' ? 'แต้ม' : 'pts'}
                     </td>
                   </tr>

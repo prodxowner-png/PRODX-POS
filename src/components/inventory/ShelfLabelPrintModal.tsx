@@ -158,14 +158,14 @@ export const ShelfLabelPrintModal: React.FC<ShelfLabelPrintModalProps> = ({
               >
                 <div className="flex items-center gap-3 min-w-0">
                   <div className={`text-primary dark:text-orange-400 shrink-0`}>
-                    {isSelected ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4 text-text/50" />}
+                    {isSelected ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4 text-brand-text-secondary" />}
                   </div>
                   <div className="min-w-0">
                     <div className="font-bold text-text truncate">{p.name}</div>
-                    <div className="text-[11px] font-mono text-text/60">SKU: {p.sku}</div>
+                    <div className="text-[11px] font-mono tabular-nums text-text/60">SKU: {p.sku}</div>
                   </div>
                 </div>
-                <div className="font-mono font-bold text-text shrink-0">
+                <div className="font-mono tabular-nums font-bold text-text shrink-0">
                   <CurrencyDisplay money={p.price} />
                 </div>
               </div>
@@ -181,7 +181,7 @@ export const ShelfLabelPrintModal: React.FC<ShelfLabelPrintModalProps> = ({
 
           <div className="p-4 rounded-2xl bg-background dark:bg-black/40 border border-border border-crisp max-h-96 overflow-y-auto">
             {selectedProducts.length === 0 ? (
-              <div className="py-12 text-center text-xs text-text/50">
+              <div className="py-12 text-center text-xs text-brand-text-secondary">
                 {language === 'th' ? 'กรุณาเลือกสินค้าอย่างน้อย 1 รายการเพื่อดูตัวอย่างป้าย' : 'Select at least one product to preview shelf tags.'}
               </div>
             ) : (
@@ -197,7 +197,7 @@ export const ShelfLabelPrintModal: React.FC<ShelfLabelPrintModalProps> = ({
                     {includeStoreName && (
                       <div className="flex items-center justify-between border-b border-border pb-1.5 mb-2 text-[10px] font-bold text-text/70 uppercase tracking-wide">
                         <span>{session?.currentStore.name || 'PRODX POS'}</span>
-                        <span className="bg-background px-1.5 py-0.5 rounded text-[9px] font-mono">{p.sku}</span>
+                        <span className="bg-background px-1.5 py-0.5 rounded text-[9px] font-mono tabular-nums">{p.sku}</span>
                       </div>
                     )}
 
@@ -222,12 +222,12 @@ export const ShelfLabelPrintModal: React.FC<ShelfLabelPrintModalProps> = ({
 
                     {/* Footer: Price & Barcode representation */}
                     <div className="flex items-end justify-between pt-2 border-t border-dashed border-border mt-2">
-                      <div className="font-mono text-[9px] text-text/50 tracking-widest">
+                      <div className="font-mono tabular-nums text-[9px] text-brand-text-secondary tracking-widest">
                         ||| | | |||| || |||
                       </div>
                       <div className="text-right">
-                        <div className="text-[9px] text-text/50 uppercase font-bold">Price / ราคา</div>
-                        <div className="text-base sm:text-lg font-black font-mono text-primary">
+                        <div className="text-[9px] text-brand-text-secondary uppercase font-bold">Price / ราคา</div>
+                        <div className="text-base sm:text-lg font-black font-mono tabular-nums text-primary">
                           <CurrencyDisplay money={p.price} />
                         </div>
                       </div>

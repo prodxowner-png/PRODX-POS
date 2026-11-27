@@ -407,12 +407,12 @@ export const RestockNeededReportModal: React.FC<RestockNeededReportModalProps> =
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3 w-full">
           <div className="flex items-center gap-2 text-xs text-text/60">
             <span>{language === 'th' ? 'เลือก:' : 'Selected:'}</span>
-            <span className="font-mono font-black text-primary">
+            <span className="font-mono tabular-nums font-black text-primary">
               {reportStats.selectedCount} / {reportStats.totalFlaggedCount} {language === 'th' ? 'รายการ' : 'items'}
             </span>
             <span className="mx-1 text-border">|</span>
             <span>{language === 'th' ? 'งบประมาณรวม:' : 'Total Cost:'}</span>
-            <span className="font-mono font-black text-emerald-600 dark:text-emerald-400 text-sm">
+            <span className="font-mono tabular-nums font-black text-emerald-600 dark:text-emerald-400 text-sm">
               {formatMoney(reportStats.totalEstimatedCost)}
             </span>
           </div>
@@ -448,7 +448,7 @@ export const RestockNeededReportModal: React.FC<RestockNeededReportModalProps> =
               onClick={handleBulkGeneratePurchaseOrder}
               disabled={restockItems.length === 0}
               leftIcon={<FileText className="h-4 w-4 text-white" />}
-              className="text-xs font-bold bg-primary hover:bg-primary/90 text-white shadow-xs cursor-pointer"
+              className="text-xs font-bold bg-primary hover:bg-primary/90 text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta shadow-xs cursor-pointer"
             >
               {language === 'th'
                 ? `สร้างใบสั่งซื้อรวม (${itemsForDraftPo.length} รายการ)`
@@ -484,10 +484,10 @@ export const RestockNeededReportModal: React.FC<RestockNeededReportModalProps> =
                 <AlertTriangle className="h-3.5 w-3.5" />
               </div>
             </div>
-            <div className="text-xl font-black font-mono tracking-tight text-amber-500 mt-1">
-              {reportStats.totalFlaggedCount} <span className="text-xs font-sans font-medium text-text/50">SKUs</span>
+            <div className="text-xl font-black font-mono tabular-nums tracking-tight text-amber-500 mt-1">
+              {reportStats.totalFlaggedCount} <span className="text-xs font-sans font-medium text-brand-text-secondary">SKUs</span>
             </div>
-            <div className="text-[10px] text-text/50 mt-0.5 flex items-center gap-1">
+            <div className="text-[10px] text-brand-text-secondary mt-0.5 flex items-center gap-1">
               <span>{language === 'th' ? `เกณฑ์เตือน: ≤ ${lowStockThreshold} ชิ้น` : `Threshold: ≤ ${lowStockThreshold}`}</span>
             </div>
           </div>
@@ -500,8 +500,8 @@ export const RestockNeededReportModal: React.FC<RestockNeededReportModalProps> =
                 <PackageX className="h-3.5 w-3.5" />
               </div>
             </div>
-            <div className="text-xl font-black font-mono tracking-tight text-rose-500 mt-1">
-              {reportStats.criticalOutOfStockCount} <span className="text-xs font-sans font-medium text-text/50">items</span>
+            <div className="text-xl font-black font-mono tabular-nums tracking-tight text-rose-500 mt-1">
+              {reportStats.criticalOutOfStockCount} <span className="text-xs font-sans font-medium text-brand-text-secondary">items</span>
             </div>
             <div className="text-[10px] text-rose-600 dark:text-rose-400 font-semibold mt-0.5">
               {language === 'th' ? 'วิกฤติเสียโอกาสขาย' : 'Immediate risk'}
@@ -516,10 +516,10 @@ export const RestockNeededReportModal: React.FC<RestockNeededReportModalProps> =
                 <Boxes className="h-3.5 w-3.5" />
               </div>
             </div>
-            <div className="text-xl font-black font-mono tracking-tight text-primary mt-1">
-              {reportStats.totalSuggestedUnits} <span className="text-xs font-sans font-medium text-text/50">units</span>
+            <div className="text-xl font-black font-mono tabular-nums tracking-tight text-primary mt-1">
+              {reportStats.totalSuggestedUnits} <span className="text-xs font-sans font-medium text-brand-text-secondary">units</span>
             </div>
-            <div className="text-[10px] text-text/50 mt-0.5">
+            <div className="text-[10px] text-brand-text-secondary mt-0.5">
               {language === 'th' ? 'คุ้มครอง 14 วัน' : '14-day safety buffer'}
             </div>
           </div>
@@ -532,10 +532,10 @@ export const RestockNeededReportModal: React.FC<RestockNeededReportModalProps> =
                 <DollarSign className="h-3.5 w-3.5" />
               </div>
             </div>
-            <div className="text-lg font-black font-mono tracking-tight text-emerald-600 dark:text-emerald-400 mt-1 truncate">
+            <div className="text-lg font-black font-mono tabular-nums tracking-tight text-emerald-600 dark:text-emerald-400 mt-1 truncate">
               {formatMoney(reportStats.totalEstimatedCost)}
             </div>
-            <div className="text-[10px] text-text/50 mt-0.5 truncate">
+            <div className="text-[10px] text-brand-text-secondary mt-0.5 truncate">
               {language === 'th' ? 'คำนวณจากราคาทุนส่ง' : 'Based on unit cost'}
             </div>
           </div>
@@ -614,7 +614,7 @@ export const RestockNeededReportModal: React.FC<RestockNeededReportModalProps> =
               onClick={handleBulkGeneratePurchaseOrder}
               disabled={restockItems.length === 0}
               leftIcon={<FileText className="h-3.5 w-3.5" />}
-              className="h-9 text-xs font-bold bg-primary hover:bg-primary/90 text-white shadow-xs cursor-pointer whitespace-nowrap"
+              className="min-h-[44px] h-11 text-xs font-bold bg-primary hover:bg-primary/90 text-primary-foreground shadow-xs cursor-pointer whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta"
             >
               {language === 'th' ? 'สร้างใบสั่งซื้อรวม' : 'Bulk Generate PO'}
             </Button>
@@ -653,13 +653,13 @@ export const RestockNeededReportModal: React.FC<RestockNeededReportModalProps> =
               <tbody className="divide-y divide-border/60">
                 {filteredItems.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="py-12 text-center text-text/50">
+                    <td colSpan={8} className="py-12 text-center text-brand-text-secondary">
                       <div className="flex flex-col items-center justify-center space-y-2">
                         <PackageCheck className="h-8 w-8 text-emerald-500/60" />
                         <div className="font-bold text-text">
                           {language === 'th' ? 'ไม่พบรายการที่ต้องสั่งเติมตามเงื่อนไข' : 'No items match restock criteria'}
                         </div>
-                        <p className="text-[11px] text-text/50">
+                        <p className="text-[11px] text-brand-text-secondary">
                           {language === 'th'
                             ? `ระดับสินค้าทุกรายการสูงกว่าเกณฑ์ที่กำหนด (≤ ${lowStockThreshold} ชิ้น)`
                             : 'All item inventory levels are above active alert thresholds.'}
@@ -696,7 +696,7 @@ export const RestockNeededReportModal: React.FC<RestockNeededReportModalProps> =
 
                         <td className="py-3 px-3">
                           <div className="font-bold text-text">{item.product.name}</div>
-                          <div className="text-[10px] text-text/50 font-mono flex items-center gap-2 mt-0.5">
+                          <div className="text-[10px] text-brand-text-secondary font-mono tabular-nums flex items-center gap-2 mt-0.5">
                             <span>SKU: {item.product.sku}</span>
                             <span>•</span>
                             <span className="text-primary font-medium">{item.categoryName}</span>
@@ -719,7 +719,7 @@ export const RestockNeededReportModal: React.FC<RestockNeededReportModalProps> =
                           )}
                         </td>
 
-                        <td className="py-3 px-3 text-center font-mono">
+                        <td className="py-3 px-3 text-center font-mono tabular-nums">
                           <span
                             className={`font-black text-xs ${
                               item.product.currentStock <= 0
@@ -733,11 +733,11 @@ export const RestockNeededReportModal: React.FC<RestockNeededReportModalProps> =
                           </span>
                         </td>
 
-                        <td className="py-3 px-3 text-center font-mono text-[11px] text-text/70">
+                        <td className="py-3 px-3 text-center font-mono tabular-nums text-[11px] text-text/70">
                           {item.vInfo.adsv} / {language === 'th' ? 'วัน' : 'day'}
                         </td>
 
-                        <td className="py-3 px-3 text-right font-mono text-text/80 text-[11px]">
+                        <td className="py-3 px-3 text-right font-mono tabular-nums text-text/80 text-[11px]">
                           {formatMoney(createMoney(item.unitCostCents, currency))}
                         </td>
 
@@ -752,13 +752,14 @@ export const RestockNeededReportModal: React.FC<RestockNeededReportModalProps> =
                             </button>
                             <input
                               type="number"
+                              inputMode="numeric"
                               min="0"
                               value={item.activeQty}
                               onChange={(e) => {
                                 const val = parseInt(e.target.value, 10);
                                 handleQuantityChange(item.product.id, isNaN(val) ? 0 : val);
                               }}
-                              className="w-12 text-center font-mono font-black text-xs text-primary bg-transparent border-none p-0 focus:outline-none"
+                              className="w-12 text-center font-mono tabular-nums font-black text-xs text-primary bg-transparent border-none p-0 focus:outline-none"
                             />
                             <button
                               type="button"
@@ -770,7 +771,7 @@ export const RestockNeededReportModal: React.FC<RestockNeededReportModalProps> =
                           </div>
                         </td>
 
-                        <td className="py-3 px-4 text-right font-mono font-bold text-xs text-emerald-600 dark:text-emerald-400">
+                        <td className="py-3 px-4 text-right font-mono tabular-nums font-bold text-xs text-emerald-600 dark:text-emerald-400">
                           {formatMoney(createMoney(item.totalLineCostCents, currency))}
                         </td>
                       </tr>
