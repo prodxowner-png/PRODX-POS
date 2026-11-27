@@ -1,17 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createHash, randomUUID } from 'node:crypto';
-import { createPostgresPool, resolveConfiguredDatabaseUrl } from '../db/postgres';
+import { createPostgresPool } from '../db/postgres';
+import { resolveDisposableTestDatabaseUrl } from '../db/test-database-guard';
 import { createTransactionalPostgresExecutor } from '../db/transaction';
-import { assertDisposableTestDatabaseUrl } from '../db/test-database-guard';
 import type { CheckoutRequest } from '../../src/adapters/types';
 import { CheckoutAuthorizationError, CheckoutConflictError, checkoutAuthorizationFingerprint, createCheckoutService } from './checkout-service';
 import { runWithRequestContext } from '../http/request-context-storage';
 
-const url = resolveConfiguredDatabaseUrl(process.env.DATABASE_URL);
-if (url) {
-  assertDisposableTestDatabaseUrl(url);
-}
+const url = resolveDisposableTestDatabaseUrl(process.env.DATABASE_URL, 'server/transactions/checkout-postgres.integration.test.ts');
 const pool = url ? createPostgresPool({ connectionString: url, max: 8 }) : null;
 const db = pool ? createTransactionalPostgresExecutor(pool) : null;
 
@@ -21,6 +18,8 @@ const id = {
   store: randomUUID(),
   store2: randomUUID(),
   user: randomUUID(),
+  supervisor: randomUUID(),
+  supervisorRole: randomUUID(),
   reg: randomUUID(),
   reg2: randomUUID(),
   shift: randomUUID(),
@@ -78,8 +77,12 @@ async function seed() {
   if (!pool) throw new Error('DATABASE_URL required');
   await pool.query('INSERT INTO prodx_organizations(id,code,name) VALUES($1,$2,$3)', [id.org, `pg-core-${runSuffix}`, 'PG Core']);
   await pool.query('INSERT INTO prodx_stores(id,organization_id,code,name,business_timezone) VALUES($1,$2,$3,$4,$5),($6,$2,$7,$8,$5)', [id.store, id.org, `pg-1-${runSuffix}`, 'PG Store 1', 'Asia/Bangkok', id.store2, `pg-2-${runSuffix}`, 'PG Store 2']);
-  await pool.query('INSERT INTO prodx_users(id,organization_id,username,display_name) VALUES($1,$2,$3,$4)', [id.user, id.org, `pg-user-${runSuffix}`, 'PG User']);
-  await pool.query('INSERT INTO prodx_store_memberships(organization_id,store_id,user_id) VALUES($1,$2,$3)', [id.org, id.store, id.user]);
+  await pool.query('INSERT INTO prodx_users(id,organization_id,username,display_name) VALUES($1,$2,$3,$4),($5,$2,$6,$7)', [id.user, id.org, `pg-user-${runSuffix}`, 'PG Cashier', id.supervisor, `pg-supervisor-${runSuffix}`, 'PG Supervisor']);
+  await pool.query('INSERT INTO prodx_store_memberships(organization_id,store_id,user_id,active) VALUES($1,$2,$3,TRUE),($1,$2,$4,TRUE)', [id.org, id.store, id.user, id.supervisor]);
+  await pool.query("INSERT INTO prodx_roles(id,organization_id,role_key,name,active) VALUES($1,$2,'supervisor','Supervisor',TRUE)", [id.supervisorRole, id.org]);
+  await pool.query("INSERT INTO prodx_permissions(id,permission_key,description) VALUES($1,'pos.discount.approve','Approve discounts') ON CONFLICT (permission_key) DO NOTHING", [randomUUID()]);
+  await pool.query("INSERT INTO prodx_role_permissions(organization_id,role_id,permission_id) SELECT $1,$2,id FROM prodx_permissions WHERE permission_key='pos.discount.approve' ON CONFLICT DO NOTHING", [id.org, id.supervisorRole]);
+  await pool.query('INSERT INTO prodx_user_roles(organization_id,store_id,user_id,role_id,active) VALUES($1,$2,$3,$4,TRUE)', [id.org, id.store, id.supervisor, id.supervisorRole]);
   await pool.query('INSERT INTO prodx_devices(id,organization_id,store_id,device_key,name) VALUES($1,$2,$3,$4,$5)', [id.device, id.org, id.store, `pg-device-${runSuffix}`, 'PG Device']);
   await pool.query("INSERT INTO prodx_sessions(id,organization_id,user_id,device_id,token_hash,expires_at) VALUES($1,$2,$3,$4,$5,CURRENT_TIMESTAMP + INTERVAL '1 hour')", [id.session, id.org, id.user, id.device, `pg-session-token-hash-${runSuffix}`]);
   await pool.query('INSERT INTO prodx_registers(id,organization_id,store_id,code,name) VALUES($1,$2,$3,$4,$5),($6,$2,$3,$7,$8)', [id.reg, id.org, id.store, `R1-${runSuffix}`, 'Register 1', id.reg2, `R2-${runSuffix}`, 'Register 2']);
@@ -202,8 +205,8 @@ test('PostgreSQL checkout proves atomicity, authoritative pricing, idempotency a
     `INSERT INTO prodx_supervisor_authorizations
       (id,organization_id,store_id,requester_user_id,requester_session_id,supervisor_user_id,action_key,order_id,
        checkout_idempotency_key,checkout_payload_hash,policy_threshold_bps,policy_requires_approval,authorization_hash,expires_at)
-     VALUES($1,$2,$3,$4,$5,$4,'discount',NULL,$6,$7,1500,TRUE,$8,CURRENT_TIMESTAMP + INTERVAL '2 minutes')`,
-    [randomUUID(), id.org, id.store, id.user, id.session, concurrent.idempotencyKey, payloadHash, createHash('sha256').update(token).digest('hex')],
+     VALUES($1,$2,$3,$4,$5,$9,'discount',NULL,$6,$7,1500,TRUE,$8,CURRENT_TIMESTAMP + INTERVAL '2 minutes')`,
+    [randomUUID(), id.org, id.store, id.user, id.session, concurrent.idempotencyKey, payloadHash, createHash('sha256').update(token).digest('hex'), id.supervisor],
   );
   const approved = { ...concurrent, supervisorAuthorizationToken: token };
   const approvedContext = { organizationId: id.org, storeId: id.store, userId: id.user, sessionId: id.session };

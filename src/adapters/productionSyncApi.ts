@@ -1,12 +1,11 @@
+import { resolveProductionApiBaseUrl } from './apiBaseUrl';
 import type { ISyncApi, SyncCommandResponse } from './types';
 import type { OutboxItem } from '../domain/sync';
 
 const configuredBaseUrl = (): string | undefined => import.meta.env?.VITE_AUTH_API_BASE_URL;
 
 function requireBaseUrl(baseUrl?: string): string {
-  const resolved = baseUrl ?? configuredBaseUrl();
-  if (!resolved) throw new Error('Production sync API is not configured: VITE_AUTH_API_BASE_URL is missing.');
-  return resolved.replace(/\/$/, '');
+  return resolveProductionApiBaseUrl(baseUrl ?? configuredBaseUrl());
 }
 
 export class SyncApiError extends Error {

@@ -78,6 +78,7 @@ async function handleSync(request: Request, env: Env, ctx: ExecutionContext): Pr
     const results = await stub.submitBatch({
       tenantId: auth.tenantId,
       terminalId: auth.terminalId,
+      storeId: originCheckpoint.store_id,
       doName,
       sales: prepared
     }, originCheckpoint);

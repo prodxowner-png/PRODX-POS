@@ -13,6 +13,7 @@ const device = {
 const createHarness = (supabaseSessionEnabled?: boolean) => {
   let databaseCalls = 0;
   let exchangeCalls = 0;
+  let renewalCalls = 0;
   const db: SqlExecutor = {
     async query<T extends Record<string, unknown>>(sql: string): Promise<readonly T[]> {
       databaseCalls += 1;
@@ -23,6 +24,7 @@ const createHarness = (supabaseSessionEnabled?: boolean) => {
   const sessions = {
     async authenticateCredentials() { return null; },
     async authenticateSupabaseToken() { exchangeCalls += 1; return null; },
+    async renewSupabaseSession() { renewalCalls += 1; return null; },
     async authenticateBearer() { return null; },
     async revokeBearer() { return false; },
   } as unknown as SessionIssuer;
@@ -35,9 +37,11 @@ const createHarness = (supabaseSessionEnabled?: boolean) => {
   assert.ok(address && typeof address === 'object');
   return {
     url: `http://127.0.0.1:${address.port}/auth/supabase/session`,
+    renewalUrl: `http://127.0.0.1:${address.port}/auth/supabase/renew`,
     server,
     get databaseCalls() { return databaseCalls; },
     get exchangeCalls() { return exchangeCalls; },
+    get renewalCalls() { return renewalCalls; },
   };
 };
 
@@ -113,4 +117,24 @@ test('an explicit false server rollout flag keeps the Supabase session endpoint 
   assert.equal(response.status, 404);
   assert.equal(harness.databaseCalls, 0);
   assert.equal(harness.exchangeCalls, 0);
+});
+
+
+test('Supabase POS session renewal is disabled by default with the same server rollout gate as session exchange', async (t) => {
+  const harness = createHarness();
+  t.after(async () => new Promise<void>((resolve, reject) => {
+    harness.server.close((error?: Error) => error ? reject(error) : resolve());
+  }));
+
+  const response = await fetch(harness.renewalUrl, {
+    method: 'POST',
+    headers: {
+      authorization: 'Bearer existing-pos-session',
+      'x-supabase-authorization': 'Bearer refreshed-supabase-token',
+    },
+  });
+
+  assert.equal(response.status, 404);
+  assert.equal(harness.databaseCalls, 0);
+  assert.equal(harness.renewalCalls, 0);
 });

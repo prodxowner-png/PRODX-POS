@@ -26,6 +26,7 @@ const valid = (value: unknown): value is Body => {
   const body = value as Record<string, unknown>;
   if (!['refund', 'void', 'discount'].includes(String(body.action)) ||
       (typeof body.supervisorUsername !== 'string' && typeof body.supervisorUserId !== 'string') ||
+      (typeof body.supervisorUserId === 'string' && (body.supervisorUserId.trim().length === 0 || body.supervisorUserId.length > 128)) ||
       !((typeof body.supervisorSecret === 'string' && body.supervisorSecret.length > 0 && body.supervisorSecret.length <= 1024) || (typeof body.supervisorAccessToken === 'string' && body.supervisorAccessToken.length > 0 && body.supervisorAccessToken.length <= 8192)) ||
       (typeof body.supervisorAccessToken === 'string' && typeof body.supervisorUserId !== 'string')) return false;
   if (body.action === 'discount') {
@@ -146,16 +147,49 @@ export const registerSupervisorAuthorizationRoute = (app: Express, db: Transacti
             [context.principal.organizationId, context.principal.storeId],
           )).rows[0];
           if (!policy) throw new Error('Authoritative discount policy is missing for this store.');
-          const grossCents = checkout.totals.grossSubtotal.amountInCents;
-          const effectiveDiscountBps = grossCents > 0 ? Math.round((grossCents - checkout.totals.grandTotal.amountInCents) / grossCents * 10000) : 0;
-          const maxDiscountBps = Math.max(effectiveDiscountBps, checkout.orderDiscountBps ?? 0, ...checkout.items.map((item) => item.discountBps));
+          const productIds = checkout.items.map((item) => item.product.id);
+          if (new Set(productIds).size !== productIds.length) {
+            throw new SupervisorAuthorizationError('SUPERVISOR_NOT_ALLOWED');
+          }
+          const sortedProductIds = [...productIds].sort();
+          const products = (await tx.query<{ id: string; price_amount: string; currency: string }>(
+            `SELECT id, price_amount::text AS price_amount, currency
+               FROM prodx_products
+              WHERE organization_id = $1 AND store_id = $2 AND active = true AND id = ANY($3::uuid[])
+              ORDER BY id
+              FOR SHARE`,
+            [context.principal.organizationId, context.principal.storeId, sortedProductIds],
+          )).rows;
+          if (products.length !== productIds.length) {
+            throw new SupervisorAuthorizationError('SUPERVISOR_NOT_ALLOWED');
+          }
+          const productsById = new Map(products.map((product) => [product.id, product]));
+          let gross = 0n;
+          let itemDiscounts = 0n;
+          for (const item of checkout.items) {
+            const product = productsById.get(item.product.id);
+            if (!product) throw new SupervisorAuthorizationError('SUPERVISOR_NOT_ALLOWED');
+            const match = /^(\d+)\.(\d{2})$/.exec(String(product.price_amount));
+            if (!match) throw new Error('Database monetary value is invalid.');
+            const unitCents = BigInt(match[1]) * 100n + BigInt(match[2]);
+            const rawLine = unitCents * BigInt(item.quantity);
+            const lineDiscount = (rawLine * BigInt(item.discountBps) + 5000n) / 10000n;
+            gross += rawLine;
+            itemDiscounts += lineDiscount;
+          }
+          const orderDiscountBps = checkout.orderDiscountBps ?? 0;
+          const preOrderDiscount = gross - itemDiscounts;
+          const orderDiscount = (preOrderDiscount * BigInt(orderDiscountBps) + 5000n) / 10000n;
+          const grand = preOrderDiscount - orderDiscount;
+          const effectiveDiscountBps = gross > 0n ? Number(((gross - grand) * 10000n + gross / 2n) / gross) : 0;
+          const maxDiscountBps = Math.max(effectiveDiscountBps, orderDiscountBps, ...checkout.items.map((item) => item.discountBps));
           if (!policy.require_supervisor_approval || maxDiscountBps <= Number(policy.max_discount_without_approval_bps)) {
             throw new SupervisorAuthorizationError('SUPERVISOR_NOT_ALLOWED');
           }
           await tx.query(
             `SELECT public.prodx_record_security_audit_event($1, $2, $3, 'SUPERVISOR_AUTHORIZATION_REQUESTED', $4::jsonb)`,
             [crypto.randomUUID(), context.principal.organizationId, context.principal.userId,
-             JSON.stringify({ action: 'discount', idempotencyKey: checkout.idempotencyKey, payloadHash: checkoutAuthorizationFingerprint(checkout), thresholdBps: Number(policy.max_discount_without_approval_bps) })],
+             JSON.stringify({ action: 'discount', storeId: context.principal.storeId, idempotencyKey: checkout.idempotencyKey, payloadHash: checkoutAuthorizationFingerprint(checkout), thresholdBps: Number(policy.max_discount_without_approval_bps) })],
           );
           const result = await service.authorize({
             organizationId: context.principal.organizationId,

@@ -12,7 +12,13 @@ const money = (value: unknown, currency: string) => {
   return { amountInCents: cents, currency };
 };
 
-const toOrder = (row: OrderRow, items: OrderRow[], payments: OrderRow[]): Order => ({
+const toOrder = (
+  row: OrderRow,
+  items: OrderRow[],
+  payments: OrderRow[],
+  refundedAmount = '0.00',
+  restockedQuantities: ReadonlyMap<string, number> = new Map(),
+): Order => ({
   id: row.id,
   orderNumber: row.order_number,
   idempotencyKey: row.idempotency_key,
@@ -37,6 +43,7 @@ const toOrder = (row: OrderRow, items: OrderRow[], payments: OrderRow[]): Order 
       unitOfMeasure: item.unit_of_measure,
     },
     quantity: item.quantity,
+    restockedQuantity: restockedQuantities.get(item.id) ?? 0,
     unitPrice: money(item.unit_price_amount, item.currency),
     discountBps: item.item_discount_bps,
     lineSubtotal: money(item.line_subtotal_amount, item.currency),
@@ -63,6 +70,7 @@ const toOrder = (row: OrderRow, items: OrderRow[], payments: OrderRow[]): Order 
     terminalReference: payment.terminal_reference ?? undefined,
     timestamp: new Date(payment.created_at).toISOString(),
   })),
+  refundedAmount: money(refundedAmount, row.currency),
   status: row.status,
   serverCommittedAt: new Date(row.server_committed_at).toISOString(),
   createdAt: new Date(row.created_at).toISOString(),
@@ -75,8 +83,10 @@ export const createOrderReadService = (db: SqlQueryExecutor) => ({
     storeId: string,
     limit = 50,
     registerId?: string,
+    options: { from?: string; to?: string; offset?: number } = {},
   ): Promise<readonly Order[]> {
     const safeLimit = Math.min(Math.max(Math.trunc(limit), 1), 200);
+    const safeOffset = Math.min(Math.max(Math.trunc(options.offset ?? 0), 0), 100000);
     const conditions = ['o.organization_id = $1', 'o.store_id = $2'];
     const params: (string | number)[] = [organizationId, storeId];
 
@@ -84,9 +94,19 @@ export const createOrderReadService = (db: SqlQueryExecutor) => ({
       params.push(registerId.trim());
       conditions.push(`o.register_id = $${params.length}`);
     }
+    if (options.from) {
+      params.push(options.from);
+      conditions.push(`o.created_at >= $${params.length}::timestamptz`);
+    }
+    if (options.to) {
+      params.push(options.to);
+      conditions.push(`o.created_at <= $${params.length}::timestamptz`);
+    }
 
     params.push(safeLimit);
     const limitPlaceholder = `$${params.length}`;
+    params.push(safeOffset);
+    const offsetPlaceholder = `$${params.length}`;
 
     const orders = (
       await db.query<OrderRow>(
@@ -95,7 +115,7 @@ export const createOrderReadService = (db: SqlQueryExecutor) => ({
          JOIN prodx_users u ON u.id = o.cashier_id AND u.organization_id = o.organization_id
          WHERE ${conditions.join(' AND ')}
          ORDER BY o.created_at DESC, o.id DESC
-         LIMIT ${limitPlaceholder}`,
+         LIMIT ${limitPlaceholder} OFFSET ${offsetPlaceholder}`,
         params,
       )
     ).rows;
@@ -108,7 +128,7 @@ export const createOrderReadService = (db: SqlQueryExecutor) => ({
         `SELECT oi.*, p.sku, p.barcode, p.name, p.category_id, p.price_amount::text AS product_price_amount,
                 p.cost_price_amount::text, p.tax_rate_bps, p.current_stock, p.reorder_point, p.unit_of_measure
          FROM prodx_order_items oi
-         JOIN prodx_products p ON p.id = oi.product_id AND p.store_id = oi.store_id
+         JOIN prodx_products p ON p.id = oi.product_id AND p.organization_id = oi.organization_id AND p.store_id = oi.store_id
          WHERE oi.organization_id = $1 AND oi.store_id = $2 AND oi.order_id = ANY($3::uuid[])
          ORDER BY oi.order_id, oi.id`,
         [organizationId, storeId, ids],
@@ -121,7 +141,29 @@ export const createOrderReadService = (db: SqlQueryExecutor) => ({
                 card_last_four, terminal_reference, currency, created_at
          FROM prodx_payments
          WHERE organization_id = $1 AND store_id = $2 AND order_id = ANY($3::uuid[])
+           AND status IN ('captured', 'settled')
          ORDER BY order_id, created_at, id`,
+        [organizationId, storeId, ids],
+      )
+    ).rows;
+
+    const refundRows = (
+      await db.query<OrderRow>(
+        `SELECT order_id, SUM(amount)::text AS refunded_amount
+         FROM prodx_refunds
+         WHERE organization_id = $1 AND store_id = $2 AND order_id = ANY($3::uuid[])
+         GROUP BY order_id`,
+        [organizationId, storeId, ids],
+      )
+    ).rows;
+
+    const refundItemRows = (
+      await db.query<OrderRow>(
+        `SELECT ri.order_item_id, SUM(ri.quantity)::integer AS restocked_quantity
+         FROM prodx_refund_items ri
+         JOIN prodx_refunds r ON r.id = ri.refund_id AND r.organization_id = ri.organization_id AND r.store_id = ri.store_id
+         WHERE ri.organization_id = $1 AND ri.store_id = $2 AND r.order_id = ANY($3::uuid[])
+         GROUP BY ri.order_item_id`,
         [organizationId, storeId, ids],
       )
     ).rows;
@@ -133,6 +175,14 @@ export const createOrderReadService = (db: SqlQueryExecutor) => ({
       itemsByOrder.set(item.order_id, list);
     }
 
+    const refundedAmountByOrder = new Map<string, string>();
+    for (const refund of refundRows) refundedAmountByOrder.set(refund.order_id, String(refund.refunded_amount));
+
+    const restockedQuantityByItem = new Map<string, number>();
+    for (const refundItem of refundItemRows) {
+      restockedQuantityByItem.set(refundItem.order_item_id, Number(refundItem.restocked_quantity));
+    }
+
     const paymentsByOrder = new Map<string, OrderRow[]>();
     for (const payment of paymentRows) {
       const list = paymentsByOrder.get(payment.order_id) ?? [];
@@ -141,7 +191,13 @@ export const createOrderReadService = (db: SqlQueryExecutor) => ({
     }
 
     return orders.map((order) =>
-      toOrder(order, itemsByOrder.get(order.id) ?? [], paymentsByOrder.get(order.id) ?? []),
+      toOrder(
+        order,
+        itemsByOrder.get(order.id) ?? [],
+        paymentsByOrder.get(order.id) ?? [],
+        refundedAmountByOrder.get(order.id) ?? '0.00',
+        restockedQuantityByItem,
+      ),
     );
   },
 });

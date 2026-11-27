@@ -1,20 +1,17 @@
+import { resolveProductionApiBaseUrl } from './apiBaseUrl';
 import type { Category, Product, InventoryLedgerEntry, BulkImportItem, BulkImportMode, BulkImportResult } from '../domain/catalog';
 import type { ICatalogApi } from './types';
 import { createProductionInventoryAdjustmentApi } from './productionInventoryAdjustmentApi';
 
 
 const API_BASE_URL = import.meta.env.VITE_AUTH_API_BASE_URL;
-const baseUrl = () => {
-  if (!API_BASE_URL) return '';
-  return API_BASE_URL.replace(/\/$/, '');
-};
+const baseUrl = () => resolveProductionApiBaseUrl(API_BASE_URL);
 const requireToken = (token: string) => {
   return (token || '').trim();
 };
 
 async function request<T>(path: string, token: string, init?: RequestInit): Promise<T | null> {
   const host = baseUrl();
-  if (!host) return null;
   try {
     const response = await fetch(`${host}${path}`, {
       ...init,

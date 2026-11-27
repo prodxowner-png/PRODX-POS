@@ -3,6 +3,7 @@
  */
 
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
+import { startAuthentication } from '@simplewebauthn/browser';
 import {
   User,
   Store,
@@ -28,6 +29,7 @@ import {
   saveStoredCustomPermissionSets,
 } from '../domain/permissionSets';
 import { authApi } from '../adapters/authApiFactory';
+import { webauthnApi } from '../adapters/webauthnApi';
 import { validateOrgBranchTerminalBatch } from '../services/orgBranchTerminalValidator';
 import { aiService } from '../services/aiService';
 import { LoginRequest, BiometricLoginRequest } from '../adapters/types';
@@ -46,10 +48,13 @@ import {
 import {
   AUTH_SESSION_STORAGE_KEY,
   clearPersistedSession,
-  restoreVerifiedSession,
+  readPersistedSession,
   writePersistedSession,
 } from './authSessionStorage';
-import { shouldReadMock } from '../adapters/env';
+import { isDevelopmentMode } from '../adapters/env';
+import { isCurrentSessionRenewal } from './sessionRenewalGuard';
+import { startSessionRenewalController } from './sessionRenewalController';
+import { canClearRestoredSession, isCurrentSessionRestore } from './sessionRestoreGuard';
 import { createAuthDiagnosticRequest } from './authDiagnostics';
 
 export interface AddStaffPayload {
@@ -66,6 +71,7 @@ interface AuthContextType {
   operationalScope: OperationalScope | null;
   setOperationalScope: (scope: OperationalScope | null) => void;
   isLoading: boolean;
+  isInitializing: boolean;
   isLocked: boolean;
   inactivityTimeoutMinutes: number;
   autoLogoutTimeoutMinutes: number;
@@ -128,7 +134,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const STORAGE_KEY = AUTH_SESSION_STORAGE_KEY;
 const TIMEOUT_STORAGE_KEY = 'prodx_pos_inactivity_timeout';
 const CUSTOM_STORE_KEY = 'prodx_custom_store_profile';
-const IS_DEVELOPMENT = shouldReadMock();
+const IS_DEVELOPMENT = isDevelopmentMode();
 
 function applyOperationalScopeToSession(
   baseSession: SessionContext,
@@ -176,6 +182,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     getStoredOperationalScope(),
   );
   const [isLoading, setIsLoading] = useState(true);
+  const [isInitializing, setIsInitializing] = useState(true);
   const [isLocked, setIsLocked] = useState(false);
   const [staffUsers, setStaffUsers] = useState<User[]>(() =>
     IS_DEVELOPMENT ? getStoredStaffDirectory() : [],
@@ -218,6 +225,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
   const lastActivityRef = useRef(Date.now());
   const webAuthnChallengesRef = useRef<Map<string, WebAuthnChallengeRecord>>(new Map());
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
 
   /**
    * Issues a cryptographically random, single-use WebAuthn challenge with a 60-second TTL.
@@ -430,34 +439,59 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
 
   useEffect(() => {
-    async function restoreSession() {
+    const clearRestoredSessionIfCurrent = (expectedToken: string): void => {
       try {
-        const verified = await restoreVerifiedSession(
-          (token) => authApi.verifySession(token),
-          sessionStorage,
-          localStorage,
-          (err) => console.error('[AuthContext] Session restore error:', err),
-        );
-        if (!verified) {
+        const latestPersisted = readPersistedSession(sessionStorage);
+        if (!canClearRestoredSession(
+          expectedToken,
+          latestPersisted?.token,
+          sessionRef.current?.token,
+        )) return;
+        clearPersistedSession(sessionStorage);
+        localStorage.removeItem(STORAGE_KEY);
+      } catch {}
+    };
+
+    async function restoreSession() {
+      let persistedToken: string | null = null;
+      try {
+        localStorage.removeItem(STORAGE_KEY);
+        const persisted = readPersistedSession(sessionStorage);
+        if (!persisted) {
+          clearPersistedSession(sessionStorage);
           return;
         }
+        persistedToken = persisted.token;
+        const verified = await authApi.verifySession(persisted.token);
+        if (!verified) {
+          clearRestoredSessionIfCurrent(persisted.token);
+          return;
+        }
+        const latestPersisted = readPersistedSession(sessionStorage);
+        if (!isCurrentSessionRestore(
+          persisted.token,
+          latestPersisted?.token,
+          sessionRef.current?.token,
+        )) return;
         const storedScope = verified.operationalScope ?? getStoredOperationalScope();
         if (storedScope) {
           setOperationalScopeState(storedScope);
           saveStoredOperationalScope(storedScope);
         }
-        const scopedSession = applyOperationalScopeToSession(verified, storedScope);
+        const scopedSession = applyOperationalScopeToSession({
+          ...verified,
+          authProvider: verified.authProvider ?? persisted.authProvider,
+        }, storedScope);
+        sessionRef.current = scopedSession;
         setSession(scopedSession);
-        writePersistedSession(sessionStorage, scopedSession.token);
+        writePersistedSession(sessionStorage, scopedSession.token, scopedSession.authProvider);
         lastActivityRef.current = Date.now();
       } catch (err) {
         console.error('[AuthContext] Session restore error:', err);
-        try {
-          clearPersistedSession(sessionStorage);
-          localStorage.removeItem(STORAGE_KEY);
-        } catch {}
+        if (persistedToken) clearRestoredSessionIfCurrent(persistedToken);
       } finally {
         setIsLoading(false);
+        setIsInitializing(false);
       }
     }
     restoreSession();
@@ -487,7 +521,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           message: `Session auto-logged out due to ${autoLogoutTimeoutMinutes} minutes of inactivity.`,
           metadata: { userId: session.currentUser.id, autoLogoutTimeoutMinutes },
         });
-        void logout();
+        void logout(session.token);
         return;
       }
 
@@ -634,15 +668,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       );
 
       try {
-        writePersistedSession(sessionStorage, newSession.token);
+        writePersistedSession(sessionStorage, newSession.token, newSession.authProvider);
       } catch (error) {
         logTrace('ERROR_PERSIST', { error: String(error) });
-        await authApi.logout(newSession.token).catch(() => undefined);
+        await authApi.logout(newSession.token, newSession.authProvider).catch(() => undefined);
         throw error;
       }
       try {
         localStorage.removeItem(STORAGE_KEY);
       } catch {}
+      // Publish the new bearer synchronously so an older in-flight renewal
+      // cannot mistake the replacement login for its own active session.
+      sessionRef.current = newSession;
       setSession(newSession);
       setIsLocked(false);
       lastActivityRef.current = Date.now();
@@ -657,67 +694,108 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  /**
-   * Executes the full WebAuthn Biometric Challenge-Response login flow:
-   * 1. Issues a single-use cryptographic challenge in AuthContext
-   * 2. Requests fingerprint / facial recognition assertion from the authenticator
-   * 3. Verifies clientDataJSON, authenticatorData (UP/UV flags, signCount), and scope linkage
-   * 4. Establishes the authenticated POS session
-   */
+  /** Server-issued WebAuthn ceremony; the browser never verifies or fabricates credentials. */
   const loginWithBiometrics = async (
     biometricReq: BiometricLoginRequest,
   ): Promise<WebAuthnVerificationResult> => {
-    const challengeRecord = issueWebAuthnChallenge(biometricReq.targetUser);
-
-    const authResult = await authenticatePasskey(biometricReq.targetUser, challengeRecord);
-    if (!authResult.success || !authResult.credential || !authResult.assertion) {
-      throw new Error(
-        authResult.error || 'Biometric fingerprint / facial recognition verification failed.',
-      );
-    }
-
-    const verification = await verifyWebAuthnChallengeResponse(
-      authResult.assertion,
-      authResult.credential.userEmail,
-    );
-
-    if (!verification.verified || !verification.credential) {
-      throw new Error(
-        verification.error || 'WebAuthn challenge-response verification failed.',
-      );
-    }
-
-    await login({
-      organizationSlug: biometricReq.organizationSlug,
-      storeCode: biometricReq.storeCode,
-      registerId: biometricReq.registerId,
-      emailOrPin: verification.credential.userEmail,
-      passwordOrPin: `WEBAUTHN_VERIFIED:${verification.credential.id}:${verification.challengeId}`,
-      organizationContext: biometricReq.organizationContext,
-      requireAdminRole: biometricReq.requireAdminRole,
-      biometricVerified: true,
-    });
-
-    return verification;
-  };
-
-  const logout = async () => {
-    const token = session?.token;
     setIsLoading(true);
     try {
-      if (token) await authApi.logout(token);
-    } catch (error) {
-      console.error('[AuthContext] Server logout failed; local session was cleared.', error);
-    } finally {
-      setSession(null);
-      setIsLocked(false);
+      if (IS_DEVELOPMENT) {
+        throw new Error('Passkey sign-in is available only through the configured production authentication server.');
+      }
+      const username = biometricReq.username?.trim();
+      if (!username) throw new Error('Enter your account username before using a passkey.');
+      const status = await webauthnApi.status();
+      if (!status.enabled) throw new Error(status.error || 'Server-side passkey authentication is not configured.');
+      const scope = biometricReq.organizationContext ?? operationalScope ?? undefined;
+      const optionsResponse = await webauthnApi.loginOptions({
+        organizationSlug: scope?.organizationSlug || biometricReq.organizationSlug,
+        storeCode: scope?.branchCode || scope?.branchName || biometricReq.storeCode,
+        registerId: scope?.terminalCode || biometricReq.registerId,
+        username,
+        requireAdminRole: biometricReq.requireAdminRole,
+      });
+      const assertion = await startAuthentication({ optionsJSON: optionsResponse.options });
+      const issued = await webauthnApi.verifyLogin(optionsResponse.challengeId, assertion);
+      const rawSession = await authApi.verifySession(issued.token);
+      if (!rawSession) {
+        await authApi.logout(issued.token).catch(() => undefined);
+        throw new Error('Passkey was verified but the issued POS session could not be validated.');
+      }
+      if (scope) {
+        setOperationalScopeState(scope);
+        saveStoredOperationalScope(scope);
+      }
+      const newSession = applyOperationalScopeToSession(rawSession, scope ?? rawSession.operationalScope ?? null);
       try {
-        clearPersistedSession(sessionStorage);
-        localStorage.removeItem(STORAGE_KEY);
-      } catch {}
+        writePersistedSession(sessionStorage, newSession.token);
+      } catch (error) {
+        await authApi.logout(newSession.token).catch(() => undefined);
+        throw error;
+      }
+      try { localStorage.removeItem(STORAGE_KEY); } catch {}
+      setSession(newSession);
+      setIsLocked(false);
+      lastActivityRef.current = Date.now();
+      return {
+        verified: true,
+        challengeId: optionsResponse.challengeId,
+        userPresent: true,
+        userVerified: true,
+        origin: typeof window !== 'undefined' ? window.location.origin : undefined,
+        rpId: status.rpId ?? undefined,
+        authMethod: 'passkey',
+      };
+    } finally {
       setIsLoading(false);
     }
   };
+
+  const logout = async (expectedToken?: string) => {
+    const token = session?.token;
+    if (expectedToken && !isCurrentSessionRenewal(false, sessionRef.current?.token, expectedToken)) return;
+    setIsLoading(true);
+    try {
+      if (token && (!expectedToken || token === expectedToken)) await authApi.logout(token, session?.authProvider);
+    } catch (error) {
+      console.error('[AuthContext] Server logout failed; local session was cleared.', error);
+    } finally {
+      // A renewal response for an older bearer must never clear a newer login.
+      if (!expectedToken || isCurrentSessionRenewal(false, sessionRef.current?.token, expectedToken)) {
+        sessionRef.current = null;
+        setSession(null);
+        setIsLocked(false);
+        try {
+          clearPersistedSession(sessionStorage);
+          localStorage.removeItem(STORAGE_KEY);
+        } catch {}
+      }
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!session || IS_DEVELOPMENT) return;
+
+    return startSessionRenewalController({
+      token: session.token,
+      expiresAt: session.expiresAt,
+      getActiveToken: () => sessionRef.current?.token,
+      renew: (token) => authApi.renewSession(token, session.authProvider),
+      onRenewed: (renewed) => {
+        setSession((current) => current?.token === session.token
+          ? applyOperationalScopeToSession({
+              ...renewed,
+              authProvider: renewed.authProvider ?? current.authProvider,
+            }, current.operationalScope ?? null)
+          : current);
+      },
+      logout: (token) => logout(token),
+      onTransientError: (failure) => {
+        console.warn('[AuthContext] POS session renewal failed; retrying while the current session remains valid.', failure);
+      },
+    });
+  }, [session?.token, session?.expiresAt]);
 
   const switchStore = (store: Store) => {
     if (!IS_DEVELOPMENT || !session) return;
@@ -796,23 +874,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         replacement.currentStore.id !== previousSession.currentStore.id ||
         replacement.registerId !== previousSession.registerId
       ) {
-        await authApi.logout(replacement.token).catch(() => undefined);
+        await authApi.logout(replacement.token, replacement.authProvider).catch(() => undefined);
         return false;
       }
       try {
         await authApi.logout(previousSession.token);
       } catch {
-        await authApi.logout(replacement.token).catch(() => undefined);
+        await authApi.logout(replacement.token, replacement.authProvider).catch(() => undefined);
         return false;
       }
       const scopedReplacement = applyOperationalScopeToSession(replacement, activeScope ?? null);
-      writePersistedSession(sessionStorage, scopedReplacement.token);
+      writePersistedSession(sessionStorage, scopedReplacement.token, scopedReplacement.authProvider);
+      sessionRef.current = scopedReplacement;
       setSession(scopedReplacement);
       setIsLocked(false);
       lastActivityRef.current = Date.now();
       return true;
     } catch {
-      if (replacement) await authApi.logout(replacement.token).catch(() => undefined);
+      if (replacement) await authApi.logout(replacement.token, replacement.authProvider).catch(() => undefined);
       return false;
     }
   };
@@ -976,7 +1055,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
     const updatedSession = { ...session, currentUser: updatedUser };
     setSession(updatedSession);
-    writePersistedSession(sessionStorage, updatedSession.token);
+    writePersistedSession(sessionStorage, updatedSession.token, updatedSession.authProvider);
   };
 
   const updateRolePermissions = (role: Role, perms: Permission[]) => {
@@ -990,7 +1069,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         currentUser: { ...session.currentUser, permissions: perms },
       };
       setSession(updatedSession);
-      writePersistedSession(sessionStorage, updatedSession.token);
+      writePersistedSession(sessionStorage, updatedSession.token, updatedSession.authProvider);
     }
   };
 
@@ -1009,7 +1088,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         currentUser: { ...session.currentUser, permissions: defaults[session.currentUser.role] },
       };
       setSession(updatedSession);
-      writePersistedSession(sessionStorage, updatedSession.token);
+      writePersistedSession(sessionStorage, updatedSession.token, updatedSession.authProvider);
     }
   };
 
@@ -1098,6 +1177,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         operationalScope,
         setOperationalScope,
         isLoading,
+        isInitializing,
         isLocked,
         inactivityTimeoutMinutes,
         autoLogoutTimeoutMinutes,
@@ -1155,6 +1235,7 @@ export function useAuth(): AuthContextType {
     operationalScope: null,
     setOperationalScope: () => {},
     isLoading: false,
+    isInitializing: false,
     isLocked: false,
     inactivityTimeoutMinutes: 15,
     autoLogoutTimeoutMinutes: 30,

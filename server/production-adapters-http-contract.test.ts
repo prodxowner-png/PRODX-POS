@@ -177,3 +177,23 @@ test('production audit, order-read, and inventory-adjustment adapters fail close
   assert.equal(calls.length, 0);
 });
 
+
+
+test('production order read adapter requests store-wide bounded pages without client-supplied register or store scope', async () => {
+  const calls = mockFetch([]);
+  await createProductionOrderReadApi('token-orders', BASE_URL).getOrders('store-client-hint', 200, undefined, {
+    from: '2026-10-01T00:00:00.000Z',
+    to: '2026-11-20T23:59:59.999Z',
+    offset: 400,
+  });
+  assert.equal(calls.length, 1);
+  const url = new URL(calls[0].url);
+  assert.equal(url.pathname, '/api/v1/orders');
+  assert.equal(url.searchParams.get('limit'), '200');
+  assert.equal(url.searchParams.get('offset'), '400');
+  assert.equal(url.searchParams.get('from'), '2026-10-01T00:00:00.000Z');
+  assert.equal(url.searchParams.get('to'), '2026-11-20T23:59:59.999Z');
+  assert.equal(url.searchParams.has('storeId'), false);
+  assert.equal(url.searchParams.has('registerId'), false);
+  assert.equal((calls[0].init?.headers as Record<string, string>).Authorization, 'Bearer token-orders');
+});

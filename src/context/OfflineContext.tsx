@@ -6,7 +6,7 @@
  * 'pending_sync_offline' status until authoritative server confirmation is received.
  */
 
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { OutboxItem } from '../domain/sync';
 import { normalizeOutboxForRecovery } from '../domain/sync-recovery';
 import {
@@ -60,6 +60,8 @@ interface OfflineContextType {
   isOnline: boolean;
   isSimulatedOffline: boolean;
   outbox: OutboxItem[];
+  isOutboxReady: boolean;
+  hasUnresolvedOutbox: boolean;
   pendingCount: number;
   syncedCount: number;
   failedCount: number;
@@ -110,7 +112,7 @@ export function computeLatencyQuality(ms: number | null, isOnline: boolean): Syn
 export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { addToast } = useToast();
   const { session } = useAuth();
-  const syncApi = createSyncApi(session?.token ?? '');
+  const syncApi = useMemo(() => createSyncApi(session?.token ?? ''), [session?.token]);
   const { language } = useLanguage();
   const [browserOnline, setBrowserOnline] = useState<boolean>(
     typeof navigator !== 'undefined' ? navigator.onLine : true
@@ -125,13 +127,15 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   });
   const [outbox, setOutbox] = useState<OutboxItem[]>([]);
+  const [isOutboxReady, setIsOutboxReady] = useState(false);
   const outboxReadyRef = useRef<Promise<void> | null>(null);
   const ensureOutboxReady = useCallback((): Promise<void> => {
     if (!outboxReadyRef.current) {
-      outboxReadyRef.current = (async () => {
+      const initialization = (async () => {
         const stored = normalizeOutboxForRecovery(await loadOutboxItems());
         if (stored.length > 0) {
           setOutbox(sortOutboxFifo(stored));
+          setIsOutboxReady(true);
           return;
         }
 
@@ -151,7 +155,14 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
         } else {
           setOutbox([]);
         }
+        setIsOutboxReady(true);
       })();
+
+      outboxReadyRef.current = initialization.catch((error) => {
+        // Keep the update gate closed and permit a later operation to retry initialization.
+        outboxReadyRef.current = null;
+        throw error;
+      });
     }
     return outboxReadyRef.current;
   }, []);
@@ -275,7 +286,7 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setIsMeasuringLatency(false);
       return null;
     }
-  }, [isEffectiveOnline, recordLatency]);
+  }, [isEffectiveOnline, recordLatency, syncApi]);
 
   // Periodic real-time background sync cycle (cloud database round-trip heartbeat)
   useEffect(() => {
@@ -555,7 +566,7 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (lastSuccessfulSyncAt) {
       updateLastSynced(lastSuccessfulSyncAt);
     }
-  }, [ensureOutboxReady, isEffectiveOnline, isSyncing, outbox, recordLatency, recordSyncActivity]);
+  }, [ensureOutboxReady, isEffectiveOnline, isSyncing, outbox, recordLatency, recordSyncActivity, syncApi]);
 
   // Auto-trigger sync when transitioning to online
   useEffect(() => {
@@ -574,6 +585,7 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
     void clearOutboxItems().then(() => setOutbox([]));
   };
 
+  const hasUnresolvedOutbox = outbox.some((item) => item.syncState !== 'synced');
   const pendingCount = outbox.filter((i) => i.syncState === 'queued' || i.syncState === 'failed').length;
   const syncedCount = outbox.filter((i) => i.syncState === 'synced').length;
   const failedCount = outbox.filter(
@@ -722,6 +734,8 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
         isOnline: isEffectiveOnline,
         isSimulatedOffline,
         outbox,
+        isOutboxReady,
+        hasUnresolvedOutbox,
         pendingCount,
         syncedCount,
         failedCount,

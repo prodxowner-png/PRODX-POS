@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'path';
 import { createProductionApp } from './server/entrypoint.ts';
 import { privateBuildArtifactGuard } from './server/http/private-build-artifact-guard.ts';
+import { logger, safeErrorDiagnostic } from './server/observability/logger.ts';
+import { installGracefulShutdown } from './server/observability/shutdown.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -13,7 +15,7 @@ async function startServer() {
   const port = Number.parseInt(process.env.PORT ?? '3000', 10);
 
   // Create the production Express app (the backend)
-  const { app: backendApp } = await createProductionApp();
+  const { app: backendApp, pool } = await createProductionApp();
 
   const app = express();
 
@@ -67,23 +69,25 @@ async function startServer() {
   }
 
   const server = app.listen(port, '0.0.0.0', () => {
-    console.log(`PRODX POS (Full-Stack) running at http://0.0.0.0:${port}`);
+    logger.info('server.started', { host: '0.0.0.0', port, mode: isProd ? 'production' : 'development' });
   });
+
+  installGracefulShutdown({ server, pool });
 
   server.on('error', (err: any) => {
     if (err.code === 'EADDRINUSE') {
-      console.warn(`Port ${port} is busy (EADDRINUSE). Retrying connection in 1 second...`);
+      logger.warn('server.port_in_use_retrying', { port, code: 'EADDRINUSE' });
       setTimeout(() => {
         server.close();
         server.listen(port, '0.0.0.0');
       }, 1000);
     } else {
-      console.error('Server error:', err);
+      logger.error('server.error', safeErrorDiagnostic(err));
     }
   });
 }
 
 startServer().catch((err) => {
-  console.error('Failed to start server:', err);
+  logger.error('server.startup_failed', safeErrorDiagnostic(err));
   process.exit(1);
 });

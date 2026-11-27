@@ -884,6 +884,10 @@ export class MockAuthApi implements IAuthApi {
     console.info(`${LOG_PREFIX} User logged out`);
   }
 
+  async renewSession(): Promise<SessionContext | null> {
+    return null;
+  }
+
   async verifySession(token: string): Promise<SessionContext | null> {
     await delay(30);
     if (!token) return null;
@@ -1620,11 +1624,20 @@ export class MockOrderApi implements IOrderApi {
     return response;
   }
 
-  async getOrders(storeId: string, limit = 50, registerId?: string): Promise<readonly Order[]> {
+  async getOrders(storeId: string, limit = 50, registerId?: string, options: { from?: string; to?: string; offset?: number } = {}): Promise<readonly Order[]> {
     await delay(50);
+    const from = options.from ? Date.parse(options.from) : Number.NEGATIVE_INFINITY;
+    const to = options.to ? Date.parse(options.to) : Number.POSITIVE_INFINITY;
     return mockState.orders
-      .filter((o) => o.storeId === storeId && (!registerId || o.registerId === registerId))
-      .slice(0, limit);
+      .filter((o) => {
+        const createdAt = Date.parse(o.createdAt);
+        return o.storeId === storeId
+          && (!registerId || o.registerId === registerId)
+          && createdAt >= from
+          && createdAt <= to;
+      })
+      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
+      .slice(options.offset ?? 0, (options.offset ?? 0) + limit);
   }
 
   async getOrderById(storeId: string, orderId: string): Promise<Order | null> {

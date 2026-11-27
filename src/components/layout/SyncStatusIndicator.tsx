@@ -188,7 +188,7 @@ export const SyncStatusIndicator: React.FC<SyncStatusIndicatorProps> = ({
         {pendingCount > 0 && (
           <span
             id="sync-status-pending-pill"
-            className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono font-bold leading-none ${
+            className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono tabular-nums font-bold leading-none ${
               syncState === 'offline'
                 ? 'bg-amber-500/20 text-amber-800 dark:text-amber-200 border border-amber-500/30'
                 : syncState === 'syncing'
@@ -202,7 +202,7 @@ export const SyncStatusIndicator: React.FC<SyncStatusIndicatorProps> = ({
         )}
 
         <ChevronDown
-          className={`h-3 w-3 text-text/40 transition-transform duration-150 shrink-0 ${
+          className={`h-3 w-3 text-brand-text-secondary transition-transform duration-150 shrink-0 ${
             isOpen ? 'rotate-180' : ''
           }`}
         />
@@ -240,7 +240,7 @@ export const SyncStatusIndicator: React.FC<SyncStatusIndicatorProps> = ({
                 <div className="text-xs font-bold text-text flex items-center gap-1.5">
                   <span>{language === 'th' ? 'สถานะการซิงก์ข้อมูล Outbox' : 'Offline-First Sync Status'}</span>
                 </div>
-                <div className="text-[10px] text-text/50 font-mono">
+                <div className="text-[10px] text-brand-text-secondary font-mono tabular-nums">
                   PRODX Local Resilience Engine
                 </div>
               </div>
@@ -250,7 +250,7 @@ export const SyncStatusIndicator: React.FC<SyncStatusIndicatorProps> = ({
               type="button"
               id="sync-status-popover-close-btn"
               onClick={() => setIsOpen(false)}
-              className="p-1 rounded-lg text-text/50 hover:text-text hover:bg-background cursor-pointer transition-colors"
+              className="p-1 rounded-lg text-brand-text-secondary hover:text-text hover:bg-background cursor-pointer transition-colors"
               aria-label="Close dialog"
             >
               <X className="h-4 w-4" />
@@ -310,7 +310,7 @@ export const SyncStatusIndicator: React.FC<SyncStatusIndicatorProps> = ({
               <div className="text-[10px] font-semibold text-text/60 uppercase">
                 {language === 'th' ? 'รอซิงก์' : 'Queued'}
               </div>
-              <div className={`text-sm sm:text-base font-black font-mono mt-0.5 ${pendingCount > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-text/80'}`}>
+              <div className={`text-sm sm:text-base font-black font-mono tabular-nums mt-0.5 ${pendingCount > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-text/80'}`}>
                 {pendingCount}
               </div>
             </div>
@@ -319,7 +319,7 @@ export const SyncStatusIndicator: React.FC<SyncStatusIndicatorProps> = ({
               <div className="text-[10px] font-semibold text-text/60 uppercase">
                 {language === 'th' ? 'ซิงก์สำเร็จ' : 'Synced'}
               </div>
-              <div className="text-sm sm:text-base font-black font-mono mt-0.5 text-emerald-600 dark:text-emerald-400">
+              <div className="text-sm sm:text-base font-black font-mono tabular-nums mt-0.5 text-emerald-600 dark:text-emerald-400">
                 {syncedCount}
               </div>
             </div>
@@ -328,7 +328,7 @@ export const SyncStatusIndicator: React.FC<SyncStatusIndicatorProps> = ({
               <div className="text-[10px] font-semibold text-text/60 uppercase">
                 {language === 'th' ? 'ซิงก์ล่าสุด' : 'Last Sync'}
               </div>
-              <div className="text-xs font-bold font-mono mt-1 text-text/80 truncate" title={formatTime(lastSyncedAt)}>
+              <div className="text-xs font-bold font-mono tabular-nums mt-1 text-text/80 truncate" title={formatTime(lastSyncedAt)}>
                 {formatTime(lastSyncedAt)}
               </div>
             </div>
@@ -338,7 +338,7 @@ export const SyncStatusIndicator: React.FC<SyncStatusIndicatorProps> = ({
           <div className="mt-3">
             <div className="flex items-center justify-between mb-1.5">
               <span className="text-[11px] font-bold text-text/70 uppercase tracking-wide flex items-center gap-1">
-                <Layers className="h-3.5 w-3.5 text-text/40" />
+                <Layers className="h-3.5 w-3.5 text-brand-text-secondary" />
                 <span>{language === 'th' ? 'รายการใน Outbox' : 'Recent Outbox Queue'}</span>
               </span>
               {syncedCount > 0 && (
@@ -355,7 +355,7 @@ export const SyncStatusIndicator: React.FC<SyncStatusIndicatorProps> = ({
 
             <div className="max-h-36 overflow-y-auto space-y-1.5 pr-0.5 text-xs">
               {outbox.length === 0 ? (
-                <div className="py-3 text-center rounded-xl bg-background/40 border border-dashed border-border text-text/50 text-[11px]">
+                <div className="py-3 text-center rounded-xl bg-background/40 border border-dashed border-border text-brand-text-secondary text-[11px]">
                   {language === 'th' ? 'ไม่มีรายการค้างใน Outbox' : 'Outbox is clear. All transactions synced.'}
                 </div>
               ) : (
@@ -368,7 +368,7 @@ export const SyncStatusIndicator: React.FC<SyncStatusIndicatorProps> = ({
                       <div className="font-semibold text-text text-[11px] truncate">
                         {getTaskTypeLabel(item.type)}
                       </div>
-                      <div className="text-[10px] text-text/50 font-mono truncate">
+                      <div className="text-[10px] text-brand-text-secondary font-mono tabular-nums truncate">
                         {item.idempotencyKey.slice(0, 14)}... · {formatTime(item.createdAt)}
                       </div>
                     </div>
@@ -426,7 +426,7 @@ export const SyncStatusIndicator: React.FC<SyncStatusIndicatorProps> = ({
               setIsOpen(false);
               openSyncActivity();
             }}
-            className="w-full mt-2.5 py-2 px-3 rounded-xl bg-primary text-white text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer active:scale-95"
+            className="w-full mt-2.5 py-2 px-3 rounded-xl bg-primary text-primary-foreground text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer active:scale-95"
           >
             <CloudUpload className="w-3.5 h-3.5" />
             <span>{language === 'th' ? 'เปิด Sync Activity Panel (ประวัติการซิงก์)' : 'Open Sync Activity Panel (Full Log)'}</span>

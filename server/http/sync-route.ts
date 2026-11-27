@@ -67,7 +67,7 @@ export const registerSyncRoute = (
   const shiftService = createShiftService(db);
   const inventoryAdjustment = createInventoryAdjustmentService(db);
 
-  app.post('/api/v1/sync/commands', async (request: Request, response: Response) => {
+  app.post('/api/v1/sync/commands', async (request: Request, response: Response, next) => {
     try {
       const context = request.prodxContext;
       if (!context) {
@@ -289,7 +289,7 @@ export const registerSyncRoute = (
         response.status(409).json({ error: { code: error.code, message: error.message, requestId: request.id } });
         return;
       }
-      throw error;
+      next(error);
     }
   });
 };

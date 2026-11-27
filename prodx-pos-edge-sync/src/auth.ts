@@ -62,12 +62,14 @@ export async function verifyTerminalCertificate(request: Request, env: Env, auth
     await client.query("BEGIN");
     await client.query("SELECT set_config('app.current_tenant_id',$1,true)", [auth.tenantId]);
     const mapped = await client.query<{
-      last_committed_seq_no:string;last_hlc_physical_ms:string;last_hlc_logical:number;
+      last_committed_seq_no:string;last_hlc_physical_ms:string;last_hlc_logical:number;store_id:string;
     }>(
-      `SELECT COALESCE(s.last_committed_seq_no,0)::text AS last_committed_seq_no,
+      `SELECT d.store_id::text AS store_id,
+              COALESCE(s.last_committed_seq_no,0)::text AS last_committed_seq_no,
               COALESCE(s.last_hlc_physical_ms,0)::text AS last_hlc_physical_ms,
               COALESCE(s.last_hlc_logical,0) AS last_hlc_logical
          FROM terminal_devices d
+         JOIN pos_stores st ON st.tenant_id=d.tenant_id AND st.id=d.store_id AND st.active=true
          LEFT JOIN terminal_sync_state s ON s.tenant_id=d.tenant_id AND s.terminal_id=d.terminal_id
         WHERE d.tenant_id=$1 AND d.terminal_id=$2 AND d.cert_fingerprint_sha256=$3::char(64)
           AND d.active=true AND d.revoked_at IS NULL AND d.not_before<=now()
@@ -78,6 +80,7 @@ export async function verifyTerminalCertificate(request: Request, env: Env, auth
     if (mapped.rowCount !== 1) throw new Response("mTLS certificate is not enrolled for this tenant/terminal", { status: 403 });
     await client.query("COMMIT");
     return {
+      store_id:mapped.rows[0]!.store_id,
       last_committed_seq_no:Number(mapped.rows[0]!.last_committed_seq_no),
       last_hlc_physical_ms:Number(mapped.rows[0]!.last_hlc_physical_ms),
       last_hlc_logical:mapped.rows[0]!.last_hlc_logical
