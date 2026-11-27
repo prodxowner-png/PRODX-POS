@@ -52,6 +52,7 @@ import { RbacGuard } from './components/auth/RbacGuard';
 import { FrontendAssistant } from './components/ai/FrontendAssistant';
 import { useShift } from './context/ShiftContext';
 import { StartShiftModal } from './components/shift/StartShiftModal';
+import { PwaUpdateGate, StandalonePwaUpdateGate } from './components/pwa/PwaUpdateGate';
 
 const TaskManagementScreen = React.lazy(() => import('./modules/tasks/TaskManagementScreen'));
 
@@ -74,7 +75,7 @@ const checkIsDedicatedAdminLoginPath = () => {
 };
 
 const MainApplication: React.FC = () => {
-  const { session } = useAuth();
+  const { session, isInitializing } = useAuth();
   const { currentShift, isLoading: isShiftLoading } = useShift();
   const [isStartShiftModalOpen, setIsStartShiftModalOpen] = useState(false);
   const autoShiftPromptKeyRef = React.useRef<string | null>(null);
@@ -135,7 +136,7 @@ const MainApplication: React.FC = () => {
 
   // Register operational keyboard shortcuts (F1 = POS, F2 = Dashboard, F9 = Shortcuts Overlay, etc.)
   useEffect(() => {
-    if (isAdminMode) return;
+    if (isAdminMode || isAdminLoginRoute) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       // Allow F9 to toggle the shortcuts overlay from anywhere
       if (e.key === 'F9') {
@@ -200,7 +201,7 @@ const MainApplication: React.FC = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isAdminMode, session]);
+  }, [isAdminMode, isAdminLoginRoute, session]);
 
   const enterAdminConsole = (section: AdminConsoleSection = 'overview') => {
     if (typeof window !== 'undefined') {
@@ -211,12 +212,26 @@ const MainApplication: React.FC = () => {
     setIsAdminMode(true);
   };
 
+  if (isInitializing && (isAdminMode || isAdminLoginRoute)) {
+    return <AdminConsoleSkeleton />;
+  }
+
   if (isAdminMode || isAdminLoginRoute) {
     // If explicitly on /admin/login and not authenticated as admin yet, show the dedicated AdminLoginScreen
     if (isAdminLoginRoute && (!session || session.currentUser.role !== 'admin')) {
       return (
         <ErrorBoundary moduleName="Administrator Login">
-          <React.Suspense fallback={<div className="min-h-screen bg-slate-950 flex items-center justify-center"><Loader2 className="animate-spin text-primary h-8 w-8" /></div>}>
+          <React.Suspense
+            fallback={
+              <div
+                role="status"
+                aria-label="Loading administrator login"
+                className="min-h-[100svh] bg-brand-bg flex items-center justify-center"
+              >
+                <Loader2 className="animate-spin text-primary h-8 w-8" />
+              </div>
+            }
+          >
             <AdminLoginScreen
               onBackToPos={exitAdminMode}
               onLoginSuccess={() => {
@@ -243,6 +258,7 @@ const MainApplication: React.FC = () => {
               requiredPermissions={['org:manage', 'settings:manage']}
               hideMode="denied-card"
               onRedirectToPos={exitAdminMode}
+              onNavigateToAdminLogin={enterAdminLogin}
             >
               {adminSection === 'rbac' ? (
                 <SettingsScreen />
@@ -288,7 +304,7 @@ const MainApplication: React.FC = () => {
       >
         {currentRoute === 'pos' && (
           <ErrorBoundary moduleName="POS Cash Register & Checkout">
-            <React.Suspense fallback={<div className="flex-1 flex items-center justify-center bg-slate-950/50"><Loader2 className="animate-spin text-primary h-10 w-10" /></div>}>
+            <React.Suspense fallback={<div className="flex-1 flex items-center justify-center bg-brand-bg/50"><Loader2 className="animate-spin text-primary h-10 w-10" /></div>}>
               <PosScreen />
             </React.Suspense>
           </ErrorBoundary>
@@ -476,53 +492,56 @@ export default function App() {
 
   if (isKdsMode) {
     return (
-      <GlobalErrorRecoveryProvider>
-        <ErrorBoundary isGlobal moduleName="PRODX Kitchen Display System (KDS)">
+      <ErrorBoundary isGlobal moduleName="PRODX Kitchen Display System (KDS)">
+        <GlobalErrorRecoveryProvider>
           <AuthProvider>
             <ThemeProvider>
               <LanguageProvider>
-                <React.Suspense fallback={<div className="min-h-screen bg-slate-950 flex items-center justify-center"><Loader2 className="animate-spin text-primary h-12 w-12" /></div>}>
+                <StandalonePwaUpdateGate />
+                <React.Suspense fallback={<div className="min-h-screen bg-brand-bg flex items-center justify-center"><Loader2 className="animate-spin text-primary h-12 w-12" /></div>}>
                   <KitchenDisplayScreen />
                 </React.Suspense>
               </LanguageProvider>
             </ThemeProvider>
           </AuthProvider>
-        </ErrorBoundary>
-      </GlobalErrorRecoveryProvider>
+        </GlobalErrorRecoveryProvider>
+      </ErrorBoundary>
     );
   }
 
   if (isReceiptValidationMode) {
     return (
-      <GlobalErrorRecoveryProvider>
-        <ErrorBoundary isGlobal moduleName="PRODX Receipt Validation Portal">
+      <ErrorBoundary isGlobal moduleName="PRODX Receipt Validation Portal">
+        <GlobalErrorRecoveryProvider>
           <ThemeProvider>
             <LanguageProvider>
+              <StandalonePwaUpdateGate />
               <ReceiptValidationPortal />
             </LanguageProvider>
           </ThemeProvider>
-        </ErrorBoundary>
-      </GlobalErrorRecoveryProvider>
+        </GlobalErrorRecoveryProvider>
+      </ErrorBoundary>
     );
   }
 
   if (isCustomerDisplayMode) {
     return (
-      <GlobalErrorRecoveryProvider>
-        <ErrorBoundary isGlobal moduleName="PRODX Customer-Facing Display">
+      <ErrorBoundary isGlobal moduleName="PRODX Customer-Facing Display">
+        <GlobalErrorRecoveryProvider>
           <ThemeProvider>
             <LanguageProvider>
+              <StandalonePwaUpdateGate />
               <CustomerDisplayView />
             </LanguageProvider>
           </ThemeProvider>
-        </ErrorBoundary>
-      </GlobalErrorRecoveryProvider>
+        </GlobalErrorRecoveryProvider>
+      </ErrorBoundary>
     );
   }
 
   return (
-    <GlobalErrorRecoveryProvider>
-      <ErrorBoundary isGlobal moduleName="PRODX POS Core Engine">
+    <ErrorBoundary isGlobal moduleName="PRODX POS Core Engine">
+      <GlobalErrorRecoveryProvider>
         <SettingsProvider>
           <ThemeProvider>
             <LanguageProvider>
@@ -533,6 +552,7 @@ export default function App() {
                       <OfflineProvider>
                         <ShiftProvider>
                           <CartProvider>
+                            <PwaUpdateGate />
                             <ReceiptPrinterProvider>
                               <VisualInspectorProvider>
                                 <BreadcrumbProvider>
@@ -552,8 +572,8 @@ export default function App() {
             </LanguageProvider>
           </ThemeProvider>
         </SettingsProvider>
-      </ErrorBoundary>
-    </GlobalErrorRecoveryProvider>
+      </GlobalErrorRecoveryProvider>
+    </ErrorBoundary>
   );
 }
 

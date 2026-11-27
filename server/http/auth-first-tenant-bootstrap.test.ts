@@ -70,6 +70,7 @@ test('first-tenant bootstrap HTTP boundary requires operator secret and allowlis
       assert.equal(input.deviceId, ids.deviceId);
       return { token: 'pos-session-token', sessionId: 'session-id', expiresAt: new Date(Date.now() + 60_000) };
     },
+    async renewSupabaseSession() { return null; },
     async authenticateBearer(token) {
       assert.equal(token, 'pos-session-token');
       return {

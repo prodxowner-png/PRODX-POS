@@ -21,14 +21,14 @@ export const KeyboardFocusToggle: React.FC = () => {
     <Card className="border border-border/80 shadow-sm rounded-lg overflow-hidden">
       <CardHeader className="bg-card/50 border-b border-border/60 py-3.5 px-5">
         <div className="flex items-center gap-2.5">
-          <div className="p-1.5 rounded-md bg-indigo-500/10 text-indigo-500 shrink-0">
+          <div className="p-1.5 rounded-md bg-brand-surface-selected text-brand-text-accent shrink-0">
             <Keyboard className="h-4 w-4" />
           </div>
           <div>
             <h3 className="text-sm font-bold text-text">
               {language === 'th' ? 'การป้อนข้อมูลและแป้นพิมพ์ (Input Devices)' : 'Input Devices & Keyboard'}
             </h3>
-            <p className="text-[11px] text-text/50">
+            <p className="text-[11px] text-brand-text-secondary">
               {language === 'th' ? 'ตั้งค่าการทำงานร่วมกับแป้นพิมพ์ภายนอกและตัวสแกน' : 'Configure keyboard interaction and hardware wedge support.'}
             </p>
           </div>

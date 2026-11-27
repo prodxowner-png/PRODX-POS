@@ -30,6 +30,7 @@ export interface ErrorBoundaryProps {
 interface ErrorBoundaryState {
   hasError: boolean;
   error: Error | null;
+  errorName?: string;
   errorInfo: React.ErrorInfo | null;
   showDetails: boolean;
   copied: boolean;
@@ -41,6 +42,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
     this.state = {
       hasError: false,
       error: null,
+      errorName: undefined,
       errorInfo: null,
       showDetails: false,
       copied: false,
@@ -48,48 +50,65 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
   }
 
   public static getDerivedStateFromError(error: Error): Partial<ErrorBoundaryState> {
+    const candidateErrorName = error && typeof error.name === 'string' ? error.name : '';
+    const errorName = /^[A-Za-z][A-Za-z0-9_]{0,79}$/.test(candidateErrorName)
+      ? candidateErrorName
+      : 'RenderError';
     return {
       hasError: true,
       error,
+      errorName,
     };
   }
 
   public override componentDidCatch(error: Error, errorInfo: React.ErrorInfo): void {
-    this.setState({ errorInfo });
+    // Persist and forward only bounded, non-sensitive metadata. Raw exception
+    // messages/stacks can contain bearer tokens, SQL, URLs, or customer data.
+    const candidateErrorName = typeof error.name === 'string' ? error.name : '';
+    const errorName = /^[A-Za-z][A-Za-z0-9_]{0,79}$/.test(candidateErrorName)
+      ? candidateErrorName
+      : 'Error';
+    const componentStack = typeof errorInfo.componentStack === 'string'
+      ? errorInfo.componentStack.slice(0, 8000)
+      : '';
+    this.setState({ errorName, errorInfo: { componentStack } });
 
-    // 1. Fire optional external logging callback
+    // Optional consumers receive a sanitized exception, never the raw object.
     if (this.props.onError) {
-      this.props.onError(error, errorInfo);
+      const safeError = new Error('An unexpected application rendering error occurred.');
+      safeError.name = errorName;
+      safeError.stack = undefined;
+      this.props.onError(safeError, { componentStack });
     }
 
-    // 2. Persist diagnostic crash event to localStorage for terminal audits
+    // Raw exception messages and stacks are never persisted or logged.
+    const safeUrl = typeof window !== 'undefined'
+      ? `${window.location.origin}${window.location.pathname}`
+      : 'unknown';
+
     try {
       const crashLog = {
         id: `crash_${Date.now()}`,
         timestamp: new Date().toISOString(),
         moduleName: this.props.moduleName || 'Global Root',
-        message: error.message,
-        stack: error.stack,
-        componentStack: errorInfo.componentStack,
-        url: window.location.href,
-        userAgent: navigator.userAgent,
+        errorName,
+        componentStack,
+        url: safeUrl,
+        userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown',
       };
-
       const existing = localStorage.getItem('prodx_crash_logs');
       const logs = existing ? JSON.parse(existing) : [];
       logs.unshift(crashLog);
-      // Keep last 20 crash logs
       localStorage.setItem('prodx_crash_logs', JSON.stringify(logs.slice(0, 20)));
     } catch {
-      // Ignore storage errors during crash recovery
+      // Ignore storage errors during crash recovery.
     }
 
-    // 3. Output structured error to developer console
-    console.error(
-      `[PRODX ErrorBoundary Caught in ${this.props.moduleName || 'Global'}]`,
-      error,
-      errorInfo
-    );
+    // Never write raw exception objects/messages to the production console.
+    console.error(`[PRODX ErrorBoundary Caught in ${this.props.moduleName || 'Global'}]`, {
+      errorName,
+      componentStack,
+    });
   }
 
   public resetBoundary = (): void => {
@@ -99,6 +118,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
     this.setState({
       hasError: false,
       error: null,
+      errorName: undefined,
       errorInfo: null,
       showDetails: false,
       copied: false,
@@ -109,19 +129,19 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
     const { error, errorInfo } = this.state;
     const { moduleName } = this.props;
 
+    const safeUrl = typeof window !== 'undefined'
+      ? `${window.location.origin}${window.location.pathname}`
+      : 'unknown';
     const report = `[PRODX POS Error Diagnostic Report]
 Time: ${new Date().toLocaleString()}
 Module: ${moduleName || 'Global Application'}
-Error: ${error?.name || 'Error'}: ${error?.message || 'Unknown error'}
-
-Stack Trace:
-${error?.stack || 'No stack trace available'}
+Error: ${error && /^[A-Za-z][A-Za-z0-9_]{0,79}$/.test(error.name) ? error.name : 'Error'} (message and stack withheld)
 
 Component Stack:
 ${errorInfo?.componentStack || 'No component stack available'}
 
-URL: ${window.location.href}
-User Agent: ${navigator.userAgent}`;
+URL: ${safeUrl}
+User Agent: ${typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown'}`;
 
     navigator.clipboard.writeText(report).then(() => {
       this.setState({ copied: true });
@@ -140,7 +160,14 @@ User Agent: ${navigator.userAgent}`;
     // Custom fallback support
     if (fallback) {
       if (typeof fallback === 'function') {
-        return fallback(error || new Error('Unknown error'), this.resetBoundary);
+        const candidateErrorName = this.state.errorName || (error && typeof error.name === 'string' ? error.name : '');
+        const safeErrorName = /^[A-Za-z][A-Za-z0-9_]{0,79}$/.test(candidateErrorName)
+          ? candidateErrorName
+          : 'RenderError';
+        const safeError = new Error('An unexpected component render error occurred.');
+        safeError.name = safeErrorName;
+        safeError.stack = undefined;
+        return fallback(safeError, this.resetBoundary);
       }
       return fallback;
     }
@@ -152,7 +179,7 @@ User Agent: ${navigator.userAgent}`;
       return (
         <div
           id="global-error-boundary-screen"
-          className="fixed inset-0 z-50 flex flex-col items-center justify-center p-4 sm:p-6 bg-background text-text font-sans selection:bg-primary selection:text-white overflow-y-auto"
+          className="fixed inset-0 z-50 flex flex-col items-center justify-center p-4 sm:p-6 bg-background text-text font-sans selection:bg-primary selection:text-primary-foreground overflow-y-auto"
         >
           {/* Subtle Ambient Background Glow */}
           <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-primary/10 rounded-full blur-3xl pointer-events-none" />
@@ -183,12 +210,12 @@ User Agent: ${navigator.userAgent}`;
               </p>
 
               {/* Error Message Box */}
-              <div className="mt-4 p-3 rounded-xl bg-rose-50/80 dark:bg-rose-950/40 border border-rose-200/80 dark:border-rose-900/50 text-left text-xs font-mono text-rose-800 dark:text-rose-300 break-words">
+              <div className="mt-4 p-3 rounded-xl bg-rose-50/80 dark:bg-rose-950/40 border border-rose-200/80 dark:border-rose-900/50 text-left text-xs font-mono tabular-nums text-rose-800 dark:text-rose-300 break-words">
                 <div className="flex items-center gap-1.5 font-bold mb-1 text-[11px] uppercase tracking-wider text-rose-900 dark:text-rose-200">
                   <AlertTriangle className="h-3.5 w-3.5 text-rose-600 dark:text-rose-400" />
                   <span>Exception Caught:</span>
                 </div>
-                <div>{error?.message || 'An unexpected rendering error occurred.'}</div>
+                <div>An unexpected application error occurred. Detailed error content is withheld to protect session and transaction data.</div>
               </div>
 
               {/* Primary Recovery Actions */}
@@ -197,7 +224,7 @@ User Agent: ${navigator.userAgent}`;
                   id="btn-error-reset-global"
                   type="button"
                   onClick={this.resetBoundary}
-                  className="py-2.5 px-4 rounded-xl font-bold text-white text-xs bg-primary hover:bg-primary-dark active:scale-[0.99] shadow-md shadow-primary/25 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                  className="py-2.5 px-4 rounded-xl font-bold text-primary-foreground text-xs bg-primary hover:bg-primary-dark active:scale-[0.99] shadow-md shadow-primary/25 transition-all flex items-center justify-center gap-2 cursor-pointer"
                 >
                   <RotateCcw className="h-3.5 w-3.5" />
                   <span>ลองใหม่อีกครั้ง (Try Again)</span>
@@ -213,21 +240,9 @@ User Agent: ${navigator.userAgent}`;
                   <span>รีเฟรชระบบ (Reload POS)</span>
                 </button>
 
-                <button
-                  id="btn-error-hard-reload-clear"
-                  type="button"
-                  onClick={() => {
-                    try {
-                      localStorage.clear();
-                      sessionStorage.clear();
-                    } catch {}
-                    window.location.reload();
-                  }}
-                  className="py-2.5 px-4 rounded-xl font-bold text-rose-600 dark:text-rose-400 text-xs bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 active:scale-[0.99] transition-all flex items-center justify-center gap-2 cursor-pointer sm:col-span-2"
-                >
-                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                  <span>บังคับรีโหลดและล้างแคช (Force Reload & Clear Local Cache)</span>
-                </button>
+                <p className="sm:col-span-2 text-[11px] text-text/60">
+                  Reloading preserves local transaction and session data. Browser storage must not be cleared from this recovery screen.
+                </p>
               </div>
 
               {/* Diagnostic Tools Toggle */}
@@ -265,17 +280,17 @@ User Agent: ${navigator.userAgent}`;
 
               {/* Collapsible Stack Trace */}
               {showDetails && (
-                <div className="mt-3 p-3 rounded-xl bg-background text-zinc-200 text-left font-mono text-[10px] leading-relaxed max-h-48 overflow-y-auto border border-border animate-in fade-in duration-200">
+                <div className="mt-3 p-3 rounded-xl bg-background text-zinc-200 text-left font-mono tabular-nums text-[10px] leading-relaxed max-h-48 overflow-y-auto border border-border animate-in fade-in duration-200">
                   <div className="text-amber-400 font-bold mb-1">// Component Stack Trace</div>
                   <pre className="whitespace-pre-wrap">{errorInfo?.componentStack || 'No component stack.'}</pre>
                   <div className="text-amber-400 font-bold mt-2 mb-1">// Error Stack</div>
-                  <pre className="whitespace-pre-wrap">{error?.stack || 'No JS stack available.'}</pre>
+                  <pre className="whitespace-pre-wrap">Detailed error stack is withheld to protect session and transaction data.</pre>
                 </div>
               )}
             </div>
 
             {/* Footer */}
-            <div className="mt-4 text-[10px] text-text/40 uppercase tracking-widest font-mono">
+            <div className="mt-4 text-[10px] text-brand-text-secondary uppercase tracking-widest font-mono tabular-nums">
               PRODX POS ENTERPRISE · ISOLATED RECOVERY ENGINE
             </div>
           </div>
@@ -311,8 +326,8 @@ User Agent: ${navigator.userAgent}`;
           </p>
 
           {/* Error Message */}
-          <div className="mt-3 p-2.5 rounded-xl bg-background border border-border border-crisp text-left text-[11px] font-mono text-text/80 break-words max-h-24 overflow-y-auto">
-            {error?.message || 'Unexpected module rendering failure'}
+          <div className="mt-3 p-2.5 rounded-xl bg-background border border-border border-crisp text-left text-[11px] font-mono tabular-nums text-text/80 break-words max-h-24 overflow-y-auto">
+            An unexpected module error occurred. Detailed error content is withheld to protect session and transaction data.
           </div>
 
           {/* Action Buttons */}
@@ -321,7 +336,7 @@ User Agent: ${navigator.userAgent}`;
               id={`btn-reset-${moduleName || 'module'}`}
               type="button"
               onClick={this.resetBoundary}
-              className="py-2 px-3.5 rounded-xl font-bold text-white text-xs bg-primary hover:bg-primary-dark active:scale-[0.99] shadow-sm shadow-primary/20 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+              className="py-2 px-3.5 rounded-xl font-bold text-primary-foreground text-xs bg-primary hover:bg-primary-dark active:scale-[0.99] shadow-sm shadow-primary/20 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
             >
               <RotateCcw className="h-3.5 w-3.5" />
               <span>ลองใหม่อีกครั้ง</span>
@@ -352,14 +367,14 @@ User Agent: ${navigator.userAgent}`;
             <button
               type="button"
               onClick={() => this.setState({ showDetails: !showDetails })}
-              className="text-[10px] text-text/50 hover:text-text/70 dark:hover:text-text/60 transition-colors inline-flex items-center gap-1 cursor-pointer"
+              className="text-[10px] text-brand-text-secondary hover:text-text/70 dark:hover:text-text/60 transition-colors inline-flex items-center gap-1 cursor-pointer"
             >
               <span>{showDetails ? 'Hide technical logs' : 'Show technical logs'}</span>
               {showDetails ? <ChevronUp className="h-2.5 w-2.5" /> : <ChevronDown className="h-2.5 w-2.5" />}
             </button>
             {showDetails && (
-              <div className="mt-2 p-2 rounded-lg bg-background text-text/60 text-[9.5px] font-mono text-left max-h-32 overflow-y-auto leading-normal">
-                <pre className="whitespace-pre-wrap">{errorInfo?.componentStack || error?.stack}</pre>
+              <div className="mt-2 p-2 rounded-lg bg-background text-text/60 text-[9.5px] font-mono tabular-nums text-left max-h-32 overflow-y-auto leading-normal">
+                <pre className="whitespace-pre-wrap">{errorInfo?.componentStack || 'Detailed error stack is withheld.'}</pre>
               </div>
             )}
           </div>

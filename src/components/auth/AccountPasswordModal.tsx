@@ -243,7 +243,7 @@ export const AccountPasswordModal: React.FC<AccountPasswordModalProps> = ({
                     }`}
                   >
                     <div className="text-[11px] font-bold truncate">{user.name.split(' ')[0]}</div>
-                    <div className="text-[9px] uppercase font-mono text-text/50 truncate">
+                    <div className="text-[9px] uppercase font-mono tabular-nums text-brand-text-secondary truncate">
                       {user.role} · {user.employeeCode}
                     </div>
                   </button>
@@ -258,12 +258,12 @@ export const AccountPasswordModal: React.FC<AccountPasswordModalProps> = ({
               <label className="block text-xs font-bold text-slate-800">
                 {lang === 'th' ? 'รหัสผ่านปัจจุบันหรือ PIN ของบัญชี' : 'Current Password or PIN'}
               </label>
-              <span className="text-[10px] text-primary font-mono font-medium">
+              <span className="text-[10px] text-primary font-mono tabular-nums font-medium">
                 {lang === 'th' ? `(หรือ PIN: ${storedPins[selectedUser.id] || '1234'})` : `(or PIN: ${storedPins[selectedUser.id] || '1234'})`}
               </span>
             </div>
             <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-text/40">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-brand-text-secondary">
                 <Lock className="w-4 h-4" />
               </div>
               <input
@@ -271,7 +271,7 @@ export const AccountPasswordModal: React.FC<AccountPasswordModalProps> = ({
                 value={currentVerification}
                 onChange={(e) => setCurrentVerification(e.target.value)}
                 placeholder={lang === 'th' ? 'กรอกรหัสผ่านเดิมหรือ PIN' : 'Enter current password or PIN'}
-                className="w-full h-10 pl-9 pr-3 rounded-xl border border-slate-200 bg-slate-50 text-xs sm:text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary focus:bg-white transition-all placeholder:text-text/40"
+                className="w-full h-10 pl-9 pr-3 rounded-xl border border-slate-200 bg-slate-50 text-xs sm:text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary focus:bg-white transition-all placeholder:text-brand-text-secondary"
               />
             </div>
           </div>
@@ -293,7 +293,7 @@ export const AccountPasswordModal: React.FC<AccountPasswordModalProps> = ({
             </div>
 
             <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-text/40">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-brand-text-secondary">
                 <KeyRound className="w-4 h-4" />
               </div>
               <input
@@ -301,12 +301,12 @@ export const AccountPasswordModal: React.FC<AccountPasswordModalProps> = ({
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 placeholder={lang === 'th' ? 'ตั้งรหัสผ่านใหม่ที่มีความปลอดภัย' : 'Enter new secure password'}
-                className="w-full h-10 pl-9 pr-10 rounded-xl border border-slate-200 bg-slate-50 text-xs sm:text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary focus:bg-white transition-all placeholder:text-text/40"
+                className="w-full h-10 pl-9 pr-10 rounded-xl border border-slate-200 bg-slate-50 text-xs sm:text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary focus:bg-white transition-all placeholder:text-brand-text-secondary"
               />
               <button
                 type="button"
                 onClick={() => setShowNewPassword(!showNewPassword)}
-                className="absolute inset-y-0 right-0 pr-3 flex items-center text-text/40 hover:text-text cursor-pointer"
+                className="absolute inset-y-0 right-0 pr-3 flex items-center text-brand-text-secondary hover:text-text cursor-pointer"
               >
                 {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
@@ -349,7 +349,7 @@ export const AccountPasswordModal: React.FC<AccountPasswordModalProps> = ({
               )}
             </div>
             <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-text/40">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-brand-text-secondary">
                 <Lock className="w-4 h-4" />
               </div>
               <input
@@ -357,7 +357,7 @@ export const AccountPasswordModal: React.FC<AccountPasswordModalProps> = ({
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 placeholder={lang === 'th' ? 'กรอกรหัสผ่านใหม่อีกครั้งเพื่อยืนยัน' : 'Re-type new password'}
-                className={`w-full h-10 pl-9 pr-10 rounded-xl border bg-slate-50 text-xs sm:text-sm font-medium focus:outline-none focus:ring-2 focus:bg-white transition-all placeholder:text-text/40 ${
+                className={`w-full h-10 pl-9 pr-10 rounded-xl border bg-slate-50 text-xs sm:text-sm font-medium focus:outline-none focus:ring-2 focus:bg-white transition-all placeholder:text-brand-text-secondary ${
                   confirmPassword.length > 0
                     ? passwordsMatch
                       ? 'border-emerald-400 focus:ring-emerald-500'
@@ -368,7 +368,7 @@ export const AccountPasswordModal: React.FC<AccountPasswordModalProps> = ({
               <button
                 type="button"
                 onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                className="absolute inset-y-0 right-0 pr-3 flex items-center text-text/40 hover:text-text cursor-pointer"
+                className="absolute inset-y-0 right-0 pr-3 flex items-center text-brand-text-secondary hover:text-text cursor-pointer"
               >
                 {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
@@ -388,7 +388,7 @@ export const AccountPasswordModal: React.FC<AccountPasswordModalProps> = ({
             <button
               type="submit"
               disabled={isSubmitting || !isFormValid}
-              className="flex-1 h-11 rounded-xl bg-primary hover:bg-primary-dark text-white text-xs sm:text-sm font-bold shadow-xs active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex-1 h-11 rounded-xl bg-primary hover:bg-primary-dark text-primary-foreground text-xs sm:text-sm font-bold shadow-xs active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isSubmitting ? (
                 <RefreshCw className="w-4 h-4 animate-spin" />

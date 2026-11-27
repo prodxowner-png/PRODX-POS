@@ -40,6 +40,10 @@ export const createProductionAuthApi = (): IAuthApi => ({
     if (!response.ok && response.status !== 401) throw new Error('Authentication logout failed.');
   },
 
+  async renewSession(): Promise<SessionContext | null> {
+    return null;
+  },
+
   async verifySession(token: string): Promise<SessionContext | null> {
     if (!token) return null;
     try {

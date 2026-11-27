@@ -360,7 +360,7 @@ export const OrganizationFormDialog: React.FC<OrganizationFormDialogProps> = ({
         {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-slate-100">
           <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-xl bg-[#ff6b1a]/10 text-[#ff6b1a] flex items-center justify-center font-bold shrink-0">
+            <div className="h-10 w-10 rounded-xl bg-brand-surface-selected text-brand-primary flex items-center justify-center font-bold shrink-0">
               <Building2 className="h-5 w-5" />
             </div>
             <div>
@@ -408,7 +408,7 @@ export const OrganizationFormDialog: React.FC<OrganizationFormDialogProps> = ({
               className={`w-full px-3 py-2 text-xs border rounded-xl bg-white text-slate-900 focus:outline-hidden transition-colors ${
                 touched.name && errors.name
                   ? 'border-rose-400 bg-rose-50/30 focus:border-rose-600'
-                  : 'border-slate-200 focus:border-[#ff6b1a]'
+                  : 'border-slate-200 focus:border-brand-primary'
               }`}
             />
             {touched.name && errors.name && (
@@ -428,7 +428,7 @@ export const OrganizationFormDialog: React.FC<OrganizationFormDialogProps> = ({
               <button
                 type="button"
                 onClick={handleAutoSlug}
-                className="text-[11px] font-bold text-[#ff6b1a] hover:underline flex items-center gap-1"
+                className="text-[11px] font-bold text-brand-text-accent hover:underline flex items-center gap-1 cursor-pointer"
               >
                 <Sparkles className="h-3 w-3" />
                 {isThai ? 'สร้างอัตโนมัติจากชื่อ' : 'Generate from name'}
@@ -450,7 +450,7 @@ export const OrganizationFormDialog: React.FC<OrganizationFormDialogProps> = ({
                 className={`w-full pl-8 pr-3 py-2 text-xs font-mono border rounded-xl bg-white text-slate-900 focus:outline-hidden transition-colors ${
                   touched.slug && errors.slug
                     ? 'border-rose-400 bg-rose-50/30 focus:border-rose-600'
-                    : 'border-slate-200 focus:border-[#ff6b1a]'
+                    : 'border-slate-200 focus:border-brand-primary'
                 }`}
               />
             </div>
@@ -483,7 +483,7 @@ export const OrganizationFormDialog: React.FC<OrganizationFormDialogProps> = ({
                 className={`w-full px-3 py-2 text-xs font-mono border rounded-xl bg-white text-slate-900 focus:outline-hidden ${
                   touched.taxId && errors.taxId
                     ? 'border-rose-400 bg-rose-50/30 focus:border-rose-600'
-                    : 'border-slate-200 focus:border-[#ff6b1a]'
+                    : 'border-slate-200 focus:border-brand-primary'
                 }`}
               />
               {touched.taxId && errors.taxId && (
@@ -501,7 +501,7 @@ export const OrganizationFormDialog: React.FC<OrganizationFormDialogProps> = ({
               <select
                 value={form.currency || 'THB'}
                 onChange={(e) => handleFieldChange('currency', e.target.value)}
-                className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl bg-white text-slate-900 font-bold focus:outline-hidden focus:border-[#ff6b1a]"
+                className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl bg-white text-slate-900 font-bold focus:outline-hidden focus:border-brand-primary"
               >
                 <option value="THB">THB (฿ - Thai Baht)</option>
                 <option value="USD">USD ($ - US Dollar)</option>
@@ -529,7 +529,7 @@ export const OrganizationFormDialog: React.FC<OrganizationFormDialogProps> = ({
                   className={`w-full pl-8 pr-3 py-2 text-xs border rounded-xl bg-white text-slate-900 focus:outline-hidden ${
                     touched.phone && errors.phone
                       ? 'border-rose-400 bg-rose-50/30 focus:border-rose-600'
-                      : 'border-slate-200 focus:border-[#ff6b1a]'
+                      : 'border-slate-200 focus:border-brand-primary'
                   }`}
                 />
               </div>
@@ -556,7 +556,7 @@ export const OrganizationFormDialog: React.FC<OrganizationFormDialogProps> = ({
                   className={`w-full pl-8 pr-3 py-2 text-xs border rounded-xl bg-white text-slate-900 focus:outline-hidden ${
                     touched.email && errors.email
                       ? 'border-rose-400 bg-rose-50/30 focus:border-rose-600'
-                      : 'border-slate-200 focus:border-[#ff6b1a]'
+                      : 'border-slate-200 focus:border-brand-primary'
                   }`}
                 />
               </div>

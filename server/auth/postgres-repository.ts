@@ -105,6 +105,13 @@ export const createPostgresAuthenticationRepository = (db: SqlExecutor): Authent
       [input.id, input.organizationId, input.userId, input.deviceId, input.tokenHash, input.expiresAt],
     );
   },
+  async renewSession(input) {
+    const rows = await db.query<{ expires_at: Date | null }>(
+      'SELECT public.prodx_auth_renew_supabase_session($1::uuid, $2, $3::uuid, $4::timestamptz) AS expires_at',
+      [input.sessionId, input.tokenHash, input.supabaseUserId, input.expiresAt],
+    );
+    return rows[0]?.expires_at ?? null;
+  },
   async findSessionByTokenHash(tokenHash) {
     const rows = await db.query<{ id: string; organization_id: string; user_id: string; device_id: string;
       token_hash: string; expires_at: Date; revoked_at: Date | null; user_status: 'active' | 'disabled' }>(

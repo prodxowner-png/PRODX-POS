@@ -52,7 +52,7 @@ export const Tabs: React.FC<TabsProps> = ({
                 <span
                   className={`text-[11px] px-1.5 py-0.5 rounded-full font-bold ${
                     isActive
-                      ? 'bg-primary text-white'
+                      ? 'bg-primary text-primary-foreground'
                       : 'bg-card text-text/70 border-crisp border border-border'
                   }`}
                 >
