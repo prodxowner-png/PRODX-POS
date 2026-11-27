@@ -85,7 +85,20 @@ def _request_json(
         with urllib.request.urlopen(request, timeout=90) as response:
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as error:
-        raise ReviewError(f"API request failed with HTTP {error.code}.") from None
+        detail = ""
+        try:
+            raw = error.read(16_384).decode("utf-8", errors="replace")
+            parsed = json.loads(raw)
+            api_error = parsed.get("error", {}) if isinstance(parsed, dict) else {}
+            if isinstance(api_error, dict):
+                reason = _safe_text(api_error.get("status"), 120)
+                message = _safe_text(api_error.get("message"), 500)
+                detail = ": ".join(part for part in (reason, message) if part)
+        except (ValueError, TypeError, AttributeError):
+            detail = ""
+        detail, _ = redact_sensitive_data(detail)
+        suffix = f" ({detail})" if detail else ""
+        raise ReviewError(f"API request failed with HTTP {error.code}{suffix}.") from None
     except (urllib.error.URLError, TimeoutError, OSError, ValueError):
         raise ReviewError("API request failed; no response could be validated.") from None
 
@@ -100,8 +113,8 @@ def _safe_text(value: Any, limit: int = 1_000) -> str:
 
 def fetch_pr(repo: str, number: int, token: str) -> dict[str, Any]:
     pr = _request_json(f"{GITHUB_API}/repos/{repo}/pulls/{number}", token=token)
-    if not isinstance(pr, dict) or pr.get("state") != "open":
-        raise ReviewError("Target pull request is not open.")
+    if not isinstance(pr, dict):
+        raise ReviewError("GitHub returned invalid pull request metadata.")
     base = pr.get("base") or {}
     head = pr.get("head") or {}
     sha = head.get("sha")
@@ -463,6 +476,21 @@ def post_comment(
         )
 
 
+def _write_step_summary(status: str, pr_number: int, detail: str = "") -> None:
+    summary_path = os.environ.get("GITHUB_STEP_SUMMARY", "")
+    if not summary_path:
+        return
+    safe_detail, _ = redact_sensitive_data(_safe_text(detail, 800))
+    lines = ["### Gemini advisory review", "", f"- Status: **{status}**", f"- Pull request: #{pr_number}"]
+    if safe_detail:
+        lines.append("- Detail: " + safe_detail.replace("\n", " "))
+    try:
+        with open(summary_path, "a", encoding="utf-8") as summary:
+            summary.write("\n".join(lines) + "\n")
+    except OSError:
+        pass
+
+
 def main() -> int:
     repo = os.environ.get("GITHUB_REPOSITORY", "")
     token = os.environ.get("GITHUB_TOKEN", "")
@@ -477,6 +505,13 @@ def main() -> int:
     except ReviewError as error:
         print(f"Review blocked: {error}")
         return 2
+
+    if pr.get("state") != "open":
+        status = "SKIPPED_MERGED" if pr.get("merged") else "SKIPPED_CLOSED"
+        detail = "Pull request is already merged." if pr.get("merged") else "Pull request is closed."
+        print(json.dumps({"pr": number, "status": status, "reason": detail}, separators=(",", ":")))
+        _write_step_summary(status, number, detail)
+        return 0
 
     head_sha = pr["head"]["sha"]
     try:
