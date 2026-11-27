@@ -6,9 +6,17 @@
  * 'pending_sync_offline' status until authoritative server confirmation is received.
  */
 
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { OutboxItem } from '../domain/sync';
 import { normalizeOutboxForRecovery } from '../domain/sync-recovery';
+import {
+  DEFAULT_MAX_OUTBOX_ATTEMPTS,
+  applySyncFailureTransition,
+  assertSupportedOfflineCommandType,
+  assertValidOfflineCommandPayload,
+  selectOutboxItemsForReplay,
+  sortOutboxFifo,
+} from '../domain/sync-outbox-policy';
 import { createSyncApi } from '../adapters/syncApiFactory';
 import { clearOutboxItems, clearSyncedOutboxItems, loadOutboxItems, putOutboxItem, replaceOutboxItems, updateOutboxItem } from '../adapters/offlineOutboxStore';
 import { Order } from '../domain/order';
@@ -92,115 +100,6 @@ const SYNC_ACTIVITY_STORAGE_KEY = 'prodx_pos_sync_activity_history';
 const MAX_LATENCY_HISTORY_LENGTH = 20;
 const MAX_SYNC_ACTIVITY_LENGTH = 60;
 
-function getDefaultSyncActivitySeed(): SyncActivityEvent[] {
-  const now = Date.now();
-  return [
-    {
-      id: 'act-seed-1',
-      timestamp: new Date(now - 120000).toISOString(),
-      completedAt: new Date(now - 120000 + 42).toISOString(),
-      direction: 'local_to_cloud',
-      eventType: 'order_transaction',
-      status: 'success',
-      entityId: 'ord-tx-8812',
-      entityName: 'Order #ORD-2026-8812 (฿450.00)',
-      summary: 'คำสั่งซื้อหน้าร้านซิงก์จาก Local POS Cache ขึ้น Cloud PostgreSQL สำเร็จ',
-      details: 'สินค้า 3 รายการ • ชำระผ่าน PromptPay QR • ยอดรวม ฿450.00 • Idempotency Verified',
-      durationMs: 42,
-      attempts: 1,
-      serverConfirmedId: 'ORD-2026-8812',
-      idempotencyKey: 'idem-ord-8812-7f2a',
-      localPayload: { orderId: 'ORD-2026-8812', total: 450.0, itemsCount: 3, paymentMethod: 'promptpay' },
-      cloudPayload: { id: 'ORD-2026-8812', serverStatus: 'COMMITTED', syncedAt: new Date(now - 120000 + 42).toISOString() },
-    },
-    {
-      id: 'act-seed-2',
-      timestamp: new Date(now - 480000).toISOString(),
-      completedAt: new Date(now - 480000 + 29).toISOString(),
-      direction: 'local_to_cloud',
-      eventType: 'shift_movement',
-      status: 'success',
-      entityId: 'shift-flt-01',
-      entityName: 'Cash Drawer Float (฿2,000.00)',
-      summary: 'บันทึกเงินสดเริ่มต้นกะ (Shift Opening Float) ซิงก์ขึ้น Cloud สำเร็จ',
-      details: 'แคชเชียร์ สมชาย • เครื่อง POS-01 • ลิ้นชักเงินสดพร้อมเปิดรอบขาย',
-      durationMs: 29,
-      attempts: 1,
-      serverConfirmedId: 'SHIFT-2026-004',
-      idempotencyKey: 'idem-shift-open-004',
-      localPayload: { shiftId: 'SHIFT-2026-004', openingCash: 2000.0, registerId: 'REG-01' },
-      cloudPayload: { id: 'SHIFT-2026-004', status: 'ACTIVE', syncedAt: new Date(now - 480000 + 29).toISOString() },
-    },
-    {
-      id: 'act-seed-3',
-      timestamp: new Date(now - 840000).toISOString(),
-      completedAt: new Date(now - 840000 + 58).toISOString(),
-      direction: 'local_to_cloud',
-      eventType: 'stock_adjustment',
-      status: 'success',
-      entityId: 'stk-adj-8821',
-      entityName: 'Stock Ledger (SKU-8821 Americano)',
-      summary: 'การตัดสต็อกสินค้าจากการขายออฟไลน์ได้รับการบันทึกบน Cloud Database',
-      details: 'ตัดยอดสินค้าอัตโนมัติ -2 หน่วย • สต็อกคงเหลือปัจจุบัน 28 หน่วย',
-      durationMs: 58,
-      attempts: 1,
-      serverConfirmedId: 'STK-LEDGER-9912',
-      idempotencyKey: 'idem-stock-adj-8821',
-      localPayload: { sku: 'SKU-8821', delta: -2, reason: 'offline_sale_sync' },
-      cloudPayload: { id: 'STK-LEDGER-9912', remainingQty: 28, verified: true },
-    },
-    {
-      id: 'act-seed-4',
-      timestamp: new Date(now - 1320000).toISOString(),
-      completedAt: new Date(now - 1320000 + 3000).toISOString(),
-      direction: 'local_to_cloud',
-      eventType: 'order_transaction',
-      status: 'failed',
-      entityId: 'ord-tx-8810',
-      entityName: 'Order #ORD-2026-8810 (฿890.00)',
-      summary: 'การซิงก์ขัดข้องชั่วคราว: Network Timeout (E_TIMEDOUT after 3000ms)',
-      details: 'สัญญาณอินเทอร์เน็ตหลุดขณะส่งข้อมูล • ข้อมูลได้รับการเก็บสำรองใน IndexedDB Local Cache รอ Replay อัตโนมัติ',
-      errorMessage: 'Connection to Cloud API timed out (E_TIMEDOUT after 3000ms). Preserved in local POS cache.',
-      durationMs: 3000,
-      attempts: 1,
-      idempotencyKey: 'idem-ord-8810-fail-sim',
-      localPayload: { orderId: 'ORD-2026-8810', total: 890.0, itemsCount: 4 },
-    },
-    {
-      id: 'act-seed-5',
-      timestamp: new Date(now - 1260000).toISOString(),
-      completedAt: new Date(now - 1260000 + 38).toISOString(),
-      direction: 'local_to_cloud',
-      eventType: 'order_transaction',
-      status: 'success',
-      entityId: 'ord-tx-8810',
-      entityName: 'Order #ORD-2026-8810 Replay Recovery',
-      summary: 'Replay คำสั่งซื้อหลังเครือข่ายกลับมาออนไลน์สำเร็จ ยืนยันบน Cloud DB',
-      details: 'Re-sent from local outbox queue upon network reconnection • Server accepted idempotency key',
-      durationMs: 38,
-      attempts: 2,
-      serverConfirmedId: 'ORD-2026-8810',
-      idempotencyKey: 'idem-ord-8810-fail-sim',
-      localPayload: { orderId: 'ORD-2026-8810', total: 890.0, retry: true },
-      cloudPayload: { id: 'ORD-2026-8810', status: 'COMMITTED', replayed: true },
-    },
-    {
-      id: 'act-seed-6',
-      timestamp: new Date(now - 18000).toISOString(),
-      completedAt: new Date(now - 18000 + 16).toISOString(),
-      direction: 'bidirectional',
-      eventType: 'heartbeat_ping',
-      status: 'success',
-      entityId: 'ping-hb-01',
-      entityName: 'Cloud DB Round-Trip Heartbeat',
-      summary: 'ตรวจสอบความเร็วการเชื่อมต่อฐานข้อมูลคลาวด์แบบเรียลไทม์',
-      details: 'Round-trip latency 16ms • Connection quality: Optimal',
-      durationMs: 16,
-      attempts: 1,
-    },
-  ];
-}
-
 export function computeLatencyQuality(ms: number | null, isOnline: boolean): SyncLatencyQuality {
   if (!isOnline || ms === null) return 'offline';
   if (ms < 100) return 'optimal';
@@ -213,7 +112,7 @@ export function computeLatencyQuality(ms: number | null, isOnline: boolean): Syn
 export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { addToast } = useToast();
   const { session } = useAuth();
-  const syncApi = createSyncApi(session?.token ?? '');
+  const syncApi = useMemo(() => createSyncApi(session?.token ?? ''), [session?.token]);
   const { language } = useLanguage();
   const [browserOnline, setBrowserOnline] = useState<boolean>(
     typeof navigator !== 'undefined' ? navigator.onLine : true
@@ -235,7 +134,7 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const initialization = (async () => {
         const stored = normalizeOutboxForRecovery(await loadOutboxItems());
         if (stored.length > 0) {
-          setOutbox(stored.sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
+          setOutbox(sortOutboxFifo(stored));
           setIsOutboxReady(true);
           return;
         }
@@ -251,7 +150,7 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
         if (legacy.length > 0) {
           await replaceOutboxItems(legacy);
-          setOutbox(legacy.sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
+          setOutbox(sortOutboxFifo(legacy));
           localStorage.removeItem(OUTBOX_STORAGE_KEY);
         } else {
           setOutbox([]);
@@ -308,7 +207,7 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
     } catch (e) {
       console.warn('[OfflineContext] Failed to load cached sync activity events:', e);
     }
-    return getDefaultSyncActivitySeed();
+    return [];
   });
 
   const [isSyncActivityOpen, setIsSyncActivityOpen] = useState<boolean>(false);
@@ -387,7 +286,7 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setIsMeasuringLatency(false);
       return null;
     }
-  }, [isEffectiveOnline, recordLatency]);
+  }, [isEffectiveOnline, recordLatency, syncApi]);
 
   // Periodic real-time background sync cycle (cloud database round-trip heartbeat)
   useEffect(() => {
@@ -443,31 +342,47 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
     idempotencyKey: string,
     payload: T
   ): Promise<OutboxItem<T>> => {
+    assertSupportedOfflineCommandType(type);
+    const normalizedPayload = (
+      typeof payload === 'object' &&
+      payload !== null &&
+      !Array.isArray(payload) &&
+      !('idempotencyKey' in payload)
+        ? { ...(payload as Record<string, unknown>), idempotencyKey }
+        : payload
+    ) as T;
+    assertValidOfflineCommandPayload(type, idempotencyKey, normalizedPayload);
     await ensureOutboxReady();
     const item: OutboxItem<T> = {
       id: `outbox-${typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`}`,
       type,
       idempotencyKey,
-      payload,
+      payload: normalizedPayload,
       createdAt: new Date().toISOString(),
       attempts: 0,
+      maxAttempts: DEFAULT_MAX_OUTBOX_ATTEMPTS,
       syncState: 'queued',
     };
 
     await putOutboxItem(item);
-    setOutbox((current) => [item, ...current]);
+    setOutbox((current) => sortOutboxFifo([...current, item]));
 
     recordSyncActivity({
       eventType: type,
       direction: 'local_to_cloud',
       status: 'in_progress',
       entityId: item.id,
-      entityName: type === 'order_transaction' ? 'POS Order Transaction' : type === 'shift_movement' ? 'Shift Float Movement' : 'Stock Adjustment',
+      entityName:
+        type === 'order_transaction'
+          ? 'POS Order Transaction'
+          : type === 'shift_movement'
+          ? 'Shift Float Movement'
+          : 'Stock Adjustment',
       summary: `บันทึกลง Local POS Cache (IndexedDB) สำเร็จ • เตรียมซิงก์ขึ้น Cloud (Key: ${idempotencyKey.slice(0, 16)}...)`,
       details: 'แคชธุรกรรมถูกจัดเก็บปลอดภัยบนเครื่อง พร้อมส่งขึ้นเซิร์ฟเวอร์ทันทีที่มีการเชื่อมต่อ',
       idempotencyKey,
       attempts: 0,
-      localPayload: payload,
+      localPayload: normalizedPayload,
     });
 
     return item;
@@ -476,7 +391,7 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const triggerSync = useCallback(async () => {
     if (!isEffectiveOnline || isSyncing) return;
     await ensureOutboxReady();
-    const queuedItems = outbox.filter((item) => item.syncState === 'queued' || item.syncState === 'failed');
+    const queuedItems = selectOutboxItemsForReplay(outbox, Date.now());
     if (queuedItems.length === 0) return;
 
     setIsSyncing(true);
@@ -485,20 +400,32 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
     for (const item of queuedItems) {
       const syncStartTime = performance.now();
       const initiatedAt = new Date().toISOString();
+      const nextAttempts = item.attempts + 1;
       try {
         await updateOutboxItem(item.id, {
           syncState: 'syncing',
-          attempts: item.attempts + 1,
+          attempts: nextAttempts,
         });
         setOutbox((current) =>
           current.map((i) =>
-            i.id === item.id ? { ...i, syncState: 'syncing', attempts: item.attempts + 1 } : i
+            i.id === item.id ? { ...i, syncState: 'syncing', attempts: nextAttempts } : i
           )
         );
 
-        const result = await syncApi.syncOutboxItem(item);
+        const result = await syncApi.syncOutboxItem({ ...item, attempts: nextAttempts });
         const roundTripMs = Math.max(1, Math.round(performance.now() - syncStartTime));
         const completedAt = result.syncedAt || new Date().toISOString();
+        const confirmedId =
+          result.confirmedEntityId ??
+          result.confirmedOrder?.id ??
+          result.confirmedMovement?.id ??
+          result.confirmedAdjustment?.adjustmentId ??
+          item.id;
+        const confirmedPayload =
+          result.confirmedOrder ??
+          result.confirmedMovement ??
+          result.confirmedAdjustment ??
+          result;
         recordLatency(roundTripMs, 'outbox_sync', 'success');
 
         recordSyncActivity({
@@ -508,22 +435,32 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
           direction: 'local_to_cloud',
           status: 'success',
           entityId: item.id,
-          entityName: item.type === 'order_transaction' ? `POS Order (${result.confirmedOrder.id})` : item.type === 'shift_movement' ? 'Shift Float Movement' : 'Stock Adjustment',
+          entityName:
+            item.type === 'order_transaction'
+              ? `POS Order (${confirmedId})`
+              : item.type === 'shift_movement'
+              ? `Shift Float Movement (${confirmedId})`
+              : `Stock Adjustment (${confirmedId})`,
           summary: `ซิงก์จาก Local POS Cache ไปยัง Cloud DB สำเร็จใน ${roundTripMs} ms`,
-          details: `Authoritative Cloud Commit ID: ${result.confirmedOrder.id} • ตรวจสอบความถูกต้องสมบูรณ์ (Idempotent Commit)`,
+          details: `Authoritative Cloud Commit ID: ${confirmedId} • ตรวจสอบความถูกต้องสมบูรณ์ (Idempotent Commit)`,
           durationMs: roundTripMs,
-          attempts: item.attempts + 1,
-          serverConfirmedId: result.confirmedOrder.id,
+          attempts: nextAttempts,
+          serverConfirmedId: confirmedId,
           idempotencyKey: item.idempotencyKey,
           localPayload: item.payload,
-          cloudPayload: result.confirmedOrder,
+          cloudPayload: confirmedPayload,
         });
 
-        lastSuccessfulSyncAt = result.syncedAt;
+        lastSuccessfulSyncAt = completedAt;
         await updateOutboxItem(item.id, {
           syncState: 'synced',
-          serverConfirmedId: result.confirmedOrder.id,
-          serverConfirmedAt: result.syncedAt,
+          nextRetryAt: undefined,
+          lastError: undefined,
+          lastErrorCode: undefined,
+          lastHttpStatus: undefined,
+          deadLetteredAt: undefined,
+          serverConfirmedId: confirmedId,
+          serverConfirmedAt: completedAt,
         });
         setOutbox((current) =>
           current.map((i) =>
@@ -531,18 +468,35 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
               ? {
                   ...i,
                   syncState: 'synced',
-                  serverConfirmedId: result.confirmedOrder.id,
-                  serverConfirmedAt: result.syncedAt,
+                  nextRetryAt: undefined,
+                  lastError: undefined,
+                  lastErrorCode: undefined,
+                  lastHttpStatus: undefined,
+                  deadLetteredAt: undefined,
+                  serverConfirmedId: confirmedId,
+                  serverConfirmedAt: completedAt,
                 }
               : i
           )
         );
-      } catch (err: any) {
+        if (typeof window !== 'undefined') {
+          if (item.type === 'stock_adjustment' || item.type === 'order_transaction') {
+            window.dispatchEvent(new CustomEvent('prodx:inventory-updated'));
+          }
+          if (item.type === 'shift_movement') {
+            window.dispatchEvent(new CustomEvent('prodx:shift-updated'));
+          }
+        }
+      } catch (err: unknown) {
         const roundTripMs = Math.max(1, Math.round(performance.now() - syncStartTime));
-        const completedAt = new Date().toISOString();
+        const nowMs = Date.now();
+        const completedAt = new Date(nowMs).toISOString();
         console.error('[OfflineContext] Sync failure for item:', item.id, err);
         recordLatency(0, 'outbox_sync', 'failed');
-        const errorMessage = err?.message || 'Server rejected synchronization request.';
+
+        const transition = applySyncFailureTransition(item, err, nextAttempts, nowMs);
+        const { updatedItem, classification, shouldSurfaceConflict, transitionedToDeadLetter } = transition;
+        const errorMessage = classification.message;
 
         recordSyncActivity({
           timestamp: initiatedAt,
@@ -552,43 +506,59 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
           status: 'failed',
           entityId: item.id,
           entityName: item.type === 'order_transaction' ? 'POS Order Transaction' : item.type === 'shift_movement' ? 'Shift Float Movement' : 'Stock Adjustment',
-          summary: `การซิงก์ข้อมูลไปยัง Cloud ล้มเหลว: ${errorMessage}`,
-          details: 'ข้อมูลได้รับการปกป้องใน Local POS Cache (IndexedDB) และจะลองส่งใหม่โดยอัตโนมัติ',
+          summary: transitionedToDeadLetter
+            ? `รายการถูกย้ายไปยัง Dead-Letter Quarantine หลังลองใหม่ครบ ${nextAttempts} ครั้ง: ${errorMessage}`
+            : classification.kind === 'conflict'
+            ? `เซิร์ฟเวอร์ปฏิเสธรายการ (ต้องตรวจสอบข้อขัดแย้ง): ${errorMessage}`
+            : `การซิงก์ขัดข้องชั่วคราว (จะลองใหม่แบบ Exponential Backoff): ${errorMessage}`,
+          details: transitionedToDeadLetter
+            ? 'หยุดการส่งซ้ำอัตโนมัติแล้ว กรุณาตรวจสอบและตัดสินใจโดยผู้ดูแลระบบ'
+            : classification.kind === 'conflict'
+            ? 'หยุดการส่งซ้ำอัตโนมัติเนื่องจากเป็นข้อขัดแย้งถาวร กรุณาตรวจสอบรายการ'
+            : `ข้อมูลปลอดภัยใน Local POS Cache (IndexedDB) และจะลองส่งใหม่หลัง ${updatedItem.nextRetryAt ?? 'backoff'}`,
           errorMessage,
           durationMs: roundTripMs,
-          attempts: item.attempts + 1,
+          attempts: nextAttempts,
           idempotencyKey: item.idempotencyKey,
           localPayload: item.payload,
         });
 
         try {
           await updateOutboxItem(item.id, {
-            syncState: 'failed',
-            lastError: errorMessage,
+            syncState: updatedItem.syncState,
+            attempts: updatedItem.attempts,
+            maxAttempts: updatedItem.maxAttempts,
+            nextRetryAt: updatedItem.nextRetryAt,
+            lastError: updatedItem.lastError,
+            lastErrorCode: updatedItem.lastErrorCode,
+            lastHttpStatus: updatedItem.lastHttpStatus,
+            deadLetteredAt: updatedItem.deadLetteredAt,
           });
         } catch (persistErr) {
           console.error('[OfflineContext] Failed to persist sync failure state:', persistErr);
         }
         setOutbox((current) =>
-          current.map((i) =>
-            i.id === item.id ? { ...i, syncState: 'failed', lastError: errorMessage } : i
-          )
+          current.map((i) => (i.id === item.id ? updatedItem : i))
         );
 
-        if (!currentConflict) {
-          setCurrentConflict({
-            id: item.id,
-            type: item.type,
-            idempotencyKey: item.idempotencyKey,
-            createdAt: item.createdAt,
-            localPayload: item.payload,
-            cloudPayload: {
-              serverState: 'conflict_or_rejection',
-              reason: errorMessage,
-              timestamp: new Date().toISOString(),
-            },
-            errorMessage,
-          });
+        if (shouldSurfaceConflict) {
+          setCurrentConflict((prev) =>
+            prev ?? {
+              id: item.id,
+              type: item.type,
+              idempotencyKey: item.idempotencyKey,
+              createdAt: item.createdAt,
+              localPayload: item.payload,
+              cloudPayload: {
+                serverState: transitionedToDeadLetter ? 'dead_letter_quarantined' : 'conflict_requires_attention',
+                httpStatus: classification.status,
+                errorCode: classification.code,
+                reason: errorMessage,
+                timestamp: completedAt,
+              },
+              errorMessage,
+            }
+          );
         }
       }
     }
@@ -596,7 +566,7 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (lastSuccessfulSyncAt) {
       updateLastSynced(lastSuccessfulSyncAt);
     }
-  }, [ensureOutboxReady, isEffectiveOnline, isSyncing, outbox, recordLatency, recordSyncActivity]);
+  }, [ensureOutboxReady, isEffectiveOnline, isSyncing, outbox, recordLatency, recordSyncActivity, syncApi]);
 
   // Auto-trigger sync when transitioning to online
   useEffect(() => {
@@ -618,7 +588,9 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const hasUnresolvedOutbox = outbox.some((item) => item.syncState !== 'synced');
   const pendingCount = outbox.filter((i) => i.syncState === 'queued' || i.syncState === 'failed').length;
   const syncedCount = outbox.filter((i) => i.syncState === 'synced').length;
-  const failedCount = outbox.filter((i) => i.syncState === 'failed').length;
+  const failedCount = outbox.filter(
+    (i) => i.syncState === 'failed' || i.syncState === 'conflict_requires_attention' || i.syncState === 'dead_letter'
+  ).length;
 
   // Persistent Toast Notification Service integration for Online <-> Offline transitions
   const prevOnlineRef = useRef<boolean>(isEffectiveOnline);
@@ -714,9 +686,18 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const resolveConflict = (resolution: 'keep_local' | 'keep_cloud' | 'merge') => {
     if (!currentConflict) return;
     if (resolution === 'keep_local' || resolution === 'merge') {
-      void updateOutboxItem(currentConflict.id, { syncState: 'queued' }).then(() => {
+      const resetPatch = {
+        syncState: 'queued' as const,
+        attempts: 0,
+        nextRetryAt: undefined,
+        deadLetteredAt: undefined,
+        lastError: undefined,
+        lastErrorCode: undefined,
+        lastHttpStatus: undefined,
+      };
+      void updateOutboxItem(currentConflict.id, resetPatch).then(() => {
         setOutbox((prev) =>
-          prev.map((i) => (i.id === currentConflict.id ? { ...i, syncState: 'queued' } : i))
+          prev.map((i) => (i.id === currentConflict.id ? { ...i, ...resetPatch } : i))
         );
         addToast({
           title: language === 'th' ? 'การแก้ไขข้อขัดแย้ง' : 'Conflict Resolved',
@@ -725,9 +706,17 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
         });
       });
     } else {
-      void updateOutboxItem(currentConflict.id, { syncState: 'synced' }).then(() => {
+      const resolvedPatch = {
+        syncState: 'synced' as const,
+        nextRetryAt: undefined,
+        deadLetteredAt: undefined,
+        lastError: undefined,
+        lastErrorCode: undefined,
+        lastHttpStatus: undefined,
+      };
+      void updateOutboxItem(currentConflict.id, resolvedPatch).then(() => {
         setOutbox((prev) =>
-          prev.map((i) => (i.id === currentConflict.id ? { ...i, syncState: 'synced' } : i))
+          prev.map((i) => (i.id === currentConflict.id ? { ...i, ...resolvedPatch } : i))
         );
         addToast({
           title: language === 'th' ? 'การแก้ไขข้อขัดแย้ง' : 'Conflict Resolved',

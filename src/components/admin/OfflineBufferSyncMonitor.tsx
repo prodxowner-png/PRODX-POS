@@ -204,12 +204,14 @@ export const OfflineBufferSyncMonitor: React.FC<OfflineBufferSyncMonitorProps> =
   // Handle Enqueue Test Item to verify offline queuing
   const handleEnqueueTestItem = async () => {
     const testId = `sim-${Date.now().toString().slice(-4)}`;
+    const idempotencyKey = `idem-test-${Date.now()}`;
     try {
-      await queueOutboxItem('stock_adjustment', `idem-test-${Date.now()}`, {
-        sku: `SKU-SIM-${testId}`,
-        delta: -1,
-        reason: 'offline_buffer_simulation_test',
-        timestamp: new Date().toISOString(),
+      await queueOutboxItem('stock_adjustment', idempotencyKey, {
+        idempotencyKey,
+        productIds: ['00000000-0000-4000-8000-000000000001'],
+        quantityDelta: -1,
+        reason: 'audit_count_adjustment',
+        notes: `offline_buffer_simulation_test:${testId}`,
       });
       addToast({
         type: 'info',

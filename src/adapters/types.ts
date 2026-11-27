@@ -19,7 +19,7 @@ import {
 import { Order, CartLineItem, CartTotals, TenderPayment } from '../domain/order';
 import { Shift, CashMovement, CashMovementType, TimeclockRecord } from '../domain/shift';
 import { AuditLogEntry, AuditAction, AuditSeverity } from '../domain/audit';
-import { OutboxItem } from '../domain/sync';
+import { OutboxItem, OutboxItemType } from '../domain/sync';
 import { Money } from '../domain/money';
 
 export interface OrganizationLoginContext {
@@ -182,7 +182,21 @@ export interface IAuditApi {
   getLogs(storeId: string, limit?: number): Promise<readonly AuditLogEntry[]>;
 }
 
+export interface SyncCommandResponse {
+  readonly commandType?: OutboxItemType;
+  readonly confirmedEntityId?: string;
+  readonly confirmedOrder?: Order;
+  readonly confirmedMovement?: CashMovement;
+  readonly confirmedAdjustment?: {
+    readonly adjustmentId: string;
+    readonly entries: readonly unknown[];
+  };
+  readonly syncedAt: string;
+  readonly serverConfirmed?: boolean;
+  readonly idempotencyCached?: boolean;
+}
+
 export interface ISyncApi {
-  syncOutboxItem(item: OutboxItem): Promise<{ confirmedOrder: Order; syncedAt: string }>;
+  syncOutboxItem(item: OutboxItem): Promise<SyncCommandResponse>;
   ping(clientTimestamp?: number): Promise<{ serverTimestamp: string; roundTripLatencyMs: number; status: 'ok' | 'degraded' }>;
 }

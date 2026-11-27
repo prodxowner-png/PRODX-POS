@@ -8,6 +8,7 @@ import { Money, createMoney } from '../domain/money';
 import { createShiftApi } from '../adapters/productionShiftApiFactory';
 import { useAuth } from './AuthContext';
 import { useToast } from './ToastContext';
+import { OfflineContext } from './OfflineContext';
 import { getShiftScopeKey, isShiftStateKnownForScope } from '../services/shiftStatePolicy';
 import { notifyShiftStateChanged, subscribeShiftStateChanged } from '../services/shiftCrossTabSync';
 
@@ -32,6 +33,7 @@ export const ShiftProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const { session } = useAuth();
   const shiftApi = session ? createShiftApi(session.token) : null;
   const { addToast } = useToast();
+  const offlineContext = useContext(OfflineContext);
   const [currentShift, setCurrentShift] = useState<Shift | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [loadedShiftScopeKey, setLoadedShiftScopeKey] = useState<string | null>(null);
@@ -86,6 +88,19 @@ export const ShiftProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   useEffect(() => {
     void refreshShift();
   }, [refreshShift]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleShiftUpdated = () => {
+      setLoadedShiftScopeKey(null);
+      void refreshShift();
+      notifyShiftStateChanged(shiftScopeKey);
+    };
+    window.addEventListener('prodx:shift-updated', handleShiftUpdated);
+    return () => {
+      window.removeEventListener('prodx:shift-updated', handleShiftUpdated);
+    };
+  }, [refreshShift, shiftScopeKey]);
 
   useEffect(() => {
     if (!session) return;
@@ -178,6 +193,27 @@ export const ShiftProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (!currentShift || !session) return;
     try {
       const key = getIdempotencyKey('cash-movement', JSON.stringify([currentShift.id, type, amount.amountInCents, amount.currency, reason]));
+      if (offlineContext && !offlineContext.isOnline) {
+        if (type === 'cash_sale' || type === 'cash_refund' || type === 'opening_float') {
+          throw new Error('This cash movement type is server-generated and cannot be manually posted.');
+        }
+        await offlineContext.queueOutboxItem('shift_movement', key, {
+          idempotencyKey: key,
+          storeId: session.currentStore.id,
+          shiftId: currentShift.id,
+          type,
+          amount: { amountInCents: amount.amountInCents, currency: amount.currency },
+          reason: reason.trim(),
+          performedByUserId: session.currentUser.id,
+        });
+        clearIdempotencyKey('cash-movement');
+        addToast({
+          title: 'Cash Drawer Movement Queued Offline',
+          message: `${type.replace('_', ' ').toUpperCase()}: $${(amount.amountInCents / 100).toFixed(2)} saved to local outbox. Will sync when online.`,
+          type: 'warning',
+        });
+        return;
+      }
       await shiftApi!.recordCashMovement(
         currentShift.id,
         type,

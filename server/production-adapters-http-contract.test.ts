@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createProductionOrderTransactionApi } from '../src/adapters/productionOrderTransactionApi';
 import { createProductionRefundApi } from '../src/adapters/productionRefundApi';
-import { createProductionSyncApi } from '../src/adapters/productionSyncApi';
+import { createProductionSyncApi, SyncApiError } from '../src/adapters/productionSyncApi';
 import { createProductionAuditApi } from '../src/adapters/productionAuditApi';
 import { createProductionOrderReadApi } from '../src/adapters/productionOrderReadApi';
 import { createProductionInventoryAdjustmentApi } from '../src/adapters/productionInventoryAdjustmentApi';
@@ -43,7 +43,7 @@ test('production checkout adapter fails closed without token', async () => {
   assert.equal(calls.length, 0);
 });
 
-test('production sync adapter posts durable outbox command', async () => {
+test('production sync adapter posts durable outbox command for order_transaction, shift_movement, and stock_adjustment', async () => {
   const calls = mockFetch({ confirmedOrder: { id: 'ord-1', status: 'server_confirmed' }, syncedAt: '2026-10-05T15:00:00.000Z' });
   await createProductionSyncApi('token-sync', BASE_URL).syncOutboxItem({
     id: 'outbox-1', type: 'order_transaction', idempotencyKey: 'checkout-sync-1',
@@ -53,6 +53,84 @@ test('production sync adapter posts durable outbox command', async () => {
   assert.equal(calls[0].url, BASE_URL + '/api/v1/sync/commands');
   assert.equal((calls[0].init?.headers as Record<string, string>).Authorization, 'Bearer token-sync');
   assert.equal(JSON.parse(String(calls[0].init?.body)).item.idempotencyKey, 'checkout-sync-1');
+
+  const shiftCalls = mockFetch({
+    commandType: 'shift_movement',
+    confirmedEntityId: 'mov-1',
+    confirmedMovement: { id: 'mov-1', shiftId: 'shift-1', type: 'paid_in', amount: { amountInCents: 2500, currency: 'THB' }, reason: 'Float top-up', performedByUserId: 'user-1', timestamp: '2026-10-05T15:01:00.000Z' },
+    syncedAt: '2026-10-05T15:01:00.000Z',
+    serverConfirmed: true,
+    idempotencyCached: false,
+  });
+  const shiftResult = await createProductionSyncApi('token-sync', BASE_URL).syncOutboxItem({
+    id: 'outbox-shift-1', type: 'shift_movement', idempotencyKey: 'shift-sync-1',
+    payload: { idempotencyKey: 'shift-sync-1', shiftId: 'shift-1', type: 'paid_in', amount: { amountInCents: 2500, currency: 'THB' }, reason: 'Float top-up' },
+    createdAt: '2026-10-05T15:00:30.000Z', attempts: 1, syncState: 'queued',
+  });
+  assert.equal(shiftCalls[0].url, BASE_URL + '/api/v1/sync/commands');
+  assert.equal(shiftResult.commandType, 'shift_movement');
+  assert.equal(shiftResult.confirmedEntityId, 'mov-1');
+
+  const stockCalls = mockFetch({
+    commandType: 'stock_adjustment',
+    confirmedEntityId: 'adj-1',
+    confirmedAdjustment: { adjustmentId: 'adj-1', entries: [] },
+    syncedAt: '2026-10-05T15:02:00.000Z',
+    serverConfirmed: true,
+    idempotencyCached: false,
+  });
+  const stockResult = await createProductionSyncApi('token-sync', BASE_URL).syncOutboxItem({
+    id: 'outbox-stock-1', type: 'stock_adjustment', idempotencyKey: 'stock-sync-1',
+    payload: { idempotencyKey: 'stock-sync-1', productIds: ['prod-1'], quantityDelta: -2, reason: 'damaged_write_off' },
+    createdAt: '2026-10-05T15:01:30.000Z', attempts: 1, syncState: 'queued',
+  });
+  assert.equal(stockCalls[0].url, BASE_URL + '/api/v1/sync/commands');
+  assert.equal(stockResult.commandType, 'stock_adjustment');
+  assert.equal(stockResult.confirmedEntityId, 'adj-1');
+});
+
+test('production sync adapter throws typed SyncApiError with status, code, and retryability', async () => {
+  mockFetch({ error: { code: 'CHECKOUT_CONFLICT', message: 'Duplicate conflict', requestId: 'req-409' } }, 409);
+  await assert.rejects(
+    createProductionSyncApi('token-sync', BASE_URL).syncOutboxItem({
+      id: 'outbox-409', type: 'order_transaction', idempotencyKey: 'checkout-sync-409',
+      payload: {}, createdAt: '2026-10-05T14:59:00.000Z', attempts: 1, syncState: 'queued',
+    } as never),
+    (error: unknown) =>
+      error instanceof SyncApiError &&
+      error.status === 409 &&
+      error.code === 'CHECKOUT_CONFLICT' &&
+      error.requestId === 'req-409' &&
+      error.retryable === false,
+  );
+
+  mockFetch({ error: { code: 'INVENTORY_ADJUSTMENT_CONFLICT', message: 'Negative stock rejected', requestId: 'req-stock-409' } }, 409);
+  await assert.rejects(
+    createProductionSyncApi('token-sync', BASE_URL).syncOutboxItem({
+      id: 'outbox-stock-409', type: 'stock_adjustment', idempotencyKey: 'stock-sync-409',
+      payload: {}, createdAt: '2026-10-05T14:59:00.000Z', attempts: 1, syncState: 'queued',
+    } as never),
+    (error: unknown) =>
+      error instanceof SyncApiError &&
+      error.status === 409 &&
+      error.code === 'INVENTORY_ADJUSTMENT_CONFLICT' &&
+      error.requestId === 'req-stock-409' &&
+      error.retryable === false,
+  );
+
+  mockFetch({ error: { code: 'SERVICE_UNAVAILABLE', message: 'Upstream busy', requestId: 'req-503' } }, 503);
+  await assert.rejects(
+    createProductionSyncApi('token-sync', BASE_URL).syncOutboxItem({
+      id: 'outbox-503', type: 'order_transaction', idempotencyKey: 'checkout-sync-503',
+      payload: {}, createdAt: '2026-10-05T14:59:00.000Z', attempts: 1, syncState: 'queued',
+    } as never),
+    (error: unknown) =>
+      error instanceof SyncApiError &&
+      error.status === 503 &&
+      error.code === 'SERVICE_UNAVAILABLE' &&
+      error.requestId === 'req-503' &&
+      error.retryable === true,
+  );
 });
 
 test('production refund adapter requires supervisor authorization', async () => {
