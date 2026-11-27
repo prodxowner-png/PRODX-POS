@@ -23,6 +23,10 @@ class PreviewLocaleTests(unittest.TestCase):
     def test_explicit_rtl_locale_is_preserved(self):
         self.assertEqual(resolve_preview_locale("فارسی", lang="fa-IR"), ("fa-IR", "rtl"))
 
+    def test_explicit_rtl_script_subtag_controls_direction(self):
+        self.assertEqual(resolve_preview_locale("Azeri", lang="az-Arab"), ("az-Arab", "rtl"))
+        self.assertEqual(resolve_preview_locale("Azeri", lang="az-Latn"), ("az-Latn", "ltr"))
+
     def test_explicit_direction_overrides_locale_default(self):
         self.assertEqual(resolve_preview_locale("English", lang="en", direction="rtl"), ("en", "rtl"))
 
@@ -45,6 +49,7 @@ class PySideExampleTests(unittest.TestCase):
             "2": ("setThemeColor(ThemeColor.LIGHT_1)", 'widget.setStyleSheet("color: #3B82F6")'),
             "4": ("layout.setSpacing(16)", "layout = QVBoxLayout(); layout.addWidget(card)"),
             "11": ("QTimer.singleShot(200, self.on_ready)", "time.sleep(0.2)"),
+            "15": ("self.worker.progress.connect(self.on_progress, Qt.QueuedConnection)", "self.worker.progress.connect(self.on_progress)"),
             "28": ("btn.setAccessibleName('Close window')", "btn.setToolTip('Close window')"),
         }
         for number, (good, bad) in expected.items():
