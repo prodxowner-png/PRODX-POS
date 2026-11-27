@@ -156,7 +156,7 @@ export const registerSupervisorAuthorizationRoute = (app: Express, db: Transacti
           await tx.query(
             `SELECT public.prodx_record_security_audit_event($1, $2, $3, 'SUPERVISOR_AUTHORIZATION_REQUESTED', $4::jsonb)`,
             [crypto.randomUUID(), context.principal.organizationId, context.principal.userId,
-             JSON.stringify({ action: 'discount', idempotencyKey: checkout.idempotencyKey, payloadHash: checkoutAuthorizationFingerprint(checkout), thresholdBps: Number(policy.max_discount_without_approval_bps) })],
+             JSON.stringify({ action: 'discount', storeId: context.principal.storeId, idempotencyKey: checkout.idempotencyKey, payloadHash: checkoutAuthorizationFingerprint(checkout), thresholdBps: Number(policy.max_discount_without_approval_bps) })],
           );
           const result = await service.authorize({
             organizationId: context.principal.organizationId,

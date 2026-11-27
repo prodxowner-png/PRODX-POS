@@ -4,15 +4,12 @@ import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 import type { PoolClient } from 'pg';
 import { createPostgresPool } from '../db/postgres';
-import { assertDisposableTestDatabaseUrl } from '../db/test-database-guard';
+import { resolveDisposableTestDatabaseUrl } from '../db/test-database-guard';
 import { hashPassword } from './password';
 import type { SqlExecutor } from './postgres-repository';
 import { createSupervisorAuthorizationService, SupervisorAuthorizationError } from './supervisor-authorization';
 
-const configuredDatabaseUrl = process.env.DATABASE_URL?.trim();
-const databaseUrl = configuredDatabaseUrl
-  ? assertDisposableTestDatabaseUrl(configuredDatabaseUrl, 'server/auth/supervisor-authorization-prodx-app.integration.test.ts')
-  : null;
+const databaseUrl = resolveDisposableTestDatabaseUrl(process.env.DATABASE_URL, 'server/auth/supervisor-authorization-prodx-app.integration.test.ts');
 const pool = databaseUrl ? createPostgresPool({ connectionString: databaseUrl, max: 2 }) : null;
 
 const SECRET = 'Supervisor-Step-Up-Secret!47';
@@ -85,6 +82,36 @@ test('supervisor authorization works end-to-end under the real prodx_app runtime
 
   await client.query('BEGIN');
   try {
+    // API roles must never execute these SECURITY DEFINER functions directly.
+    // The server runtime retains only the three narrow, tenant-scoped RPCs.
+    const functionPrivileges = await client.query<{
+      signature: string;
+      anon: boolean;
+      authenticated: boolean;
+      service_role: boolean;
+      prodx_app: boolean;
+    }>(`WITH expected(signature, app_expected) AS (VALUES
+        ('public.prodx_seed_discount_policy_for_store()'::regprocedure, FALSE),
+        ('public.prodx_auth_find_supervisor_by_supabase_subject(uuid,uuid,uuid)'::regprocedure, TRUE),
+        ('public.prodx_auth_find_supervisor_credential(uuid,uuid,text)'::regprocedure, TRUE),
+        ('public.prodx_record_security_audit_event(uuid,uuid,uuid,text,jsonb)'::regprocedure, TRUE)
+      )
+      SELECT signature::text,
+             CASE WHEN EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon')
+               THEN has_function_privilege('anon', signature, 'EXECUTE') ELSE FALSE END AS anon,
+             CASE WHEN EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated')
+               THEN has_function_privilege('authenticated', signature, 'EXECUTE') ELSE FALSE END AS authenticated,
+             CASE WHEN EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role')
+               THEN has_function_privilege('service_role', signature, 'EXECUTE') ELSE FALSE END AS service_role,
+             has_function_privilege('prodx_app', signature, 'EXECUTE') AS prodx_app
+        FROM expected ORDER BY signature::text`);
+    assert.deepEqual(functionPrivileges.rows, [
+      { signature: 'prodx_auth_find_supervisor_by_supabase_subject(uuid,uuid,uuid)', anon: false, authenticated: false, service_role: false, prodx_app: true },
+      { signature: 'prodx_auth_find_supervisor_credential(uuid,uuid,text)', anon: false, authenticated: false, service_role: false, prodx_app: true },
+      { signature: 'prodx_record_security_audit_event(uuid,uuid,uuid,text,jsonb)', anon: false, authenticated: false, service_role: false, prodx_app: true },
+      { signature: 'prodx_seed_discount_policy_for_store()', anon: false, authenticated: false, service_role: false, prodx_app: false },
+    ]);
+
     // Fixtures are seeded by the migration owner, then every assertion below
     // executes as prodx_app with RLS and table grants fully in force.
     await client.query(`INSERT INTO public.prodx_organizations (id, code, name) VALUES ($1, $2, 'Supervisor RPC Org'), ($3, $4, 'Supervisor RPC Other Org')`,
@@ -345,6 +372,7 @@ test('supervisor authorization works end-to-end under the real prodx_app runtime
       `SELECT public.prodx_record_security_audit_event($1, $2, $3, 'SUPERVISOR_AUTHORIZATION_REQUESTED', $4::jsonb)`,
       [randomUUID(), ids.org, ids.requester, JSON.stringify({
         action: 'discount',
+        storeId: ids.store,
         idempotencyKey: `sup-rpc-request-${suffix}`,
         payloadHash: 'b'.repeat(64),
         thresholdBps: 1500,
@@ -527,7 +555,7 @@ test('supervisor authorization works end-to-end under the real prodx_app runtime
       GRANT EXECUTE ON FUNCTION public.prodx_supervisor_reset_failed_attempts(uuid, uuid, uuid, text) TO PUBLIC, anon, authenticated, service_role, prodx_app;
     `);
     const hardeningMigration = readFileSync(
-      new URL('../../db/migrations/0059_security_harden_discount_authorization_rpcs.sql', import.meta.url),
+      new URL('../../db/migrations/0062_security_harden_discount_authorization_rpcs.sql', import.meta.url),
       'utf8',
     );
     await client.query(hardeningMigration);

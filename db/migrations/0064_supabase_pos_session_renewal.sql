@@ -112,5 +112,5 @@ $privileges$;
 GRANT EXECUTE ON FUNCTION public.prodx_auth_renew_supabase_session(uuid, text, uuid, timestamptz) TO prodx_app;
 
 INSERT INTO public.prodx_schema_migrations(version)
-VALUES ('0061_supabase_pos_session_renewal')
+VALUES ('0064_supabase_pos_session_renewal')
 ON CONFLICT (version) DO NOTHING;

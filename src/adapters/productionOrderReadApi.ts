@@ -15,18 +15,22 @@ const requireToken = (token: string): string => {
 };
 
 export interface IProductionOrderReadApi {
-  getOrders(storeId: string, limit?: number, registerId?: string): Promise<readonly Order[]>;
+  getOrders(storeId: string, limit?: number, registerId?: string, options?: { from?: string; to?: string; offset?: number }): Promise<readonly Order[]>;
 }
 
 export function createProductionOrderReadApi(token: string, baseUrl?: string): IProductionOrderReadApi {
   return {
-    async getOrders(storeId, limit = 50, registerId?: string) {
+    async getOrders(storeId, limit = 50, registerId?: string, options: { from?: string; to?: string; offset?: number } = {}) {
       const normalizedToken = requireToken(token);
       const host = requireBaseUrl(baseUrl);
-      let url = `${host}/api/v1/orders?storeId=${encodeURIComponent(storeId)}&limit=${encodeURIComponent(String(limit))}`;
+      // Tenant and store scope are derived from the verified server principal, never from query parameters.
+      let url = `${host}/api/v1/orders?limit=${encodeURIComponent(String(limit))}`;
       if (registerId && registerId.trim()) {
         url += `&registerId=${encodeURIComponent(registerId.trim())}`;
       }
+      if (options.from) url += `&from=${encodeURIComponent(options.from)}`;
+      if (options.to) url += `&to=${encodeURIComponent(options.to)}`;
+      if (options.offset !== undefined) url += `&offset=${encodeURIComponent(String(options.offset))}`;
       const response = await fetch(url, {
         credentials: 'include',
         headers: { Accept: 'application/json', Authorization: `Bearer ${normalizedToken}` },

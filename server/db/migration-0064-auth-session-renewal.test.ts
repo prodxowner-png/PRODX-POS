@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 const migration = readFileSync(
-  new URL('../../db/migrations/0061_supabase_pos_session_renewal.sql', import.meta.url),
+  new URL('../../db/migrations/0064_supabase_pos_session_renewal.sql', import.meta.url),
   'utf8',
 );
 
@@ -45,5 +45,5 @@ test('Supabase POS renewal RPC is executable only by the backend runtime role', 
   assert.ok(migration.includes("'authenticated'"));
   assert.ok(migration.includes("'service_role'"));
   assert.match(migration, /GRANT EXECUTE ON FUNCTION public\.prodx_auth_renew_supabase_session[\s\S]*?TO prodx_app/);
-  assert.match(migration, /0061_supabase_pos_session_renewal/);
+  assert.match(migration, /0064_supabase_pos_session_renewal/);
 });

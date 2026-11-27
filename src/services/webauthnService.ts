@@ -28,7 +28,7 @@ export interface WebAuthnAssertionPayload {
 export interface WebAuthnVerificationResult {
   verified: boolean; credential?: PasskeyCredentialRecord; challengeId?: string; signCount?: number;
   userPresent?: boolean; userVerified?: boolean; origin?: string; rpId?: string;
-  authMethod?: 'hardware_biometric' | 'virtual_passkey'; error?: string;
+  authMethod?: 'hardware_biometric' | 'virtual_passkey' | 'passkey'; error?: string;
 }
 const DISABLED_MESSAGE = 'Passkey authentication is unavailable until server-side WebAuthn verification is configured.';
 
@@ -51,13 +51,8 @@ export function base64URLToString(value: string): string {
   return new TextDecoder().decode(base64URLToBuffer(value));
 }
 export function detectBiometricLabel(): { type: PasskeyCredentialRecord['authenticatorType']; label: string } {
-  if (typeof navigator === 'undefined') return { type: 'security_key', label: 'Platform authenticator' };
-  const ua = navigator.userAgent.toLowerCase(); const platform = navigator.platform?.toLowerCase() || '';
-  if (/iphone|ipad|ipod/.test(ua)) return { type: 'face_id', label: 'Face ID / Touch ID' };
-  if (/macintosh|mac os x/.test(ua) || platform.includes('mac')) return { type: 'touch_id', label: 'Mac Touch ID' };
-  if (/windows/.test(ua) || platform.includes('win')) return { type: 'windows_hello', label: 'Windows Hello' };
-  if (/android/.test(ua)) return { type: 'android_biometric', label: 'Android biometric' };
-  return { type: 'security_key', label: 'Platform or external authenticator' };
+  // User-agent strings cannot prove which authenticator or verification method is used.
+  return { type: 'security_key', label: 'Passkey authenticator' };
 }
 export async function checkWebAuthnCapability(): Promise<WebAuthnCapability> {
   const isSupported = typeof window !== 'undefined' && window.isSecureContext &&
@@ -73,7 +68,7 @@ export async function checkWebAuthnCapability(): Promise<WebAuthnCapability> {
   }
   const { label } = detectBiometricLabel();
   return { isSupported, hasPlatformAuthenticator, isConditionalMediationAvailable, biometricLabel: label,
-    platformSummary: isSupported ? `${label} detected; server verification disabled` : 'WebAuthn unavailable; server verification disabled' };
+    platformSummary: isSupported ? `${label} detected` : 'WebAuthn unavailable' };
 }
 export function getRegisteredPasskeys(): PasskeyCredentialRecord[] { return []; }
 export function saveRegisteredPasskeys(_keys: PasskeyCredentialRecord[]): void { /* server-owned registry required */ }

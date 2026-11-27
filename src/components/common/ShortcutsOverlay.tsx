@@ -339,7 +339,7 @@ export const ShortcutsOverlay: React.FC<ShortcutsOverlayProps> = ({
                 >
                   {language === 'th' ? 'ทางลัดคีย์บอร์ดทั้งหมด' : 'Keyboard Shortcuts'}
                 </h2>
-                <span className="hidden sm:inline-flex items-center px-1.5 py-0.5 rounded-lg text-[10px] font-mono font-bold bg-primary/10 text-primary border border-primary/25 border-crisp">
+                <span className="hidden sm:inline-flex items-center px-1.5 py-0.5 rounded-lg text-[10px] font-mono tabular-nums font-bold bg-primary/10 text-primary border border-primary/25 border-crisp">
                   F9
                 </span>
               </div>
@@ -352,7 +352,7 @@ export const ShortcutsOverlay: React.FC<ShortcutsOverlayProps> = ({
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            <div className="hidden sm:flex items-center gap-1 text-[10px] text-text/50 font-mono">
+            <div className="hidden sm:flex items-center gap-1 text-[10px] text-brand-text-secondary font-mono tabular-nums">
               <span>{language === 'th' ? 'กด' : 'Press'}</span>
               <kbd className="px-1.5 py-0.5 rounded-lg bg-background border border-border border-crisp font-semibold">
                 ESC
@@ -361,7 +361,7 @@ export const ShortcutsOverlay: React.FC<ShortcutsOverlayProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="p-1.5 rounded-lg text-text/50 hover:text-text hover:bg-background border border-transparent hover:border-border hover:border-crisp transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary"
+              className="p-1.5 rounded-lg text-brand-text-secondary hover:text-text hover:bg-background border border-transparent hover:border-border hover:border-crisp transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary"
               aria-label="Close shortcuts overlay"
             >
               <X className="w-4 h-4" />
@@ -373,7 +373,7 @@ export const ShortcutsOverlay: React.FC<ShortcutsOverlayProps> = ({
         <div className="px-5 py-3 border-b border-border border-crisp bg-background/50 shrink-0 space-y-2.5">
           {/* Search Input */}
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text/40" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-text-secondary" />
             <input
               type="text"
               value={searchQuery}
@@ -383,13 +383,13 @@ export const ShortcutsOverlay: React.FC<ShortcutsOverlayProps> = ({
                   ? 'ค้นหาทางลัด (เช่น F1, คลังสินค้า, ESC, Enter)...'
                   : 'Search shortcuts (e.g., F1, Inventory, ESC, Enter)...'
               }
-              className="w-full h-9 pl-9 pr-8 rounded-lg bg-card text-text border border-border border-crisp text-xs placeholder:text-text/40 focus:outline-none focus:ring-2 focus:ring-primary transition-all"
+              className="w-full h-9 pl-9 pr-8 rounded-lg bg-card text-text border border-border border-crisp text-xs placeholder:text-brand-text-secondary focus:outline-none focus:ring-2 focus:ring-primary transition-all"
             />
             {searchQuery && (
               <button
                 type="button"
                 onClick={() => setSearchQuery('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text/40 hover:text-text p-0.5 cursor-pointer"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-brand-text-secondary hover:text-text p-0.5 cursor-pointer"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -413,7 +413,7 @@ export const ShortcutsOverlay: React.FC<ShortcutsOverlayProps> = ({
                   onClick={() => setSelectedCategory(cat.id as any)}
                   className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer border border-crisp ${
                     isSelected
-                      ? 'bg-primary text-white border-primary shadow-2xs'
+                      ? 'bg-primary text-primary-foreground border-primary shadow-2xs'
                       : 'bg-card text-text/70 hover:text-text hover:bg-background border-border'
                   }`}
                 >
@@ -433,7 +433,7 @@ export const ShortcutsOverlay: React.FC<ShortcutsOverlayProps> = ({
               <span>
                 {language === 'th' ? 'ตรวจพบคีย์จริง:' : 'Hardware Key Detected:'}
               </span>
-              <kbd className="px-2 py-0.5 rounded-lg bg-primary text-white font-mono text-[11px] font-bold shadow-2xs">
+              <kbd className="px-2 py-0.5 rounded-lg bg-primary text-primary-foreground font-mono tabular-nums text-[11px] font-bold shadow-2xs">
                 {lastDetectedKey}
               </kbd>
             </div>
@@ -447,7 +447,7 @@ export const ShortcutsOverlay: React.FC<ShortcutsOverlayProps> = ({
         <div className="px-5 py-4 overflow-y-auto flex-1 space-y-2.5 bg-card">
           {filteredShortcuts.length === 0 ? (
             <div className="py-12 text-center space-y-2 text-text/60">
-              <Keyboard className="w-8 h-8 mx-auto text-text/30" />
+              <Keyboard className="w-8 h-8 mx-auto text-brand-text-secondary" />
               <p className="text-xs font-semibold">
                 {language === 'th' ? 'ไม่พบทางลัดที่ตรงกับการค้นหา' : 'No keyboard shortcuts match your search'}
               </p>
@@ -490,16 +490,16 @@ export const ShortcutsOverlay: React.FC<ShortcutsOverlayProps> = ({
                       {item.keyDisplay.map((k, idx) => (
                         <React.Fragment key={idx}>
                           <kbd
-                            className={`min-w-7 h-7 px-2 flex items-center justify-center font-mono text-xs font-bold rounded-lg border border-crisp transition-colors shadow-2xs ${
+                            className={`min-w-7 h-7 px-2 flex items-center justify-center font-mono tabular-nums text-xs font-bold rounded-lg border border-crisp transition-colors shadow-2xs ${
                               isHighlighted
-                                ? 'bg-primary border-primary text-white'
+                                ? 'bg-primary border-primary text-primary-foreground'
                                 : 'bg-card border-border text-text'
                             }`}
                           >
                             {k}
                           </kbd>
                           {idx < item.keyDisplay.length - 1 && (
-                            <span className="text-[11px] font-bold text-text/40">+</span>
+                            <span className="text-[11px] font-bold text-brand-text-secondary">+</span>
                           )}
                         </React.Fragment>
                       ))}
@@ -512,7 +512,7 @@ export const ShortcutsOverlay: React.FC<ShortcutsOverlayProps> = ({
                           {language === 'th' ? item.labelTh : item.labelEn}
                         </div>
                         {canNavigate && (
-                          <ArrowRight className="w-3 h-3 text-text/40 group-hover:text-primary transition-colors shrink-0" />
+                          <ArrowRight className="w-3 h-3 text-brand-text-secondary group-hover:text-primary transition-colors shrink-0" />
                         )}
                       </div>
                       <p className="text-[11px] text-text/60 line-clamp-2 mt-0.5 leading-snug">

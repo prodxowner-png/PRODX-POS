@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import test from 'node:test';
 import { hashPassword } from './auth/password';
-import { assertDisposableTestDatabaseUrl } from './db/test-database-guard';
+import { resolveDisposableTestDatabaseUrl } from './db/test-database-guard';
 import { createProductionApp } from './entrypoint';
 
-const databaseUrl = process.env.DATABASE_URL?.trim();
+const databaseUrl = resolveDisposableTestDatabaseUrl(process.env.DATABASE_URL, 'server/phase4-verification-audit.integration.test.ts');
 
 const ids = {
   org: crypto.randomUUID(),

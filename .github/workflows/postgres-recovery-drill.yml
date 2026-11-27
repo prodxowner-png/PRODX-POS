@@ -52,96 +52,168 @@ jobs:
           done
 
       - name: Dump source database
+        id: dump
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p artifacts
+          dump_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          dump_start_ms="$(date +%s%3N)"
           pg_dump "${SOURCE_DATABASE_URL}" \
             --format=custom \
             --no-owner \
             --no-acl \
             --file artifacts/prodx-production.dump
           test -s artifacts/prodx-production.dump
+          dump_end_ms="$(date +%s%3N)"
+          dump_finished_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          dump_duration_ms="$((dump_end_ms - dump_start_ms))"
+          dump_bytes="$(wc -c < artifacts/prodx-production.dump | tr -d '[:space:]')"
+          {
+            echo "started_at=${dump_started_at}"
+            echo "finished_at=${dump_finished_at}"
+            echo "duration_ms=${dump_duration_ms}"
+            echo "bytes=${dump_bytes}"
+          } >> "${GITHUB_OUTPUT}"
 
       - name: Restore into ephemeral PostgreSQL
+        id: restore
         shell: bash
         run: |
           set -euo pipefail
-          pg_restore "${TARGET_DATABASE_URL}" \
+          restore_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          restore_start_ms="$(date +%s%3N)"
+          pg_restore \
+            --dbname="${TARGET_DATABASE_URL}" \
             --clean \
             --if-exists \
             --no-owner \
             --no-acl \
             --exit-on-error \
             artifacts/prodx-production.dump
+          restore_end_ms="$(date +%s%3N)"
+          restore_finished_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          restore_duration_ms="$((restore_end_ms - restore_start_ms))"
+          {
+            echo "started_at=${restore_started_at}"
+            echo "finished_at=${restore_finished_at}"
+            echo "duration_ms=${restore_duration_ms}"
+          } >> "${GITHUB_OUTPUT}"
 
-      - name: Verify restored schema, migration state, RLS, and append-only triggers
+      - name: Verify restored schema, migration state, RLS, FORCE RLS, and append-only triggers
+        shell: bash
+        env:
+          DUMP_STARTED_AT: ${{ steps.dump.outputs.started_at }}
+          DUMP_FINISHED_AT: ${{ steps.dump.outputs.finished_at }}
+          DUMP_DURATION_MS: ${{ steps.dump.outputs.duration_ms }}
+          DUMP_BYTES: ${{ steps.dump.outputs.bytes }}
+          RESTORE_STARTED_AT: ${{ steps.restore.outputs.started_at }}
+          RESTORE_FINISHED_AT: ${{ steps.restore.outputs.finished_at }}
+          RESTORE_DURATION_MS: ${{ steps.restore.outputs.duration_ms }}
+        run: |
+          set -euo pipefail
+          public_table_count="$(psql "${TARGET_DATABASE_URL}" --tuples-only --no-align --set ON_ERROR_STOP=1 \
+            --command "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public';")"
+          migration_count="$(psql "${TARGET_DATABASE_URL}" --tuples-only --no-align --set ON_ERROR_STOP=1 \
+            --command "SELECT count(*) FROM public.prodx_schema_migrations;")"
+          has_0062="$(psql "${TARGET_DATABASE_URL}" --tuples-only --no-align --set ON_ERROR_STOP=1 \
+            --command "SELECT count(*) FROM public.prodx_schema_migrations WHERE version = '0062_payment_webhook_inbox_and_discount_force_rls';")"
+          webhook_table_exists="$(psql "${TARGET_DATABASE_URL}" --tuples-only --no-align --set ON_ERROR_STOP=1 \
+            --command "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'prodx_payment_webhook_events';")"
+          if [[ "${has_0062}" -ne "${webhook_table_exists}" ]]; then
+            echo "Migration 0062 ledger state and prodx_payment_webhook_events table presence do not match." >&2
+            exit 1
+          fi
+
+          base_rls_table_names="'prodx_organizations','prodx_stores','prodx_users','prodx_user_credentials','prodx_roles','prodx_role_permissions','prodx_store_memberships','prodx_user_roles','prodx_devices','prodx_sessions','prodx_security_audit_events','prodx_categories','prodx_products','prodx_registers','prodx_shifts','prodx_orders','prodx_order_items','prodx_payments','prodx_inventory_ledger','prodx_cash_movements','prodx_audit_log','prodx_refunds','prodx_refund_items','prodx_payment_attempts','prodx_supervisor_authorizations','prodx_shift_operations','prodx_voids','prodx_inventory_adjustments','prodx_timeclock_credentials','prodx_timeclock_records','prodx_timeclock_operations','prodx_timeclock_auth_attempts','prodx_catalog_pricing_operations','prodx_catalog_import_operations','prodx_tasks','prodx_discount_policies'"
+          rls_table_names="${base_rls_table_names}"
+          force_rls_table_names="'prodx_discount_policies'"
+          immutable_trigger_values="('prodx_audit_log_immutable_guard','prodx_audit_log'),('prodx_security_audit_events_immutable_guard','prodx_security_audit_events'),('prodx_refund_immutable_guard','prodx_refunds'),('prodx_void_immutable_guard','prodx_voids')"
+          rls_expected_count=36
+          force_rls_expected_count=1
+          immutable_trigger_expected_count=4
+          if [[ "${has_0062}" -eq 1 ]]; then
+            rls_table_names="${rls_table_names},'prodx_payment_webhook_events'"
+            force_rls_table_names="${force_rls_table_names},'prodx_payment_webhook_events'"
+            immutable_trigger_values="${immutable_trigger_values},('prodx_payment_webhook_events_no_delete_guard','prodx_payment_webhook_events')"
+            rls_expected_count=37
+            force_rls_expected_count=2
+            immutable_trigger_expected_count=5
+          fi
+
+          rls_enabled_count="$(psql "${TARGET_DATABASE_URL}" --tuples-only --no-align --set ON_ERROR_STOP=1 \
+            --command "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname IN (${rls_table_names}) AND c.relrowsecurity IS TRUE;")"
+          force_rls_enabled_count="$(psql "${TARGET_DATABASE_URL}" --tuples-only --no-align --set ON_ERROR_STOP=1 \
+            --command "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname IN (${force_rls_table_names}) AND c.relforcerowsecurity IS TRUE;")"
+          immutable_trigger_count="$(psql "${TARGET_DATABASE_URL}" --tuples-only --no-align --set ON_ERROR_STOP=1 \
+            --command "SELECT count(*) FROM (VALUES ${immutable_trigger_values}) AS expected(tgname, relname) WHERE EXISTS (SELECT 1 FROM pg_trigger t JOIN pg_class rel ON rel.oid = t.tgrelid JOIN pg_namespace n ON n.oid = rel.relnamespace WHERE n.nspname = 'public' AND t.tgname = expected.tgname AND rel.relname = expected.relname AND NOT t.tgisinternal AND t.tgenabled IN ('O', 'A'));")"
+          unprotected_prodx_table_count="$(psql "${TARGET_DATABASE_URL}" --tuples-only --no-align --set ON_ERROR_STOP=1 \
+            --command "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p') AND left(c.relname, 6) = 'prodx_' AND NOT c.relrowsecurity;")"
+
+          if [[ "${migration_count}" -lt 40 ]]; then
+            echo "Expected at least 40 applied migrations in prodx_schema_migrations after restore, found ${migration_count}." >&2
+            exit 1
+          fi
+          if [[ "${rls_enabled_count}" -ne "${rls_expected_count}" ]]; then
+            echo "Expected ${rls_expected_count} migration-backed tenant-sensitive tables with RLS enabled, found ${rls_enabled_count}." >&2
+            exit 1
+          fi
+          if [[ "${unprotected_prodx_table_count}" -ne 0 ]]; then
+            echo "Expected RLS enabled on every public.prodx_* table after restore (unprotected: ${unprotected_prodx_table_count})." >&2
+            exit 1
+          fi
+          if [[ "${force_rls_enabled_count}" -ne "${force_rls_expected_count}" ]]; then
+            echo "Expected FORCE ROW LEVEL SECURITY on ${force_rls_expected_count} migration-backed tables, found ${force_rls_enabled_count}." >&2
+            exit 1
+          fi
+          if [[ "${immutable_trigger_count}" -ne "${immutable_trigger_expected_count}" ]]; then
+            echo "Expected ${immutable_trigger_expected_count} immutable triggers on their designated tables, found ${immutable_trigger_count}." >&2
+            exit 1
+          fi
+
+          cat > artifacts/recovery-drill-report.json <<EOF
+          {
+            "status": "PASS",
+            "verifiedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "workflowRunId": "${GITHUB_RUN_ID:-local}",
+            "commitSha": "${GITHUB_SHA:-unknown}",
+            "dump": {
+              "startedAt": "${DUMP_STARTED_AT}",
+              "finishedAt": "${DUMP_FINISHED_AT}",
+              "durationMs": ${DUMP_DURATION_MS},
+              "bytes": ${DUMP_BYTES}
+            },
+            "restore": {
+              "startedAt": "${RESTORE_STARTED_AT}",
+              "finishedAt": "${RESTORE_FINISHED_AT}",
+              "durationMs": ${RESTORE_DURATION_MS}
+            },
+            "verification": {
+              "publicTableCount": ${public_table_count},
+              "migrationCount": ${migration_count},
+              "rlsEnabledCoreTableCount": ${rls_enabled_count},
+              "rlsExpectedCoreTableCount": ${rls_expected_count},
+              "unprotectedProdxTableCount": 0,
+              "forceRlsEnabledTableCount": ${force_rls_enabled_count},
+              "forceRlsExpectedTableCount": ${force_rls_expected_count},
+              "immutableTriggerCount": ${immutable_trigger_count},
+              "immutableTriggerExpectedCount": ${immutable_trigger_expected_count}
+            }
+          }
+          EOF
+
+      - name: Delete local database dump artifact
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
-          psql "${TARGET_DATABASE_URL}" \
-            --set ON_ERROR_STOP=1 \
-            --command "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public';"
-          psql "${TARGET_DATABASE_URL}" \
-            --set ON_ERROR_STOP=1 \
-            --command "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'prodx_schema_migrations';"
-          psql "${TARGET_DATABASE_URL}" \
-            --set ON_ERROR_STOP=1 <<'SQL'
-          DO $$
-          DECLARE
-            migration_count int;
-            missing_rls_count int;
-            missing_trigger_count int;
-          BEGIN
-            SELECT count(*) INTO migration_count FROM public.prodx_schema_migrations;
-            IF migration_count < 40 THEN
-              RAISE EXCEPTION 'Expected at least 40 applied migrations in prodx_schema_migrations after restore, found %', migration_count;
-            END IF;
+          rm -f artifacts/prodx-production.dump
 
-            SELECT count(*) INTO missing_rls_count
-              FROM pg_class c
-              JOIN pg_namespace n ON n.oid = c.relnamespace
-             WHERE n.nspname = 'public'
-               AND c.relname IN (
-                 'prodx_orders',
-                 'prodx_order_items',
-                 'prodx_payments',
-                 'prodx_refunds',
-                 'prodx_voids',
-                 'prodx_shifts',
-                 'prodx_cash_movements',
-                 'prodx_inventory_ledger',
-                 'prodx_audit_log',
-                 'prodx_security_audit_events'
-               )
-               AND c.relrowsecurity IS DISTINCT FROM true;
-            IF missing_rls_count > 0 THEN
-              RAISE EXCEPTION 'Expected RLS enabled on all core tenant and audit tables after restore (missing: %)', missing_rls_count;
-            END IF;
-
-            SELECT count(*) INTO missing_trigger_count
-              FROM (
-                VALUES
-                  ('prodx_audit_log_immutable_guard'),
-                  ('prodx_security_audit_events_immutable_guard')
-              ) AS expected(tgname)
-             WHERE NOT EXISTS (
-               SELECT 1
-                 FROM pg_trigger t
-                WHERE t.tgname = expected.tgname
-                  AND NOT t.tgisinternal
-                  AND t.tgenabled = 'O'
-             );
-            IF missing_trigger_count > 0 THEN
-              RAISE EXCEPTION 'Expected append-only audit triggers enabled after restore (missing: %)', missing_trigger_count;
-            END IF;
-          END
-          $$;
-          SQL
-
-      - name: Upload restore artifact metadata
+      - name: Upload sanitized restore verification report
+        if: success()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: prodx-postgres-restore-drill
-          path: artifacts/prodx-production.dump
-          retention-days: 7
+          name: prodx-postgres-restore-drill-report
+          path: artifacts/recovery-drill-report.json
+          if-no-files-found: error
+          retention-days: 30

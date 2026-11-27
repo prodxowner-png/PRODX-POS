@@ -2,16 +2,13 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 import { createPostgresPool, asSqlExecutor } from '../db/postgres';
-import { assertDisposableTestDatabaseUrl } from '../db/test-database-guard';
+import { resolveDisposableTestDatabaseUrl } from '../db/test-database-guard';
 import { createPostgresAuthentication } from './composition';
 import { createPostgresAuthenticationRepository } from './postgres-repository';
 import { hashPassword } from './password';
 import { hashSessionToken } from './session';
 
-const configuredDatabaseUrl = process.env.DATABASE_URL?.trim();
-const databaseUrl = configuredDatabaseUrl
-  ? assertDisposableTestDatabaseUrl(configuredDatabaseUrl, 'server/auth/postgres.integration.test.ts')
-  : null;
+const databaseUrl = resolveDisposableTestDatabaseUrl(process.env.DATABASE_URL, 'server/auth/postgres.integration.test.ts');
 
 const ids = {
   organizationA: randomUUID(),

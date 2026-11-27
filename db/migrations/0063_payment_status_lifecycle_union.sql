@@ -18,5 +18,5 @@ ALTER TABLE prodx_payments
   ));
 
 INSERT INTO prodx_schema_migrations(version)
-VALUES ('0060_payment_status_lifecycle_union')
+VALUES ('0063_payment_status_lifecycle_union')
 ON CONFLICT (version) DO NOTHING;
