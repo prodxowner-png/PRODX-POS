@@ -81,9 +81,14 @@ jobs:
         DATABASE_URL=postgresql://prodx:prodx@127.0.0.1:5432/prodx_migration_runner_test bun run db:migrate
         psql postgresql://prodx:prodx@127.0.0.1:5432/prodx_migration_runner_test -v ON_ERROR_STOP=1 -Atc "
           SELECT CASE
-            WHEN count(*) = 61
+            WHEN count(*) = 62
              AND (SELECT count(*) FROM prodx_schema_migrations WHERE version LIKE '004%') = 9
              AND (SELECT count(*) FROM prodx_schema_migrations WHERE version LIKE '005%') = 10
+             AND (SELECT count(*) FROM prodx_schema_migrations WHERE version = '0061_security_revoke_runtime_trigger_function') = 1
+             AND (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+                  WHERE n.nspname = 'public'
+                    AND p.proname = 'prodx_seed_discount_policy_for_store'
+                    AND NOT has_function_privilege('prodx_app', p.oid, 'EXECUTE')) = 1
              AND (SELECT count(*) FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
                   JOIN pg_namespace n ON n.oid = c.relnamespace
                   WHERE n.nspname = 'public'
