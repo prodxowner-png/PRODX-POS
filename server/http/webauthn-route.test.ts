@@ -13,6 +13,7 @@ const withServer = async (work: (baseUrl: string) => Promise<void>) => {
     authenticateCredentials: async () => null,
     authenticateSupabaseToken: async () => null,
     authenticateBearer: async () => null,
+    renewSupabaseSession: async () => null,
     revokeBearer: async () => false,
   } as SessionIssuer;
   registerWebAuthnRoutes(app, db, sessions);
