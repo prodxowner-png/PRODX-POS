@@ -24,7 +24,7 @@ export const DashboardQuickActions: React.FC<DashboardQuickActionsProps> = ({
   const { session } = useAuth();
 
   return (
-    <Card id="dashboard-quick-actions-card" className="w-full lg:w-1/2 flex flex-col justify-between shadow-2xs">
+    <Card id="dashboard-quick-actions-card" className="w-full flex flex-col justify-between shadow-2xs">
       <CardHeader>
         <div className="flex items-center justify-between w-full">
           <h3 className="text-sm sm:text-base font-bold text-text flex items-center gap-2">
@@ -38,13 +38,13 @@ export const DashboardQuickActions: React.FC<DashboardQuickActionsProps> = ({
       </CardHeader>
 
       <CardBody className="p-3 sm:p-4 space-y-2 sm:space-y-2.5 flex-1 flex flex-col justify-between">
-        <div className="space-y-2">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
           {/* Action 1: POS Screen */}
           <button
             type="button"
             id="quick-action-pos"
             onClick={() => onNavigate('pos')}
-            className="w-full p-3 rounded-lg border-border border-crisp hover:border-primary/40 bg-background hover:bg-card flex items-center justify-between text-left transition-all cursor-pointer group shadow-2xs"
+            className="w-full p-3 rounded-lg border-border border-crisp hover:border-primary/40 bg-background hover:bg-card flex items-center justify-between text-left transition-all cursor-pointer group shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta"
           >
             <div className="flex items-center gap-3 min-w-0">
               <div className="h-10 w-10 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
@@ -59,7 +59,7 @@ export const DashboardQuickActions: React.FC<DashboardQuickActionsProps> = ({
                 </div>
               </div>
             </div>
-            <ArrowUpRight className="h-4 w-4 text-text/40 group-hover:text-primary shrink-0" />
+            <ArrowUpRight className="h-4 w-4 text-brand-text-secondary group-hover:text-primary shrink-0" />
           </button>
 
           {/* Action 2: Shift Drawer */}
@@ -67,7 +67,7 @@ export const DashboardQuickActions: React.FC<DashboardQuickActionsProps> = ({
             type="button"
             id="quick-action-shift"
             onClick={() => onNavigate('shift')}
-            className="w-full p-3 rounded-lg border-border border-crisp hover:border-emerald-500/40 bg-background hover:bg-card flex items-center justify-between text-left transition-all cursor-pointer group shadow-2xs"
+            className="w-full p-3 rounded-lg border-border border-crisp hover:border-emerald-500/40 bg-background hover:bg-card flex items-center justify-between text-left transition-all cursor-pointer group shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta"
           >
             <div className="flex items-center gap-3 min-w-0">
               <div className="h-10 w-10 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
@@ -82,7 +82,7 @@ export const DashboardQuickActions: React.FC<DashboardQuickActionsProps> = ({
                 </div>
               </div>
             </div>
-            <ArrowUpRight className="h-4 w-4 text-text/40 group-hover:text-emerald-600 shrink-0" />
+            <ArrowUpRight className="h-4 w-4 text-brand-text-secondary group-hover:text-emerald-600 shrink-0" />
           </button>
 
           {/* Action 3: Inventory Stock */}
@@ -90,14 +90,14 @@ export const DashboardQuickActions: React.FC<DashboardQuickActionsProps> = ({
             type="button"
             id="quick-action-inventory"
             onClick={() => onNavigate('inventory')}
-            className="w-full p-3 rounded-lg border-border border-crisp hover:border-purple-500/40 bg-background hover:bg-card flex items-center justify-between text-left transition-all cursor-pointer group shadow-2xs"
+            className="w-full p-3 rounded-lg border-border border-crisp hover:border-primary/40 bg-background hover:bg-card flex items-center justify-between text-left transition-all cursor-pointer group shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta"
           >
             <div className="flex items-center gap-3 min-w-0">
-              <div className="h-10 w-10 rounded-lg bg-purple-500/10 text-purple-500 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+              <div className="h-10 w-10 rounded-lg bg-brand-surface-selected text-brand-text-accent flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
                 <Boxes className="h-5 w-5" />
               </div>
               <div className="min-w-0">
-                <div className="text-xs font-bold text-text group-hover:text-purple-500 truncate">
+                <div className="text-xs font-bold text-text group-hover:text-brand-text-accent truncate">
                   {t.inventory.title}
                 </div>
                 <div className="text-[11px] text-text/70 truncate">
@@ -105,7 +105,7 @@ export const DashboardQuickActions: React.FC<DashboardQuickActionsProps> = ({
                 </div>
               </div>
             </div>
-            <ArrowUpRight className="h-4 w-4 text-text/40 group-hover:text-purple-500 shrink-0" />
+            <ArrowUpRight className="h-4 w-4 text-brand-text-secondary group-hover:text-brand-text-accent shrink-0" />
           </button>
 
           {/* Action 4: Customers CRM */}
@@ -113,7 +113,7 @@ export const DashboardQuickActions: React.FC<DashboardQuickActionsProps> = ({
             type="button"
             id="quick-action-customers"
             onClick={() => onNavigate('customers')}
-            className="w-full p-3 rounded-lg border-border border-crisp hover:border-blue-500/40 bg-background hover:bg-card flex items-center justify-between text-left transition-all cursor-pointer group shadow-2xs"
+            className="w-full p-3 rounded-lg border-border border-crisp hover:border-blue-500/40 bg-background hover:bg-card flex items-center justify-between text-left transition-all cursor-pointer group shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta"
           >
             <div className="flex items-center gap-3 min-w-0">
               <div className="h-10 w-10 rounded-lg bg-blue-500/10 text-blue-500 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
@@ -128,7 +128,7 @@ export const DashboardQuickActions: React.FC<DashboardQuickActionsProps> = ({
                 </div>
               </div>
             </div>
-            <ArrowUpRight className="h-4 w-4 text-text/40 group-hover:text-blue-500 shrink-0" />
+            <ArrowUpRight className="h-4 w-4 text-brand-text-secondary group-hover:text-blue-500 shrink-0" />
           </button>
         </div>
 
@@ -140,7 +140,7 @@ export const DashboardQuickActions: React.FC<DashboardQuickActionsProps> = ({
               {language === 'th' ? 'อุปกรณ์ POS ออนไลน์' : 'POS Hardware Online'}
             </span>
           </div>
-          <span className="text-text/50 font-mono text-[10px]">
+          <span className="text-brand-text-secondary font-mono text-[11px]">
             {session?.registerId || 'POS-01'}
           </span>
         </div>

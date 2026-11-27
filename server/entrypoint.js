@@ -245,9 +245,9 @@ var createSessionIssuer = (repository, verifySecret, now = () => /* @__PURE__ */
     await repository.resetFailedAttempts(credential.userId, credential.organizationId);
     const token = newBearerToken();
     const sessionId = crypto3.randomUUID();
-    const expiresAt = new Date(current.getTime() + SESSION_TTL_MS);
-    await repository.createSession({ id: sessionId, organizationId: credential.organizationId, userId: credential.userId, deviceId: device.id, tokenHash: hashSessionToken(token), expiresAt });
-    return { token, sessionId, expiresAt };
+    const expiresAt2 = new Date(current.getTime() + SESSION_TTL_MS);
+    await repository.createSession({ id: sessionId, organizationId: credential.organizationId, userId: credential.userId, deviceId: device.id, tokenHash: hashSessionToken(token), expiresAt: expiresAt2 });
+    return { token, sessionId, expiresAt: expiresAt2 };
   },
   authenticateSupabaseToken: async ({ token: supabaseToken, deviceId }) => {
     const verified = await verifySupabaseIdentity(supabaseToken);
@@ -261,16 +261,16 @@ var createSessionIssuer = (repository, verifySecret, now = () => /* @__PURE__ */
     const localToken = newBearerToken();
     const sessionId = crypto3.randomUUID();
     const maxExpiry = new Date(nowValue.getTime() + SESSION_TTL_MS);
-    const expiresAt = verified.expiresAt < maxExpiry ? verified.expiresAt : maxExpiry;
+    const expiresAt2 = verified.expiresAt < maxExpiry ? verified.expiresAt : maxExpiry;
     await repository.createSession({
       id: sessionId,
       organizationId: principal.organizationId,
       userId: principal.userId,
       deviceId: device.id,
       tokenHash: hashSessionToken(localToken),
-      expiresAt
+      expiresAt: expiresAt2
     });
-    return { token: localToken, sessionId, expiresAt };
+    return { token: localToken, sessionId, expiresAt: expiresAt2 };
   },
   authenticateBearer: async (token) => {
     if (!token) return null;
@@ -497,6 +497,14 @@ var resolveProductionDatabaseUrl = async (vercelOidcToken) => {
   }
   return payload.databaseUrl;
 };
+var DEFAULT_PG_CONNECTION_TIMEOUT_MS = 1e4;
+var DEFAULT_PG_IDLE_TIMEOUT_MS = 3e4;
+var DEFAULT_PG_STATEMENT_TIMEOUT_MS = 3e4;
+var resolveTimeoutEnvMs = (rawValue, fallbackMs) => {
+  if (rawValue === void 0 || rawValue.trim() === "") return fallbackMs;
+  const parsed = Number.parseInt(rawValue, 10);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : fallbackMs;
+};
 var createPostgresPool = (config = {}) => {
   const connectionString = resolveConfiguredDatabaseUrl(config.connectionString ?? process.env.DATABASE_URL);
   if (!connectionString) {
@@ -513,6 +521,9 @@ var createPostgresPool = (config = {}) => {
     ...config,
     connectionString,
     max: config.max ?? (process.env.VERCEL ? 1 : 10),
+    connectionTimeoutMillis: config.connectionTimeoutMillis ?? resolveTimeoutEnvMs(process.env.PG_CONNECTION_TIMEOUT_MS, DEFAULT_PG_CONNECTION_TIMEOUT_MS),
+    idleTimeoutMillis: config.idleTimeoutMillis ?? resolveTimeoutEnvMs(process.env.PG_IDLE_TIMEOUT_MS, DEFAULT_PG_IDLE_TIMEOUT_MS),
+    statement_timeout: config.statement_timeout ?? resolveTimeoutEnvMs(process.env.PG_STATEMENT_TIMEOUT_MS, DEFAULT_PG_STATEMENT_TIMEOUT_MS),
     ssl: config.ssl ?? (isProductionRuntime() ? { rejectUnauthorized: true } : void 0)
   });
 };
@@ -1265,7 +1276,7 @@ var createSupervisorAuthorizationService = (db, now = () => /* @__PURE__ */ new 
       );
     }
     const token = crypto6.randomBytes(32).toString("base64url");
-    const expiresAt = new Date(current.getTime() + TTL_MS);
+    const expiresAt2 = new Date(current.getTime() + TTL_MS);
     await db.query(
       `INSERT INTO prodx_supervisor_authorizations
         (id, organization_id, store_id, requester_user_id, requester_session_id,
@@ -1286,7 +1297,7 @@ var createSupervisorAuthorizationService = (db, now = () => /* @__PURE__ */ new 
         input.policyThresholdBps ?? null,
         input.policyRequiresApproval ?? null,
         hashAuthorizationToken(token),
-        expiresAt
+        expiresAt2
       ]
     );
     await recordSecurityEvent(db, {
@@ -1299,7 +1310,7 @@ var createSupervisorAuthorizationService = (db, now = () => /* @__PURE__ */ new 
         orderId: input.orderId,
         requesterUserId: input.requesterUserId,
         requesterSessionId: input.requesterSessionId,
-        expiresAt: expiresAt.toISOString(),
+        expiresAt: expiresAt2.toISOString(),
         ...input.action === "discount" ? {
           checkoutIdempotencyKey: input.checkoutIdempotencyKey,
           checkoutPayloadHash: input.checkoutPayloadHash,
@@ -1308,7 +1319,7 @@ var createSupervisorAuthorizationService = (db, now = () => /* @__PURE__ */ new 
         } : {}
       }
     });
-    return { authorizationToken: token, supervisorUserId, expiresAt: expiresAt.toISOString() };
+    return { authorizationToken: token, supervisorUserId, expiresAt: expiresAt2.toISOString() };
   },
   async consume(input) {
     if (!input.token.trim()) throw new SupervisorAuthorizationError("AUTHORIZATION_EXPIRED");
@@ -1740,15 +1751,44 @@ var createCheckoutService = (db) => ({
 });
 
 // server/http/createApp.ts
-import crypto8 from "node:crypto";
+import crypto9 from "node:crypto";
 import express from "express";
-var sendError = (response, status, code, message, requestId2, details) => {
-  const body = {
-    error: { code, message, requestId: requestId2, ...details === void 0 ? {} : { details } }
-  };
-  response.status(status).json(body);
+
+// server/observability/logger.ts
+import crypto8 from "node:crypto";
+var SENSITIVE_KEY_PATTERN = /(^|[_-])(authorization|cookie|set-cookie|password|passwd|secret|token|apikey|api_key|access_token|refresh_token|private_key|client_secret|credential|dsn|database_url|connectionstring|ca_cert)($|[_-])|authorization|password|secret|token|cookie|credential|private_key|api_key|apikey/i;
+var BEARER_PATTERN = /\bBearer\s+[A-Za-z0-9._~+/=-]+/gi;
+var POSTGRES_DSN_PATTERN = /\bpostgres(?:ql)?:\/\/[^\s'"]+/gi;
+var MAX_REDACT_DEPTH = 6;
+var redactString = (value) => value.replace(BEARER_PATTERN, "Bearer [REDACTED]").replace(POSTGRES_DSN_PATTERN, "postgresql://[REDACTED]");
+var redactValue = (value, depth = 0, seen = /* @__PURE__ */ new WeakSet()) => {
+  if (value === null || value === void 0) return value;
+  if (typeof value === "string") return redactString(value);
+  if (typeof value === "number" || typeof value === "boolean") return value;
+  if (typeof value === "bigint") return value.toString();
+  if (depth >= MAX_REDACT_DEPTH) return "[TRUNCATED]";
+  if (Array.isArray(value)) {
+    if (seen.has(value)) return "[CIRCULAR]";
+    seen.add(value);
+    return value.map((item) => redactValue(item, depth + 1, seen));
+  }
+  if (typeof value === "object") {
+    if (seen.has(value)) return "[CIRCULAR]";
+    seen.add(value);
+    const result = {};
+    for (const [key, entryValue] of Object.entries(value)) {
+      if (entryValue === void 0) continue;
+      if (SENSITIVE_KEY_PATTERN.test(key)) {
+        result[key] = "[REDACTED]";
+      } else {
+        result[key] = redactValue(entryValue, depth + 1, seen);
+      }
+    }
+    return result;
+  }
+  return String(value);
 };
-var safeReadinessDiagnostic = (error4) => {
+var safeErrorDiagnostic = (error4) => {
   const candidate = error4 && typeof error4 === "object" ? error4 : {};
   const diagnostic = {
     name: typeof candidate.name === "string" && /^[A-Za-z][A-Za-z0-9]*$/.test(candidate.name) ? candidate.name : "unknown"
@@ -1767,9 +1807,75 @@ var safeReadinessDiagnostic = (error4) => {
   }
   return diagnostic;
 };
+var TRACEPARENT_REGEX = /^([0-9a-f]{2})-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$/;
+var ALL_ZERO_TRACE_ID = "00000000000000000000000000000000";
+var ALL_ZERO_SPAN_ID = "0000000000000000";
+var parseTraceparent = (header) => {
+  if (!header) return null;
+  const trimmed = header.trim().toLowerCase();
+  const match = TRACEPARENT_REGEX.exec(trimmed);
+  if (!match) return null;
+  const [, version, traceId, parentId, traceFlags] = match;
+  if (version === "ff") return null;
+  if (traceId === ALL_ZERO_TRACE_ID || parentId === ALL_ZERO_SPAN_ID) return null;
+  return { traceId, parentId, traceFlags };
+};
+var resolveTraceContext = (header) => {
+  const parsed = parseTraceparent(header);
+  const traceId = parsed?.traceId ?? crypto8.randomBytes(16).toString("hex");
+  const spanId = crypto8.randomBytes(8).toString("hex");
+  const traceFlags = parsed?.traceFlags ?? "01";
+  return {
+    traceId,
+    spanId,
+    traceFlags,
+    traceparent: `00-${traceId}-${spanId}-${traceFlags}`
+  };
+};
+var createLogger = (options = {}) => {
+  const writeStdout = options.writeStdout ?? ((line) => {
+    process.stdout.write(`${line}
+`);
+  });
+  const writeStderr = options.writeStderr ?? ((line) => {
+    process.stderr.write(`${line}
+`);
+  });
+  const now = options.now ?? (() => /* @__PURE__ */ new Date());
+  const emit = (level, event, fields = {}) => {
+    const sanitized = redactValue(fields);
+    const entry = {
+      timestamp: now().toISOString(),
+      level,
+      event,
+      ...sanitized
+    };
+    const serialized = JSON.stringify(entry);
+    if (level === "warn" || level === "error") {
+      writeStderr(serialized);
+    } else {
+      writeStdout(serialized);
+    }
+  };
+  return {
+    debug: (event, fields) => emit("debug", event, fields),
+    info: (event, fields) => emit("info", event, fields),
+    warn: (event, fields) => emit("warn", event, fields),
+    error: (event, fields) => emit("error", event, fields)
+  };
+};
+var logger = createLogger();
+
+// server/http/createApp.ts
+var sendError = (response, status, code, message, requestId2, details) => {
+  const body = {
+    error: { code, message, requestId: requestId2, ...details === void 0 ? {} : { details } }
+  };
+  response.status(status).json(body);
+};
 var requestId = (request) => {
   const supplied = request.header("x-request-id");
-  return supplied && supplied.length <= 128 ? supplied : crypto8.randomUUID();
+  return supplied && supplied.length <= 128 ? supplied : crypto9.randomUUID();
 };
 var requirePermission = (permission) => {
   return async (request, response, next) => {
@@ -1790,11 +1896,39 @@ var requirePermission = (permission) => {
     next();
   };
 };
-var attachRequestId = (request, response, next) => {
-  const id = requestId(request);
-  request.id = id;
-  response.setHeader("x-request-id", id);
-  next();
+var attachCorrelationAndAccessLog = (log) => {
+  return (request, response, next) => {
+    const id = requestId(request);
+    const trace = resolveTraceContext(request.header("traceparent"));
+    request.id = id;
+    request.traceId = trace.traceId;
+    request.traceparent = trace.traceparent;
+    response.setHeader("x-request-id", id);
+    response.setHeader("traceparent", trace.traceparent);
+    const startedAt = process.hrtime.bigint();
+    response.on("finish", () => {
+      const durationMs = Math.round(Number(process.hrtime.bigint() - startedAt) / 1e6 * 100) / 100;
+      const status = response.statusCode;
+      const fields = {
+        requestId: request.id,
+        traceId: request.traceId,
+        method: request.method,
+        path: request.path,
+        status,
+        durationMs,
+        organizationId: request.prodxContext?.principal.organizationId,
+        storeId: request.prodxContext?.principal.storeId
+      };
+      if (status >= 500) {
+        log.error("http.request", fields);
+      } else if (status >= 400) {
+        log.warn("http.request", fields);
+      } else {
+        log.info("http.request", fields);
+      }
+    });
+    next();
+  };
 };
 var authenticate = (authenticator) => {
   return async (request, response, next) => {
@@ -1817,6 +1951,7 @@ var authenticate = (authenticator) => {
 };
 var createApp = (options) => {
   const app = express();
+  const log = options.logger ?? logger;
   app.disable("x-powered-by");
   const trustedProxy = process.env.TRUST_PROXY?.trim();
   if (trustedProxy) {
@@ -1830,7 +1965,7 @@ var createApp = (options) => {
       throw new Error("TRUST_PROXY must be a non-negative hop count or true/false.");
     }
   }
-  app.use(attachRequestId);
+  app.use(attachCorrelationAndAccessLog(log));
   app.use(express.json({ limit: "1mb" }));
   app.locals.prodxAuthorize = options.authorizeRequest;
   options.configurePublicRoutes?.(app);
@@ -1846,10 +1981,19 @@ var createApp = (options) => {
       await options.readinessCheck();
       response.json({ status: "ready" });
     } catch (error4) {
+      const diagnostic = safeErrorDiagnostic(error4);
       console.error("PRODX readiness check failed", {
         requestId: request.id,
         status: 503,
-        ...safeReadinessDiagnostic(error4)
+        ...diagnostic
+      });
+      log.error("readiness.check_failed", {
+        requestId: request.id,
+        traceId: request.traceId,
+        method: request.method,
+        path: request.path,
+        status: 503,
+        ...diagnostic
       });
       sendError(response, 503, "NOT_READY", "The service is not ready.", request.id);
     }
@@ -1868,12 +2012,23 @@ var createApp = (options) => {
       sendError(response, 400, "INVALID_JSON", "Request body must be valid JSON.", request.id);
       return;
     }
+    const diagnostic = safeErrorDiagnostic(error4);
     console.error("PRODX unhandled request error", {
       requestId: request.id,
       method: request.method,
       path: request.path,
       status: 500,
-      ...safeReadinessDiagnostic(error4)
+      ...diagnostic
+    });
+    log.error("http.unhandled_error", {
+      requestId: request.id,
+      traceId: request.traceId,
+      method: request.method,
+      path: request.path,
+      status: 500,
+      organizationId: request.prodxContext?.principal.organizationId,
+      storeId: request.prodxContext?.principal.storeId,
+      ...diagnostic
     });
     const details = process.env.NODE_ENV === "production" ? void 0 : error4 instanceof Error ? error4.message : error4;
     sendError(response, 500, "INTERNAL_ERROR", "An unexpected server error occurred.", request.id, details);
@@ -1936,9 +2091,9 @@ var registerCheckoutRoute = (app, db, permission = "pos.sell") => {
 import { timingSafeEqual } from "node:crypto";
 
 // server/auth/login-rate-limit.ts
-import crypto9 from "node:crypto";
+import crypto10 from "node:crypto";
 var WINDOW_MS = 10 * 60 * 1e3;
-var fingerprintClient = (clientAddress) => crypto9.createHash("sha256").update(clientAddress, "utf8").digest("hex");
+var fingerprintClient = (clientAddress) => crypto10.createHash("sha256").update(clientAddress, "utf8").digest("hex");
 var checkLoginThrottle = async (db, clientAddress, now = /* @__PURE__ */ new Date()) => {
   const fingerprint = fingerprintClient(clientAddress);
   const rows = await db.query(
@@ -2072,7 +2227,7 @@ var mapStore = (row) => ({
   timezone: row.business_timezone,
   defaultTaxRateBps: DEFAULT_STORE_TAX_RATE_BPS
 });
-var loadSessionContext = async (db, principal, token, expiresAt) => {
+var loadSessionContext = async (db, principal, token, expiresAt2) => {
   const rows = await db.query(
     `SELECT o.id AS organization_id, o.code AS organization_code, o.name AS organization_name,
             s.id AS store_id, s.code AS store_code, s.name AS store_name, s.business_timezone,
@@ -2124,7 +2279,7 @@ var loadSessionContext = async (db, principal, token, expiresAt) => {
       permissions: toUiPermissions(permissions.map((p) => p.permission_key), resolvedRole)
     },
     token,
-    expiresAt: expiresAt.toISOString()
+    expiresAt: expiresAt2.toISOString()
   };
 };
 var registerAuthRoutes = (app, db, sessions, options = {}) => {
@@ -2327,9 +2482,9 @@ var registerAuthRoutes = (app, db, sessions, options = {}) => {
         `SELECT expires_at FROM public.prodx_sessions WHERE id = $1 AND revoked_at IS NULL LIMIT 1`,
         [principal.sessionId]
       );
-      const expiresAt = sessionRows[0]?.expires_at;
-      if (!expiresAt) return null;
-      return loadSessionContext(db, principal, token, expiresAt);
+      const expiresAt2 = sessionRows[0]?.expires_at;
+      if (!expiresAt2) return null;
+      return loadSessionContext(db, principal, token, expiresAt2);
     });
     if (!context) {
       sendUnauthenticated(request, response, "Authentication session is invalid.");
@@ -2358,8 +2513,476 @@ var registerAuthRoutes = (app, db, sessions, options = {}) => {
   }));
 };
 
+// server/http/webauthn-route.ts
+import { randomBytes, randomUUID } from "node:crypto";
+import {
+  generateAuthenticationOptions,
+  generateRegistrationOptions,
+  verifyAuthenticationResponse,
+  verifyRegistrationResponse
+} from "@simplewebauthn/server";
+var jsonError = (request, response, status, code, message) => response.status(status).json({ error: { code, message, requestId: request.id } });
+var asyncRoute2 = (handler) => (request, response, next) => {
+  handler(request, response).catch(next);
+};
+var readObject = (value) => value && typeof value === "object" && !Array.isArray(value) ? value : null;
+var readString = (value, max = 256) => typeof value === "string" && value.trim().length > 0 && value.length <= max ? value.trim() : null;
+var readLabel = (value) => {
+  const label = readString(value, 80);
+  return label && !/[\u0000-\u001f\u007f]/.test(label) ? label : null;
+};
+var bearerToken2 = (request) => {
+  const header = request.header("authorization");
+  if (!header?.startsWith("Bearer ")) return null;
+  const token = header.slice(7).trim();
+  return token.length > 0 ? token : null;
+};
+var resolveConfig = (env = process.env) => {
+  const rpId = env.WEBAUTHN_RP_ID?.trim().toLowerCase();
+  const rpName = env.WEBAUTHN_RP_NAME?.trim() || "PRODX POS";
+  const origins = (env.WEBAUTHN_ORIGIN ?? "").split(",").map((origin) => origin.trim()).filter(Boolean);
+  if (!rpId || !origins.length || !/^(?=.{1,253}$)[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(rpId) || rpId.includes("..")) {
+    return { config: null, error: "WebAuthn RP ID and exact allowed origins are not configured." };
+  }
+  try {
+    const normalized = [...new Set(origins.map((origin) => {
+      const url = new URL(origin);
+      const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+      if (url.origin !== origin || url.protocol !== "https:" && !(loopback && url.protocol === "http:") || !(url.hostname === rpId || url.hostname.endsWith(`.${rpId}`))) throw new Error("Invalid WebAuthn origin configuration.");
+      return url.origin;
+    }))];
+    if (normalized.length !== origins.length) return { config: null, error: "WebAuthn origins must be unique exact origins." };
+    return { config: { rpId, rpName, origins: normalized } };
+  } catch {
+    return { config: null, error: "WebAuthn origin configuration is invalid." };
+  }
+};
+var requestOriginAllowed = (request, config, allowMissing = false) => {
+  const origin = request.header("origin");
+  return origin ? config.origins.includes(origin) : allowMissing;
+};
+var uuidBytes = (id) => {
+  const bytes = new Uint8Array(new ArrayBuffer(16));
+  bytes.set(Buffer.from(id.replace(/-/g, ""), "hex"));
+  return bytes;
+};
+var challengeValue = () => randomBytes(32).toString("base64url");
+var isUuid = (value) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+var expiresAt = () => new Date(Date.now() + 2 * 6e4);
+var isStringArray = (value) => Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
+var registerWebAuthnRoutes = (app, db, sessions) => {
+  app.get("/auth/webauthn/status", (_request, response) => {
+    const { config, error: error4 } = resolveConfig();
+    response.json({ enabled: Boolean(config), rpId: config?.rpId ?? null, error: config ? null : error4 });
+  });
+  app.post("/auth/webauthn/login/options", asyncRoute2(async (request, response) => {
+    const { config } = resolveConfig();
+    if (!config) {
+      jsonError(request, response, 503, "WEBAUTHN_UNAVAILABLE", "Passkey authentication is not configured.");
+      return;
+    }
+    if (!requestOriginAllowed(request, config)) {
+      jsonError(request, response, 403, "WEBAUTHN_ORIGIN_REJECTED", "Request origin is not allowed.");
+      return;
+    }
+    const body = readObject(request.body);
+    const organizationSlug = readString(body?.organizationSlug);
+    const storeCode = readString(body?.storeCode);
+    const registerId = readString(body?.registerId);
+    const username = readString(body?.username);
+    if (!organizationSlug || !storeCode || !registerId || !username) {
+      jsonError(request, response, 400, "WEBAUTHN_REQUEST_INVALID", "organizationSlug, storeCode, registerId and username are required.");
+      return;
+    }
+    const throttle = await checkLoginThrottle(db, request.ip || "unknown");
+    if (!throttle.allowed) {
+      response.setHeader("retry-after", String(throttle.retryAfterSeconds ?? 60));
+      jsonError(request, response, 429, "AUTH_RATE_LIMITED", "Too many authentication attempts.");
+      return;
+    }
+    const identities = await db.query(
+      "SELECT * FROM public.prodx_webauthn_resolve_login($1, $2, $3, $4)",
+      [organizationSlug, storeCode, registerId, username]
+    );
+    const identity = identities[0];
+    if (!identity) {
+      await recordLoginFailure(db, request.ip || "unknown");
+      jsonError(request, response, 401, "AUTHENTICATION_FAILED", "Invalid credentials or store scope.");
+      return;
+    }
+    const requireAdmin = body?.requireAdminRole === true || ["ADMIN-CONSOLE", "ADMIN_CONSOLE", "TERM-ADMIN"].includes(registerId.toUpperCase());
+    const registered = await db.query(
+      "SELECT * FROM public.prodx_webauthn_list_login_credentials($1::uuid, $2::uuid, $3::uuid)",
+      [identity.organization_id, identity.store_id, identity.user_id]
+    );
+    if (!registered.length) {
+      await recordLoginFailure(db, request.ip || "unknown");
+      jsonError(request, response, 401, "AUTHENTICATION_FAILED", "Authentication failed. Check your account and store details.");
+      return;
+    }
+    const challenge = challengeValue();
+    const challengeId = randomUUID();
+    const expiry = expiresAt();
+    const options = await generateAuthenticationOptions({
+      rpID: config.rpId,
+      challenge,
+      allowCredentials: registered.map((item) => ({ id: item.credential_id, transports: item.transports })),
+      userVerification: "required",
+      timeout: 6e4
+    });
+    await db.query(
+      "SELECT public.prodx_webauthn_issue_challenge($1::uuid,$2,$3,$4::uuid,$5::uuid,$6::uuid,$7::uuid,$8::uuid,$9,$10::timestamptz)",
+      [challengeId, challenge, "authentication", identity.organization_id, identity.store_id, identity.user_id, identity.device_id, null, requireAdmin, expiry.toISOString()]
+    );
+    response.setHeader("Cache-Control", "no-store");
+    response.json({ challengeId, options });
+  }));
+  app.post("/auth/webauthn/login/verify", asyncRoute2(async (request, response) => {
+    const { config } = resolveConfig();
+    if (!config) {
+      jsonError(request, response, 503, "WEBAUTHN_UNAVAILABLE", "Passkey authentication is not configured.");
+      return;
+    }
+    if (!requestOriginAllowed(request, config)) {
+      jsonError(request, response, 403, "WEBAUTHN_ORIGIN_REJECTED", "Request origin is not allowed.");
+      return;
+    }
+    const body = readObject(request.body);
+    const challengeId = readString(body?.challengeId, 64);
+    if (!challengeId || !isUuid(challengeId)) {
+      jsonError(request, response, 400, "WEBAUTHN_REQUEST_INVALID", "A valid challengeId is required.");
+      return;
+    }
+    const assertion = readObject(body?.response);
+    if (!assertion || typeof assertion.id !== "string" || !assertion.response || typeof assertion.response !== "object") {
+      jsonError(request, response, 400, "WEBAUTHN_REQUEST_INVALID", "A challengeId and WebAuthn assertion are required.");
+      return;
+    }
+    const throttle = await checkLoginThrottle(db, request.ip || "unknown");
+    if (!throttle.allowed) {
+      response.setHeader("retry-after", String(throttle.retryAfterSeconds ?? 60));
+      jsonError(request, response, 429, "AUTH_RATE_LIMITED", "Too many authentication attempts.");
+      return;
+    }
+    const challenges = await db.query(
+      "SELECT * FROM public.prodx_webauthn_get_challenge($1::uuid, 'authentication')",
+      [challengeId]
+    );
+    const challenge = challenges[0];
+    if (!challenge) {
+      await recordLoginFailure(db, request.ip || "unknown");
+      jsonError(request, response, 401, "WEBAUTHN_CHALLENGE_INVALID", "Passkey challenge is invalid or expired.");
+      return;
+    }
+    const credentials = await db.query(
+      "SELECT * FROM public.prodx_webauthn_get_auth_credential($1::uuid, $2)",
+      [challengeId, assertion.id]
+    );
+    const stored = credentials[0];
+    if (!stored || stored.user_id !== challenge.user_id) {
+      await db.query("SELECT public.prodx_webauthn_record_failed_attempt($1::uuid)", [challengeId]);
+      await recordLoginFailure(db, request.ip || "unknown");
+      jsonError(request, response, 401, "WEBAUTHN_CREDENTIAL_INVALID", "Passkey is not registered for this account.");
+      return;
+    }
+    let verified = false;
+    let newCounter = Number(stored.sign_count);
+    try {
+      const result = await verifyAuthenticationResponse({
+        response: assertion,
+        expectedChallenge: challenge.challenge,
+        expectedOrigin: config.origins,
+        expectedRPID: config.rpId,
+        requireUserVerification: true,
+        credential: { id: assertion.id, publicKey: new Uint8Array(stored.public_key), counter: Number(stored.sign_count), transports: stored.transports }
+      });
+      verified = result.verified && result.authenticationInfo.userVerified && result.authenticationInfo.credentialID === assertion.id;
+      newCounter = result.authenticationInfo.newCounter;
+    } catch {
+      verified = false;
+    }
+    if (!verified) {
+      await db.query("SELECT public.prodx_webauthn_record_failed_attempt($1::uuid)", [challengeId]);
+      await recordLoginFailure(db, request.ip || "unknown");
+      jsonError(request, response, 401, "WEBAUTHN_VERIFICATION_FAILED", "Passkey verification failed.");
+      return;
+    }
+    const token = randomBytes(32).toString("base64url");
+    const sessionId = randomUUID();
+    const sessionExpiry = new Date(Date.now() + 8 * 60 * 6e4);
+    try {
+      await db.query(
+        "SELECT * FROM public.prodx_webauthn_complete_authentication($1::uuid,$2,$3::bigint,$4::uuid,$5,$6::timestamptz)",
+        [challengeId, assertion.id, newCounter, sessionId, hashSessionToken(token), sessionExpiry.toISOString()]
+      );
+    } catch (error4) {
+      const databaseCode = error4 && typeof error4 === "object" && "code" in error4 ? String(error4.code ?? "") : "";
+      if (databaseCode === "28000") {
+        await db.query("SELECT public.prodx_webauthn_record_failed_attempt($1::uuid)", [challengeId]);
+        await recordLoginFailure(db, request.ip || "unknown");
+        jsonError(request, response, 401, "WEBAUTHN_VERIFICATION_FAILED", "Passkey verification failed.");
+        return;
+      }
+      if (databaseCode === "42501") {
+        jsonError(request, response, 403, "WEBAUTHN_SCOPE_REJECTED", "Passkey is not authorized for this account, store, or terminal.");
+        return;
+      }
+      throw error4;
+    }
+    const principal = await sessions.authenticateBearer(token);
+    if (!principal) {
+      await sessions.revokeBearer(token);
+      jsonError(request, response, 401, "WEBAUTHN_SESSION_REJECTED", "Passkey session could not be established.");
+      return;
+    }
+    response.setHeader("Cache-Control", "no-store");
+    response.status(200).json({ token, sessionId, expiresAt: sessionExpiry.toISOString() });
+  }));
+  app.post("/auth/webauthn/registration/options", asyncRoute2(async (request, response) => {
+    const { config } = resolveConfig();
+    if (!config) {
+      jsonError(request, response, 503, "WEBAUTHN_UNAVAILABLE", "Passkey registration is not configured.");
+      return;
+    }
+    if (!requestOriginAllowed(request, config)) {
+      jsonError(request, response, 403, "WEBAUTHN_ORIGIN_REJECTED", "Request origin is not allowed.");
+      return;
+    }
+    const token = bearerToken2(request);
+    if (!token) {
+      jsonError(request, response, 401, "UNAUTHENTICATED", "Authentication is required.");
+      return;
+    }
+    const principal = await sessions.authenticateBearer(token);
+    if (!principal) {
+      jsonError(request, response, 401, "UNAUTHENTICATED", "Authentication session is invalid.");
+      return;
+    }
+    const label = readLabel(readObject(request.body)?.label) ?? "Passkey";
+    const rows = await runWithRequestContext({ requestId: request.id, principal }, async () => {
+      const identities = await db.query(
+        "SELECT * FROM public.prodx_webauthn_resolve_registration($1::uuid)",
+        [principal.sessionId]
+      );
+      const identity = identities[0];
+      if (!identity) return null;
+      const registered = await db.query(
+        "SELECT * FROM public.prodx_webauthn_list_login_credentials($1::uuid, $2::uuid, $3::uuid)",
+        [principal.organizationId, principal.storeId, principal.userId]
+      );
+      return { deviceId: identity.device_id, username: identity.username, displayName: identity.display_name, registered };
+    });
+    if (!rows) {
+      jsonError(request, response, 401, "UNAUTHENTICATED", "Authentication session is invalid.");
+      return;
+    }
+    const challenge = challengeValue();
+    const challengeId = randomUUID();
+    const expiry = expiresAt();
+    const options = await generateRegistrationOptions({
+      rpName: config.rpName,
+      rpID: config.rpId,
+      userID: uuidBytes(principal.userId),
+      userName: rows.username,
+      userDisplayName: rows.displayName,
+      challenge,
+      timeout: 6e4,
+      attestationType: "none",
+      excludeCredentials: rows.registered.map((item) => ({ id: item.credential_id, transports: item.transports })),
+      authenticatorSelection: { authenticatorAttachment: "platform", residentKey: "preferred", userVerification: "required" }
+    });
+    await runWithRequestContext({ requestId: request.id, principal }, () => db.query(
+      "SELECT public.prodx_webauthn_issue_challenge($1::uuid,$2,$3,$4::uuid,$5::uuid,$6::uuid,$7::uuid,$8::uuid,false,$9::timestamptz)",
+      [challengeId, challenge, "registration", principal.organizationId, principal.storeId, principal.userId, rows.deviceId, principal.sessionId, expiry.toISOString()]
+    ));
+    response.setHeader("Cache-Control", "no-store");
+    response.json({ challengeId, options, label });
+  }));
+  app.post("/auth/webauthn/registration/verify", asyncRoute2(async (request, response) => {
+    const { config } = resolveConfig();
+    if (!config) {
+      jsonError(request, response, 503, "WEBAUTHN_UNAVAILABLE", "Passkey registration is not configured.");
+      return;
+    }
+    if (!requestOriginAllowed(request, config)) {
+      jsonError(request, response, 403, "WEBAUTHN_ORIGIN_REJECTED", "Request origin is not allowed.");
+      return;
+    }
+    const token = bearerToken2(request);
+    if (!token) {
+      jsonError(request, response, 401, "UNAUTHENTICATED", "Authentication is required.");
+      return;
+    }
+    const principal = await sessions.authenticateBearer(token);
+    if (!principal) {
+      jsonError(request, response, 401, "UNAUTHENTICATED", "Authentication session is invalid.");
+      return;
+    }
+    const body = readObject(request.body);
+    const challengeId = readString(body?.challengeId, 64);
+    if (!challengeId || !isUuid(challengeId)) {
+      jsonError(request, response, 400, "WEBAUTHN_REQUEST_INVALID", "A valid challengeId is required.");
+      return;
+    }
+    const label = readLabel(body?.label) ?? "Passkey";
+    const attestation = readObject(body?.response);
+    if (!challengeId || !attestation || typeof attestation.id !== "string" || typeof attestation.response !== "object") {
+      jsonError(request, response, 400, "WEBAUTHN_REQUEST_INVALID", "A challengeId and WebAuthn registration response are required.");
+      return;
+    }
+    const challengeRows = await runWithRequestContext({ requestId: request.id, principal }, () => db.query(
+      "SELECT * FROM public.prodx_webauthn_get_challenge($1::uuid, 'registration')",
+      [challengeId]
+    ));
+    const challenge = challengeRows[0];
+    if (!challenge || challenge.organization_id !== principal.organizationId || challenge.store_id !== principal.storeId || challenge.user_id !== principal.userId) {
+      jsonError(request, response, 401, "WEBAUTHN_CHALLENGE_INVALID", "Registration challenge is invalid or expired.");
+      return;
+    }
+    let result;
+    try {
+      result = await verifyRegistrationResponse({ response: attestation, expectedChallenge: challenge.challenge, expectedOrigin: config.origins, expectedRPID: config.rpId, requireUserVerification: true });
+    } catch {
+      await runWithRequestContext({ requestId: request.id, principal }, () => db.query(
+        "SELECT public.prodx_webauthn_fail_registration($1::uuid,$2::uuid)",
+        [challengeId, principal.sessionId]
+      ));
+      jsonError(request, response, 400, "WEBAUTHN_VERIFICATION_FAILED", "Passkey registration verification failed.");
+      return;
+    }
+    if (!result.verified || !result.registrationInfo.userVerified) {
+      await runWithRequestContext({ requestId: request.id, principal }, () => db.query(
+        "SELECT public.prodx_webauthn_fail_registration($1::uuid,$2::uuid)",
+        [challengeId, principal.sessionId]
+      ));
+      jsonError(request, response, 400, "WEBAUTHN_VERIFICATION_FAILED", "Passkey registration verification failed.");
+      return;
+    }
+    const info = result.registrationInfo;
+    try {
+      await runWithRequestContext({ requestId: request.id, principal }, () => db.query(
+        "SELECT public.prodx_webauthn_complete_registration($1::uuid,$2::uuid,$3::uuid,$4,$5::bytea,$6::bigint,$7::text[],$8,$9,$10)",
+        [challengeId, principal.sessionId, randomUUID(), info.credential.id, Buffer.from(info.credential.publicKey), info.credential.counter, isStringArray(info.credential.transports), info.credentialDeviceType, info.credentialBackedUp, label]
+      ));
+    } catch {
+      await runWithRequestContext({ requestId: request.id, principal }, () => db.query(
+        "SELECT public.prodx_webauthn_fail_registration($1::uuid,$2::uuid)",
+        [challengeId, principal.sessionId]
+      ));
+      jsonError(request, response, 409, "WEBAUTHN_REGISTRATION_REJECTED", "Passkey could not be registered. It may already exist or the credential limit was reached.");
+      return;
+    }
+    response.status(201).json({ registered: true });
+  }));
+  app.get("/auth/webauthn/credentials", asyncRoute2(async (request, response) => {
+    const { config } = resolveConfig();
+    if (!config) {
+      jsonError(request, response, 503, "WEBAUTHN_UNAVAILABLE", "Passkey management is not configured.");
+      return;
+    }
+    if (!requestOriginAllowed(request, config, true)) {
+      jsonError(request, response, 403, "WEBAUTHN_ORIGIN_REJECTED", "Request origin is not allowed.");
+      return;
+    }
+    const token = bearerToken2(request);
+    if (!token) {
+      jsonError(request, response, 401, "UNAUTHENTICATED", "Authentication is required.");
+      return;
+    }
+    const principal = await sessions.authenticateBearer(token);
+    if (!principal) {
+      jsonError(request, response, 401, "UNAUTHENTICATED", "Authentication session is invalid.");
+      return;
+    }
+    const rows = await runWithRequestContext({ requestId: request.id, principal }, () => db.query(
+      "SELECT * FROM public.prodx_webauthn_list_credentials()"
+    ));
+    response.setHeader("Cache-Control", "no-store");
+    response.json(rows.map(({ credential_id: _credentialId, ...row }) => row));
+  }));
+  app.patch("/auth/webauthn/credentials/:credentialId", asyncRoute2(async (request, response) => {
+    const { config } = resolveConfig();
+    if (!config) {
+      jsonError(request, response, 503, "WEBAUTHN_UNAVAILABLE", "Passkey management is not configured.");
+      return;
+    }
+    if (!requestOriginAllowed(request, config)) {
+      jsonError(request, response, 403, "WEBAUTHN_ORIGIN_REJECTED", "Request origin is not allowed.");
+      return;
+    }
+    const token = bearerToken2(request);
+    if (!token) {
+      jsonError(request, response, 401, "UNAUTHENTICATED", "Authentication is required.");
+      return;
+    }
+    const principal = await sessions.authenticateBearer(token);
+    if (!principal) {
+      jsonError(request, response, 401, "UNAUTHENTICATED", "Authentication session is invalid.");
+      return;
+    }
+    if (!isUuid(request.params.credentialId)) {
+      jsonError(request, response, 400, "WEBAUTHN_REQUEST_INVALID", "A valid credentialId is required.");
+      return;
+    }
+    const body = readObject(request.body);
+    const label = readString(body?.label, 80);
+    if (!label) {
+      jsonError(request, response, 400, "WEBAUTHN_REQUEST_INVALID", "A label between 1 and 80 printable characters is required.");
+      return;
+    }
+    const rows = await runWithRequestContext({ requestId: request.id, principal }, () => db.query(
+      "SELECT public.prodx_webauthn_rename_credential($1::uuid,$2) AS renamed",
+      [request.params.credentialId, label]
+    ));
+    if (!rows[0]?.renamed) {
+      jsonError(request, response, 404, "WEBAUTHN_CREDENTIAL_NOT_FOUND", "Passkey not found.");
+      return;
+    }
+    response.status(204).send();
+  }));
+  app.delete("/auth/webauthn/credentials/:credentialId", asyncRoute2(async (request, response) => {
+    const { config } = resolveConfig();
+    if (!config) {
+      jsonError(request, response, 503, "WEBAUTHN_UNAVAILABLE", "Passkey management is not configured.");
+      return;
+    }
+    if (!requestOriginAllowed(request, config)) {
+      jsonError(request, response, 403, "WEBAUTHN_ORIGIN_REJECTED", "Request origin is not allowed.");
+      return;
+    }
+    const token = bearerToken2(request);
+    if (!token) {
+      jsonError(request, response, 401, "UNAUTHENTICATED", "Authentication is required.");
+      return;
+    }
+    const principal = await sessions.authenticateBearer(token);
+    if (!principal) {
+      jsonError(request, response, 401, "UNAUTHENTICATED", "Authentication session is invalid.");
+      return;
+    }
+    if (!isUuid(request.params.credentialId)) {
+      jsonError(request, response, 400, "WEBAUTHN_REQUEST_INVALID", "A valid credentialId is required.");
+      return;
+    }
+    const reason = readString(readObject(request.body)?.reason, 32);
+    if (!reason || !["lost_device", "compromised", "replaced", "manual"].includes(reason)) {
+      jsonError(request, response, 400, "WEBAUTHN_REQUEST_INVALID", "A valid passkey revocation reason is required.");
+      return;
+    }
+    const rows = await runWithRequestContext({ requestId: request.id, principal }, () => db.query(
+      "SELECT public.prodx_webauthn_revoke_credential($1::uuid,$2) AS revoked",
+      [request.params.credentialId, reason]
+    ));
+    if (!rows[0]?.revoked) {
+      jsonError(request, response, 404, "WEBAUTHN_CREDENTIAL_NOT_FOUND", "Passkey not found.");
+      return;
+    }
+    response.status(204).send();
+  }));
+};
+
 // server/transactions/refund-service.ts
-import crypto10 from "node:crypto";
+import crypto11 from "node:crypto";
 var supervisorAuthorizationDb = (tx) => ({
   async query(sql, parameters = []) {
     const result = await tx.query(sql, parameters);
@@ -2512,7 +3135,7 @@ var createRefundService = (db) => ({
       const resultStatus = refundedBefore + amount === orderTotal ? "refunded" : "server_confirmed";
       const shift = (await tx.query(`SELECT id FROM prodx_shifts WHERE id=$1 AND store_id=$2 AND status='open' FOR UPDATE`, [order.shift_id, request.storeId])).rows[0];
       if (!shift) throw new RefundConflictError("The originating shift is not open; cash refund cannot be committed.");
-      const refundId = crypto10.randomUUID();
+      const refundId = crypto11.randomUUID();
       const inserted = (await tx.query(`INSERT INTO prodx_refunds
         (id,organization_id,store_id,order_id,amount,currency,result_status,method,reason,authorized_by_user_id,requester_user_id,idempotency_key)
         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT(store_id,idempotency_key) DO NOTHING
@@ -2599,13 +3222,13 @@ var createRefundService = (db) => ({
           `INSERT INTO prodx_refund_items
           (id,organization_id,store_id,refund_id,order_id,order_item_id,product_id,quantity,amount)
           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-          [crypto10.randomUUID(), order.organization_id, request.storeId, refundId, request.orderId, allocation.orderItemId, allocation.productId, allocation.quantity, numeric2(allocation.amount)]
+          [crypto11.randomUUID(), order.organization_id, request.storeId, refundId, request.orderId, allocation.orderItemId, allocation.productId, allocation.quantity, numeric2(allocation.amount)]
         );
         await tx.query(
           `INSERT INTO prodx_inventory_ledger
           (id,organization_id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id)
           VALUES($1,$2,$3,$4,$5,$6,'refund_restock',$7,$8)`,
-          [crypto10.randomUUID(), order.organization_id, request.storeId, allocation.productId, allocation.quantity, stock.current_stock, refundId, supervisorUserId]
+          [crypto11.randomUUID(), order.organization_id, request.storeId, allocation.productId, allocation.quantity, stock.current_stock, refundId, supervisorUserId]
         );
       }
       await tx.query(
@@ -2613,7 +3236,7 @@ var createRefundService = (db) => ({
         (id,organization_id,store_id,shift_id,refund_id,type,amount,reason,performed_by_user_id,currency)
         VALUES($1,$2,$3,$4,$5,'cash_refund',$6,$7,$8,$9)`,
         [
-          crypto10.randomUUID(),
+          crypto11.randomUUID(),
           order.organization_id,
           request.storeId,
           shift.id,
@@ -2631,7 +3254,7 @@ var createRefundService = (db) => ({
         (id,organization_id,store_id,register_id,user_id,action,severity,details)
         VALUES($1,$2,$3,$4,$5,'order_refund_committed','critical',$6::jsonb)`,
         [
-          crypto10.randomUUID(),
+          crypto11.randomUUID(),
           order.organization_id,
           request.storeId,
           order.register_id,
@@ -2723,7 +3346,7 @@ var registerRefundRoute = (app, db, permission = "pos.refund") => {
 };
 
 // server/audit/audit-service.ts
-import crypto11 from "node:crypto";
+import crypto12 from "node:crypto";
 var AuditValidationError = class extends Error {
   constructor() {
     super(...arguments);
@@ -2793,7 +3416,7 @@ var createAuditReadService = (db) => ({
         resolvedRegisterUuid = regCheck.rows[0]?.id ?? null;
       }
     }
-    const id = crypto11.randomUUID();
+    const id = crypto12.randomUUID();
     const inserted = await db.query(
       `INSERT INTO prodx_audit_log(id, organization_id, store_id, register_id, user_id, action, severity, details, source_event_key)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)
@@ -2970,7 +3593,7 @@ var registerAuditRoute = (app, db) => {
 };
 
 // server/http/tasks-route.ts
-import crypto12 from "node:crypto";
+import crypto13 from "node:crypto";
 var uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 var toTask = (row) => ({
   id: row.id,
@@ -3010,7 +3633,7 @@ var registerTasksRoute = (app, db) => {
         return;
       }
       const body = request.body ?? {};
-      const id = typeof body.id === "string" && body.id.trim() ? body.id.trim() : crypto12.randomUUID();
+      const id = typeof body.id === "string" && body.id.trim() ? body.id.trim() : crypto13.randomUUID();
       const title = typeof body.title === "string" ? body.title.trim() : "";
       const description = typeof body.description === "string" ? body.description : "";
       if (!uuidPattern.test(id)) {
@@ -3108,7 +3731,7 @@ var registerTasksRoute = (app, db) => {
 };
 
 // server/shift/shift-service.ts
-import crypto13 from "node:crypto";
+import crypto14 from "node:crypto";
 var ShiftValidationError = class extends Error {
   constructor() {
     super(...arguments);
@@ -3140,7 +3763,7 @@ var toDecimal = (centsValue) => {
   return `${sign}${abs / 100n}.${(abs % 100n).toString().padStart(2, "0")}`;
 };
 var money = (value, currency, label = "Amount") => ({ amountInCents: dbAmountToCents(value, label), currency });
-var hash = (value) => crypto13.createHash("sha256").update(JSON.stringify(value)).digest("hex");
+var hash = (value) => crypto14.createHash("sha256").update(JSON.stringify(value)).digest("hex");
 var mapMovement = (r) => ({ id: r.id, shiftId: r.shift_id, type: r.type, amount: money(r.amount, r.currency), reason: r.reason, performedByUserId: r.performed_by_user_id, timestamp: new Date(r.created_at).toISOString() });
 var loadShift = async (db, shiftId, storeId) => {
   const s = await db.query(`SELECT s.id,s.store_id,s.register_id,s.cashier_id,u.display_name AS cashier_name,s.opened_at,s.closed_at,s.status,s.opening_float_amount,s.actual_counted_cash_amount,s.currency FROM prodx_shifts s JOIN prodx_users u ON u.id=s.cashier_id WHERE s.id=$1 AND s.store_id=$2`, [shiftId, storeId]);
@@ -3171,7 +3794,7 @@ var loadShift = async (db, shiftId, storeId) => {
 var operation = async (tx, context, type, shiftId, key, payload) => {
   if (!key.trim()) throw new ShiftValidationError("Idempotency key is required.");
   const h = hash(payload);
-  const inserted = await tx.query(`INSERT INTO prodx_shift_operations(id,organization_id,store_id,shift_id,operation_type,idempotency_key,payload_hash) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(store_id,operation_type,idempotency_key) DO NOTHING RETURNING id`, [crypto13.randomUUID(), context.organizationId, context.storeId, shiftId, type, key.trim(), h]);
+  const inserted = await tx.query(`INSERT INTO prodx_shift_operations(id,organization_id,store_id,shift_id,operation_type,idempotency_key,payload_hash) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(store_id,operation_type,idempotency_key) DO NOTHING RETURNING id`, [crypto14.randomUUID(), context.organizationId, context.storeId, shiftId, type, key.trim(), h]);
   if (inserted.rows[0]) return { id: inserted.rows[0].id, replay: false };
   const existing = await tx.query(`SELECT id,payload_hash FROM prodx_shift_operations WHERE store_id=$1 AND operation_type=$2 AND idempotency_key=$3 FOR UPDATE`, [context.storeId, type, key.trim()]);
   const row = existing.rows[0];
@@ -3201,12 +3824,12 @@ var createShiftService = (db) => ({
       if (registerRow.currency !== openingFloat.currency) throw new ShiftValidationError("Opening float currency does not match the store currency.");
       const existing = await tx.query(`SELECT id FROM prodx_shifts WHERE register_id=$1 AND store_id=$2 AND status='open' FOR UPDATE`, [registerId, context.storeId]);
       if (existing.rows[0]) throw new ShiftConflictError("Register already has an open shift.");
-      const id = crypto13.randomUUID();
+      const id = crypto14.randomUUID();
       const decAmount = toDecimal(amount);
       await tx.query(`INSERT INTO prodx_shifts(id,organization_id,store_id,register_id,cashier_id,status,opening_float_amount,currency) VALUES($1,$2,$3,$4,$5,'open',$6,$7)`, [id, context.organizationId, context.storeId, registerId, context.userId, decAmount, openingFloat.currency]);
       await tx.query(`UPDATE prodx_shift_operations SET shift_id=$1 WHERE id=$2`, [id, op.id]);
-      await tx.query(`INSERT INTO prodx_cash_movements(id,organization_id,store_id,shift_id,type,amount,reason,performed_by_user_id,currency) VALUES($1,$2,$3,$4,'opening_float',$5,$6,$7,$8)`, [crypto13.randomUUID(), context.organizationId, context.storeId, id, decAmount, "Initial opening cash drawer float", context.userId, openingFloat.currency]);
-      await tx.query(`INSERT INTO prodx_audit_log(id,organization_id,store_id,register_id,user_id,action,severity,details) VALUES($1,$2,$3,$4,$5,'shift_opened','info',$6::jsonb)`, [crypto13.randomUUID(), context.organizationId, context.storeId, registerId, context.userId, JSON.stringify({ shiftId: id, openingFloat: amount })]);
+      await tx.query(`INSERT INTO prodx_cash_movements(id,organization_id,store_id,shift_id,type,amount,reason,performed_by_user_id,currency) VALUES($1,$2,$3,$4,'opening_float',$5,$6,$7,$8)`, [crypto14.randomUUID(), context.organizationId, context.storeId, id, decAmount, "Initial opening cash drawer float", context.userId, openingFloat.currency]);
+      await tx.query(`INSERT INTO prodx_audit_log(id,organization_id,store_id,register_id,user_id,action,severity,details) VALUES($1,$2,$3,$4,$5,'shift_opened','info',$6::jsonb)`, [crypto14.randomUUID(), context.organizationId, context.storeId, registerId, context.userId, JSON.stringify({ shiftId: id, openingFloat: amount })]);
       return loadShift(tx, id, context.storeId);
     });
   },
@@ -3221,7 +3844,7 @@ var createShiftService = (db) => ({
       if (shift.status !== "open") throw new ShiftConflictError("Shift is already closed.");
       if (shift.currency !== actualCountedCash.currency) throw new ShiftValidationError("Counted cash currency does not match the shift.");
       await tx.query(`UPDATE prodx_shifts SET status='closed',closed_at=CURRENT_TIMESTAMP,actual_counted_cash_amount=$1 WHERE id=$2 AND store_id=$3`, [toDecimal(actual), shiftId, context.storeId]);
-      await tx.query(`INSERT INTO prodx_audit_log(id,organization_id,store_id,register_id,user_id,action,severity,details) VALUES($1,$2,$3,$4,$5,'shift_closed','info',$6::jsonb)`, [crypto13.randomUUID(), context.organizationId, context.storeId, shift.register_id, context.userId, JSON.stringify({ shiftId, actualCountedCash: actual, notes: notes ?? "" })]);
+      await tx.query(`INSERT INTO prodx_audit_log(id,organization_id,store_id,register_id,user_id,action,severity,details) VALUES($1,$2,$3,$4,$5,'shift_closed','info',$6::jsonb)`, [crypto14.randomUUID(), context.organizationId, context.storeId, shift.register_id, context.userId, JSON.stringify({ shiftId, actualCountedCash: actual, notes: notes ?? "" })]);
       return loadShift(tx, shiftId, context.storeId);
     });
   },
@@ -3241,10 +3864,10 @@ var createShiftService = (db) => ({
       if (!s) throw new ShiftConflictError("Shift not found in this store.");
       if (s.status !== "open") throw new ShiftConflictError("Shift is closed.");
       if (s.currency !== amount.currency) throw new ShiftValidationError("Cash movement currency does not match the shift.");
-      const id = crypto13.randomUUID();
+      const id = crypto14.randomUUID();
       await tx.query(`INSERT INTO prodx_cash_movements(id,organization_id,store_id,shift_id,type,amount,reason,performed_by_user_id,currency) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, [id, context.organizationId, context.storeId, shiftId, type, toDecimal(value), reason.trim(), context.userId, amount.currency]);
       await tx.query(`UPDATE prodx_shift_operations SET result_id=$1 WHERE id=$2`, [id, op.id]);
-      await tx.query(`INSERT INTO prodx_audit_log(id,organization_id,store_id,user_id,action,severity,details) VALUES($1,$2,$3,$4,$5,'info',$6::jsonb)`, [crypto13.randomUUID(), context.organizationId, context.storeId, context.userId, "cash_movement_recorded", JSON.stringify({ shiftId, type, amount: value, reason })]);
+      await tx.query(`INSERT INTO prodx_audit_log(id,organization_id,store_id,user_id,action,severity,details) VALUES($1,$2,$3,$4,$5,'info',$6::jsonb)`, [crypto14.randomUUID(), context.organizationId, context.storeId, context.userId, "cash_movement_recorded", JSON.stringify({ shiftId, type, amount: value, reason })]);
       const r = await tx.query(`SELECT id,shift_id,type,amount,reason,performed_by_user_id,currency,created_at FROM prodx_cash_movements WHERE id=$1`, [id]);
       return mapMovement(r.rows[0]);
     });
@@ -3325,7 +3948,7 @@ var registerShiftRoute = (app, db) => {
 };
 
 // server/shift/timeclock-service.ts
-import crypto14 from "node:crypto";
+import crypto15 from "node:crypto";
 var TimeclockValidationError = class extends Error {
   constructor() {
     super(...arguments);
@@ -3358,8 +3981,8 @@ var getPinPepper = () => {
   if (!pepper) throw new Error("TIMECLOCK_PIN_PEPPER is required for production timeclock credentials.");
   return pepper;
 };
-var lookupHash = (pin) => crypto14.createHmac("sha256", getPinPepper()).update(pin).digest("hex");
-var hashPayload = (value) => crypto14.createHash("sha256").update(JSON.stringify(value)).digest("hex");
+var lookupHash = (pin) => crypto15.createHmac("sha256", getPinPepper()).update(pin).digest("hex");
+var hashPayload = (value) => crypto15.createHash("sha256").update(JSON.stringify(value)).digest("hex");
 var mapRecord = (row) => ({
   id: row.id,
   userId: row.user_id,
@@ -3471,7 +4094,7 @@ var operation2 = async (tx, context, type, key, payload) => {
        (id,organization_id,store_id,user_id,operation_type,idempotency_key,payload_hash)
      VALUES($1,$2,$3,$4,$5,$6,$7)
      ON CONFLICT(organization_id,store_id,user_id,operation_type,idempotency_key) DO NOTHING RETURNING id`,
-    [crypto14.randomUUID(), context.organizationId, context.storeId, context.userId, type, key.trim(), payloadHash]
+    [crypto15.randomUUID(), context.organizationId, context.storeId, context.userId, type, key.trim(), payloadHash]
   );
   if (inserted.rows[0]) return { id: inserted.rows[0].id, replay: false, resultId: null };
   const existing = await tx.query(
@@ -3509,7 +4132,7 @@ var createTimeclockService = (db) => ({
         [context.storeId, user.user_id]
       );
       if (existing.rows[0]) throw new TimeclockConflictError("User is already clocked in at this store.");
-      const id = crypto14.randomUUID();
+      const id = crypto15.randomUUID();
       await tx.query(
         `INSERT INTO prodx_timeclock_records(id,organization_id,store_id,user_id,status)
          VALUES($1,$2,$3,$4,'clocked_in')`,
@@ -3520,7 +4143,7 @@ var createTimeclockService = (db) => ({
         `INSERT INTO prodx_audit_log(id,organization_id,store_id,user_id,action,severity,details)
          VALUES($1,$2,$3,$4,'timeclock_clocked_in','info',$5::jsonb)`,
         [
-          crypto14.randomUUID(),
+          crypto15.randomUUID(),
           context.organizationId,
           context.storeId,
           context.userId,
@@ -3551,7 +4174,7 @@ var createTimeclockService = (db) => ({
         `INSERT INTO prodx_audit_log(id,organization_id,store_id,user_id,action,severity,details)
          VALUES($1,$2,$3,$4,'timeclock_clocked_out','info',$5::jsonb)`,
         [
-          crypto14.randomUUID(),
+          crypto15.randomUUID(),
           context.organizationId,
           context.storeId,
           context.userId,
@@ -3602,7 +4225,7 @@ var createTimeclockService = (db) => ({
         `INSERT INTO prodx_audit_log(id,organization_id,store_id,user_id,action,severity,details)
          VALUES($1,$2,$3,$4,'timeclock_pin_provisioned','info',$5::jsonb)`,
         [
-          crypto14.randomUUID(),
+          crypto15.randomUUID(),
           context.organizationId,
           context.storeId,
           context.userId,
@@ -3786,7 +4409,7 @@ var registerCatalogRoute = (app, db, permission = "catalog.read") => {
 };
 
 // server/http/catalog-import-route.ts
-import crypto15 from "node:crypto";
+import crypto16 from "node:crypto";
 var dbCents3 = (value) => {
   const match = /^(\d+)(?:\.(\d{1,2}))?$/.exec(String(value ?? "").trim());
   if (!match) throw new Error(`Invalid database monetary value: ${String(value)}`);
@@ -3824,7 +4447,7 @@ var ledgerDto = (row) => ({
   performedByUserId: row.performed_by_user_id,
   timestamp: row.created_at
 });
-var hashPayload2 = (value) => crypto15.createHash("sha256").update(JSON.stringify(value)).digest("hex");
+var hashPayload2 = (value) => crypto16.createHash("sha256").update(JSON.stringify(value)).digest("hex");
 var slugify = (value) => value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "general";
 var registerCatalogImportRoute = (app, db) => {
   app.post("/api/v1/catalog/import", requirePermission("catalog.write"), async (request, response) => {
@@ -3859,7 +4482,7 @@ var registerCatalogImportRoute = (app, db) => {
              (id,organization_id,store_id,actor_user_id,idempotency_key,payload_hash,result)
            VALUES($1,$2,$3,$4,$5,$6,'{}'::jsonb)
            ON CONFLICT(organization_id,store_id,actor_user_id,idempotency_key) DO NOTHING RETURNING id`,
-          [crypto15.randomUUID(), context.principal.organizationId, context.principal.storeId, context.principal.userId, idempotencyKey, payloadHash]
+          [crypto16.randomUUID(), context.principal.organizationId, context.principal.storeId, context.principal.userId, idempotencyKey, payloadHash]
         );
         if (!inserted.rows[0]) {
           const existing = await tx.query(
@@ -3915,7 +4538,7 @@ var registerCatalogImportRoute = (app, db) => {
             )).rows[0];
             if (category) categoryId = category.id;
             else {
-              const createdCategoryId = crypto15.randomUUID();
+              const createdCategoryId = crypto16.randomUUID();
               await tx.query(
                 `INSERT INTO prodx_categories(id,organization_id,store_id,name,slug)
                  VALUES($1,$2,$3,$4,$5)
@@ -3989,7 +4612,7 @@ var registerCatalogImportRoute = (app, db) => {
                 `INSERT INTO prodx_inventory_ledger(id,organization_id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id)
                  VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
                  RETURNING id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id,created_at`,
-                [crypto15.randomUUID(), context.principal.organizationId, context.principal.storeId, existing.id, delta, nextStock, reason, operationId, context.principal.userId]
+                [crypto16.randomUUID(), context.principal.organizationId, context.principal.storeId, existing.id, delta, nextStock, reason, operationId, context.principal.userId]
               )).rows[0];
               ledgerEntries.push(ledgerDto(ledger));
             }
@@ -4001,7 +4624,7 @@ var registerCatalogImportRoute = (app, db) => {
             const initialStock = mode === "stock_replenish" ? Math.max(0, requestedDelta ?? 0) : Math.max(0, requestedStock ?? requestedDelta ?? 0);
             const priceCents = requestedPriceCents ?? 1e3;
             const costCents = requestedCostCents ?? Number((BigInt(priceCents) * 4000n + 5000n) / 10000n);
-            const newId = crypto15.randomUUID();
+            const newId = crypto16.randomUUID();
             const finalBarcode = barcode || `IMPORT-${operationId.slice(0, 8)}-${index + 1}`;
             await tx.query(
               `INSERT INTO prodx_products
@@ -4020,7 +4643,7 @@ var registerCatalogImportRoute = (app, db) => {
                 `INSERT INTO prodx_inventory_ledger(id,organization_id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id)
                  VALUES($1,$2,$3,$4,$5,$6,'purchase_received',$7,$8)
                  RETURNING id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id,created_at`,
-                [crypto15.randomUUID(), context.principal.organizationId, context.principal.storeId, newId, initialStock, initialStock, operationId, context.principal.userId]
+                [crypto16.randomUUID(), context.principal.organizationId, context.principal.storeId, newId, initialStock, initialStock, operationId, context.principal.userId]
               )).rows[0];
               ledgerEntries.push(ledgerDto(ledger));
             }
@@ -4031,7 +4654,7 @@ var registerCatalogImportRoute = (app, db) => {
         await tx.query(
           `INSERT INTO prodx_audit_log(id,organization_id,store_id,user_id,action,severity,details)
            VALUES($1,$2,$3,$4,'catalog_bulk_imported','info',$5::jsonb)`,
-          [crypto15.randomUUID(), context.principal.organizationId, context.principal.storeId, context.principal.userId, JSON.stringify({ batchReference, mode, totalItems: normalizedItems.length, createdCount: createdProducts.length, updatedCount: updatedProducts.length, skippedCount: errors.length, notes })]
+          [crypto16.randomUUID(), context.principal.organizationId, context.principal.storeId, context.principal.userId, JSON.stringify({ batchReference, mode, totalItems: normalizedItems.length, createdCount: createdProducts.length, updatedCount: updatedProducts.length, skippedCount: errors.length, notes })]
         );
         return result2;
       });
@@ -4048,7 +4671,7 @@ var registerCatalogImportRoute = (app, db) => {
 };
 
 // server/http/catalog-pricing-route.ts
-import crypto16 from "node:crypto";
+import crypto17 from "node:crypto";
 var dbCents4 = (value) => {
   const match = /^(\d+)(?:\.(\d{1,2}))?$/.exec(String(value ?? "").trim());
   if (!match) throw new Error(`Invalid database monetary value: ${String(value)}`);
@@ -4070,7 +4693,7 @@ var productDto3 = (row) => ({
   reorderPoint: row.reorder_point,
   unitOfMeasure: row.unit_of_measure
 });
-var hashPayload3 = (value) => crypto16.createHash("sha256").update(JSON.stringify(value)).digest("hex");
+var hashPayload3 = (value) => crypto17.createHash("sha256").update(JSON.stringify(value)).digest("hex");
 var registerCatalogPricingRoute = (app, db) => {
   app.post("/api/v1/catalog/pricing/bulk", requirePermission("catalog.write"), async (request, response) => {
     const context = request.prodxContext;
@@ -4114,7 +4737,7 @@ var registerCatalogPricingRoute = (app, db) => {
           `INSERT INTO prodx_catalog_pricing_operations (id,organization_id,store_id,actor_user_id,idempotency_key,payload_hash,result)
            VALUES($1,$2,$3,$4,$5,$6,'[]'::jsonb)
            ON CONFLICT(organization_id,store_id,actor_user_id,idempotency_key) DO NOTHING RETURNING id`,
-          [crypto16.randomUUID(), context.principal.organizationId, context.principal.storeId, context.principal.userId, idempotencyKey, payloadHash]
+          [crypto17.randomUUID(), context.principal.organizationId, context.principal.storeId, context.principal.userId, idempotencyKey, payloadHash]
         );
         if (!inserted.rows[0]) {
           const existing = await tx.query(
@@ -4144,7 +4767,7 @@ var registerCatalogPricingRoute = (app, db) => {
         await tx.query(
           `INSERT INTO prodx_audit_log(id,organization_id,store_id,user_id,action,severity,details)
            VALUES($1,$2,$3,$4,'catalog_price_bulk_updated','info',$5::jsonb)`,
-          [crypto16.randomUUID(), context.principal.organizationId, context.principal.storeId, context.principal.userId, JSON.stringify({ productIds, priceChangeType, value, idempotencyKey })]
+          [crypto17.randomUUID(), context.principal.organizationId, context.principal.storeId, context.principal.userId, JSON.stringify({ productIds, priceChangeType, value, idempotencyKey })]
         );
         return { idempotencyCached: false, products };
       });
@@ -4368,7 +4991,7 @@ var registerSyncRoute = (app, db, permission = "pos.sell") => {
 };
 
 // server/http/supervisor-authorization-route.ts
-import crypto17 from "node:crypto";
+import crypto18 from "node:crypto";
 var valid = (value) => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const body = value;
@@ -4458,7 +5081,7 @@ var registerSupervisorAuthorizationRoute = (app, db, verifySupervisorToken) => {
         if (body.supervisorAccessToken) {
           if (!verifiedSupervisorIdentity) {
             await tx.query(`SELECT public.prodx_record_security_audit_event($1, $2, $3, 'SUPERVISOR_AUTH_FAILED', $4::jsonb)`, [
-              crypto17.randomUUID(),
+              crypto18.randomUUID(),
               context.principal.organizationId,
               context.principal.userId,
               JSON.stringify({ action: body.action, requestedSupervisorUserId: body.supervisorUserId, reason: "supabase_reauthentication_failed" })
@@ -4472,7 +5095,7 @@ var registerSupervisorAuthorizationRoute = (app, db, verifySupervisorToken) => {
           )).rows[0];
           if (!mappedSupervisor || mappedSupervisor.status !== "active" || mappedSupervisor.userId !== body.supervisorUserId) {
             await tx.query(`SELECT public.prodx_record_security_audit_event($1, $2, $3, 'SUPERVISOR_AUTH_DENIED', $4::jsonb)`, [
-              crypto17.randomUUID(),
+              crypto18.randomUUID(),
               context.principal.organizationId,
               context.principal.userId,
               JSON.stringify({ action: body.action, requestedSupervisorUserId: body.supervisorUserId, reason: "supabase_subject_not_authorized" })
@@ -4504,10 +5127,10 @@ var registerSupervisorAuthorizationRoute = (app, db, verifySupervisorToken) => {
           await tx.query(
             `SELECT public.prodx_record_security_audit_event($1, $2, $3, 'SUPERVISOR_AUTHORIZATION_REQUESTED', $4::jsonb)`,
             [
-              crypto17.randomUUID(),
+              crypto18.randomUUID(),
               context.principal.organizationId,
               context.principal.userId,
-              JSON.stringify({ action: "discount", idempotencyKey: checkout.idempotencyKey, payloadHash: checkoutAuthorizationFingerprint(checkout), thresholdBps: Number(policy.max_discount_without_approval_bps) })
+              JSON.stringify({ action: "discount", storeId: context.principal.storeId, idempotencyKey: checkout.idempotencyKey, payloadHash: checkoutAuthorizationFingerprint(checkout), thresholdBps: Number(policy.max_discount_without_approval_bps) })
             ]
           );
           const result2 = await service.authorize({
@@ -4557,7 +5180,7 @@ var registerSupervisorAuthorizationRoute = (app, db, verifySupervisorToken) => {
 };
 
 // server/http/discount-policy-route.ts
-import crypto18 from "node:crypto";
+import crypto19 from "node:crypto";
 var validPolicy = (value) => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const body = value;
@@ -4605,7 +5228,7 @@ var registerDiscountPolicyRoute = (app, db) => {
       if (!rows.rows[0]) return null;
       await tx.query(
         `SELECT public.prodx_record_security_audit_event($1, $2, $3, 'DISCOUNT_POLICY_UPDATED', $4::jsonb)`,
-        [crypto18.randomUUID(), context.principal.organizationId, context.principal.userId, JSON.stringify({ storeId: context.principal.storeId, requireSupervisorApproval: request.body.requireSupervisorApproval, maxDiscountWithoutApprovalBps: request.body.maxDiscountWithoutApprovalBps })]
+        [crypto19.randomUUID(), context.principal.organizationId, context.principal.userId, JSON.stringify({ storeId: context.principal.storeId, requireSupervisorApproval: request.body.requireSupervisorApproval, maxDiscountWithoutApprovalBps: request.body.maxDiscountWithoutApprovalBps })]
       );
       return rows.rows[0];
     });
@@ -4626,7 +5249,7 @@ var money2 = (value, currency) => {
   if (!Number.isSafeInteger(cents3)) throw new Error("Monetary value exceeds safe client representation.");
   return { amountInCents: cents3, currency };
 };
-var toOrder = (row, items, payments) => ({
+var toOrder = (row, items, payments, refundedAmount = "0.00", restockedQuantities = /* @__PURE__ */ new Map()) => ({
   id: row.id,
   orderNumber: row.order_number,
   idempotencyKey: row.idempotency_key,
@@ -4651,6 +5274,7 @@ var toOrder = (row, items, payments) => ({
       unitOfMeasure: item.unit_of_measure
     },
     quantity: item.quantity,
+    restockedQuantity: restockedQuantities.get(item.id) ?? 0,
     unitPrice: money2(item.unit_price_amount, item.currency),
     discountBps: item.item_discount_bps,
     lineSubtotal: money2(item.line_subtotal_amount, item.currency),
@@ -4677,29 +5301,41 @@ var toOrder = (row, items, payments) => ({
     terminalReference: payment.terminal_reference ?? void 0,
     timestamp: new Date(payment.created_at).toISOString()
   })),
+  refundedAmount: money2(refundedAmount, row.currency),
   status: row.status,
   serverCommittedAt: new Date(row.server_committed_at).toISOString(),
   createdAt: new Date(row.created_at).toISOString(),
   notes: row.notes ?? void 0
 });
 var createOrderReadService = (db) => ({
-  async getOrders(organizationId, storeId, limit = 50, registerId) {
+  async getOrders(organizationId, storeId, limit = 50, registerId, options = {}) {
     const safeLimit = Math.min(Math.max(Math.trunc(limit), 1), 200);
+    const safeOffset = Math.min(Math.max(Math.trunc(options.offset ?? 0), 0), 1e5);
     const conditions = ["o.organization_id = $1", "o.store_id = $2"];
     const params = [organizationId, storeId];
     if (registerId && registerId.trim()) {
       params.push(registerId.trim());
       conditions.push(`o.register_id = $${params.length}`);
     }
+    if (options.from) {
+      params.push(options.from);
+      conditions.push(`o.created_at >= $${params.length}::timestamptz`);
+    }
+    if (options.to) {
+      params.push(options.to);
+      conditions.push(`o.created_at <= $${params.length}::timestamptz`);
+    }
     params.push(safeLimit);
     const limitPlaceholder = `$${params.length}`;
+    params.push(safeOffset);
+    const offsetPlaceholder = `$${params.length}`;
     const orders = (await db.query(
       `SELECT o.*, u.display_name AS cashier_name
          FROM prodx_orders o
          JOIN prodx_users u ON u.id = o.cashier_id AND u.organization_id = o.organization_id
          WHERE ${conditions.join(" AND ")}
          ORDER BY o.created_at DESC, o.id DESC
-         LIMIT ${limitPlaceholder}`,
+         LIMIT ${limitPlaceholder} OFFSET ${offsetPlaceholder}`,
       params
     )).rows;
     if (orders.length === 0) return [];
@@ -4708,7 +5344,7 @@ var createOrderReadService = (db) => ({
       `SELECT oi.*, p.sku, p.barcode, p.name, p.category_id, p.price_amount::text AS product_price_amount,
                 p.cost_price_amount::text, p.tax_rate_bps, p.current_stock, p.reorder_point, p.unit_of_measure
          FROM prodx_order_items oi
-         JOIN prodx_products p ON p.id = oi.product_id AND p.store_id = oi.store_id
+         JOIN prodx_products p ON p.id = oi.product_id AND p.organization_id = oi.organization_id AND p.store_id = oi.store_id
          WHERE oi.organization_id = $1 AND oi.store_id = $2 AND oi.order_id = ANY($3::uuid[])
          ORDER BY oi.order_id, oi.id`,
       [organizationId, storeId, ids]
@@ -4718,7 +5354,23 @@ var createOrderReadService = (db) => ({
                 card_last_four, terminal_reference, currency, created_at
          FROM prodx_payments
          WHERE organization_id = $1 AND store_id = $2 AND order_id = ANY($3::uuid[])
+           AND status IN ('captured', 'settled')
          ORDER BY order_id, created_at, id`,
+      [organizationId, storeId, ids]
+    )).rows;
+    const refundRows = (await db.query(
+      `SELECT order_id, SUM(amount)::text AS refunded_amount
+         FROM prodx_refunds
+         WHERE organization_id = $1 AND store_id = $2 AND order_id = ANY($3::uuid[])
+         GROUP BY order_id`,
+      [organizationId, storeId, ids]
+    )).rows;
+    const refundItemRows = (await db.query(
+      `SELECT ri.order_item_id, SUM(ri.quantity)::integer AS restocked_quantity
+         FROM prodx_refund_items ri
+         JOIN prodx_refunds r ON r.id = ri.refund_id AND r.organization_id = ri.organization_id AND r.store_id = ri.store_id
+         WHERE ri.organization_id = $1 AND ri.store_id = $2 AND r.order_id = ANY($3::uuid[])
+         GROUP BY ri.order_item_id`,
       [organizationId, storeId, ids]
     )).rows;
     const itemsByOrder = /* @__PURE__ */ new Map();
@@ -4727,6 +5379,12 @@ var createOrderReadService = (db) => ({
       list.push(item);
       itemsByOrder.set(item.order_id, list);
     }
+    const refundedAmountByOrder = /* @__PURE__ */ new Map();
+    for (const refund of refundRows) refundedAmountByOrder.set(refund.order_id, String(refund.refunded_amount));
+    const restockedQuantityByItem = /* @__PURE__ */ new Map();
+    for (const refundItem of refundItemRows) {
+      restockedQuantityByItem.set(refundItem.order_item_id, Number(refundItem.restocked_quantity));
+    }
     const paymentsByOrder = /* @__PURE__ */ new Map();
     for (const payment of paymentRows) {
       const list = paymentsByOrder.get(payment.order_id) ?? [];
@@ -4734,7 +5392,13 @@ var createOrderReadService = (db) => ({
       paymentsByOrder.set(payment.order_id, list);
     }
     return orders.map(
-      (order) => toOrder(order, itemsByOrder.get(order.id) ?? [], paymentsByOrder.get(order.id) ?? [])
+      (order) => toOrder(
+        order,
+        itemsByOrder.get(order.id) ?? [],
+        paymentsByOrder.get(order.id) ?? [],
+        refundedAmountByOrder.get(order.id) ?? "0.00",
+        restockedQuantityByItem
+      )
     );
   }
 });
@@ -4753,9 +5417,35 @@ var registerOrderReadRoute = (app, db, permission = "pos.sell") => {
       if (!Number.isInteger(rawLimit) || rawLimit < 1 || rawLimit > 200) {
         return error3(response, request, 400, "INVALID_LIMIT", "limit must be an integer between 1 and 200.");
       }
+      const rawOffset = typeof request.query.offset === "string" ? Number(request.query.offset) : 0;
+      if (!Number.isInteger(rawOffset) || rawOffset < 0 || rawOffset > 1e5) {
+        return error3(response, request, 400, "INVALID_OFFSET", "offset must be an integer between 0 and 100000.");
+      }
+      const parseTimestamp = (value) => {
+        if (value === void 0) return void 0;
+        if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)) {
+          throw new TypeError("Timestamps must be ISO 8601 UTC values.");
+        }
+        const parsed = new Date(value);
+        if (!Number.isFinite(parsed.getTime()) || parsed.toISOString() !== value) {
+          throw new TypeError("Timestamps must be valid ISO 8601 UTC values.");
+        }
+        return value;
+      };
+      let from;
+      let to;
+      try {
+        from = parseTimestamp(request.query.from);
+        to = parseTimestamp(request.query.to);
+      } catch {
+        return error3(response, request, 400, "INVALID_DATE_RANGE", "from and to must be valid ISO 8601 UTC timestamps.");
+      }
+      if (from && to && Date.parse(from) > Date.parse(to)) {
+        return error3(response, request, 400, "INVALID_DATE_RANGE", "from must be earlier than or equal to to.");
+      }
       const rawRegisterId = typeof request.query.registerId === "string" ? request.query.registerId.trim() : typeof request.query.terminalId === "string" ? request.query.terminalId.trim() : void 0;
       return response.json(
-        await service.getOrders(context.principal.organizationId, context.principal.storeId, rawLimit, rawRegisterId)
+        await service.getOrders(context.principal.organizationId, context.principal.storeId, rawLimit, rawRegisterId, { from, to, offset: rawOffset })
       );
     } catch (cause) {
       return next(cause);
@@ -4764,7 +5454,7 @@ var registerOrderReadRoute = (app, db, permission = "pos.sell") => {
 };
 
 // server/transactions/void-service.ts
-import crypto19 from "node:crypto";
+import crypto20 from "node:crypto";
 var VoidValidationError = class extends Error {
   constructor() {
     super(...arguments);
@@ -4842,7 +5532,7 @@ var createVoidService = (db) => ({
       if (paid !== dbCents5(order.grand_total_amount)) throw new VoidConflictError("Recorded cash payments do not match the order total.");
       const shift = (await tx.query("SELECT id FROM prodx_shifts WHERE id=$1 AND store_id=$2 AND status='open' FOR UPDATE", [order.shift_id, request.storeId])).rows[0];
       if (!shift) throw new VoidConflictError("The originating shift is not open; cash reversal cannot be committed.");
-      const voidId = crypto19.randomUUID();
+      const voidId = crypto20.randomUUID();
       const inserted = (await tx.query(
         "INSERT INTO prodx_voids (id,organization_id,store_id,order_id,reason,authorized_by_user_id,requester_user_id,idempotency_key) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING RETURNING id",
         [voidId, order.organization_id, request.storeId, request.orderId, request.reason.trim(), supervisorUserId, request.requesterUserId, request.idempotencyKey]
@@ -4861,19 +5551,19 @@ var createVoidService = (db) => ({
         if (!stock) throw new VoidConflictError(`Product ${item.product_id} is unavailable for void reversal.`);
         await tx.query(
           "INSERT INTO prodx_inventory_ledger (id,organization_id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id) VALUES($1,$2,$3,$4,$5,$6,'void_reversal',$7,$8)",
-          [crypto19.randomUUID(), order.organization_id, request.storeId, item.product_id, item.quantity, stock.current_stock, voidId, supervisorUserId]
+          [crypto20.randomUUID(), order.organization_id, request.storeId, item.product_id, item.quantity, stock.current_stock, voidId, supervisorUserId]
         );
       }
       const amount = dbCents5(order.grand_total_amount);
       await tx.query(
         "INSERT INTO prodx_cash_movements (id,organization_id,store_id,shift_id,type,amount,reason,performed_by_user_id,currency) VALUES($1,$2,$3,$4,'cash_refund',$5,$6,$7,$8)",
-        [crypto19.randomUUID(), order.organization_id, request.storeId, shift.id, numeric3(amount), `Void for Order #${order.order_number}: ${request.reason.trim()}`, supervisorUserId, orderCurrency]
+        [crypto20.randomUUID(), order.organization_id, request.storeId, shift.id, numeric3(amount), `Void for Order #${order.order_number}: ${request.reason.trim()}`, supervisorUserId, orderCurrency]
       );
       await tx.query("UPDATE prodx_orders SET status=$1 WHERE id=$2 AND store_id=$3", ["voided", request.orderId, request.storeId]);
       await tx.query(
         "INSERT INTO prodx_audit_log (id,organization_id,store_id,register_id,user_id,action,severity,details) VALUES($1,$2,$3,$4,$5,'order_void_committed','critical',$6::jsonb)",
         [
-          crypto19.randomUUID(),
+          crypto20.randomUUID(),
           order.organization_id,
           request.storeId,
           order.register_id,
@@ -4939,7 +5629,7 @@ var registerVoidRoute = (app, db) => {
 };
 
 // server/transactions/inventory-adjustment-service.ts
-import crypto20 from "node:crypto";
+import crypto21 from "node:crypto";
 var InventoryAdjustmentValidationError = class extends Error {
   constructor() {
     super(...arguments);
@@ -4969,16 +5659,16 @@ var createInventoryAdjustmentService = (db) => ({
       const products = (await tx.query("SELECT id,current_stock FROM prodx_products WHERE organization_id=$1 AND store_id=$2 AND id=ANY($3::uuid[]) AND active=true ORDER BY id FOR UPDATE", [request.organizationId, request.storeId, productIds])).rows;
       if (products.length !== productIds.length) throw new InventoryAdjustmentValidationError("One or more products do not belong to the authenticated store or are inactive.");
       if (request.quantityDelta < 0 && products.some((p) => p.current_stock + request.quantityDelta < 0)) throw new InventoryAdjustmentConflictError("Inventory adjustment would make stock negative.");
-      const adjustmentId = crypto20.randomUUID();
+      const adjustmentId = crypto21.randomUUID();
       const inserted = (await tx.query("INSERT INTO prodx_inventory_adjustments (id,organization_id,store_id,requester_user_id,idempotency_key,quantity_delta,reason,product_ids,notes) VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9) ON CONFLICT (store_id,idempotency_key) DO NOTHING RETURNING id", [adjustmentId, request.organizationId, request.storeId, request.requesterUserId, request.idempotencyKey.trim(), request.quantityDelta, request.reason, JSON.stringify(productIds), request.notes?.trim() || null])).rows[0];
       if (!inserted) throw new InventoryAdjustmentConflictError("Concurrent inventory adjustment detected; retry with the same idempotency key.");
       const entries = [];
       for (const product of products) {
         const updated = (await tx.query("UPDATE prodx_products SET current_stock=current_stock+$1,updated_at=CURRENT_TIMESTAMP WHERE id=$2 AND store_id=$3 RETURNING current_stock", [request.quantityDelta, product.id, request.storeId])).rows[0];
-        const entry = (await tx.query("INSERT INTO prodx_inventory_ledger (id,organization_id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id,created_at", [crypto20.randomUUID(), request.organizationId, request.storeId, product.id, request.quantityDelta, updated.current_stock, request.reason, adjustmentId, request.requesterUserId])).rows[0];
+        const entry = (await tx.query("INSERT INTO prodx_inventory_ledger (id,organization_id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id,created_at", [crypto21.randomUUID(), request.organizationId, request.storeId, product.id, request.quantityDelta, updated.current_stock, request.reason, adjustmentId, request.requesterUserId])).rows[0];
         entries.push(entry);
       }
-      await tx.query("INSERT INTO prodx_audit_log (id,organization_id,store_id,user_id,action,severity,details) VALUES($1,$2,$3,$4,'inventory_adjustment_committed','critical',$5::jsonb)", [crypto20.randomUUID(), request.organizationId, request.storeId, request.requesterUserId, JSON.stringify({ adjustmentId, productIds, quantityDelta: request.quantityDelta, reason: request.reason, idempotencyKey: request.idempotencyKey.trim() })]);
+      await tx.query("INSERT INTO prodx_audit_log (id,organization_id,store_id,user_id,action,severity,details) VALUES($1,$2,$3,$4,'inventory_adjustment_committed','critical',$5::jsonb)", [crypto21.randomUUID(), request.organizationId, request.storeId, request.requesterUserId, JSON.stringify({ adjustmentId, productIds, quantityDelta: request.quantityDelta, reason: request.reason, idempotencyKey: request.idempotencyKey.trim() })]);
       return { success: true, idempotencyCached: false, adjustmentId, entries };
     });
   }
@@ -7095,6 +7785,65 @@ var AIRequestValidationError = class extends Error {
   }
 };
 
+// server/observability/shutdown.ts
+var DEFAULT_SHUTDOWN_TIMEOUT_MS = 1e4;
+var resolveShutdownTimeoutMs = (rawValue = process.env.PRODX_SHUTDOWN_TIMEOUT_MS) => {
+  if (!rawValue) return DEFAULT_SHUTDOWN_TIMEOUT_MS;
+  const parsed = Number.parseInt(rawValue, 10);
+  return Number.isInteger(parsed) && parsed >= 100 ? parsed : DEFAULT_SHUTDOWN_TIMEOUT_MS;
+};
+var createGracefulShutdownHandler = (options) => {
+  const timeoutMs = options.timeoutMs ?? resolveShutdownTimeoutMs();
+  const log = options.log ?? logger;
+  const exit = options.exit ?? ((code) => process.exit(code));
+  let shuttingDown = false;
+  return async (signal) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    log.info("server.shutdown_started", { signal, timeoutMs });
+    const forceTimer = setTimeout(() => {
+      log.error("server.shutdown_timeout", { signal, timeoutMs });
+      exit(1);
+    }, timeoutMs);
+    forceTimer.unref();
+    try {
+      await new Promise((resolve, reject) => {
+        options.server.close((error4) => {
+          if (error4) reject(error4);
+          else resolve();
+        });
+        options.server.closeIdleConnections?.();
+      });
+      await options.pool.end();
+      clearTimeout(forceTimer);
+      log.info("server.shutdown_completed", { signal });
+      exit(0);
+    } catch (error4) {
+      clearTimeout(forceTimer);
+      log.error("server.shutdown_failed", {
+        signal,
+        ...safeErrorDiagnostic(error4)
+      });
+      exit(1);
+    }
+  };
+};
+var installGracefulShutdown = (options) => {
+  const shutdown = createGracefulShutdownHandler(options);
+  const onSigInt = () => {
+    void shutdown("SIGINT");
+  };
+  const onSigTerm = () => {
+    void shutdown("SIGTERM");
+  };
+  process.once("SIGINT", onSigInt);
+  process.once("SIGTERM", onSigTerm);
+  return () => {
+    process.removeListener("SIGINT", onSigInt);
+    process.removeListener("SIGTERM", onSigTerm);
+  };
+};
+
 // server/http/retryable-initialization.ts
 var createRetryableInitialization = (initialize) => {
   let current;
@@ -7138,6 +7887,7 @@ var createProductionApp = async (options = {}) => {
           config: readFirstTenantBootstrapConfig(process.env)
         }
       });
+      registerWebAuthnRoutes(configuredApp, requestScopedSql, sessions);
       registerPublicInfrastructureRoutes(configuredApp, pool);
     },
     authenticateRequest: async (request) => {
@@ -7179,16 +7929,9 @@ var startProductionServer = async () => {
     throw new Error("PORT must be a valid TCP port.");
   }
   const server = app.listen(port, host, () => {
-    console.log(`PRODX POS backend listening on ${host}:${port}`);
+    logger.info("server.started", { host, port });
   });
-  const shutdown = async (signal) => {
-    server.close(async () => {
-      await pool.end();
-      console.log(`PRODX POS backend stopped after ${signal}`);
-    });
-  };
-  process.once("SIGINT", () => void shutdown("SIGINT"));
-  process.once("SIGTERM", () => void shutdown("SIGTERM"));
+  installGracefulShutdown({ server, pool });
 };
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   await startProductionServer();
@@ -7196,5 +7939,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 export {
   createProductionApp,
   createRetryableInitialization,
+  logger,
+  safeErrorDiagnostic,
   startProductionServer
 };

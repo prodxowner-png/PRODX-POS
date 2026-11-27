@@ -19,7 +19,7 @@ import { aiService } from '../../../services/aiService';
 interface AiDashboardInsightsWidgetProps {
   totalRevenue: string;
   totalOrders: number;
-  topProducts: Array<{ name: string; qty: number; revenue: string }>;
+  topProducts: Array<{ name: string; qty: number }>;
   paymentBreakdown: Record<string, string>;
   dateRangeText: string;
   timeframeText: string;
@@ -81,25 +81,25 @@ export const AiDashboardInsightsWidget: React.FC<AiDashboardInsightsWidgetProps>
   };
 
   return (
-    <div className="rounded-2xl border border-indigo-200 dark:border-indigo-900/60 bg-gradient-to-br from-indigo-50/70 via-white to-blue-50/50 dark:from-slate-900 dark:via-indigo-950/20 dark:to-slate-900 p-5 shadow-sm">
+    <div className="rounded-2xl border border-primary/25 bg-card p-5 shadow-2xs">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-md shadow-indigo-600/20">
-            <Sparkles className="h-5 w-5 animate-pulse" />
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
+            <Sparkles className="h-5 w-5" aria-hidden="true" />
           </div>
           <div>
             <div className="flex items-center gap-2">
               <h3 className="text-base font-bold text-text">
                 {isThai ? 'PRODX AI สรุปวิเคราะห์ยอดขายและกลยุทธ์' : 'PRODX AI Executive Sales Insights'}
               </h3>
-              <Badge variant="primary" className="bg-indigo-600 text-white text-[10px] uppercase font-bold tracking-wider">
+              <Badge variant="primary" className="bg-brand-surface-selected text-brand-text-accent text-[10px] uppercase font-bold tracking-wider">
                 Powered by Gemini
               </Badge>
             </div>
             <p className="text-xs text-text/60">
               {isThai
-                ? 'วิเคราะห์อัตโนมัติจากข้อมูลยอดขาย สถิติออเดอร์ และสินค้าขายดีประจำช่วงเวลา'
-                : 'Intelligent synthesis based on real-time sales telemetry & velocity.'}
+                ? 'วิเคราะห์จากยอดขายและออเดอร์ที่ยืนยันแล้วในช่วงวันที่เลือก'
+                : 'Analysis based only on server-confirmed sales and orders in the selected period.'}
             </p>
           </div>
         </div>
@@ -143,18 +143,18 @@ export const AiDashboardInsightsWidget: React.FC<AiDashboardInsightsWidgetProps>
 
       {/* Insight Content Box */}
       {hasGenerated && insightText ? (
-        <div className="rounded-xl border border-indigo-100 dark:border-indigo-900/40 bg-white/90 dark:bg-slate-900/90 p-4.5 text-sm text-text leading-relaxed whitespace-pre-wrap font-sans shadow-inner">
+        <div className="rounded-xl border border-border bg-background/80 p-4 text-sm text-text leading-relaxed whitespace-pre-wrap font-sans shadow-inner">
           {insightText}
         </div>
       ) : (
-        <div className="flex flex-col items-center justify-center py-6 px-4 text-center rounded-xl border border-dashed border-indigo-200 dark:border-indigo-900/50 bg-indigo-50/30 dark:bg-indigo-950/10">
-          <Lightbulb className="h-8 w-8 text-indigo-400 mb-2 opacity-80" />
+        <div className="flex flex-col items-center justify-center py-6 px-4 text-center rounded-xl border border-dashed border-brand-border-strong/50 bg-background/60">
+          <Lightbulb className="h-8 w-8 text-brand-text-accent mb-2" aria-hidden="true" />
           <p className="text-xs font-medium text-text/80">
             {isThai
               ? 'กดปุ่ม "สร้างบทวิเคราะห์ AI ตอนนี้" เพื่อให้ PRODX AI สรุปภาพรวมยอดขายและแนะนำกลยุทธ์เพิ่มกำไร'
               : 'Click "Analyze with AI" to generate business insights and actionable upselling strategies.'}
           </p>
-          <span className="text-[11px] text-slate-400 mt-1">
+          <span className="text-[11px] text-brand-text-secondary mt-1">
             {isThai
               ? `วิเคราะห์จากยอดขาย ${totalRevenue} (${totalOrders} ออเดอร์)`
               : `Based on current telemetry: ${totalRevenue} (${totalOrders} orders)`}

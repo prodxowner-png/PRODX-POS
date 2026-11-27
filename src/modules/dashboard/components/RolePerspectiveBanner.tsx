@@ -23,7 +23,7 @@ export const RolePerspectiveBanner: React.FC<RolePerspectiveBannerProps> = ({ is
               {isManager ? (language === 'th' ? 'มุมมองผู้จัดการ & บริหาร (Manager Perspective)' : 'Manager & Leadership Perspective') : (language === 'th' ? 'มุมมองพนักงานหน้าร้าน (Staff Perspective)' : 'Frontline Staff Perspective')}
             </span>
             <Badge variant={isManager ? 'primary' : 'success'} size="sm" className="font-mono text-[10px] uppercase font-bold">{userRole}</Badge>
-            <span className="text-[11px] text-text/40 hidden sm:inline">•</span>
+            <span className="text-[11px] text-brand-text-secondary hidden sm:inline">•</span>
             <span className="text-[11px] font-medium text-text/70">
               {isManager ? (language === 'th' ? 'สิทธิ์รายงานการเงิน & ยอดขายเต็มรูปแบบ' : 'Financial KPIs & Revenue Analytics') : (language === 'th' ? 'เน้นข้อมูลเชิงปฏิบัติการ & สต็อกหน้าร้าน (ซ่อนข้อมูลการเงิน)' : 'Operational Throughput & Units Sold (Financials Masked)')}
             </span>

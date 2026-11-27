@@ -1,4 +1,4 @@
--- 0059: close the remaining authorization and audit-integrity gaps introduced by 0058.
+-- 0062: close the remaining authorization and audit-integrity gaps introduced by 0058.
 -- This is additive: existing ledger rows and authorization grants are not rewritten.
 
 CREATE OR REPLACE FUNCTION public.prodx_seed_discount_policy_for_store()
@@ -877,5 +877,5 @@ COMMENT ON FUNCTION public.prodx_record_security_audit_event(uuid, uuid, uuid, t
   'Append-only security audit writer restricted to the authenticated store, approved event contracts, verified actors, and persisted authorization state.';
 
 INSERT INTO public.prodx_schema_migrations(version)
-VALUES ('0059_security_harden_discount_authorization_rpcs')
+VALUES ('0062_security_harden_discount_authorization_rpcs')
 ON CONFLICT (version) DO NOTHING;

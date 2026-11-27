@@ -186,7 +186,7 @@ export const ConnectivityStatusIndicator: React.FC<ConnectivityStatusIndicatorPr
         {/* Pending Items Count Badge (Only visible when items are queued in outbox) */}
         {pendingCount > 0 && (
           <span
-            className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono font-bold leading-none shrink-0 ${
+            className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono tabular-nums font-bold leading-none shrink-0 ${
               !isOnline
                 ? 'bg-amber-500/20 text-amber-800 dark:text-amber-200 border border-amber-500/30'
                 : 'bg-primary/15 text-primary border border-primary/25'
@@ -200,7 +200,7 @@ export const ConnectivityStatusIndicator: React.FC<ConnectivityStatusIndicatorPr
         {/* Subtle drop chevron when interactive */}
         {interactive && (
           <ChevronDown
-            className={`h-3 w-3 text-text/40 transition-transform duration-150 shrink-0 hidden sm:inline-block ${
+            className={`h-3 w-3 text-brand-text-secondary transition-transform duration-150 shrink-0 hidden sm:inline-block ${
               isOpen ? 'rotate-180' : ''
             }`}
           />
@@ -233,7 +233,7 @@ export const ConnectivityStatusIndicator: React.FC<ConnectivityStatusIndicatorPr
               </span>
             </div>
             <span
-              className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase tracking-wider ${
+              className={`px-2 py-0.5 rounded text-[10px] font-mono tabular-nums font-bold uppercase tracking-wider ${
                 !isOnline
                   ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30'
                   : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
@@ -250,9 +250,9 @@ export const ConnectivityStatusIndicator: React.FC<ConnectivityStatusIndicatorPr
                 <Database className="h-3 w-3 text-primary" />
                 <span>{language === 'th' ? 'รอการส่งข้อมูล' : 'Outbox Queue'}</span>
               </div>
-              <div className="text-base font-bold font-mono text-text mt-0.5">
+              <div className="text-base font-bold font-mono tabular-nums text-text mt-0.5">
                 {pendingCount}
-                <span className="text-[10px] font-normal text-text/50 ml-1">
+                <span className="text-[10px] font-normal text-brand-text-secondary ml-1">
                   {language === 'th' ? 'รายการ' : 'items'}
                 </span>
               </div>
@@ -263,14 +263,14 @@ export const ConnectivityStatusIndicator: React.FC<ConnectivityStatusIndicatorPr
                 <Activity className="h-3 w-3 text-emerald-500" />
                 <span>{language === 'th' ? 'ความเร็วเครือข่าย' : 'Latency'}</span>
               </div>
-              <div className="text-base font-bold font-mono text-text mt-0.5">
+              <div className="text-base font-bold font-mono tabular-nums text-text mt-0.5">
                 {isOnline && syncLatencyMs !== null ? (
                   <span>
                     {syncLatencyMs}
-                    <span className="text-[10px] font-normal text-text/50 ml-0.5">ms</span>
+                    <span className="text-[10px] font-normal text-brand-text-secondary ml-0.5">ms</span>
                   </span>
                 ) : (
-                  <span className="text-text/40 text-xs">N/A</span>
+                  <span className="text-brand-text-secondary text-xs">N/A</span>
                 )}
               </div>
             </div>
@@ -283,7 +283,7 @@ export const ConnectivityStatusIndicator: React.FC<ConnectivityStatusIndicatorPr
                 <Clock className="h-3 w-3" />
                 <span>{language === 'th' ? 'ซิงก์ล่าสุด:' : 'Last Synced:'}</span>
               </span>
-              <span className="font-mono font-medium text-text">
+              <span className="font-mono tabular-nums font-medium text-text">
                 {formatLastSync(lastSyncedAt)}
               </span>
             </div>
@@ -292,7 +292,7 @@ export const ConnectivityStatusIndicator: React.FC<ConnectivityStatusIndicatorPr
                 <HardDrive className="h-3 w-3" />
                 <span>{language === 'th' ? 'ซิงก์สำเร็จแล้ว:' : 'Synced Total:'}</span>
               </span>
-              <span className="font-mono font-medium text-emerald-600 dark:text-emerald-400">
+              <span className="font-mono tabular-nums font-medium text-emerald-600 dark:text-emerald-400">
                 {syncedCount}
               </span>
             </div>
@@ -302,7 +302,7 @@ export const ConnectivityStatusIndicator: React.FC<ConnectivityStatusIndicatorPr
                   <AlertTriangle className="h-3 w-3" />
                   <span>{language === 'th' ? 'มีข้อผิดพลาด:' : 'Failed Retries:'}</span>
                 </span>
-                <span className="font-mono font-bold text-rose-500">
+                <span className="font-mono tabular-nums font-bold text-rose-500">
                   {failedCount}
                 </span>
               </div>
@@ -318,7 +318,7 @@ export const ConnectivityStatusIndicator: React.FC<ConnectivityStatusIndicatorPr
                   triggerSync();
                 }}
                 disabled={isSyncing}
-                className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-primary text-white font-bold text-xs shadow-xs hover:bg-primary-dark transition-all duration-150 cursor-pointer active:scale-95 disabled:opacity-50"
+                className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-primary text-primary-foreground font-bold text-xs shadow-xs hover:bg-primary-dark transition-all duration-150 cursor-pointer active:scale-95 disabled:opacity-50"
               >
                 <RefreshCw className={`h-3.5 w-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
                 <span>{language === 'th' ? 'ซิงก์ข้อมูลทันที' : 'Sync Outbox Now'}</span>
@@ -355,7 +355,7 @@ export const ConnectivityStatusIndicator: React.FC<ConnectivityStatusIndicatorPr
                   </>
                 ) : (
                   <>
-                    <CloudOff className="h-3 w-3 text-text/50" />
+                    <CloudOff className="h-3 w-3 text-brand-text-secondary" />
                     <span>{language === 'th' ? 'จำลองออฟไลน์' : 'Sim Offline'}</span>
                   </>
                 )}

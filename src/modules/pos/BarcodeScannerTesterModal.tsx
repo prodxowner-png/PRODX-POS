@@ -108,24 +108,25 @@ export const BarcodeScannerTesterModal: React.FC<BarcodeScannerTesterModalProps>
 
         {/* Test Manual Trigger Input */}
         <div>
-          <label className="block text-xs font-semibold text-text/70 mb-1.5">
+          <label htmlFor="manual-barcode-input" className="block text-xs font-semibold text-text/70 mb-1.5 cursor-pointer">
             {language === 'th' ? 'ทดสอบยิงบาร์โค้ดด้วยตนเอง' : 'Manual Scan Simulator'}
           </label>
           <form onSubmit={handleManualSubmit} className="flex gap-2">
             <div className="relative flex-1">
               <input
+                id="manual-barcode-input"
                 type="text"
                 value={manualCode}
                 onChange={(e) => setManualCode(e.target.value)}
                 placeholder={language === 'th' ? 'กรอกบาร์โค้ด เช่น 890123450001' : 'e.g. 890123450001 or BEV-ESP-01'}
-                className="w-full min-h-[44px] rounded-lg border-crisp border border-border bg-card text-xs font-mono pl-9 pr-3 text-text placeholder-text/40 focus:outline-none focus:ring-2 focus:ring-primary shadow-2xs"
+                className="w-full min-h-[44px] rounded-lg border-crisp border border-border bg-card text-base sm:text-xs font-mono pl-9 pr-3 text-text placeholder-text/40 focus:outline-none focus:ring-2 focus:ring-primary shadow-2xs"
               />
               <Barcode className="h-4 w-4 text-text/50 absolute left-3 top-1/2 -translate-y-1/2" />
             </div>
             <button
               type="submit"
               disabled={!manualCode.trim()}
-              className="min-h-[44px] px-4 rounded-lg bg-primary hover:opacity-90 active:scale-98 text-white text-xs font-semibold transition-all disabled:opacity-40 cursor-pointer flex items-center gap-1.5 shrink-0 shadow-2xs"
+              className="min-h-[44px] px-4 rounded-lg bg-primary hover:opacity-90 active:scale-[0.98] text-primary-foreground text-xs font-semibold transition-all disabled:opacity-40 cursor-pointer flex items-center gap-1.5 shrink-0 shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta"
             >
               <Zap className="h-3.5 w-3.5" />
               <span>{language === 'th' ? 'จำลองการสแกน' : 'Simulate Scan'}</span>

@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
 import test from 'node:test';
 import { hashPassword } from '../auth/password';
-import { resolveConfiguredDatabaseUrl } from '../db/postgres';
+import { resolveDisposableTestDatabaseUrl } from '../db/test-database-guard';
 import { createProductionApp } from '../entrypoint';
 
-const databaseUrl = resolveConfiguredDatabaseUrl(process.env.DATABASE_URL);
+const databaseUrl = resolveDisposableTestDatabaseUrl(process.env.DATABASE_URL, 'server/http/auth-route.integration.test.ts');
 const localClientFingerprints = ['127.0.0.1', '::ffff:127.0.0.1', '::1'].map((address) =>
   createHash('sha256').update(address).digest('hex'),
 );
