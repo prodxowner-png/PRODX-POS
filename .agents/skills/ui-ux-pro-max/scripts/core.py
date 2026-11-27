@@ -492,8 +492,18 @@ def _search_csv_detailed(filepath, search_cols, output_cols, query, max_results,
         if not data:
             return [], None, {"reason": "empty-data"}
 
-    if routing_domain == "color" and re.fullmatch(r"#[0-9a-fA-F]{6}", query.strip()):
-        hex_value = query.strip().lower()
+    if routing_domain == "color":
+        color_query = query.strip()
+        if re.fullmatch(r"#[0-9a-fA-F]{3}", color_query):
+            hex_value = "#" + "".join(character * 2 for character in color_query[1:].lower())
+        elif re.fullmatch(r"#[0-9a-fA-F]{6}", color_query):
+            hex_value = color_query.lower()
+        else:
+            hex_value = None
+    else:
+        hex_value = None
+
+    if hex_value is not None:
         color_columns = [col for col in output_cols if col not in ("Product Type", "Notes")]
         matches = (
             row for row in data
