@@ -78,7 +78,7 @@ export class AiService {
       method: 'POST',
       credentials: 'include',
       headers,
-      body: JSON.stringify({ messages, model: config.model, temperature: config.temperature }),
+      body: JSON.stringify({ messages, model: config.model === DEFAULT_AI_CONFIG.model ? undefined : config.model, temperature: config.temperature }),
     });
 
     if (!res.ok) {
@@ -118,7 +118,7 @@ export class AiService {
       body: JSON.stringify({
         prompt,
         history,
-        model: config.model,
+        model: config.model === DEFAULT_AI_CONFIG.model ? undefined : config.model,
         temperature: config.temperature,
       }),
     });
