@@ -9,3 +9,5 @@ coverage/
 
 .private-build/
 .agents/teamwork/
+.vercel
+/supabase/.temp/
