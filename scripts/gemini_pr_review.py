@@ -603,13 +603,20 @@ def main() -> int:
         print(f"Review result could not be recorded: {error}")
         return 2
 
+    review_summary = result.get("summary", "")
+    if result.get("verdict") == "BLOCKED":
+        final_status = "API_ERROR" if re.search(r"HTTP \\d{3}", review_summary) else "BLOCKED"
+    else:
+        final_status = "REVIEWED"
     print(json.dumps({
         "pr": number,
         "head_sha": head_sha,
+        "status": final_status,
         "verdict": result["verdict"],
         "coverage": result["coverage"],
         "finding_count": len(result.get("findings", [])),
     }, separators=(",", ":")))
+    _write_step_summary(final_status, number, review_summary)
     # Non-gating: success means the advisory report was recorded, never that the model approved code.
     return 0
 
