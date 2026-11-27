@@ -25,7 +25,7 @@ import tempfile
 import unicodedata
 from datetime import datetime
 from pathlib import Path
-from core import search, DATA_DIR
+from core import search, DATA_DIR, _normalize
 from reasoning_contract import apply_decision_rules, parse_decision_rules
 
 # Force UTF-8 for stdout/stderr to handle emojis/box-drawing chars on Windows (cp1252 default)
