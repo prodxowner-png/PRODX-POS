@@ -50,14 +50,10 @@ def resolve_preview_locale(text: str, lang: str = None, direction: str = None) -
     for character in text:
         if not character.isalpha() or unicodedata.bidirectional(character) not in {"R", "AL"}:
             continue
-        name = unicodedata.name(character, "")
-        if name.startswith("ARABIC "):
-            inferred_lang = "ar"
-        elif name.startswith("HEBREW "):
-            inferred_lang = "he"
-        else:
-            inferred_lang = "und"
-        return inferred_lang, direction or "rtl"
+        # Unicode script identifies writing direction, not the language:
+        # Arabic script is shared by Arabic, Persian and Urdu; Hebrew by
+        # Hebrew and Yiddish. Do not guess a screen-reader language.
+        return "und", direction or "rtl"
 
     return "en", direction or "ltr"
 
