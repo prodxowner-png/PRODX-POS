@@ -12,7 +12,8 @@ BEGIN
     FROM unnest(ARRAY[
       'products','sales','sale_lines','pos_idempotency','inventory_ledger',
       'inventory_balances','audit_logs','tenant_catalog_versions','terminal_sync_state',
-      'terminal_devices','terminal_sequence_failures','terminal_sequence_resolutions',
+      'terminal_devices','pos_stores','store_inventory_settings',
+      'terminal_sequence_failures','terminal_sequence_resolutions',
       'terminal_sequence_retry_failures'
     ]) AS required(table_name)
    WHERE to_regclass(format('public.%I',required.table_name)) IS NULL;
@@ -72,7 +73,8 @@ BEGIN
       AND c.relname IN (
         'products','sales','sale_lines','pos_idempotency','inventory_ledger',
         'inventory_balances','audit_logs','tenant_catalog_versions','terminal_sync_state',
-        'terminal_devices','terminal_sequence_failures','terminal_sequence_resolutions',
+        'terminal_devices','pos_stores','store_inventory_settings',
+        'terminal_sequence_failures','terminal_sequence_resolutions',
         'terminal_sequence_retry_failures'
       )
       AND acl.is_grantable
@@ -94,7 +96,8 @@ BEGIN
     AND c.relname IN (
       'products','sales','sale_lines','pos_idempotency','inventory_ledger',
       'inventory_balances','audit_logs','tenant_catalog_versions','terminal_sync_state',
-      'terminal_devices','terminal_sequence_failures','terminal_sequence_resolutions',
+      'terminal_devices','pos_stores','store_inventory_settings',
+      'terminal_sequence_failures','terminal_sequence_resolutions',
       'terminal_sequence_retry_failures'
     )
     AND r.rolname IN (
@@ -114,6 +117,7 @@ BEGIN
       ('prodx_rls_auditor','inventory_ledger'),('prodx_rls_auditor','inventory_balances'),
       ('prodx_rls_auditor','audit_logs'),('prodx_rls_auditor','tenant_catalog_versions'),
       ('prodx_rls_auditor','terminal_sync_state'),('prodx_rls_auditor','terminal_devices'),
+      ('prodx_rls_auditor','pos_stores'),('prodx_rls_auditor','store_inventory_settings'),
       ('prodx_rls_auditor','terminal_sequence_failures'),('prodx_rls_auditor','terminal_sequence_resolutions'),
       ('prodx_rls_auditor','terminal_sequence_retry_failures'),
       ('prodx_reconciliation_admin','products'),('prodx_reconciliation_admin','sales'),
@@ -121,6 +125,7 @@ BEGIN
       ('prodx_reconciliation_admin','inventory_ledger'),('prodx_reconciliation_admin','inventory_balances'),
       ('prodx_reconciliation_admin','audit_logs'),('prodx_reconciliation_admin','tenant_catalog_versions'),
       ('prodx_reconciliation_admin','terminal_sync_state'),('prodx_reconciliation_admin','terminal_devices'),
+      ('prodx_reconciliation_admin','pos_stores'),('prodx_reconciliation_admin','store_inventory_settings'),
       ('prodx_reconciliation_admin','terminal_sequence_failures'),('prodx_reconciliation_admin','terminal_sequence_resolutions'),
       ('prodx_reconciliation_admin','terminal_sequence_retry_failures')
     ) AS tables(role_name,table_name)
@@ -145,6 +150,8 @@ BEGIN
       ('products','INSERT'),('products','UPDATE'),('products','DELETE'),('products','TRUNCATE'),('products','REFERENCES'),('products','TRIGGER'),
       ('tenant_catalog_versions','INSERT'),('tenant_catalog_versions','UPDATE'),('tenant_catalog_versions','DELETE'),('tenant_catalog_versions','TRUNCATE'),('tenant_catalog_versions','REFERENCES'),('tenant_catalog_versions','TRIGGER'),
       ('terminal_devices','INSERT'),('terminal_devices','UPDATE'),('terminal_devices','DELETE'),('terminal_devices','TRUNCATE'),('terminal_devices','REFERENCES'),('terminal_devices','TRIGGER'),
+      ('pos_stores','INSERT'),('pos_stores','UPDATE'),('pos_stores','DELETE'),('pos_stores','TRUNCATE'),('pos_stores','REFERENCES'),('pos_stores','TRIGGER'),
+      ('store_inventory_settings','INSERT'),('store_inventory_settings','UPDATE'),('store_inventory_settings','DELETE'),('store_inventory_settings','TRUNCATE'),('store_inventory_settings','REFERENCES'),('store_inventory_settings','TRIGGER'),
       ('inventory_balances','INSERT'),('inventory_balances','UPDATE'),('inventory_balances','DELETE'),('inventory_balances','TRUNCATE'),('inventory_balances','REFERENCES'),('inventory_balances','TRIGGER'),
       ('pos_idempotency','DELETE'),('pos_idempotency','TRUNCATE'),('pos_idempotency','REFERENCES'),('pos_idempotency','TRIGGER'),
       ('terminal_sync_state','DELETE'),('terminal_sync_state','TRUNCATE'),('terminal_sync_state','REFERENCES'),('terminal_sync_state','TRIGGER')
@@ -155,12 +162,12 @@ BEGIN
       violation.table_name,violation.privilege;
   END LOOP;
 
-  -- Catalog writer may create/update catalog rows but never delete or truncate history.
+  -- Catalog writer is fail-closed read-only until an authenticated, audited catalog route exists.
   FOR violation IN
     SELECT table_name,privilege
     FROM (VALUES
-      ('products','DELETE'),('products','TRUNCATE'),('products','REFERENCES'),('products','TRIGGER'),
-      ('tenant_catalog_versions','DELETE'),('tenant_catalog_versions','TRUNCATE'),
+      ('products','INSERT'),('products','UPDATE'),('products','DELETE'),('products','TRUNCATE'),('products','REFERENCES'),('products','TRIGGER'),
+      ('tenant_catalog_versions','INSERT'),('tenant_catalog_versions','UPDATE'),('tenant_catalog_versions','DELETE'),('tenant_catalog_versions','TRUNCATE'),
       ('tenant_catalog_versions','REFERENCES'),('tenant_catalog_versions','TRIGGER')
     ) AS forbidden(table_name,privilege)
     WHERE has_table_privilege('prodx_catalog_writer',format('public.%I',table_name),privilege)
@@ -169,11 +176,13 @@ BEGIN
       violation.table_name,violation.privilege;
   END LOOP;
 
-  -- Device admin may enroll/update devices and append audit events only.
+  -- Device admin may enroll/update devices, manage stores/policies, and append audit events only.
   FOR violation IN
     SELECT table_name,privilege
     FROM (VALUES
       ('terminal_devices','DELETE'),('terminal_devices','TRUNCATE'),('terminal_devices','REFERENCES'),('terminal_devices','TRIGGER'),
+      ('pos_stores','DELETE'),('pos_stores','TRUNCATE'),('pos_stores','REFERENCES'),('pos_stores','TRIGGER'),
+      ('store_inventory_settings','INSERT'),('store_inventory_settings','DELETE'),('store_inventory_settings','TRUNCATE'),('store_inventory_settings','REFERENCES'),('store_inventory_settings','TRIGGER'),
       ('audit_logs','UPDATE'),('audit_logs','DELETE'),('audit_logs','TRUNCATE'),('audit_logs','REFERENCES'),('audit_logs','TRIGGER')
     ) AS forbidden(table_name,privilege)
     WHERE has_table_privilege('prodx_device_admin',format('public.%I',table_name),privilege)
@@ -182,12 +191,14 @@ BEGIN
       violation.table_name,violation.privilege;
   END LOOP;
 
-  -- Inventory admin may append ledger/audit adjustments but cannot rewrite balances or history.
+  -- Inventory admin may append ledger/audit adjustments but cannot rewrite balances, stores, or history.
   FOR violation IN
     SELECT table_name,privilege
     FROM (VALUES
       ('inventory_ledger','UPDATE'),('inventory_ledger','DELETE'),('inventory_ledger','TRUNCATE'),('inventory_ledger','REFERENCES'),('inventory_ledger','TRIGGER'),
       ('inventory_balances','INSERT'),('inventory_balances','UPDATE'),('inventory_balances','DELETE'),('inventory_balances','TRUNCATE'),('inventory_balances','REFERENCES'),('inventory_balances','TRIGGER'),
+      ('pos_stores','INSERT'),('pos_stores','UPDATE'),('pos_stores','DELETE'),('pos_stores','TRUNCATE'),('pos_stores','REFERENCES'),('pos_stores','TRIGGER'),
+      ('store_inventory_settings','INSERT'),('store_inventory_settings','UPDATE'),('store_inventory_settings','DELETE'),('store_inventory_settings','TRUNCATE'),('store_inventory_settings','REFERENCES'),('store_inventory_settings','TRIGGER'),
       ('audit_logs','UPDATE'),('audit_logs','DELETE'),('audit_logs','TRUNCATE'),('audit_logs','REFERENCES'),('audit_logs','TRIGGER')
     ) AS forbidden(table_name,privilege)
     WHERE has_table_privilege('prodx_inventory_admin',format('public.%I',table_name),privilege)
