@@ -58,18 +58,21 @@ function moneyFromLines(lines: SaleLine[]): number {
   return Number(total);
 }
 
-function resolveVoidIdentity(row: WriteCteResult, message: QueueSale): boolean {
+function resolveVoidIdentity(row: WriteCteResult, message: QueueSale, source="cte"): boolean {
   if (row.prior_sequence_resolution_disposition !== "VOID") return false;
-  const matchesAll =
-    Boolean(row.prior_sequence_resolution_id) &&
-    row.prior_sequence_resolution_idempotency_key === message.idempotency_key &&
-    row.prior_sequence_resolution_payload_hash?.trim() === message.payload_hash &&
-    row.prior_sequence_resolution_sale_id === message.sale.sale_id &&
-    row.prior_sequence_resolution_tenant_id === message.tenant_id &&
-    row.prior_sequence_resolution_terminal_id === message.terminal_id &&
-    Number(row.prior_sequence_resolution_seq_no) === message.sale.terminal_seq_no &&
-    row.prior_sequence_resolution_store_id !== null &&
-    row.prior_sequence_resolution_store_id === row.resolved_store_id;
+  const checks={
+    has_resolution:Boolean(row.prior_sequence_resolution_id),
+    idempotency_key:row.prior_sequence_resolution_idempotency_key === message.idempotency_key,
+    payload_hash:row.prior_sequence_resolution_payload_hash?.trim() === message.payload_hash,
+    sale_id:row.prior_sequence_resolution_sale_id === message.sale.sale_id,
+    tenant_id:row.prior_sequence_resolution_tenant_id === message.tenant_id,
+    terminal_id:row.prior_sequence_resolution_terminal_id === message.terminal_id,
+    terminal_seq_no:Number(row.prior_sequence_resolution_seq_no) === message.sale.terminal_seq_no,
+    store_id:row.prior_sequence_resolution_store_id !== null &&
+      row.prior_sequence_resolution_store_id === row.resolved_store_id
+  };
+  const matchesAll=Object.values(checks).every(Boolean);
+  if (!matchesAll) console.warn("void_resolution_identity_mismatch",{source,checks});
   if (matchesAll) return true;
   if (row.prior_sequence_resolution_idempotency_key === message.idempotency_key) {
     throw new PermanentDataError("IDEMPOTENCY_PAYLOAD_MISMATCH");
@@ -111,7 +114,7 @@ async function resolveFreshVoidIdentity(
     prior_sequence_resolution_terminal_id:resolution.terminal_id,
     prior_sequence_resolution_seq_no:resolution.terminal_seq_no,
     prior_sequence_resolution_store_id:resolution.store_id
-  },message);
+  },message,"fresh-read");
 }
 
 /**
@@ -454,6 +457,10 @@ export async function commitSale(env: Env, message: QueueSale): Promise<"committ
         throw new PermanentDataError("TERMINAL_SEQUENCE_ALREADY_COMMITTED");
       }
       if (message.sale.terminal_seq_no <= lastSequence) {
+        console.warn("commit_sale_resolved_sequence_without_matching_void",{
+          branch:"zero-claim",sequence:message.sale.terminal_seq_no,lastSequence,
+          hasResolution:Boolean(row.prior_sequence_resolution_id),hasSale:Boolean(row.prior_sequence_sale_id)
+        });
         throw new PermanentDataError("TERMINAL_SEQUENCE_ALREADY_RESOLVED");
       }
       const lastPhysical = Number(row.last_resolved_hlc_physical_ms ?? 0);
@@ -479,6 +486,10 @@ export async function commitSale(env: Env, message: QueueSale): Promise<"committ
         throw new Error("TERMINAL_SEQUENCE_GAP:" + (lastSequence + 1) + "-" + (message.sale.terminal_seq_no - 1));
       }
       if (message.sale.terminal_seq_no <= lastSequence) {
+        console.warn("commit_sale_resolved_sequence_without_matching_void",{
+          branch:"claimed-no-sale",sequence:message.sale.terminal_seq_no,lastSequence,
+          hasResolution:Boolean(row.prior_sequence_resolution_id),hasSale:Boolean(row.prior_sequence_sale_id)
+        });
         throw new PermanentDataError("TERMINAL_SEQUENCE_ALREADY_RESOLVED");
       }
       const lastPhysical = Number(row.last_resolved_hlc_physical_ms ?? 0);
