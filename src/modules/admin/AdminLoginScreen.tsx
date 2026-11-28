@@ -476,7 +476,10 @@ export const AdminLoginScreen: React.FC<AdminLoginScreenProps> = ({
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="admin@company.com"
                     autoComplete="username"
+                    autoCapitalize="none"
+                    autoCorrect="off"
                     spellCheck={false}
+                    enterKeyHint="next"
                     className="w-full min-h-[44px] h-11 sm:h-12 mt-1.5 rounded-xl bg-brand-surface border border-brand-border-strong px-4 text-base sm:text-sm font-bold text-brand-text placeholder:text-brand-text-muted focus:border-cta focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta outline-none"
                   />
                 </label>
@@ -500,6 +503,7 @@ export const AdminLoginScreen: React.FC<AdminLoginScreenProps> = ({
                     <button
                       type="button"
                       onClick={() => setShowPassword((prev) => !prev)}
+                      aria-pressed={showPassword}
                       className="absolute right-1 top-1/2 -translate-y-1/2 min-h-[44px] min-w-[44px] flex items-center justify-center text-brand-text-secondary hover:text-brand-text rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta cursor-pointer"
                       aria-label={
                         showPassword
@@ -511,7 +515,7 @@ export const AdminLoginScreen: React.FC<AdminLoginScreenProps> = ({
                             : 'Show password'
                       }
                     >
-                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      {showPassword ? <EyeOff className="h-4 w-4" aria-hidden="true" /> : <Eye className="h-4 w-4" aria-hidden="true" />}
                     </button>
                   </div>
                 </label>
@@ -530,6 +534,7 @@ export const AdminLoginScreen: React.FC<AdminLoginScreenProps> = ({
                     name="pin"
                     type="password"
                     inputMode="numeric"
+                    pattern="[0-9]*"
                     autoComplete="one-time-code"
                     enterKeyHint="done"
                     value={adminPin}

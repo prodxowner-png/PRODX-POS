@@ -2,301 +2,203 @@ import React from 'react';
 
 interface PosTerminalIllustrationProps {
   className?: string;
-  size?: 'sm' | 'md' | 'lg';
+  isThai?: boolean;
 }
 
 /**
- * 3D Smart POS Terminal Illustration
- * Faithful vector recreation of the hero 3D terminal from PRODX_LOGIN_UI_REFERENCE.png
- * Features:
- * - Glowing circular amber/orange platform with concentric orbital light rings
- * - Isometric matte black dual-screen terminal displaying orange velocity charts
- * - Integrated thermal receipt printer with emerging white receipt paper
- * - Three ascending 3D orange bar chart columns
+ * Retail Store Checkout Illustration
+ * Decorative vector rendering of the retail minimart counter scene used as
+ * the desktop login hero. Text uses semantic brand tokens so Light/Dark
+ * themes keep WCAG AA contrast; the SVG itself is aria-hidden.
  */
 export const PosTerminalIllustration: React.FC<PosTerminalIllustrationProps> = ({
   className = '',
-  size = 'md',
+  isThai = true,
 }) => {
-  const id = React.useId().replace(/:/g, '');
-
-  const dimensions = {
-    sm: { width: 260, height: 210 },
-    md: { width: 380, height: 310 },
-    lg: { width: 480, height: 390 },
-  }[size];
-
   return (
-    <div className={`relative flex items-center justify-center select-none ${className}`}>
-      <svg
-        width={dimensions.width}
-        height={dimensions.height}
-        viewBox="0 0 480 390"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-        className="w-full h-auto max-w-full drop-shadow-2xl transition-transform duration-500 hover:scale-[1.02]"
-        aria-hidden="true"
-      >
-        <defs>
+    <div className={`relative w-full h-full flex flex-col justify-between gap-6 select-none ${className}`}>
+      {/* Brand & Headline */}
+      <div className="space-y-4 max-w-lg z-10">
+        <div className="flex items-center gap-3">
+          <div
+            aria-hidden="true"
+            className="w-11 h-11 rounded-2xl bg-cta text-cta-text flex items-center justify-center font-black text-2xl shadow-md"
+          >
+            P
+          </div>
+          <div>
+            <div className="text-xl font-black text-brand-text tracking-tight">
+              PRODX <span className="text-brand-text-accent">POS</span>
+            </div>
+            <div className="text-[10px] font-bold uppercase tracking-[0.28em] text-brand-text-secondary">
+              - PROFESSIONAL POS SYSTEM -
+            </div>
+          </div>
+        </div>
+
+        <h2 className="text-3xl xl:text-4xl 2xl:text-5xl font-black text-brand-text tracking-tight leading-[1.15] text-balance">
+          Smart POS for <br />
+          <span className="text-brand-text-accent">Minimart &amp; Retail</span>
+        </h2>
+
+        <p className="text-sm text-brand-text-secondary leading-relaxed max-w-md text-pretty">
+          {isThai
+            ? 'ระบบจุดชำระเงินอัจฉริยะสำหรับร้านค้าปลีกและมินิมาร์ท รองรับขายออฟไลน์ สแกนบาร์โค้ด และจัดการกะพนักงานสมบูรณ์แบบ'
+            : 'Next-generation intelligent point-of-sale for retail shops and minimarts with offline sync, rapid barcode scanning, and shift audit trail.'}
+        </p>
+      </div>
+
+      {/* Vector Retail Minimart Counter Illustration */}
+      <div className="relative w-full max-w-lg mx-auto aspect-[16/11] mt-auto">
+        <svg
+          viewBox="0 0 600 420"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+          className="w-full h-full drop-shadow-xl"
+          aria-hidden="true"
+        >
+          <defs>
+            {/* Ambient Background Warm Glow */}
+            <radialGradient id="store-warm-glow" cx="50%" cy="40%" r="60%">
+              <stop offset="0%" stopColor="#FFF7ED" stopOpacity="0.8" />
+              <stop offset="60%" stopColor="#FED7AA" stopOpacity="0.25" />
+              <stop offset="100%" stopColor="#FED7AA" stopOpacity="0" />
+            </radialGradient>
+
+            {/* Wood Counter Top Linear Gradient */}
+            <linearGradient id="counter-top" x1="0" y1="0" x2="600" y2="0" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stopColor="#E2C19D" />
+              <stop offset="50%" stopColor="#D4A77D" />
+              <stop offset="100%" stopColor="#C69567" />
+            </linearGradient>
+
+            {/* Wood Counter Front Gradient */}
+            <linearGradient id="counter-front" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#B58153" />
+              <stop offset="100%" stopColor="#8A582F" />
+            </linearGradient>
+
+            {/* Terminal Screen Gradient */}
+            <linearGradient id="terminal-screen" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stopColor="#1E293B" />
+              <stop offset="100%" stopColor="#0F172A" />
+            </linearGradient>
+
+            {/* Plant Leaf Gradient */}
+            <linearGradient id="plant-leaf" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#2F6F58" />
+              <stop offset="100%" stopColor="#183D32" />
+            </linearGradient>
+          </defs>
+
           {/* Ambient Glow */}
-          <radialGradient id={`platform-glow-${id}`} cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stopColor="#2563EB" stopOpacity="0.45" />
-            <stop offset="50%" stopColor="#3B82F6" stopOpacity="0.2" />
-            <stop offset="100%" stopColor="#1D4ED8" stopOpacity="0" />
-          </radialGradient>
+          <rect x="0" y="0" width="600" height="420" fill="url(#store-warm-glow)" rx="24" />
 
-          {/* Podium Top Disc */}
-          <linearGradient id={`podium-top-${id}`} x1="120" y1="220" x2="360" y2="340" gradientUnits="userSpaceOnUse">
-            <stop offset="0%" stopColor="#60A5FA" />
-            <stop offset="30%" stopColor="#3B82F6" />
-            <stop offset="80%" stopColor="#2563EB" />
-            <stop offset="100%" stopColor="#1E3A8A" />
-          </linearGradient>
+          {/* Background Shelves with Minimart Products */}
+          <g opacity="0.45">
+            <rect x="60" y="40" width="480" height="12" rx="4" fill="#CBD5E1" />
+            <rect x="60" y="110" width="480" height="12" rx="4" fill="#CBD5E1" />
 
-          {/* Podium Edge Cylinder */}
-          <linearGradient id={`podium-edge-${id}`} x1="70" y1="285" x2="410" y2="330" gradientUnits="userSpaceOnUse">
-            <stop offset="0%" stopColor="#1D4ED8" />
-            <stop offset="40%" stopColor="#2563EB" />
-            <stop offset="70%" stopColor="#1E40AF" />
-            <stop offset="100%" stopColor="#0F172A" />
-          </linearGradient>
+            {/* Shelf 1 Items */}
+            <rect x="90" y="16" width="22" height="24" rx="3" fill="#F97316" />
+            <rect x="118" y="12" width="26" height="28" rx="3" fill="#183D32" />
+            <rect x="150" y="18" width="20" height="22" rx="3" fill="#EA580C" />
+            <rect x="220" y="14" width="36" height="26" rx="4" fill="#3B82F6" />
+            <rect x="262" y="14" width="34" height="26" rx="4" fill="#E2E8F0" />
+            <rect x="360" y="16" width="24" height="24" rx="3" fill="#10B981" />
+            <rect x="390" y="10" width="28" height="30" rx="3" fill="#F59E0B" />
+            <rect x="424" y="14" width="32" height="26" rx="3" fill="#183D32" />
 
-          {/* Inner Light Ring */}
-          <linearGradient id={`ring-glow-${id}`} x1="140" y1="230" x2="340" y2="310" gradientUnits="userSpaceOnUse">
-            <stop offset="0%" stopColor="#EFF6FF" />
-            <stop offset="50%" stopColor="#93C5FD" />
-            <stop offset="100%" stopColor="#3B82F6" />
-          </linearGradient>
+            {/* Shelf 2 Items */}
+            <rect x="80" y="78" width="40" height="32" rx="4" fill="#64748B" />
+            <rect x="126" y="82" width="28" height="28" rx="3" fill="#F97316" />
+            <rect x="160" y="76" width="32" height="34" rx="3" fill="#183D32" />
+            <rect x="330" y="80" width="30" height="30" rx="3" fill="#F43F5E" />
+            <rect x="366" y="78" width="34" height="32" rx="3" fill="#F59E0B" />
+            <rect x="406" y="82" width="26" height="28" rx="3" fill="#0EA5E9" />
+          </g>
 
-          {/* Terminal Main Body Stand */}
-          <linearGradient id={`stand-face-${id}`} x1="200" y1="180" x2="280" y2="270" gradientUnits="userSpaceOnUse">
-            <stop offset="0%" stopColor="#2D3039" />
-            <stop offset="60%" stopColor="#1A1C22" />
-            <stop offset="100%" stopColor="#0E0F14" />
-          </linearGradient>
+          {/* Checkout Counter Platform */}
+          <rect x="40" y="270" width="520" height="30" rx="6" fill="url(#counter-top)" />
+          <rect x="50" y="300" width="500" height="90" rx="4" fill="url(#counter-front)" />
+          {/* Subtle wood slats */}
+          <line x1="150" y1="300" x2="150" y2="390" stroke="#78350F" strokeWidth="1" strokeOpacity="0.3" />
+          <line x1="250" y1="300" x2="250" y2="390" stroke="#78350F" strokeWidth="1" strokeOpacity="0.3" />
+          <line x1="350" y1="300" x2="350" y2="390" stroke="#78350F" strokeWidth="1" strokeOpacity="0.3" />
+          <line x1="450" y1="300" x2="450" y2="390" stroke="#78350F" strokeWidth="1" strokeOpacity="0.3" />
 
-          <linearGradient id={`stand-side-${id}`} x1="170" y1="220" x2="250" y2="280" gradientUnits="userSpaceOnUse">
-            <stop offset="0%" stopColor="#1F2128" />
-            <stop offset="100%" stopColor="#0B0C10" />
-          </linearGradient>
+          {/* Indoor Potted Plant on Left of Counter */}
+          <g>
+            {/* Ceramic Pot */}
+            <path d="M90 270 L130 270 L122 215 L98 215 Z" fill="#FFF7ED" stroke="#E2E8F0" strokeWidth="2" />
+            <ellipse cx="110" cy="215" rx="12" ry="4" fill="#78350F" />
+            {/* Plant Leaves */}
+            <path d="M110 215 Q80 180 85 145 Q105 175 110 215 Z" fill="url(#plant-leaf)" />
+            <path d="M110 215 Q135 170 145 140 Q130 180 110 215 Z" fill="#245A47" />
+            <path d="M110 215 Q115 160 110 125 Q125 165 110 215 Z" fill="#2F6F58" />
+            <path d="M110 215 Q70 200 60 175 Q90 195 110 215 Z" fill="#183D32" />
+            <path d="M110 215 Q145 195 160 180 Q135 205 110 215 Z" fill="#183D32" />
+          </g>
 
-          {/* Terminal Screen Frame */}
-          <linearGradient id={`screen-bezel-${id}`} x1="190" y1="120" x2="310" y2="230" gradientUnits="userSpaceOnUse">
-            <stop offset="0%" stopColor="#3A3E4A" />
-            <stop offset="50%" stopColor="#1C1E24" />
-            <stop offset="100%" stopColor="#101116" />
-          </linearGradient>
+          {/* Dual-Screen POS Terminal (Center-Right) */}
+          <g>
+            {/* Terminal Base & Stand */}
+            <path d="M260 270 L340 270 L330 230 L270 230 Z" fill="#334155" />
+            <rect x="285" y="195" width="30" height="40" rx="3" fill="#1E293B" />
 
-          {/* Terminal Screen Display (Glowing POS Dashboard) */}
-          <linearGradient id={`screen-content-${id}`} x1="200" y1="130" x2="300" y2="210" gradientUnits="userSpaceOnUse">
-            <stop offset="0%" stopColor="#0B132B" />
-            <stop offset="40%" stopColor="#0F172A" />
-            <stop offset="100%" stopColor="#090D16" />
-          </linearGradient>
+            {/* Main Screen Body (Tilted Bezel) */}
+            <rect x="220" y="130" width="160" height="105" rx="10" fill="#0F172A" stroke="#334155" strokeWidth="3" />
+            {/* Screen Inner Display */}
+            <rect x="228" y="138" width="144" height="89" rx="6" fill="url(#terminal-screen)" />
 
-          {/* Chart Blue Bars on Screen */}
-          <linearGradient id={`chart-bar-${id}`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#60A5FA" />
-            <stop offset="100%" stopColor="#2563EB" />
-          </linearGradient>
+            {/* Screen Content: POS Dashboard & Sales Analytics */}
+            <rect x="236" y="146" width="36" height="6" rx="2" fill="#F97316" />
+            <circle cx="360" cy="149" r="3" fill="#10B981" />
 
-          {/* Bar 1 (Shortest, Left) */}
-          <linearGradient id={`pillar1-front-${id}`} x1="330" y1="210" x2="355" y2="290" gradientUnits="userSpaceOnUse">
-            <stop offset="0%" stopColor="#60A5FA" />
-            <stop offset="100%" stopColor="#2563EB" />
-          </linearGradient>
-          <linearGradient id={`pillar1-top-${id}`} x1="330" y1="210" x2="355" y2="225" gradientUnits="userSpaceOnUse">
-            <stop offset="0%" stopColor="#93C5FD" />
-            <stop offset="100%" stopColor="#60A5FA" />
-          </linearGradient>
+            {/* Sales Chart on Terminal Screen */}
+            <path d="M236 195 L255 185 L275 188 L295 170 L315 176 L335 158 L355 162" stroke="#F97316" strokeWidth="2.5" strokeLinecap="round" />
+            {/* Chart Area Fill */}
+            <path d="M236 195 L255 185 L275 188 L295 170 L315 176 L335 158 L355 162 L355 205 L236 205 Z" fill="#F97316" fillOpacity="0.18" />
 
-          {/* Bar 2 (Medium, Center) */}
-          <linearGradient id={`pillar2-front-${id}`} x1="365" y1="170" x2="395" y2="280" gradientUnits="userSpaceOnUse">
-            <stop offset="0%" stopColor="#3B82F6" />
-            <stop offset="100%" stopColor="#1D4ED8" />
-          </linearGradient>
-          <linearGradient id={`pillar2-top-${id}`} x1="365" y1="170" x2="395" y2="185" gradientUnits="userSpaceOnUse">
-            <stop offset="0%" stopColor="#60A5FA" />
-            <stop offset="100%" stopColor="#3B82F6" />
-          </linearGradient>
+            {/* Secondary Customer Display (Back-facing angle) */}
+            <rect x="365" y="150" width="22" height="65" rx="4" fill="#1E293B" stroke="#475569" strokeWidth="1.5" />
+          </g>
 
-          {/* Bar 3 (Tallest, Right) */}
-          <linearGradient id={`pillar3-front-${id}`} x1="405" y1="130" x2="435" y2="270" gradientUnits="userSpaceOnUse">
-            <stop offset="0%" stopColor="#2563EB" />
-            <stop offset="100%" stopColor="#1E40AF" />
-          </linearGradient>
-          <linearGradient id={`pillar3-top-${id}`} x1="405" y1="130" x2="435" y2="145" gradientUnits="userSpaceOnUse">
-            <stop offset="0%" stopColor="#3B82F6" />
-            <stop offset="100%" stopColor="#2563EB" />
-          </linearGradient>
+          {/* Barcode Scanner on Stand */}
+          <g>
+            <rect x="405" y="245" width="24" height="25" rx="4" fill="#334155" />
+            {/* Scanner Gun */}
+            <path d="M400 240 L425 210 L435 218 L415 250 Z" fill="#0F172A" />
+            {/* Scanner Red Light Indicator */}
+            <ellipse cx="430" cy="214" rx="4" ry="2" fill="#EF4444" />
+          </g>
 
-          {/* Printer & Receipt */}
-          <linearGradient id={`printer-body-${id}`} x1="160" y1="220" x2="210" y2="280" gradientUnits="userSpaceOnUse">
-            <stop offset="0%" stopColor="#2C2E38" />
-            <stop offset="100%" stopColor="#14151B" />
-          </linearGradient>
-          <linearGradient id={`receipt-paper-${id}`} x1="170" y1="210" x2="195" y2="250" gradientUnits="userSpaceOnUse">
-            <stop offset="0%" stopColor="#FFFFFF" />
-            <stop offset="85%" stopColor="#F0F1F5" />
-            <stop offset="100%" stopColor="#D9DCE3" />
-          </linearGradient>
-        </defs>
+          {/* Thermal Receipt Printer with Paper Receipt */}
+          <g>
+            {/* Printer Body */}
+            <rect x="170" y="225" width="55" height="45" rx="6" fill="#1E293B" stroke="#334155" strokeWidth="2" />
+            {/* Printer Slit */}
+            <rect x="180" y="228" width="35" height="3" rx="1" fill="#0F172A" />
+            {/* Status Lights */}
+            <circle cx="178" cy="242" r="2" fill="#10B981" />
+            <circle cx="178" cy="250" r="2" fill="#3B82F6" />
 
-        {/* 1. Ambient Radial Aura / Atmosphere */}
-        <ellipse cx="240" cy="275" rx="200" ry="85" fill={`url(#platform-glow-${id})`} />
+            {/* White Paper Receipt Emerging */}
+            <path d="M182 228 L182 185 L187 188 L192 185 L197 188 L202 185 L207 188 L212 185 L212 228 Z" fill="#FFFFFF" stroke="#E2E8F0" strokeWidth="1" />
+            {/* Receipt Lines */}
+            <line x1="186" y1="195" x2="208" y2="195" stroke="#94A3B8" strokeWidth="1.5" strokeDasharray="2 1" />
+            <line x1="186" y1="202" x2="205" y2="202" stroke="#94A3B8" strokeWidth="1.5" strokeDasharray="3 1" />
+            <line x1="186" y1="209" x2="208" y2="209" stroke="#94A3B8" strokeWidth="1.5" strokeDasharray="2 1" />
+            <line x1="186" y1="216" x2="200" y2="216" stroke="#F97316" strokeWidth="1.5" />
+          </g>
+        </svg>
+      </div>
 
-        {/* 2. Concentric Orbit Light Rings */}
-        <ellipse
-          cx="240"
-          cy="275"
-          rx="190"
-          ry="75"
-          stroke="#FFA040"
-          strokeWidth="1.2"
-          strokeOpacity="0.35"
-          strokeDasharray="6 6"
-        />
-        <ellipse
-          cx="240"
-          cy="275"
-          rx="165"
-          ry="65"
-          stroke="#FF7A00"
-          strokeWidth="1.5"
-          strokeOpacity="0.5"
-        />
-
-        {/* 3. Lower Platform Base Cylinder Thickness */}
-        <path
-          d="M75 275 C75 315 145 345 240 345 C335 345 405 315 405 275 L405 295 C405 335 335 365 240 365 C145 365 75 335 75 295 Z"
-          fill={`url(#podium-edge-${id})`}
-        />
-
-        {/* 4. Podium Top Disc Surface */}
-        <ellipse cx="240" cy="275" rx="165" ry="65" fill={`url(#podium-top-${id})`} />
-
-        {/* 5. Glowing Inset Ring Accent on Podium */}
-        <ellipse
-          cx="240"
-          cy="275"
-          rx="145"
-          ry="55"
-          stroke={`url(#ring-glow-${id})`}
-          strokeWidth="2.5"
-          strokeOpacity="0.8"
-        />
-
-        {/* 6. Cast Shadow under Terminal Base & Pillars */}
-        <ellipse cx="230" cy="280" rx="90" ry="32" fill="#050608" fillOpacity="0.5" />
-        <ellipse cx="380" cy="275" rx="55" ry="18" fill="#050608" fillOpacity="0.35" />
-
-        {/* 7. Cash Drawer / Counter Base Platform (Dark Graphite Box) */}
-        {/* Drawer Left Face */}
-        <path d="M165 260 L215 285 L215 305 L165 280 Z" fill="#131418" />
-        {/* Drawer Front Face */}
-        <path d="M215 285 L295 245 L295 265 L215 305 Z" fill="#1A1C22" />
-        {/* Drawer Top Face */}
-        <path d="M165 260 L245 220 L295 245 L215 285 Z" fill="#262832" />
-        {/* Drawer Keyhole / Seam */}
-        <line x1="250" y1="272" x2="265" y2="265" stroke="#3B82F6" strokeWidth="2" strokeLinecap="round" />
-
-        {/* 8. POS Terminal Stand Pillar */}
-        <path d="M235 225 L255 215 L255 170 L235 180 Z" fill={`url(#stand-side-${id})`} />
-        <path d="M255 215 L275 225 L275 180 L255 170 Z" fill={`url(#stand-face-${id})`} />
-
-        {/* 9. Dual-Screen Terminal Head Unit (Tilted Angle) */}
-        {/* Screen Bezel Back Casing */}
-        <path
-          d="M200 135 L285 90 L305 130 L220 175 Z"
-          fill="#111216"
-        />
-        {/* Screen Bezel Front Face */}
-        <path
-          d="M205 130 L290 85 L315 135 L230 180 Z"
-          fill={`url(#screen-bezel-${id})`}
-          stroke="#474B59"
-          strokeWidth="1.5"
-        />
-        {/* Screen Inner Glass Display */}
-        <path
-          d="M212 133 L283 95 L307 137 L236 175 Z"
-          fill={`url(#screen-content-${id})`}
-        />
-
-        {/* Screen UI Contents: Header bar + PRODX Logo on Screen + Chart */}
-        {/* Mini PRODX Logo icon on screen */}
-        <circle cx="225" cy="130" r="4" fill="#3B82F6" />
-        <line x1="233" y1="128" x2="255" y2="118" stroke="#60A5FA" strokeWidth="1.5" strokeLinecap="round" />
-
-        {/* Mini Bar Chart Graph on Screen Display */}
-        <path d="M225 158 L232 154 L232 163 L225 167 Z" fill={`url(#chart-bar-${id})`} />
-        <path d="M236 150 L243 146 L243 163 L236 167 Z" fill={`url(#chart-bar-${id})`} />
-        <path d="M247 142 L254 138 L254 163 L247 167 Z" fill={`url(#chart-bar-${id})`} />
-        <path d="M258 132 L265 128 L265 163 L258 167 Z" fill={`url(#chart-bar-${id})`} />
-        <path d="M269 122 L276 118 L276 163 L269 167 Z" fill={`url(#chart-bar-${id})`} />
-
-        {/* Trend Line crossing bars */}
-        <path
-          d="M225 158 L240 148 L255 135 L275 115"
-          stroke="#93C5FD"
-          strokeWidth="1.8"
-          strokeLinecap="round"
-        />
-        <circle cx="275" cy="115" r="2" fill="#FFFFFF" />
-
-        {/* 10. Thermal Receipt Printer (Left of Terminal) */}
-        {/* Printer Box Left */}
-        <path d="M155 240 L185 255 L185 275 L155 260 Z" fill={`url(#printer-body-${id})`} />
-        {/* Printer Box Front */}
-        <path d="M185 255 L220 238 L220 258 L185 275 Z" fill="#20222A" />
-        {/* Printer Box Top */}
-        <path d="M155 240 L190 223 L220 238 L185 255 Z" fill="#323642" />
-        {/* Printer Paper Slot */}
-        <path d="M170 237 L205 220 L208 222 L173 239 Z" fill="#0C0D10" />
-
-        {/* Emerging Curled White Receipt Paper */}
-        <path
-          d="M175 235 C175 220 185 210 195 205 C205 200 210 210 205 222 L198 226 C195 218 190 215 185 220 C180 225 178 230 178 234 Z"
-          fill={`url(#receipt-paper-${id})`}
-          stroke="#E0E3EB"
-          strokeWidth="0.8"
-        />
-        {/* Lines on receipt paper */}
-        <line x1="185" y1="216" x2="193" y2="212" stroke="#8E95A5" strokeWidth="1" strokeLinecap="round" />
-        <line x1="187" y1="220" x2="197" y2="215" stroke="#8E95A5" strokeWidth="1" strokeLinecap="round" />
-
-        {/* 11. Three 3D Vertical Bar Chart Columns (Ascending Sales Velocity) */}
-
-        {/* --- Bar 1 (Shortest) --- */}
-        {/* Left Shadow Side */}
-        <path d="M335 240 L350 248 L350 288 L335 280 Z" fill="#1E3A8A" />
-        {/* Front Bright Side */}
-        <path d="M350 248 L365 240 L365 280 L350 288 Z" fill={`url(#pillar1-front-${id})`} />
-        {/* Top Diamond Face */}
-        <path d="M335 240 L350 232 L365 240 L350 248 Z" fill={`url(#pillar1-top-${id})`} />
-
-        {/* --- Bar 2 (Medium) --- */}
-        {/* Left Shadow Side */}
-        <path d="M370 195 L387 204 L387 275 L370 266 Z" fill="#1E40AF" />
-        {/* Front Bright Side */}
-        <path d="M387 204 L404 195 L404 266 L387 275 Z" fill={`url(#pillar2-front-${id})`} />
-        {/* Top Diamond Face */}
-        <path d="M370 195 L387 186 L404 195 L387 204 Z" fill={`url(#pillar2-top-${id})`} />
-
-        {/* --- Bar 3 (Tallest) --- */}
-        {/* Left Shadow Side */}
-        <path d="M410 150 L428 159 L428 262 L410 253 Z" fill="#1D4ED8" />
-        {/* Front Bright Side */}
-        <path d="M428 159 L446 150 L446 253 L428 262 Z" fill={`url(#pillar3-front-${id})`} />
-        {/* Top Diamond Face */}
-        <path d="M410 150 L428 141 L446 150 L428 159 Z" fill={`url(#pillar3-top-${id})`} />
-
-        {/* 12. Sparkle / Specular Highlights */}
-        <circle cx="428" cy="141" r="2.5" fill="#FFFFFF" fillOpacity="0.9" />
-        <circle cx="387" cy="186" r="2" fill="#FFFFFF" fillOpacity="0.8" />
-        <circle cx="350" cy="232" r="1.5" fill="#FFFFFF" fillOpacity="0.8" />
-        <circle cx="285" cy="90" r="2" fill="#FFFFFF" fillOpacity="0.7" />
-      </svg>
+      {/* Footer System Invariant Note */}
+      <div className="z-10 text-[10px] text-brand-text-secondary font-bold tracking-wider uppercase pt-4 border-t border-brand-border flex items-center justify-between">
+        <span>PRODX POS Enterprise Engine</span>
+        <span>Version 2.5</span>
+      </div>
     </div>
   );
 };
