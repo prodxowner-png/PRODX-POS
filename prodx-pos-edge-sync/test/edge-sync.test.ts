@@ -210,7 +210,7 @@ describe("PRODX Edge sync Durable Object", () => {
       let failure:unknown;
       try {
         await instance.submitBatch(submission([later]),{
-          last_committed_seq_no:0,last_hlc_physical_ms:0,last_hlc_logical:0,
+          store_id:STORE,last_committed_seq_no:0,last_hlc_physical_ms:0,last_hlc_logical:0,
           last_resolved_seq_no:0,last_resolved_hlc_physical_ms:0,last_resolved_hlc_logical:0,terminal_failures:[]
         });
       } catch (error) { failure=error; }
@@ -226,7 +226,7 @@ describe("PRODX Edge sync Durable Object", () => {
     await stub.markFailed(TENANT,TERMINAL,item.sale.idempotency_key,"INSUFFICIENT_STOCK");
     let resent=0;
     const retryCheckpoint={
-      last_committed_seq_no:0,last_hlc_physical_ms:0,last_hlc_logical:0,
+      store_id:STORE,last_committed_seq_no:0,last_hlc_physical_ms:0,last_hlc_logical:0,
       last_resolved_seq_no:0,last_resolved_hlc_physical_ms:0,last_resolved_hlc_logical:0,
       terminal_failures:[{
         terminal_seq_no:1,sale_id:item.sale.sale_id,idempotency_key:item.sale.idempotency_key,
@@ -259,7 +259,7 @@ describe("PRODX Edge sync Durable Object", () => {
     await stub.markFailed(TENANT,TERMINAL,item.sale.idempotency_key,"INSUFFICIENT_STOCK");
     const resolutionId="00000000-0000-4000-8000-000000000012";
     const retryCheckpoint={
-      last_committed_seq_no:0,last_hlc_physical_ms:0,last_hlc_logical:0,
+      store_id:STORE,last_committed_seq_no:0,last_hlc_physical_ms:0,last_hlc_logical:0,
       last_resolved_seq_no:0,last_resolved_hlc_physical_ms:0,last_resolved_hlc_logical:0,
       terminal_failures:[{
         terminal_seq_no:1,sale_id:item.sale.sale_id,idempotency_key:item.sale.idempotency_key,
@@ -291,7 +291,7 @@ describe("PRODX Edge sync Durable Object", () => {
     await stub.markFailed(TENANT,TERMINAL,item.sale.idempotency_key,"INSUFFICIENT_STOCK");
     let resent=0;
     const checkpoint={
-      last_committed_seq_no:0,last_hlc_physical_ms:0,last_hlc_logical:0,
+      store_id:STORE,last_committed_seq_no:0,last_hlc_physical_ms:0,last_hlc_logical:0,
       last_resolved_seq_no:1,last_resolved_hlc_physical_ms:item.sale.hlc.physical_ms,
       last_resolved_hlc_logical:item.sale.hlc.logical,
       terminal_failures:[{
@@ -357,7 +357,7 @@ describe("PRODX Edge sync Durable Object", () => {
       let failure:unknown;
       try {
         await instance.submitBatch(submission([replay]),{
-          last_committed_seq_no:0,last_hlc_physical_ms:0,last_hlc_logical:0,
+          store_id:STORE,last_committed_seq_no:0,last_hlc_physical_ms:0,last_hlc_logical:0,
           last_resolved_seq_no:0,last_resolved_hlc_physical_ms:0,last_resolved_hlc_logical:0,terminal_failures:[]
         });
       } catch (error) { failure=error; }
@@ -366,6 +366,7 @@ describe("PRODX Edge sync Durable Object", () => {
     });
 
     const accepted=await stub.submitBatch(submission([replay]),{
+      store_id:STORE,
       last_committed_seq_no:1,
       last_hlc_physical_ms:original.sale.hlc.physical_ms,
       last_hlc_logical:original.sale.hlc.logical,
@@ -393,6 +394,7 @@ describe("PRODX Edge sync Durable Object", () => {
     });
     const next=prepared("sequence-retention-next-key","d".repeat(64),2);
     await stub.submitBatch(submission([next]),{
+      store_id:STORE,
       last_committed_seq_no:1,
       last_hlc_physical_ms:first.sale.hlc.physical_ms,
       last_hlc_logical:first.sale.hlc.logical,
