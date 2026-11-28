@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS public.terminal_sequence_failures (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id uuid NOT NULL,
   terminal_id uuid NOT NULL,
+  store_id uuid NOT NULL,
   terminal_seq_no bigint NOT NULL CHECK (terminal_seq_no BETWEEN 1 AND 9007199254740991),
   sale_id uuid NOT NULL,
   idempotency_key text NOT NULL CHECK (length(idempotency_key) BETWEEN 16 AND 200),
@@ -47,6 +48,9 @@ CREATE TABLE IF NOT EXISTS public.terminal_sequence_failures (
   failure_code text NOT NULL CHECK (failure_code ~ '^[A-Z0-9_]{1,100}$'),
   failure_metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
   failed_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT terminal_sequence_failures_store_fk
+    FOREIGN KEY (tenant_id,store_id)
+    REFERENCES public.pos_stores(tenant_id,id),
   CONSTRAINT terminal_sequence_failures_tenant_terminal_sequence_unique
     UNIQUE (tenant_id,terminal_id,terminal_seq_no),
   CONSTRAINT terminal_sequence_failures_tenant_idempotency_unique

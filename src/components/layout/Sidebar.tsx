@@ -157,7 +157,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <Badge
                 variant={currentRole === 'admin' ? 'primary' : currentRole === 'manager' ? 'warning' : 'neutral'}
                 size="sm"
-                className="font-mono uppercase text-[9px] font-black px-2 py-0.5 tracking-wider"
+                className="font-mono tabular-nums uppercase text-[9px] font-black px-2 py-0.5 tracking-wider"
               >
                 {currentRole === 'cashier' ? 'POS ONLY' : currentRole}
               </Badge>
@@ -174,7 +174,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     {language === 'th' ? 'สิทธิ์ User ทั่วไป: เฉพาะหน้า POS' : 'General User: POS-Only Access'}
                   </span>
                 </div>
-                <span className="font-mono text-[9px] uppercase font-black px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-700 dark:text-amber-300 shrink-0">
+                <span className="font-mono tabular-nums text-[9px] uppercase font-black px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-700 dark:text-amber-300 shrink-0">
                   RBAC
                 </span>
               </div>
@@ -185,7 +185,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   onOpenAdminConsole();
                   if (onCloseMobile) onCloseMobile();
                 }}
-                className="w-full px-3 py-2 rounded-xl border border-primary/35 bg-primary/10 hover:bg-primary/15 text-primary flex items-center justify-between gap-2 text-xs font-bold transition-all cursor-pointer active:scale-95"
+                className="w-full min-h-[44px] px-3 py-2 rounded-xl border border-primary/35 dark:border-brand-border-strong bg-primary/10 dark:bg-brand-surface-selected hover:bg-primary/15 dark:hover:bg-brand-surface-raised text-primary dark:text-brand-text flex items-center justify-between gap-2 text-xs font-bold transition-all cursor-pointer active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta"
               >
                 <span className="flex items-center gap-2 truncate">
                   <Building2 className="w-4 h-4 shrink-0" />
@@ -210,10 +210,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <button
                   key={item.id}
                   type="button"
+                  aria-current={isActive ? 'page' : undefined}
                   onClick={() => handleNav(item.id)}
-                  className={`w-full flex items-center justify-between px-3 py-2.5 min-h-[48px] rounded-xl text-sm transition-all duration-150 cursor-pointer active:scale-95 ${
+                  className={`w-full flex items-center justify-between px-3 py-2.5 min-h-[48px] rounded-xl text-sm transition-all duration-150 cursor-pointer active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-cta focus-visible:outline-none ${
                     isActive
-                      ? 'bg-primary/10 border border-primary/40 text-primary font-black shadow-xs'
+                      ? 'bg-primary/10 dark:bg-brand-surface-selected border border-primary/40 dark:border-brand-border-strong text-primary dark:text-brand-text font-black shadow-xs'
                       : 'border border-transparent text-text/70 hover:text-text hover:bg-background/80 font-semibold'
                   }`}
                 >
@@ -228,16 +229,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <span className="font-bold text-xs truncate whitespace-nowrap text-left flex items-center gap-1.5">
                       {item.label}
                       {isRestricted && (
-                        <Lock className={`w-3 h-3 ${isActive ? 'text-primary' : 'text-amber-500/80'} shrink-0`} />
+                        <Lock className={`w-3 h-3 ${isActive ? 'text-primary dark:text-brand-text' : 'text-amber-500/80'} shrink-0`} />
                       )}
                     </span>
                   </div>
                   {item.shortcut && (
                     <kbd
-                      className={`text-[10px] font-mono px-1.5 py-0.5 rounded shrink-0 ml-2 ${
+                      className={`text-[10px] font-mono tabular-nums px-1.5 py-0.5 rounded shrink-0 ml-2 ${
                         isActive
-                          ? 'bg-primary/20 text-primary font-bold border border-primary/30'
-                          : 'bg-background border border-border text-text/40'
+                          ? 'bg-primary/20 dark:bg-brand-surface text-primary dark:text-brand-text font-bold border border-primary/30 dark:border-brand-border-strong'
+                          : 'bg-background border border-border text-brand-text-secondary'
                       }`}
                     >
                       {item.shortcut}
@@ -299,7 +300,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               className="flex-1 min-h-[44px] px-3 rounded-xl border border-border bg-background text-xs font-bold text-text hover:bg-background/80 flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 transition-all shadow-2xs"
               title={language === 'th' ? 'Switch to English' : 'เปลี่ยนเป็นภาษาไทย'}
             >
-              <Globe className="h-3.5 w-3.5 text-indigo-500" />
+              <Globe className="h-3.5 w-3.5 text-brand-text-accent" />
               <span>{language === 'th' ? 'EN' : 'TH'}</span>
             </button>
             <RbacGuard module="settings" hideMode="hidden">
@@ -345,7 +346,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <button
                 type="button"
                 onClick={() => setShowLogoutConfirm(false)}
-                className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-text/50 hover:text-text hover:bg-background transition-colors cursor-pointer"
+                className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-brand-text-secondary hover:text-text hover:bg-background transition-colors cursor-pointer"
               >
                 <X className="h-4 w-4" />
               </button>

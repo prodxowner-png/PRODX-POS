@@ -17,6 +17,7 @@ import {
   LoginRequest,
   CheckoutRequest,
   CheckoutResponse,
+  SyncCommandResponse,
 } from './types';
 import {
   User,
@@ -46,7 +47,7 @@ import { Order, CartLineItem, CartTotals, TenderPayment } from '../domain/order'
 import { Shift, CashMovement, CashMovementType, computeExpectedDrawerCash, TimeclockRecord } from '../domain/shift';
 import { AuditLogEntry, AuditAction, AuditSeverity } from '../domain/audit';
 import { developmentAuditLogs } from './developmentMockAuditSink';
-import { OutboxItem } from '../domain/sync';
+import { OutboxItem, ShiftMovementOutboxPayload, StockAdjustmentOutboxPayload } from '../domain/sync';
 import { Money, createMoney, ZERO_USD, addMoney, subtractMoney } from '../domain/money';
 import {
   saveProducts,
@@ -883,6 +884,10 @@ export class MockAuthApi implements IAuthApi {
     console.info(`${LOG_PREFIX} User logged out`);
   }
 
+  async renewSession(): Promise<SessionContext | null> {
+    return null;
+  }
+
   async verifySession(token: string): Promise<SessionContext | null> {
     await delay(30);
     if (!token) return null;
@@ -1619,11 +1624,20 @@ export class MockOrderApi implements IOrderApi {
     return response;
   }
 
-  async getOrders(storeId: string, limit = 50, registerId?: string): Promise<readonly Order[]> {
+  async getOrders(storeId: string, limit = 50, registerId?: string, options: { from?: string; to?: string; offset?: number } = {}): Promise<readonly Order[]> {
     await delay(50);
+    const from = options.from ? Date.parse(options.from) : Number.NEGATIVE_INFINITY;
+    const to = options.to ? Date.parse(options.to) : Number.POSITIVE_INFINITY;
     return mockState.orders
-      .filter((o) => o.storeId === storeId && (!registerId || o.registerId === registerId))
-      .slice(0, limit);
+      .filter((o) => {
+        const createdAt = Date.parse(o.createdAt);
+        return o.storeId === storeId
+          && (!registerId || o.registerId === registerId)
+          && createdAt >= from
+          && createdAt <= to;
+      })
+      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
+      .slice(options.offset ?? 0, (options.offset ?? 0) + limit);
   }
 
   async getOrderById(storeId: string, orderId: string): Promise<Order | null> {
@@ -2020,16 +2034,64 @@ export class MockSyncApi implements ISyncApi {
     };
   }
 
-  async syncOutboxItem(item: OutboxItem): Promise<{ confirmedOrder: Order; syncedAt: string }> {
+  async syncOutboxItem(item: OutboxItem): Promise<SyncCommandResponse> {
     if (mockState.isSimulatedOffline) {
       throw new Error('Cloud database unreachable: Offline mode active');
     }
     const syncDelay = mockState.simulatedLatencyMs > 0 ? mockState.simulatedLatencyMs + 50 : 150;
     await delay(syncDelay);
     console.info(`${LOG_PREFIX} Synchronizing outbox item:`, item.idempotencyKey);
+    const now = new Date().toISOString();
+
+    if (item.type === 'shift_movement') {
+      const payload = item.payload as ShiftMovementOutboxPayload;
+      const confirmedMovement: CashMovement = {
+        id: `mov-synced-${Date.now()}`,
+        shiftId: payload.shiftId,
+        type: payload.type,
+        amount: createMoney(payload.amount.amountInCents, payload.amount.currency),
+        reason: payload.reason,
+        performedByUserId: payload.performedByUserId ?? 'usr-manager-1',
+        timestamp: now,
+      };
+      return {
+        commandType: 'shift_movement',
+        confirmedEntityId: confirmedMovement.id,
+        confirmedMovement,
+        syncedAt: now,
+        serverConfirmed: true,
+        idempotencyCached: false,
+      };
+    }
+
+    if (item.type === 'stock_adjustment') {
+      const payload = item.payload as StockAdjustmentOutboxPayload;
+      const adjustmentId = `adj-synced-${Date.now()}`;
+      const entries: InventoryLedgerEntry[] = payload.productIds.map((productId, idx) => ({
+        id: `led-synced-${Date.now()}-${idx}`,
+        storeId: payload.storeId ?? 'store-1',
+        productId,
+        quantityDelta: payload.quantityDelta,
+        resultingStock: 0,
+        reason: payload.reason,
+        referenceId: adjustmentId,
+        performedByUserId: payload.requesterUserId ?? 'usr-manager-1',
+        timestamp: now,
+      }));
+      return {
+        commandType: 'stock_adjustment',
+        confirmedEntityId: adjustmentId,
+        confirmedAdjustment: {
+          adjustmentId,
+          entries,
+        },
+        syncedAt: now,
+        serverConfirmed: true,
+        idempotencyCached: false,
+      };
+    }
 
     const payload = item.payload as CheckoutRequest;
-    const now = new Date().toISOString();
 
     const confirmedOrder: Order = {
       id: `ord-synced-${Date.now()}`,
@@ -2057,7 +2119,14 @@ export class MockSyncApi implements ISyncApi {
     };
 
     mockState.orders.unshift(confirmedOrder);
-    return { confirmedOrder, syncedAt: now };
+    return {
+      commandType: 'order_transaction',
+      confirmedEntityId: confirmedOrder.id,
+      confirmedOrder,
+      syncedAt: now,
+      serverConfirmed: true,
+      idempotencyCached: false,
+    };
   }
 }
 

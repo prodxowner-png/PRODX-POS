@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { KeyRound, Lock, Fingerprint, QrCode, UserRound, ArrowRight, X, Loader2, ScanFace, Zap } from 'lucide-react';
+import { ArrowRight, Delete, Fingerprint, Loader2, ScanFace, Zap } from 'lucide-react';
 import { useSound } from '../../context/SoundContext';
 import { PasskeyCredentialRecord } from '../../services/webauthnService';
 
@@ -12,9 +12,6 @@ export interface OperatorPinPadProps {
   onPinClear: () => void;
   onPinDelete: () => void;
   onSubmit: () => void;
-  onSwitchMode: (mode: 'pin' | 'biometric' | 'qr' | 'email') => void;
-  onForgotPin: () => void;
-  onTriggerScopeError: () => void;
   hasRegisteredBiometrics?: boolean;
   isBiometricVerifying?: boolean;
   activePasskey?: PasskeyCredentialRecord;
@@ -30,24 +27,16 @@ export const OperatorPinPad: React.FC<OperatorPinPadProps> = ({
   onPinClear,
   onPinDelete,
   onSubmit,
-  onSwitchMode,
-  onForgotPin,
-  onTriggerScopeError,
   hasRegisteredBiometrics = false,
   isBiometricVerifying = false,
   activePasskey,
   onQuickBiometricSignIn,
 }) => {
-  const { playClick, playSuccess, playCriticalAlert } = useSound();
+  const { playClick } = useSound();
 
   const handleDigitPress = (digit: string) => {
     playClick();
     onPinInput(digit);
-  };
-
-  const handleClearPress = () => {
-    playClick();
-    onPinClear();
   };
 
   const handleDeletePress = () => {
@@ -96,11 +85,13 @@ export const OperatorPinPad: React.FC<OperatorPinPadProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [terminalReady, pin, onPinInput, onPinDelete, onSubmit, onPinClear, playClick]);
 
+  const canSubmit = terminalReady && pin.length >= 4 && !isLoading;
+
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       {/* Quick Sign-In (WebAuthn / Passkeys) to bypass PIN */}
       {hasRegisteredBiometrics && onQuickBiometricSignIn && (
-        <div className="space-y-2 pb-1">
+        <div className="space-y-2">
           <button
             type="button"
             id="quick-sign-in-btn"
@@ -109,31 +100,34 @@ export const OperatorPinPad: React.FC<OperatorPinPadProps> = ({
               playClick();
               onQuickBiometricSignIn();
             }}
-            className="w-full relative group overflow-hidden rounded-2xl border-2 border-slate-900 bg-slate-950 hover:bg-slate-900 text-white p-3 sm:p-3.5 transition-all shadow-md shadow-slate-950/20 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-[#ff6b1a] focus-visible:ring-offset-2 active:scale-[0.99]"
+            className="w-full relative group overflow-hidden rounded-2xl border-2 border-brand-border-strong bg-brand-primary hover:bg-brand-primary-hover text-brand-primary-text p-3 sm:p-3.5 transition-all shadow-md shadow-brand-primary/20 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2 active:scale-[0.99]"
             aria-label={isThai ? 'เข้าสู่ระบบด่วนด้วยชีวมิติ (ข้ามการกด PIN)' : 'Quick Sign-In with biometrics (Bypass PIN)'}
           >
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2.5 min-w-0">
-                <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-[#ea580c] to-[#c2410c] text-white flex items-center justify-center shrink-0 shadow-sm shadow-[#ea580c]/30 group-hover:scale-105 transition-transform">
+                <div
+                  aria-hidden="true"
+                  className="h-10 w-10 rounded-xl bg-cta text-cta-text flex items-center justify-center shrink-0 shadow-sm shadow-cta/30 motion-safe:group-hover:scale-105 transition-transform"
+                >
                   {isBiometricVerifying ? (
                     <Loader2 className="w-5 h-5 animate-spin" />
                   ) : activePasskey?.authenticatorType === 'face_id' ? (
-                    <ScanFace className="w-5 h-5 text-white" />
+                    <ScanFace className="w-5 h-5" />
                   ) : (
-                    <Fingerprint className="w-5 h-5 text-white" />
+                    <Fingerprint className="w-5 h-5" />
                   )}
                 </div>
                 <div className="text-left min-w-0">
                   <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="text-xs font-black tracking-tight text-white flex items-center gap-1">
-                      <Zap className="w-3.5 h-3.5 text-[#ff782e] fill-[#ff782e]" />
+                    <span className="text-xs font-black tracking-tight text-brand-primary-text flex items-center gap-1">
+                      <Zap className="w-3.5 h-3.5 text-brand-gold-500 fill-brand-gold-500" aria-hidden="true" />
                       <span>{isThai ? 'เข้าสู่ระบบด่วน' : 'Quick Sign-In'}</span>
                     </span>
-                    <span className="rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-1.5 py-0.2 text-[9px] font-mono font-bold uppercase tracking-wider">
+                    <span className="rounded-md bg-white/15 text-brand-primary-text border border-white/25 px-1.5 py-0.5 text-[10px] font-mono font-bold uppercase tracking-wider">
                       FIDO2
                     </span>
                   </div>
-                  <div className="text-[11px] text-slate-300 truncate">
+                  <div className="text-xs text-brand-primary-text/85 truncate leading-snug">
                     {activePasskey
                       ? `${activePasskey.userName} · ${isThai ? 'แตะสแกนข้าม PIN' : 'Touch to bypass PIN'}`
                       : isThai
@@ -142,133 +136,104 @@ export const OperatorPinPad: React.FC<OperatorPinPadProps> = ({
                   </div>
                 </div>
               </div>
-              <div className="shrink-0 flex items-center gap-1 text-xs font-black text-[#ff782e] group-hover:text-white transition-colors">
-                <span className="hidden xs:inline">{isThai ? 'สแกน' : 'Scan'}</span>
-                <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
+              <div className="shrink-0 flex items-center gap-1 text-xs font-black text-brand-primary-text transition-colors">
+                <span className="hidden sm:inline">{isThai ? 'สแกน' : 'Scan'}</span>
+                <ArrowRight className="w-4 h-4 motion-safe:group-hover:translate-x-0.5 transition-transform" aria-hidden="true" />
               </div>
             </div>
           </button>
 
           <div className="relative py-1 flex items-center justify-center">
             <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-slate-200" />
+              <div className="w-full border-t border-brand-border" />
             </div>
-            <div className="relative bg-white px-2.5 text-[10px] font-black uppercase tracking-wider text-slate-600">
+            <div className="relative bg-brand-surface px-2.5 text-xs font-black uppercase tracking-wider text-brand-text-secondary">
               {isThai ? 'หรือ กดรหัส PIN 6 หลัก' : 'Or Enter 6-Digit PIN'}
             </div>
           </div>
         </div>
       )}
 
-      {/* PIN Dots */}
-      <div className="flex justify-center gap-3 py-1">
-        {[0, 1, 2, 3, 4, 5].map((i) => (
-          <div
-            key={i}
-            className={`w-10 h-12 sm:w-11 sm:h-13 rounded-2xl border-2 flex items-center justify-center transition-all duration-300 ${
-              pin.length > i
-                ? 'border-[#ff6b1a] bg-[#ff6b1a]/15 text-[#ff6b1a] scale-105 shadow-md shadow-[#ff6b1a]/20'
-                : 'border-slate-300 bg-slate-100'
-            }`}
-          >
-            {pin.length > i ? <div className="w-3.5 h-3.5 rounded-full bg-[#ea580c] animate-pulse" /> : null}
-          </div>
-        ))}
+      {/* 6 Round PIN Progress Dots */}
+      <div
+        className="flex items-center justify-center gap-3.5 py-1.5"
+        role="status"
+        aria-live="polite"
+        aria-label={
+          isThai
+            ? `กรอกรหัส PIN แล้ว ${pin.length} จาก 6 หลัก`
+            : `PIN ${pin.length} of 6 digits entered`
+        }
+      >
+        {[0, 1, 2, 3, 4, 5].map((i) => {
+          const filled = pin.length > i;
+          return (
+            <span
+              key={i}
+              aria-hidden="true"
+              className={`w-4 h-4 rounded-full border-2 transition-all duration-200 ${
+                filled
+                  ? 'border-cta bg-cta motion-safe:scale-110 shadow-xs'
+                  : 'border-brand-border-strong bg-brand-surface-muted'
+              }`}
+            />
+          );
+        })}
       </div>
 
-      {/* Numpad Grid */}
-      <div className="grid grid-cols-3 gap-2 max-w-[340px] mx-auto py-1">
+      {/* Reference 3×4 Tactile Numpad Grid with Orange Corner Actions */}
+      <div className="grid grid-cols-3 gap-2.5 max-w-[300px] sm:max-w-[320px] mx-auto">
         {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((digit) => (
           <button
             type="button"
             key={digit}
             disabled={!terminalReady || isLoading}
             onClick={() => handleDigitPress(digit.toString())}
-            className="h-12 sm:h-13 rounded-2xl bg-white border-2 border-slate-300 text-lg font-black text-slate-900 hover:border-[#ff6b1a] hover:bg-[#ff6b1a]/5 hover:text-[#c2410c] active:scale-95 focus-visible:ring-2 focus-visible:ring-[#ff6b1a] focus-visible:ring-offset-2 transition-all flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-xs select-none"
+            className="min-h-[56px] rounded-2xl bg-brand-surface border-2 border-brand-border-strong text-2xl font-mono font-black tabular-nums text-brand-text hover:border-cta hover:bg-cta-subtle hover:text-brand-text-accent active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2 transition-all flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-xs select-none"
           >
             {digit}
           </button>
         ))}
-        <button
-          type="button"
-          disabled={!terminalReady || isLoading}
-          onClick={handleClearPress}
-          className="h-12 sm:h-13 rounded-2xl bg-slate-100 border-2 border-slate-300 text-slate-700 font-black text-xs uppercase tracking-wider hover:bg-rose-50 hover:text-rose-700 hover:border-rose-300 active:scale-95 focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer select-none"
-        >
-          {isThai ? 'ล้าง' : 'Clear'}
-        </button>
-        <button
-          type="button"
-          disabled={!terminalReady || isLoading}
-          onClick={() => handleDigitPress('0')}
-          className="h-12 sm:h-13 rounded-2xl bg-white border-2 border-slate-300 text-lg font-black text-slate-900 hover:border-[#ff6b1a] hover:bg-[#ff6b1a]/5 hover:text-[#c2410c] active:scale-95 focus-visible:ring-2 focus-visible:ring-[#ff6b1a] focus-visible:ring-offset-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-xs select-none"
-        >
-          0
-        </button>
+
+        {/* Row 4 Left: Orange Backspace */}
         <button
           type="button"
           disabled={!terminalReady || isLoading}
           onClick={handleDeletePress}
-          className="h-12 sm:h-13 rounded-2xl bg-slate-100 border-2 border-slate-300 flex items-center justify-center text-slate-700 hover:bg-slate-200 hover:text-slate-950 active:scale-95 focus-visible:ring-2 focus-visible:ring-[#ff6b1a] focus-visible:ring-offset-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer select-none"
+          aria-label={isThai ? 'ลบตัวเลขล่าสุด' : 'Delete last digit'}
+          className="min-h-[56px] rounded-2xl bg-cta text-cta-text hover:bg-cta-hover active:bg-cta-pressed active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2 transition-all flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-sm select-none"
         >
-          <X className="w-5 h-5" />
+          <Delete className="w-5 h-5" aria-hidden="true" />
         </button>
-      </div>
 
-      {/* Submit CTA */}
-      <div className="max-w-[340px] mx-auto space-y-3 pt-1">
+        {/* Row 4 Center: Zero */}
         <button
           type="button"
-          disabled={!terminalReady || pin.length < 4 || isLoading}
-          onClick={handleSubmitPress}
-          className="w-full h-13 px-6 bg-gradient-to-r from-[#ea580c] to-[#c2410c] text-white rounded-2xl font-black text-sm flex items-center justify-center gap-2 hover:from-[#c2410c] hover:to-[#9a3412] active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-[#ff6b1a] focus-visible:ring-offset-2 transition-all disabled:opacity-30 disabled:cursor-not-allowed shadow-md shadow-[#ea580c]/30 cursor-pointer whitespace-nowrap"
+          disabled={!terminalReady || isLoading}
+          onClick={() => handleDigitPress('0')}
+          className="min-h-[56px] rounded-2xl bg-brand-surface border-2 border-brand-border-strong text-2xl font-mono font-black tabular-nums text-brand-text hover:border-cta hover:bg-cta-subtle hover:text-brand-text-accent active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2 transition-all flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-xs select-none"
         >
-          {isLoading ? (
-            <Loader2 className="w-5 h-5 animate-spin shrink-0" />
-          ) : (
-            <span className="truncate">{isThai ? 'เข้าสู่ระบบ POS' : 'Sign in to POS Terminal'}</span>
-          )}
+          0
         </button>
 
-        {/* Secondary Navigation Options */}
-        <div className="flex items-center justify-between pt-1 text-xs font-bold text-slate-700">
-          <button
-            type="button"
-            disabled={!terminalReady}
-            onClick={() => {
-              playClick();
-              onSwitchMode('biometric');
-            }}
-            className="hover:text-blue-700 focus-visible:ring-2 focus-visible:ring-[#ff6b1a] rounded-lg p-1 transition-colors flex items-center gap-1 cursor-pointer"
-          >
-            <Fingerprint className="w-4 h-4 text-blue-700" />
-            <span>{isThai ? 'ชีวมิติ' : 'Biometric'}</span>
-          </button>
-          <button
-            type="button"
-            disabled={!terminalReady}
-            onClick={() => {
-              playClick();
-              onSwitchMode('qr');
-            }}
-            className="hover:text-blue-700 focus-visible:ring-2 focus-visible:ring-[#ff6b1a] rounded-lg p-1 transition-colors flex items-center gap-1 cursor-pointer"
-          >
-            <QrCode className="w-4 h-4 text-blue-700" />
-            <span>{isThai ? 'สแกน QR' : 'QR Badge'}</span>
-          </button>
-          <button
-            type="button"
-            disabled={!terminalReady}
-            onClick={() => {
-              playClick();
-              onSwitchMode('email');
-            }}
-            className="hover:text-blue-700 focus-visible:ring-2 focus-visible:ring-[#ff6b1a] rounded-lg p-1 transition-colors flex items-center gap-1 cursor-pointer"
-          >
-            <UserRound className="w-4 h-4 text-blue-700" />
-            <span>{isThai ? 'บัญชีพนักงาน' : 'Staff ID'}</span>
-          </button>
-        </div>
+        {/* Row 4 Right: Orange Submit Arrow */}
+        <button
+          type="button"
+          disabled={!canSubmit}
+          onClick={handleSubmitPress}
+          aria-label={isThai ? 'ยืนยันรหัส PIN เพื่อเข้าสู่ระบบ' : 'Submit PIN to sign in'}
+          className={`min-h-[56px] rounded-2xl flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2 transition-all select-none ${
+            canSubmit
+              ? 'bg-cta text-cta-text hover:bg-cta-hover active:bg-cta-pressed active:scale-[0.97] shadow-sm cursor-pointer'
+              : 'bg-brand-surface-muted border-2 border-brand-border text-brand-text-muted cursor-not-allowed'
+          }`}
+        >
+          {isLoading ? (
+            <Loader2 className="w-5 h-5 animate-spin" aria-hidden="true" />
+          ) : (
+            <ArrowRight className="w-5 h-5" aria-hidden="true" />
+          )}
+        </button>
       </div>
     </div>
   );

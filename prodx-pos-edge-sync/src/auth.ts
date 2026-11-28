@@ -87,9 +87,10 @@ export async function verifyTerminalCertificate(request: Request, env: Env, auth
     await client.connect();
     await client.query("BEGIN");
     await client.query("SELECT set_config('app.current_tenant_id',$1,true)", [auth.tenantId]);
-    const mapped = await client.query(
-      `SELECT 1
+    const mapped = await client.query<{ store_id: string }>(
+      `SELECT d.store_id::text AS store_id
          FROM terminal_devices d
+         JOIN pos_stores st ON st.tenant_id=d.tenant_id AND st.id=d.store_id AND st.active=true
         WHERE d.tenant_id=$1 AND d.terminal_id=$2 AND d.cert_fingerprint_sha256=$3::char(64)
           AND d.active=true AND d.revoked_at IS NULL AND d.not_before<=now()
           AND (d.not_after IS NULL OR d.not_after>now())
@@ -99,7 +100,10 @@ export async function verifyTerminalCertificate(request: Request, env: Env, auth
     if (mapped.rowCount !== 1) throw new Response("mTLS certificate is not enrolled for this tenant/terminal", { status: 403 });
     const checkpoint = await readTerminalCheckpoint(client,auth.tenantId,auth.terminalId);
     await client.query("COMMIT");
-    return checkpoint;
+    return {
+      ...checkpoint,
+      store_id: mapped.rows[0]!.store_id
+    };
   } catch (error) {
     await client.query("ROLLBACK").catch(()=>undefined);
     if (error instanceof Response) throw error;

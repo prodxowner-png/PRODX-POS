@@ -348,12 +348,12 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({ onNavigate }) => {
           <h1 className="text-heading-1 text-text">
             {t.orders.title}
           </h1>
-          <p className="text-caption text-text/70 mt-1">
+          <p className="text-caption text-brand-text-secondary mt-1">
             {t.orders.subtitle}
           </p>
         </div>
         {/* Action button container */}
-        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1 shrink-0">
+        <div className="flex flex-wrap items-center gap-2 py-1 shrink-0">
           <Button
             id="orders-quick-refund-top-btn"
             variant="outline"
@@ -410,64 +410,64 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({ onNavigate }) => {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         {/* Metric 1: Total Orders */}
         <div className="p-4 rounded-xl border border-border border-crisp bg-card shadow-2xs flex flex-col justify-between">
-          <div className="flex items-center justify-between text-xs font-semibold text-text/60 uppercase tracking-wider">
+          <div className="flex items-center justify-between text-xs font-semibold text-brand-text-secondary uppercase tracking-wider">
             <span>{language === 'th' ? 'คำสั่งซื้อทั้งหมด' : 'Total Orders'}</span>
             <div className="p-1.5 rounded-lg bg-primary/10 text-primary">
               <Receipt className="h-4 w-4" />
             </div>
           </div>
-          <div className="mt-2 text-2xl font-black font-mono tracking-tight text-text">
-            {orderMetrics.totalCount} <span className="text-xs font-sans font-medium text-text/60">{language === 'th' ? 'รายการ' : 'txns'}</span>
+          <div className="mt-2 text-2xl font-black font-mono tabular-nums tracking-tight text-text">
+            {orderMetrics.totalCount} <span className="text-xs font-sans font-medium text-brand-text-secondary">{language === 'th' ? 'รายการ' : 'txns'}</span>
           </div>
-          <div className="mt-1.5 text-[11px] text-text/60">
+          <div className="mt-1.5 text-[11px] text-brand-text-secondary">
             {language === 'th' ? 'รวมทุกสถานะบนเครื่องขาย' : 'Lifetime store transactions'}
           </div>
         </div>
 
         {/* Metric 2: Gross Revenue */}
         <div className="p-4 rounded-xl border border-border border-crisp bg-card shadow-2xs flex flex-col justify-between">
-          <div className="flex items-center justify-between text-xs font-semibold text-text/60 uppercase tracking-wider">
+          <div className="flex items-center justify-between text-xs font-semibold text-brand-text-secondary uppercase tracking-wider">
             <span>{language === 'th' ? 'ยอดขายสะสม' : 'Total Revenue'}</span>
             <div className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
               <CheckCircle2 className="h-4 w-4" />
             </div>
           </div>
-          <div className="mt-2 text-2xl font-black font-mono tracking-tight text-emerald-600 dark:text-emerald-400">
+          <div className="mt-2 text-2xl font-black font-mono tabular-nums tracking-tight text-emerald-600 dark:text-emerald-400">
             {formatMoney({ amountInCents: orderMetrics.confirmedRevenueCents, currency: orderMetrics.currency })}
           </div>
-          <div className="mt-1.5 text-[11px] text-text/60">
+          <div className="mt-1.5 text-[11px] text-brand-text-secondary">
             {language === 'th' ? 'จากคำสั่งซื้อที่เสร็จสมบูรณ์' : 'Server confirmed receipts'}
           </div>
         </div>
 
         {/* Metric 3: Offline Pending Sync */}
         <div className="p-4 rounded-xl border border-border border-crisp bg-card shadow-2xs flex flex-col justify-between">
-          <div className="flex items-center justify-between text-xs font-semibold text-text/60 uppercase tracking-wider">
+          <div className="flex items-center justify-between text-xs font-semibold text-brand-text-secondary uppercase tracking-wider">
             <span>{language === 'th' ? 'รอซิงก์ออฟไลน์' : 'Pending Sync'}</span>
-            <div className={`p-1.5 rounded-lg ${orderMetrics.offlineCount > 0 ? 'bg-amber-500/15 text-amber-500' : 'bg-text/5 text-text/40'}`}>
+            <div className={`p-1.5 rounded-lg ${orderMetrics.offlineCount > 0 ? 'bg-amber-500/15 text-amber-500' : 'bg-text/5 text-brand-text-secondary'}`}>
               <WifiOff className="h-4 w-4" />
             </div>
           </div>
-          <div className={`mt-2 text-2xl font-black font-mono tracking-tight ${orderMetrics.offlineCount > 0 ? 'text-amber-500' : 'text-text'}`}>
-            {orderMetrics.offlineCount} <span className="text-xs font-sans font-medium text-text/60">{language === 'th' ? 'คิว' : 'queued'}</span>
+          <div className={`mt-2 text-2xl font-black font-mono tabular-nums tracking-tight ${orderMetrics.offlineCount > 0 ? 'text-amber-500' : 'text-text'}`}>
+            {orderMetrics.offlineCount} <span className="text-xs font-sans font-medium text-brand-text-secondary">{language === 'th' ? 'คิว' : 'queued'}</span>
           </div>
-          <div className="mt-1.5 text-[11px] text-text/60">
+          <div className="mt-1.5 text-[11px] text-brand-text-secondary">
             {orderMetrics.offlineCount > 0 ? (language === 'th' ? 'รอเชื่อมต่อคลาวด์' : 'Awaiting connection') : (language === 'th' ? 'ข้อมูลซิงก์ครบถ้วน' : 'All synced to cloud')}
           </div>
         </div>
 
         {/* Metric 4: Refunded / Voided */}
         <div className="p-4 rounded-xl border border-border border-crisp bg-card shadow-2xs flex flex-col justify-between">
-          <div className="flex items-center justify-between text-xs font-semibold text-text/60 uppercase tracking-wider">
+          <div className="flex items-center justify-between text-xs font-semibold text-brand-text-secondary uppercase tracking-wider">
             <span>{language === 'th' ? 'คืนเงิน / ยกเลิก' : 'Refunds & Voids'}</span>
             <div className="p-1.5 rounded-lg bg-rose-500/10 text-rose-500">
               <RotateCcw className="h-4 w-4" />
             </div>
           </div>
-          <div className="mt-2 text-2xl font-black font-mono tracking-tight text-rose-500">
-            {orderMetrics.refundedVoidedCount} <span className="text-xs font-sans font-medium text-text/60">{language === 'th' ? 'รายการ' : 'items'}</span>
+          <div className="mt-2 text-2xl font-black font-mono tabular-nums tracking-tight text-rose-500">
+            {orderMetrics.refundedVoidedCount} <span className="text-xs font-sans font-medium text-brand-text-secondary">{language === 'th' ? 'รายการ' : 'items'}</span>
           </div>
-          <div className="mt-1.5 text-[11px] text-text/60">
+          <div className="mt-1.5 text-[11px] text-brand-text-secondary">
             {language === 'th' ? 'ผ่านการอนุมัติ PIN ผู้จัดการ' : 'Supervisor audited'}
           </div>
         </div>
@@ -504,27 +504,27 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({ onNavigate }) => {
         {/* Left / Main Table View */}
         <div className={`flex flex-col gap-4 min-h-0 transition-all duration-200 ${selectedOrder ? 'w-full lg:w-[58%] xl:w-[62%]' : 'w-full'}`}>
           <div className="w-full overflow-x-auto rounded-xl border border-border bg-card shadow-2xs flex-1 flex flex-col min-h-0">
-            <table className="w-full min-w-[640px] text-left text-xs border-collapse">
+            <table className={`w-full text-left text-xs border-collapse ${selectedOrder ? 'min-w-0 xl:min-w-[640px]' : 'min-w-[640px]'}`}>
               <thead>
                 <tr className="border-b border-border text-text/70 bg-card font-semibold">
-                  <th className="py-3.5 px-5">{t.orders.orderNumber}</th>
-                  <th className="py-3.5 px-4">{t.orders.dateTime}</th>
-                  <th className="py-3.5 px-4">{language === 'th' ? 'เครื่องขาย' : 'Register'}</th>
-                  <th className="py-3.5 px-4">{t.orders.customer}</th>
-                  <th className="py-3.5 px-4">{t.orders.payment}</th>
-                  <th className="py-3.5 px-4">{t.orders.status}</th>
-                  <th className="py-3.5 px-5 text-right">{t.orders.total}</th>
+                  <th scope="col" className="py-3.5 px-5">{t.orders.orderNumber}</th>
+                  <th scope="col" className={`py-3.5 px-4 ${selectedOrder ? 'hidden xl:table-cell' : ''}`}>{t.orders.dateTime}</th>
+                  <th scope="col" className={`py-3.5 px-4 ${selectedOrder ? 'hidden xl:table-cell' : ''}`}>{language === 'th' ? 'เครื่องขาย' : 'Register'}</th>
+                  <th scope="col" className="py-3.5 px-4">{t.orders.customer}</th>
+                  <th scope="col" className={`py-3.5 px-4 ${selectedOrder ? 'hidden xl:table-cell' : ''}`}>{t.orders.payment}</th>
+                  <th scope="col" className="py-3.5 px-4">{t.orders.status}</th>
+                  <th scope="col" className="py-3.5 px-5 text-right tabular-nums">{t.orders.total}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {filteredOrders.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="py-12 text-center text-text/50">
-                      <Receipt className="h-8 w-8 mx-auto text-text/30 mb-2" />
+                    <td colSpan={7} className="py-12 text-center text-brand-text-secondary">
+                      <Receipt className="h-8 w-8 mx-auto text-brand-text-secondary/50 mb-2" />
                       <p className="text-xs font-semibold text-text">
                         {language === 'th' ? 'ไม่พบรายการคำสั่งซื้อ' : 'No orders found'}
                       </p>
-                      <p className="text-[11px] text-text/50 mt-0.5">
+                      <p className="text-[11px] text-brand-text-secondary mt-0.5">
                         {language === 'th' ? 'ลองปรับคำค้นหาหรือเปลี่ยนตัวกรองสถานะ' : 'Try adjusting your search or status filter.'}
                       </p>
                     </td>
@@ -536,11 +536,20 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({ onNavigate }) => {
                     return (
                       <React.Fragment key={order.id}>
                         <tr
+                          tabIndex={0}
+                          aria-selected={isSelected}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              setSelectedOrder(order);
+                              toggleOrderExpansion(order.id);
+                            }
+                          }}
                           onClick={() => {
                             setSelectedOrder(order);
                             toggleOrderExpansion(order.id);
                           }}
-                          className={`odd:bg-card even:bg-background/30 hover:bg-primary/5 cursor-pointer transition-colors ${
+                          className={`odd:bg-card even:bg-background/30 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cta cursor-pointer transition-colors ${
                             isSelected ? 'bg-primary/10 border-l-4 border-primary font-semibold' : ''
                           }`}
                         >
@@ -548,8 +557,14 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({ onNavigate }) => {
                             <div className="flex items-center gap-2">
                               <button
                                 type="button"
+                                aria-expanded={isExpanded}
+                                aria-label={
+                                  isExpanded
+                                    ? language === 'th' ? 'ย่อรายละเอียด' : 'Collapse line items'
+                                    : language === 'th' ? 'ขยายดูสินค้าในใบเสร็จ' : 'Expand line items'
+                                }
                                 onClick={(e) => toggleOrderExpansion(order.id, e)}
-                                className={`p-1 rounded-lg transition-colors cursor-pointer ${
+                                className={`p-1.5 min-h-[32px] min-w-[32px] inline-flex items-center justify-center rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta ${
                                   isExpanded
                                     ? 'bg-primary/20 text-primary'
                                     : 'hover:bg-primary/10 text-text/60 hover:text-text'
@@ -569,17 +584,17 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({ onNavigate }) => {
                               <span className="truncate">{order.orderNumber}</span>
                             </div>
                           </td>
-                          <td className="py-3.5 px-4 text-text/70 font-mono">
+                          <td className={`py-3.5 px-4 text-brand-text-secondary font-mono tabular-nums ${selectedOrder ? 'hidden xl:table-cell' : ''}`}>
                             {new Date(order.createdAt).toLocaleDateString()} ·{' '}
                             {new Date(order.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </td>
-                          <td className="py-3.5 px-4 font-mono text-text/70">
+                          <td className={`py-3.5 px-4 font-mono text-brand-text-secondary ${selectedOrder ? 'hidden xl:table-cell' : ''}`}>
                             {order.registerId}
                           </td>
                           <td className="py-3.5 px-4 font-medium text-text">
                             {order.customer ? order.customer.name : t.pos.walkIn}
                           </td>
-                          <td className="py-3.5 px-4 uppercase text-[10px] font-semibold text-text/70">
+                          <td className={`py-3.5 px-4 uppercase text-[10px] font-semibold text-brand-text-secondary ${selectedOrder ? 'hidden xl:table-cell' : ''}`}>
                             {order.payments[0]?.method === 'cash'
                               ? t.checkout.cash
                               : order.payments[0]?.method === 'card'
@@ -605,7 +620,7 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({ onNavigate }) => {
                               </Badge>
                             )}
                           </td>
-                          <td className="py-3.5 px-5 text-right font-mono font-bold text-text">
+                          <td className="py-3.5 px-5 text-right font-mono tabular-nums font-bold text-text">
                             {formatMoney(order.totals.grandTotal)}
                           </td>
                         </tr>
@@ -659,19 +674,19 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({ onNavigate }) => {
                                         <table className="w-full text-left text-xs border-collapse">
                                           <thead>
                                             <tr className="bg-card/80 text-text/70 border-b border-border text-[11px] font-semibold">
-                                              <th className="py-2.5 px-3.5">{language === 'th' ? 'ชื่อสินค้า / รายการ' : 'Product / Description'}</th>
-                                              <th className="py-2.5 px-3 text-center w-20">{language === 'th' ? 'จำนวน' : 'Qty'}</th>
-                                              <th className="py-2.5 px-3 text-right w-28">{language === 'th' ? 'ราคา/หน่วย' : 'Unit Price'}</th>
-                                              <th className="py-2.5 px-3.5 text-right w-32">{language === 'th' ? 'ราคารวม' : 'Line Total'}</th>
+                                              <th scope="col" className="py-2.5 px-3.5">{language === 'th' ? 'ชื่อสินค้า / รายการ' : 'Product / Description'}</th>
+                                              <th scope="col" className="py-2.5 px-3 text-center w-20">{language === 'th' ? 'จำนวน' : 'Qty'}</th>
+                                              <th scope="col" className="py-2.5 px-3 text-right w-28">{language === 'th' ? 'ราคา/หน่วย' : 'Unit Price'}</th>
+                                              <th scope="col" className="py-2.5 px-3.5 text-right w-32">{language === 'th' ? 'ราคารวม' : 'Line Total'}</th>
                                             </tr>
                                           </thead>
-                                          <tbody className="divide-y divide-border/60 font-mono text-xs">
+                                          <tbody className="divide-y divide-border/60 font-mono tabular-nums text-xs">
                                             {order.items.map((item) => (
                                               <tr key={item.lineId} className="odd:bg-card/50 even:bg-background/20 hover:bg-primary/5 transition-colors">
                                                 <td className="py-2.5 px-3.5 font-sans">
                                                   <div className="font-bold text-text">{item.product.name}</div>
                                                   {item.product.sku && (
-                                                    <div className="text-[10px] text-text/50 font-mono mt-0.5">
+                                                    <div className="text-[10px] text-brand-text-secondary font-mono mt-0.5">
                                                       SKU: {item.product.sku}
                                                     </div>
                                                   )}
@@ -697,15 +712,15 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({ onNavigate }) => {
                                       </div>
 
                                       {/* Transaction Totals & Settlement Info */}
-                                      <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 p-3 rounded-lg bg-background border border-border text-xs font-mono">
+                                      <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 p-3 rounded-lg bg-background border border-border text-xs font-mono tabular-nums">
                                         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-text/80 text-[11px]">
                                           <div>
-                                            <span className="text-text/50 font-sans">{language === 'th' ? 'ยอดรวมสินค้า' : 'Subtotal'}:</span>{' '}
+                                            <span className="text-brand-text-secondary font-sans">{language === 'th' ? 'ยอดรวมสินค้า' : 'Subtotal'}:</span>{' '}
                                             <span className="font-bold">{formatMoney(order.totals.grossSubtotal)}</span>
                                           </div>
                                           {order.totals.totalTax.amountInCents > 0 && (
                                             <div>
-                                              <span className="text-text/50 font-sans">{language === 'th' ? 'ภาษี (VAT)' : 'Tax'}:</span>{' '}
+                                              <span className="text-brand-text-secondary font-sans">{language === 'th' ? 'ภาษี (VAT)' : 'Tax'}:</span>{' '}
                                               <span className="font-bold">{formatMoney(order.totals.totalTax)}</span>
                                             </div>
                                           )}
@@ -718,7 +733,7 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({ onNavigate }) => {
                                             </div>
                                           )}
                                           <div>
-                                            <span className="text-text/50 font-sans">{language === 'th' ? 'ชำระโดย' : 'Payment'}:</span>{' '}
+                                            <span className="text-brand-text-secondary font-sans">{language === 'th' ? 'ชำระโดย' : 'Payment'}:</span>{' '}
                                             <span className="font-bold uppercase">
                                               {order.payments[0]?.method || 'Cash'}
                                             </span>
@@ -729,7 +744,7 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({ onNavigate }) => {
                                           <span className="text-text/70 text-[11px] font-sans font-bold">
                                             {language === 'th' ? 'สุทธิ (Grand Total):' : 'Grand Total:'}
                                           </span>
-                                          <span className="text-sm font-black font-mono text-primary">
+                                          <span className="text-sm font-black font-mono tabular-nums text-primary">
                                             {formatMoney(order.totals.grandTotal)}
                                           </span>
                                         </div>
@@ -873,15 +888,16 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({ onNavigate }) => {
                     {selectedOrder.status.replace('_', ' ').toUpperCase()}
                   </Badge>
                 </div>
-                <p className="text-[11px] text-text/60 mt-0.5">
+                <p className="text-[11px] text-brand-text-secondary mt-0.5">
                   {new Date(selectedOrder.createdAt).toLocaleString()} · {selectedOrder.registerId}
                 </p>
               </div>
               <Button
                 variant="ghost"
                 size="sm"
+                aria-label={language === 'th' ? 'ปิดรายละเอียดคำสั่งซื้อ' : 'Close order details'}
                 onClick={() => setSelectedOrder(null)}
-                className="text-text/50 hover:text-text h-8 px-2"
+                className="text-brand-text-secondary hover:text-text min-h-[36px] min-w-[36px] px-2"
               >
                 ✕
               </Button>
@@ -892,12 +908,12 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({ onNavigate }) => {
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="bg-background text-text/70 font-semibold border-b border-border">
-                    <th className="py-2 px-3">{language === 'th' ? 'รายการสินค้า' : 'Item'}</th>
-                    <th className="py-2 px-2 text-center">{language === 'th' ? 'จน.' : 'Qty'}</th>
-                    <th className="py-2 px-3 text-right">{language === 'th' ? 'รวม' : 'Total'}</th>
+                    <th scope="col" className="py-2 px-3">{language === 'th' ? 'รายการสินค้า' : 'Item'}</th>
+                    <th scope="col" className="py-2 px-2 text-center">{language === 'th' ? 'จน.' : 'Qty'}</th>
+                    <th scope="col" className="py-2 px-3 text-right">{language === 'th' ? 'รวม' : 'Total'}</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-border font-mono text-xs">
+                <tbody className="divide-y divide-border font-mono tabular-nums text-xs">
                   {selectedOrder.items.map((i) => (
                     <tr key={i.lineId} className="odd:bg-card even:bg-background/30 hover:bg-primary/5 transition-colors">
                       <td className="py-2 px-3 font-sans font-medium text-text">
@@ -912,7 +928,7 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({ onNavigate }) => {
             </div>
 
             {/* Financial Breakdown */}
-            <div className="p-3 rounded-lg bg-background border border-border space-y-1.5 text-xs font-mono text-text">
+            <div className="p-3 rounded-lg bg-background border border-border space-y-1.5 text-xs font-mono tabular-nums text-text">
               <div className="flex justify-between text-text/70">
                 <span className="font-sans">{t.pos.subtotal}</span>
                 <span>{formatMoney(selectedOrder.totals.netSubtotal)}</span>
@@ -1114,13 +1130,13 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({ onNavigate }) => {
                 <table className="w-full text-left text-xs border-collapse">
                   <thead>
                     <tr className="bg-card text-text/70 font-medium border-b border-border">
-                      <th className="py-2.5 px-4">{language === 'th' ? 'สินค้า' : 'Item'}</th>
-                      <th className="py-2.5 px-3">{language === 'th' ? 'จำนวน' : 'Qty'}</th>
-                      <th className="py-2.5 px-3">{language === 'th' ? 'ราคา/หน่วย' : 'Unit Price'}</th>
-                      <th className="py-2.5 px-3 text-right">{language === 'th' ? 'ยอดรวม' : 'Line Total'}</th>
+                      <th scope="col" className="py-2.5 px-4">{language === 'th' ? 'สินค้า' : 'Item'}</th>
+                      <th scope="col" className="py-2.5 px-3">{language === 'th' ? 'จำนวน' : 'Qty'}</th>
+                      <th scope="col" className="py-2.5 px-3">{language === 'th' ? 'ราคา/หน่วย' : 'Unit Price'}</th>
+                      <th scope="col" className="py-2.5 px-3 text-right">{language === 'th' ? 'ยอดรวม' : 'Line Total'}</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-border font-mono">
+                  <tbody className="divide-y divide-border font-mono tabular-nums">
                     {selectedOrder.items.map((i) => (
                       <tr key={i.lineId} className="odd:bg-card even:bg-background/30 hover:bg-primary/5 transition-colors">
                         <td className="py-2.5 px-4 font-sans font-medium text-text">
@@ -1136,7 +1152,7 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({ onNavigate }) => {
               </div>
 
               {/* Financial Totals Breakdown */}
-              <div className="p-4 rounded-lg bg-background border-border border-crisp space-y-1.5 text-xs font-mono text-text">
+              <div className="p-4 rounded-lg bg-background border-border border-crisp space-y-1.5 text-xs font-mono tabular-nums text-text">
                 <div className="flex justify-between text-text/70">
                   <span className="font-sans">{t.pos.subtotal}</span>
                   <span>{formatMoney(selectedOrder.totals.netSubtotal)}</span>
@@ -1247,7 +1263,7 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({ onNavigate }) => {
                   <Receipt className="h-4 w-4" />
                   <span>#{reorderCandidateOrder.orderNumber}</span>
                 </span>
-                <span className="font-mono text-primary font-bold">
+                <span className="font-mono tabular-nums text-primary font-bold">
                   {formatMoney(reorderCandidateOrder.totals.grandTotal)}
                 </span>
               </div>

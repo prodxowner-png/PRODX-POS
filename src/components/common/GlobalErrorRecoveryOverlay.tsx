@@ -11,7 +11,6 @@ import {
   ShieldAlert,
   RotateCcw,
   RefreshCw,
-  Trash2,
   Terminal,
   CheckCircle2,
   AlertTriangle,
@@ -44,7 +43,7 @@ export const GlobalErrorRecoveryOverlay: React.FC = () => {
     simulateFailure,
     isOverlayOpen,
     setIsOverlayOpen,
-    forceReloadAndClearCache,
+    reloadPreservingTransactionData,
     recoveryHistory,
   } = useGlobalErrorRecovery();
 
@@ -193,7 +192,11 @@ export const GlobalErrorRecoveryOverlay: React.FC = () => {
               <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
               <span>ตรวจพบภาวะขัดข้องในวงรอบการทำงานของ POS (Core Loop Interception)</span>
             </div>
-            <p className="text-text/70">{failure.message}</p>
+            <p className="text-text/70">
+              {failure.type === 'RUNTIME_CRASH'
+                ? 'A rendering error interrupted the application. Sensitive error details are withheld; local transaction data is preserved.'
+                : failure.message}
+            </p>
           </div>
 
           {/* Auto-Recovery Countdown & Execution Status Bar */}
@@ -317,11 +320,11 @@ export const GlobalErrorRecoveryOverlay: React.FC = () => {
             )}
 
             <button
-              onClick={forceReloadAndClearCache}
+              onClick={reloadPreservingTransactionData}
               className="w-full py-2 px-3 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-600 dark:text-rose-400 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
             >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span>Force Reload & Clear Cache (รีเซ็ตฉุกเฉิน)</span>
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Reload safely (preserve offline transactions)</span>
             </button>
           </div>
 
@@ -355,7 +358,7 @@ export const GlobalErrorRecoveryOverlay: React.FC = () => {
                       </pre>
                     </div>
                   )}
-                  {failure.errorStack && (
+                  {failure.errorStack && failure.type !== 'RUNTIME_CRASH' && (
                     <div>
                       <span className="text-text/50">Stack Trace:</span>
                       <pre className="mt-1 p-2 rounded-lg bg-background border border-border border-crisp overflow-x-auto text-[10px] text-rose-600 dark:text-rose-400">
