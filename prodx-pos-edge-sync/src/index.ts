@@ -220,10 +220,19 @@ async function handleTerminalSequenceRecovery(request: Request, env: Env): Promi
       reason:record.reason
     });
   } catch (error) {
-    const code=error instanceof Error?error.message:"TERMINAL_SEQUENCE_RECOVERY_FAILED";
-    const status=code==="TERMINAL_SEQUENCE_FAILURE_NOT_FOUND"?404:
-      code.startsWith("TERMINAL_SEQUENCE_")?409:503;
-    return json({error:code},status);
+    const rawCode = error instanceof Error ? error.message : "";
+    const isAllowlisted = /^(TERMINAL_SEQUENCE_[A-Z0-9_]+|INVALID_[A-Z0-9_]+|TERMINAL_STORE_MAPPING_MISMATCH)$/.test(rawCode);
+    if (isAllowlisted) {
+      const status = rawCode === "TERMINAL_SEQUENCE_FAILURE_NOT_FOUND" ? 404 :
+        rawCode.startsWith("INVALID_") ? 400 : 409;
+      return json({ error: rawCode }, status);
+    }
+    console.error("terminal_sequence_recovery_unavailable", {
+      terminal_id: terminalId,
+      terminal_seq_no: terminalSeqNo,
+      error_name: error instanceof Error ? error.name : "UNKNOWN"
+    });
+    return json({ error: "TERMINAL_SEQUENCE_RECOVERY_UNAVAILABLE" }, 503);
   }
   const doName=getDoName(operator.tenantId,terminalId);
   const stub=env.IDEMPOTENCY.get(env.IDEMPOTENCY.idFromName(doName));
@@ -385,25 +394,74 @@ export default {
       for (const message of batch.messages) {
         const failed = message.body as QueueSale & { failure_code?: string; recovery_eligible?: boolean };
         try {
-          const doName = getDoName(failed.tenant_id,failed.terminal_id);
+          if (!failed || typeof failed !== "object" ||
+              typeof failed.tenant_id !== "string" || typeof failed.terminal_id !== "string" ||
+              typeof failed.idempotency_key !== "string") {
+            console.error("dlq_malformed_envelope_unroutable");
+            message.retry({ delaySeconds: 60 });
+            continue;
+          }
+          const doName = getDoName(failed.tenant_id, failed.terminal_id);
           const stub = env.IDEMPOTENCY.get(env.IDEMPOTENCY.idFromName(doName));
-          if (failed.recovery_eligible) {
-            const recorded=await recordFailedSequence(env,failed,failed.failure_code ?? "QUEUE_RETRY_EXHAUSTED");
-            if (recorded === "committed") await stub.markCommitted(failed.tenant_id,failed.terminal_id,failed.idempotency_key);
-            else if (recorded === "voided") await stub.markVoided(failed.tenant_id,failed.terminal_id,failed.idempotency_key);
-            else if (recorded !== "retry") await stub.markFailed(failed.tenant_id,failed.terminal_id,failed.idempotency_key,
-              failed.failure_code ?? "QUEUE_RETRY_EXHAUSTED",failed.recovery_resolution_id);
+          if (failed.recovery_eligible === false) {
+            // Only confirmed envelope corruption explicitly marked non-recovery-eligible
+            // by the main queue consumer may finalize DO failure without a PG recovery row.
+            await stub.markFailed(
+              failed.tenant_id,
+              failed.terminal_id,
+              failed.idempotency_key,
+              failed.failure_code ?? "QUEUE_RETRY_EXHAUSTED",
+              failed.recovery_resolution_id
+            );
+            message.ack();
+            continue;
+          }
+          // Raw QueueSale routed to DLQ automatically by Cloudflare (recovery_eligible === undefined)
+          // and recovery-eligible DLQ messages MUST record durable failure in PostgreSQL first.
+          try {
+            const recorded = await recordFailedSequence(env, failed, failed.failure_code ?? "QUEUE_RETRY_EXHAUSTED");
+            if (recorded === "committed") {
+              await stub.markCommitted(failed.tenant_id, failed.terminal_id, failed.idempotency_key);
+            } else if (recorded === "voided") {
+              await stub.markVoided(failed.tenant_id, failed.terminal_id, failed.idempotency_key);
+            } else if (recorded !== "retry") {
+              await stub.markFailed(
+                failed.tenant_id,
+                failed.terminal_id,
+                failed.idempotency_key,
+                failed.failure_code ?? "QUEUE_RETRY_EXHAUSTED",
+                failed.recovery_resolution_id
+              );
+            }
             // An origin-authorized RETRY has already reconciled the DO and re-enqueued
             // the original receipt. A delayed duplicate DLQ delivery must not re-mark
             // that receipt failed and cancel the authorized retry.
-          } else {
-            await stub.markFailed(failed.tenant_id,failed.terminal_id,failed.idempotency_key,
-              failed.failure_code ?? "QUEUE_RETRY_EXHAUSTED",failed.recovery_resolution_id);
+            message.ack();
+          } catch (recordError) {
+            const recordReason = recordError instanceof Error ? recordError.message : "";
+            if (recordReason === "TERMINAL_SEQUENCE_FAILURE_NOT_NEXT") {
+              // Sequence behind an unresolved earlier failure: NEVER markFailed.
+              // Only ACK if durable DO outbox retention (QUEUED + next_retry_at + alarm) is proven.
+              const retained = await stub.verifyDurableOutboxRetention(
+                failed.tenant_id,
+                failed.terminal_id,
+                failed.idempotency_key
+              );
+              if (retained) {
+                message.ack();
+              } else {
+                console.error("dlq_not_next_without_durable_do_retention", {
+                  receipt_id: failed.receipt_id
+                });
+                message.retry({ delaySeconds: 60 });
+              }
+              continue;
+            }
+            throw recordError;
           }
-          message.ack();
         } catch (error) {
-          console.error("dlq_receipt_finalization_failed",error);
-          message.retry({delaySeconds:60});
+          console.error("dlq_receipt_finalization_failed", error);
+          message.retry({ delaySeconds: 60 });
         }
       }
       return;
@@ -411,14 +469,42 @@ export default {
     for (const message of batch.messages) {
       const saleMessage = message.body as QueueSale;
       try {
-        const outcome=await commitSale(env,saleMessage);
+        const outcome = await commitSale(env, saleMessage);
         const id = env.IDEMPOTENCY.idFromName(saleMessage.do_name);
         const stub = env.IDEMPOTENCY.get(id);
-        if (outcome === "voided") await stub.markVoided(saleMessage.tenant_id,saleMessage.terminal_id,saleMessage.idempotency_key);
-        else await stub.markCommitted(saleMessage.tenant_id,saleMessage.terminal_id,saleMessage.idempotency_key);
+        if (outcome === "voided") await stub.markVoided(saleMessage.tenant_id, saleMessage.terminal_id, saleMessage.idempotency_key);
+        else await stub.markCommitted(saleMessage.tenant_id, saleMessage.terminal_id, saleMessage.idempotency_key);
         message.ack();
       } catch (error) {
         const reason = error instanceof Error ? error.message : "UNKNOWN";
+        const isSequenceGap = reason.startsWith("TERMINAL_SEQUENCE_GAP");
+        if (isSequenceGap) {
+          // Never convert an unresolved sequence gap into a permanent failure on
+          // attempts threshold. Only ACK once durable DO outbox retention is proven.
+          if (Number(message.attempts ?? 0) >= 90) {
+            try {
+              const doName = getDoName(saleMessage.tenant_id, saleMessage.terminal_id);
+              const stub = env.IDEMPOTENCY.get(env.IDEMPOTENCY.idFromName(doName));
+              const retained = await stub.verifyDurableOutboxRetention(
+                saleMessage.tenant_id,
+                saleMessage.terminal_id,
+                saleMessage.idempotency_key
+              );
+              if (retained) {
+                message.ack();
+                continue;
+              }
+            } catch (verifyError) {
+              console.error("sequence_gap_outbox_retention_verification_failed", {
+                receipt_id: saleMessage.receipt_id,
+                error_name: verifyError instanceof Error ? verifyError.name : "UNKNOWN"
+              });
+            }
+          }
+          console.error("sale_commit_retry", { receipt_id: saleMessage.receipt_id, error: reason });
+          message.retry({ delaySeconds: 60 });
+          continue;
+        }
         const mustDeadLetter = error instanceof PermanentDataError || Number(message.attempts ?? 0) >= 90;
         if (mustDeadLetter) {
           const recoveryEligible = error instanceof PermanentDataError
@@ -427,18 +513,18 @@ export default {
           // Finalize the DO receipt only after the DLQ accepted the failure.
           // DLQ consumers deduplicate by tenant_id + idempotency_key.
           try {
-            const doName = getDoName(saleMessage.tenant_id,saleMessage.terminal_id);
+            const doName = getDoName(saleMessage.tenant_id, saleMessage.terminal_id);
             const stub = env.IDEMPOTENCY.get(env.IDEMPOTENCY.idFromName(doName));
             let recorded: "recorded" | "committed" | "voided" | "retry" | "retry_failed" | undefined;
             if (recoveryEligible) {
-              recorded=await recordFailedSequence(env,saleMessage,reason);
+              recorded = await recordFailedSequence(env, saleMessage, reason);
               if (recorded === "committed") {
-                await stub.markCommitted(saleMessage.tenant_id,saleMessage.terminal_id,saleMessage.idempotency_key);
+                await stub.markCommitted(saleMessage.tenant_id, saleMessage.terminal_id, saleMessage.idempotency_key);
                 message.ack();
                 continue;
               }
               if (recorded === "voided") {
-                await stub.markVoided(saleMessage.tenant_id,saleMessage.terminal_id,saleMessage.idempotency_key);
+                await stub.markVoided(saleMessage.tenant_id, saleMessage.terminal_id, saleMessage.idempotency_key);
                 message.ack();
                 continue;
               }
@@ -450,8 +536,8 @@ export default {
               failed_at: new Date().toISOString()
             });
             if (recorded !== "retry") {
-              await stub.markFailed(saleMessage.tenant_id,saleMessage.terminal_id,saleMessage.idempotency_key,
-                reason,saleMessage.recovery_resolution_id);
+              await stub.markFailed(saleMessage.tenant_id, saleMessage.terminal_id, saleMessage.idempotency_key,
+                reason, saleMessage.recovery_resolution_id);
             }
             message.ack();
           } catch (dlqError) {
@@ -459,10 +545,10 @@ export default {
             message.retry({ delaySeconds: 60 });
           }
         } else {
-          console.error("sale_commit_retry", { receipt_id:saleMessage.receipt_id,error:reason });
+          console.error("sale_commit_retry", { receipt_id: saleMessage.receipt_id, error: reason });
           // Missing earlier terminal sequence numbers are recoverable when the
           // POS replays its missing outbox entries; retry with a longer delay.
-          message.retry({ delaySeconds: reason.startsWith("TERMINAL_SEQUENCE_GAP") ? 60 : 15 });
+          message.retry({ delaySeconds: 15 });
         }
       }
     }
