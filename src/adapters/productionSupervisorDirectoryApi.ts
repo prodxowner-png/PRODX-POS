@@ -1,6 +1,7 @@
+import { resolveProductionApiBaseUrl } from './apiBaseUrl';
 import type { Role, User } from '../domain/auth';
 
-const API_BASE_URL = import.meta.env.VITE_AUTH_API_BASE_URL;
+const API_BASE_URL = resolveProductionApiBaseUrl(import.meta.env.VITE_AUTH_API_BASE_URL);
 
 type SupervisorDirectoryRow = { id: string; username: string; name: string; role: string };
 
@@ -8,7 +9,6 @@ export function createProductionSupervisorDirectoryApi(token: string) {
   return {
     async list(): Promise<User[]> {
       if (!token.trim()) throw new Error('Authenticated session token is required to load supervisors.');
-      if (!API_BASE_URL) throw new Error('Production authentication API is not configured.');
       const response = await fetch(API_BASE_URL.replace(/\/$/, '') + '/api/v1/authorizations/supervisors', {
         method: 'GET', credentials: 'include', headers: { Accept: 'application/json', Authorization: `Bearer ${token.trim()}` },
       });

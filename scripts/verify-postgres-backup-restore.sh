@@ -189,7 +189,7 @@ now_ms() {
 }
 
 # Detect migration 0062 from the authoritative migration ledger, not a manually-created table.
-HAS_0062="$(psql_scalar "${EXEC_SOURCE_URL}" "SELECT count(*) FROM public.prodx_schema_migrations WHERE version = '0062_payment_webhook_inbox_and_discount_force_rls';")"
+HAS_0062="$(psql_scalar "${EXEC_SOURCE_URL}" "SELECT count(*) FROM public.prodx_schema_migrations WHERE version = '0065_payment_webhook_inbox_and_discount_force_rls';")"
 WEBHOOK_TABLE_EXISTS="$(psql_scalar "${EXEC_SOURCE_URL}" "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'prodx_payment_webhook_events';")"
 if [[ "${HAS_0062}" -ne "${WEBHOOK_TABLE_EXISTS}" ]]; then
   echo "ERROR: Migration 0062 ledger state and prodx_payment_webhook_events table presence do not match." >&2

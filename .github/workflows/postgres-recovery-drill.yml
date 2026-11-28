@@ -117,7 +117,7 @@ jobs:
           migration_count="$(psql "${TARGET_DATABASE_URL}" --tuples-only --no-align --set ON_ERROR_STOP=1 \
             --command "SELECT count(*) FROM public.prodx_schema_migrations;")"
           has_0062="$(psql "${TARGET_DATABASE_URL}" --tuples-only --no-align --set ON_ERROR_STOP=1 \
-            --command "SELECT count(*) FROM public.prodx_schema_migrations WHERE version = '0062_payment_webhook_inbox_and_discount_force_rls';")"
+            --command "SELECT count(*) FROM public.prodx_schema_migrations WHERE version = '0065_payment_webhook_inbox_and_discount_force_rls';")"
           webhook_table_exists="$(psql "${TARGET_DATABASE_URL}" --tuples-only --no-align --set ON_ERROR_STOP=1 \
             --command "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'prodx_payment_webhook_events';")"
           if [[ "${has_0062}" -ne "${webhook_table_exists}" ]]; then
@@ -217,4 +217,3 @@ jobs:
           path: artifacts/recovery-drill-report.json
           if-no-files-found: error
           retention-days: 30
-

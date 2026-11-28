@@ -1,12 +1,35 @@
-import type { ISyncApi } from './types';
+import { resolveProductionApiBaseUrl } from './apiBaseUrl';
+import type { ISyncApi, SyncCommandResponse } from './types';
 import type { OutboxItem } from '../domain/sync';
 
 const configuredBaseUrl = (): string | undefined => import.meta.env?.VITE_AUTH_API_BASE_URL;
 
 function requireBaseUrl(baseUrl?: string): string {
-  const resolved = baseUrl ?? configuredBaseUrl();
-  if (!resolved) throw new Error('Production sync API is not configured: VITE_AUTH_API_BASE_URL is missing.');
-  return resolved.replace(/\/$/, '');
+  return resolveProductionApiBaseUrl(baseUrl ?? configuredBaseUrl());
+}
+
+export class SyncApiError extends Error {
+  readonly status?: number;
+  readonly code?: string;
+  readonly requestId?: string;
+  readonly retryable: boolean;
+
+  constructor(
+    message: string,
+    options: { status?: number; code?: string; requestId?: string; retryable?: boolean } = {},
+  ) {
+    super(message);
+    this.name = 'SyncApiError';
+    this.status = options.status;
+    this.code = options.code;
+    this.requestId = options.requestId;
+    this.retryable =
+      options.retryable ??
+      (options.status === undefined ||
+        options.status === 408 ||
+        options.status === 429 ||
+        options.status >= 500);
+  }
 }
 
 export function createProductionSyncApi(token: string, baseUrl?: string): ISyncApi {
@@ -21,16 +44,33 @@ export function createProductionSyncApi(token: string, baseUrl?: string): ISyncA
     });
     const body = await response.json().catch(() => null);
     if (!response.ok) {
-      const message = body && typeof body === 'object' && 'error' in body
-        ? String((body as { error?: { message?: unknown } }).error?.message ?? 'Synchronization request failed.')
-        : 'Synchronization request failed.';
-      throw new Error(message);
+      const errorObj =
+        body && typeof body === 'object' && 'error' in body && body.error && typeof body.error === 'object'
+          ? (body.error as { message?: unknown; code?: unknown; requestId?: unknown })
+          : null;
+      const message =
+        errorObj?.message !== undefined && String(errorObj.message).trim()
+          ? String(errorObj.message)
+          : `Synchronization request failed with HTTP ${response.status}.`;
+      const code =
+        errorObj?.code !== undefined && String(errorObj.code).trim()
+          ? String(errorObj.code)
+          : undefined;
+      const requestId =
+        errorObj?.requestId !== undefined && String(errorObj.requestId).trim()
+          ? String(errorObj.requestId)
+          : undefined;
+      throw new SyncApiError(message, {
+        status: response.status,
+        code,
+        requestId,
+      });
     }
     return body as T;
   };
   return {
     async syncOutboxItem(item: OutboxItem) {
-      return request<{ confirmedOrder: import('../domain/order').Order; syncedAt: string }>('/api/v1/sync/commands', { method: 'POST', body: JSON.stringify({ item }) });
+      return request<SyncCommandResponse>('/api/v1/sync/commands', { method: 'POST', body: JSON.stringify({ item }) });
     },
     async ping(clientTimestamp = Date.now()) {
       const started = performance.now();
