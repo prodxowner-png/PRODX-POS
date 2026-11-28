@@ -65,6 +65,12 @@ jobs:
     - name: Verify migration governance
       run: bun run db:migrations:check
 
+    - name: Verify trusted migration governance regression contracts
+      env:
+        CI: 'true'
+        MIGRATION_CANDIDATE_ROOT: ${{ github.workspace }}
+      run: node --test scripts/check-migration-governance-trusted.test.mjs
+
     - name: Apply PostgreSQL migrations with production runner
       run: bun run db:migrate
 
