@@ -24,9 +24,6 @@ concurrency:
 jobs:
   validate:
     name: Antigravity Pro autonomous production loop
-    # The autonomous executor only validates PRs targeting main. Stacked remediation
-    # PRs are validated by their own CI and must not be treated as malformed targets.
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.base.ref == 'main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -43,7 +40,6 @@ jobs:
           metadata="$(gh pr view "$EVENT_PR" --repo "$REPO" --json number,state,headRepositoryOwner,headRepository,headRefName,headRefOid,baseRefName)"
           test "$(jq -r '.number' <<<"$metadata")" = "$EVENT_PR"
           test "$(jq -r '.state' <<<"$metadata")" = "OPEN"
-          test "$(jq -r '.baseRefName' <<<"$metadata")" = "main"
           head_repo="$(jq -r '.headRepositoryOwner.login + "/" + .headRepository.name' <<<"$metadata")"
           test "$head_repo" = "$REPO"
           head_ref="$(jq -r '.headRefName' <<<"$metadata")"
@@ -63,7 +59,11 @@ jobs:
           set -euo pipefail
           gh pr view "$PR" --repo "$REPO" --json number,title,state,body,headRefName,headRefOid,baseRefName,files,commits,reviews,statusCheckRollup > pr.json
           test "$(jq -r '.headRefOid' pr.json)" = "$HEAD_SHA"
-          test "$(jq -r '.baseRefName' pr.json)" = "main"
+          base_ref="$(jq -r '.baseRefName' pr.json)"
+          if [[ "$base_ref" != "main" ]]; then
+            echo "NOT_APPLICABLE: stacked PR targets '$base_ref'; mainline-only autonomous validation is not applicable." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           jq '{number,title,state,headRefName,headRefOid,baseRefName,files,commits,statusCheckRollup}' pr.json > executor-report.json
           echo "Validated PR metadata and checks only."
           echo "No PR-controlled source was checked out or executed."
