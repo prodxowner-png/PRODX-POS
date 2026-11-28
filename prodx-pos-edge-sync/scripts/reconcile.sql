@@ -162,10 +162,16 @@ JOIN terminal_sequence_failures f ON f.tenant_id=st.tenant_id AND f.terminal_id=
 WHERE f.store_id <> st.store_id
 UNION ALL
 SELECT st.tenant_id,st.terminal_id,st.store_id AS checkpoint_store_id,
-       'TERMINAL_DEVICE'::text AS mismatch_source,d.store_id AS actual_store_id
+       'TERMINAL_DEVICE'::text AS mismatch_source,NULL::uuid AS actual_store_id
 FROM terminal_sync_state st
-JOIN terminal_devices d ON d.tenant_id=st.tenant_id AND d.terminal_id=st.terminal_id
-WHERE d.revoked_at IS NULL AND d.store_id <> st.store_id;
+WHERE EXISTS (
+    SELECT 1 FROM terminal_devices d
+    WHERE d.tenant_id=st.tenant_id AND d.terminal_id=st.terminal_id
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM terminal_devices d
+    WHERE d.tenant_id=st.tenant_id AND d.terminal_id=st.terminal_id AND d.store_id=st.store_id
+  );
 
 -- 6) Import a trusted operator export of DO-local outbox/gap state into this temp table
 -- before running the following checks. Export must be obtained through an authenticated
@@ -337,8 +343,14 @@ BEGIN
     WHERE f.store_id <> st.store_id
     UNION ALL
     SELECT 1 FROM terminal_sync_state st
-    JOIN terminal_devices d ON d.tenant_id=st.tenant_id AND d.terminal_id=st.terminal_id
-    WHERE d.revoked_at IS NULL AND d.store_id <> st.store_id
+    WHERE EXISTS (
+        SELECT 1 FROM terminal_devices d
+        WHERE d.tenant_id=st.tenant_id AND d.terminal_id=st.terminal_id
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM terminal_devices d
+        WHERE d.tenant_id=st.tenant_id AND d.terminal_id=st.terminal_id AND d.store_id=st.store_id
+      )
   ) THEN RAISE EXCEPTION 'RECONCILIATION_FAILED: terminal_store_checkpoint_mismatch'; END IF;
 
   IF EXISTS (

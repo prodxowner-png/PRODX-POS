@@ -53,12 +53,7 @@ try{
     `INSERT INTO inventory_ledger(tenant_id,store_id,product_id,reference_id,quantity_delta,reason)
      VALUES($1,$2,$3,$4,2,'OPENING_BALANCE')`,[tenantId,storeId,productId,openingReferenceId]
   );
-  // Seed stock through the immutable ledger path; direct balance writes are forbidden.
-  await admin.query(
-    `INSERT INTO inventory_ledger(tenant_id,product_id,reference_id,quantity_delta,reason)
-     VALUES($1,$2,$3,2,'OPENING_BALANCE')`,
-    [tenantId,productId,randomUUID()]
-  );
+  // Opening stock was seeded through the immutable store-scoped ledger path above.
   const versionResult=await admin.query(
     `SELECT catalog_version FROM tenant_catalog_versions WHERE tenant_id=$1`,[tenantId]
   );
@@ -154,7 +149,7 @@ try{
       tenant_id:tenantId,terminal_id:terminalId,sale:hashableRecoverySale
     }));
     return {
-      tenant_id:tenantId,terminal_id:terminalId,idempotency_key:recoverySale.idempotency_key,
+      tenant_id:tenantId,terminal_id:terminalId,store_id:storeId,idempotency_key:recoverySale.idempotency_key,
       payload_hash:recoverySale.payload_hash,do_name:`${tenantId}:${terminalId}`,
       sale:recoverySale,edge_received_at:new Date().toISOString(),receipt_id:randomUUID()
     };
@@ -249,8 +244,12 @@ try{
   await admin.query("BEGIN");
   await admin.query("SELECT set_config('app.current_tenant_id',$1,true)",[tenantId]);
   await admin.query(
-    `INSERT INTO inventory_ledger(tenant_id,product_id,reference_id,quantity_delta,reason)
-     VALUES($1,$2,$3,1,'OPENING_BALANCE')`,[tenantId,productId,randomUUID()]
+    "SELECT set_config('app.inventory_actor_id',$1,true), set_config('app.inventory_payload_hash',$2,true)",
+    [terminalId,randomUUID().replace(/-/g,"")+randomUUID().replace(/-/g,"").slice(0,32)]
+  );
+  await admin.query(
+    `INSERT INTO inventory_ledger(tenant_id,store_id,product_id,reference_id,quantity_delta,reason)
+     VALUES($1,$2,$3,$4,1,'OPENING_BALANCE')`,[tenantId,storeId,productId,randomUUID()]
   );
   await admin.query("COMMIT");
   const retryCommit=await commitSale(runtimeEnv,retryMessage);
@@ -275,6 +274,60 @@ try{
   if(await commitSale(runtimeEnv,voidMessage)!=="voided"||
      await recordFailedSequence(runtimeEnv,voidMessage,"INSUFFICIENT_STOCK")!=="voided") {
     throw new Error("VOIDED_SEQUENCE_REPLAY_WAS_NOT_IDEMPOTENT");
+  }
+
+  // CRITICAL #2: VOID identity validation must reject forged/mismatched/cross-scope replays.
+  // 1) Different sale on VOIDed sequence 3 -> TERMINAL_SEQUENCE_ALREADY_RESOLVED
+  const differentSaleOnVoidedSeq=await makeRecoveryMessage(3);
+  let differentSaleRejected=false;
+  try { await commitSale(runtimeEnv,differentSaleOnVoidedSeq); }
+  catch (error) {
+    differentSaleRejected=error instanceof PermanentDataError &&
+      error.message==="TERMINAL_SEQUENCE_ALREADY_RESOLVED";
+  }
+  if(!differentSaleRejected) throw new Error("DIFFERENT_SALE_ON_VOIDED_SEQUENCE_WAS_ACCEPTED");
+
+  // 2) Same idempotency key with different payload on VOIDed sequence 3 -> IDEMPOTENCY_PAYLOAD_MISMATCH
+  const tamperedVoidSale:OfflineSale={
+    ...voidMessage.sale,
+    sale_id:randomUUID(),
+    payload_hash:"0".repeat(64)
+  };
+  const {payload_hash:_tIgn,...tamperedHashable}=tamperedVoidSale;
+  tamperedVoidSale.payload_hash=await sha256Hex(canonicalize({
+    tenant_id:tenantId,terminal_id:terminalId,sale:tamperedHashable
+  }));
+  const tamperedVoidMessage:QueueSale={
+    ...voidMessage,
+    payload_hash:tamperedVoidSale.payload_hash,
+    sale:tamperedVoidSale
+  };
+  let sameKeyDiffPayloadRejected=false;
+  try { await commitSale(runtimeEnv,tamperedVoidMessage); }
+  catch (error) {
+    sameKeyDiffPayloadRejected=error instanceof PermanentDataError &&
+      error.message==="IDEMPOTENCY_PAYLOAD_MISMATCH";
+  }
+  if(!sameKeyDiffPayloadRejected) throw new Error("VOIDED_SAME_KEY_DIFFERENT_PAYLOAD_WAS_ACCEPTED");
+
+  // 3) Cross-store VOID replay must be rejected (never return "voided")
+  let crossStoreVoidRejected=false;
+  try { await commitSale(runtimeEnv,{...voidMessage,store_id:randomUUID()}); }
+  catch (error) {
+    crossStoreVoidRejected=error instanceof PermanentDataError &&
+      (error.message==="TERMINAL_STORE_MAPPING_MISMATCH" || error.message==="TERMINAL_SEQUENCE_ALREADY_RESOLVED");
+  }
+  if(!crossStoreVoidRejected) throw new Error("CROSS_STORE_VOID_REPLAY_WAS_ACCEPTED");
+
+  // 4) Cross-terminal and cross-tenant VOID replays must be rejected
+  for (const crossScopeMsg of [
+    {...voidMessage,terminal_id:randomUUID()},
+    {...voidMessage,tenant_id:randomUUID()}
+  ]) {
+    let crossScopeRejected=false;
+    try { await commitSale(runtimeEnv,crossScopeMsg); }
+    catch { crossScopeRejected=true; }
+    if(!crossScopeRejected) throw new Error("CROSS_SCOPE_VOID_REPLAY_WAS_ACCEPTED");
   }
 
   // Negative scope checks must not reveal another tenant's failure or permit
@@ -343,6 +396,33 @@ try{
     [tenantId,terminalId]
   );
   if(Number(voidCount.rows[0]?.count)!==1) throw new Error("CONCURRENT_VOID_CREATED_DUPLICATE_RESOLUTIONS");
+
+  // HIGH #5: Commit Sale 5 after Sale 1, Sale 2, VOID 3, VOID 4 -> last_committed_seq_no=5, last_resolved_seq_no=5.
+  await admin.query("BEGIN");
+  await admin.query("SELECT set_config('app.current_tenant_id',$1,true)",[tenantId]);
+  await admin.query(
+    "SELECT set_config('app.inventory_actor_id',$1,true), set_config('app.inventory_payload_hash',$2,true)",
+    [terminalId,randomUUID().replace(/-/g,"")+randomUUID().replace(/-/g,"").slice(0,32)]
+  );
+  await admin.query(
+    `INSERT INTO inventory_ledger(tenant_id,store_id,product_id,reference_id,quantity_delta,reason)
+     VALUES($1,$2,$3,$4,1,'OPENING_BALANCE')`,[tenantId,storeId,productId,randomUUID()]
+  );
+  await admin.query("COMMIT");
+  const postVoidSale5=await makeRecoveryMessage(5);
+  const postVoidCommit=await commitSale(runtimeEnv,postVoidSale5);
+  if(postVoidCommit!=="committed") throw new Error("SALE_AFTER_VOID_DID_NOT_COMMIT");
+  const checkpointAfterSale5=await admin.query(
+    `SELECT last_committed_seq_no,last_resolved_seq_no,last_hlc_physical_ms,last_resolved_hlc_physical_ms
+       FROM terminal_sync_state WHERE tenant_id=$1 AND terminal_id=$2`,
+    [tenantId,terminalId]
+  );
+  const cp5=checkpointAfterSale5.rows[0];
+  if(Number(cp5?.last_committed_seq_no)!==5||Number(cp5?.last_resolved_seq_no)!==5||
+     Number(cp5?.last_resolved_hlc_physical_ms)<Number(cp5?.last_hlc_physical_ms)) {
+    throw new Error("POST_VOID_SALE5_CHECKPOINT_ASSERTION_FAILED");
+  }
+
   const recoveryAudit=await admin.query(
     `SELECT action FROM audit_logs WHERE tenant_id=$1
       AND action IN ('POS_TERMINAL_SEQUENCE_FAILED','POS_TERMINAL_SEQUENCE_RETRY_AUTHORIZED',
@@ -365,28 +445,40 @@ try{
     [raceProductId,tenantId,`RACE-${raceProductId.slice(0,8)}`]
   );
   await admin.query(
-    `INSERT INTO inventory_ledger(tenant_id,product_id,reference_id,quantity_delta,reason)
-     VALUES($1,$2,$3,1,'OPENING_BALANCE')`,
-    [tenantId,raceProductId,randomUUID()]
+    "SELECT set_config('app.inventory_actor_id',$1,true), set_config('app.inventory_payload_hash',$2,true)",
+    [terminalId,randomUUID().replace(/-/g,"")+randomUUID().replace(/-/g,"").slice(0,32)]
+  );
+  await admin.query(
+    `INSERT INTO inventory_ledger(tenant_id,store_id,product_id,reference_id,quantity_delta,reason)
+     VALUES($1,$2,$3,$4,1,'OPENING_BALANCE')`,
+    [tenantId,storeId,raceProductId,randomUUID()]
   );
   await admin.query("COMMIT");
 
   async function attemptFinalUnit(referenceId:string):Promise<"committed"|"rejected"> {
-    const client=new Client({connectionString:runtimeUrl});
+    const client=new Client({connectionString:adminUrl});
     await client.connect();
     try {
+      await client.query("SET SESSION AUTHORIZATION prodx_inventory_admin");
       await client.query("BEGIN");
       await client.query("SELECT set_config('app.current_tenant_id',$1,true)",[tenantId]);
       await client.query(
-        `INSERT INTO inventory_ledger(tenant_id,product_id,reference_id,quantity_delta,reason)
-         VALUES($1,$2,$3,-1,'STOCK_ADJUSTMENT')`,
-        [tenantId,raceProductId,referenceId]
+        "SELECT set_config('app.inventory_actor_id',$1,true), set_config('app.inventory_payload_hash',$2,true)",
+        [terminalId,randomUUID().replace(/-/g,"")+randomUUID().replace(/-/g,"").slice(0,32)]
+      );
+      await client.query(
+        `INSERT INTO inventory_ledger(tenant_id,store_id,product_id,reference_id,quantity_delta,reason)
+         VALUES($1,$2,$3,$4,-1,'STOCK_ADJUSTMENT')`,
+        [tenantId,storeId,raceProductId,referenceId]
       );
       await client.query("COMMIT");
       return "committed";
     } catch (error) {
       await client.query("ROLLBACK").catch(()=>undefined);
-      if (typeof error==="object"&&error!==null&&"code" in error&&(error as {code?:string}).code==="PZ001") return "rejected";
+      const dbErr=error as {code?:string;message?:string};
+      if (dbErr?.code==="PZ001" || (dbErr?.code==="23514" && String(dbErr.message??"").includes("INSUFFICIENT_STOCK"))) {
+        return "rejected";
+      }
       throw error;
     } finally {
       await client.end().catch(()=>undefined);
@@ -398,9 +490,9 @@ try{
   ]);
   const raceBalance=await admin.query(
     `SELECT b.quantity,
-            (SELECT COUNT(*) FROM inventory_ledger l WHERE l.tenant_id=$1 AND l.product_id=$2 AND l.reason='STOCK_ADJUSTMENT') AS adjustment_count
-       FROM inventory_balances b WHERE b.tenant_id=$1 AND b.product_id=$2`,
-    [tenantId,raceProductId]
+            (SELECT COUNT(*) FROM inventory_ledger l WHERE l.tenant_id=$1 AND l.store_id=$2 AND l.product_id=$3 AND l.reason='STOCK_ADJUSTMENT') AS adjustment_count
+       FROM inventory_balances b WHERE b.tenant_id=$1 AND b.store_id=$2 AND b.product_id=$3`,
+    [tenantId,storeId,raceProductId]
   );
   if(raceResults.filter((value)=>value==="committed").length!==1||
      raceResults.filter((value)=>value==="rejected").length!==1||

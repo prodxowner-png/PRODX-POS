@@ -496,6 +496,18 @@ export async function resolveFailedSequence(
     await client.connect();
     await client.query("BEGIN");
     await client.query("SELECT set_config('app.current_tenant_id',$1,true)", [input.tenantId]);
+    const scopeExists = await client.query(
+      `SELECT 1 FROM terminal_sequence_failures
+        WHERE tenant_id=$1 AND terminal_id=$2 AND terminal_seq_no=$3
+       UNION ALL
+       SELECT 1 FROM terminal_sequence_resolutions
+        WHERE tenant_id=$1 AND request_id=$4
+       LIMIT 1`,
+      [input.tenantId,input.terminalId,input.terminalSeqNo,input.requestId]
+    );
+    if (!scopeExists.rowCount) {
+      throw new Error("TERMINAL_SEQUENCE_FAILURE_NOT_FOUND");
+    }
     const storeId = await resolveAuthoritativeTerminalStoreId(
       client,
       input.tenantId,

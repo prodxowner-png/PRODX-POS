@@ -410,4 +410,118 @@ describe("PRODX Edge sync Durable Object", () => {
       expect(retained).toBe(0);
     });
   });
+
+  it("preserves recovery_resolution_id and store_id on cold/restored DO RETRY resubmission (HIGH #3)", async () => {
+    const stub = getStub("cold-do-retry-restore");
+    const item = prepared("cold-do-retry-idempotency-key", "a".repeat(64), 1);
+    const resolutionId = "00000000-0000-4000-8000-000000000031";
+    const retryCheckpoint = {
+      store_id: STORE,
+      last_committed_seq_no: 0,
+      last_hlc_physical_ms: 0,
+      last_hlc_logical: 0,
+      last_resolved_seq_no: 0,
+      last_resolved_hlc_physical_ms: 0,
+      last_resolved_hlc_logical: 0,
+      terminal_failures: [{
+        terminal_seq_no: 1,
+        sale_id: item.sale.sale_id,
+        idempotency_key: item.sale.idempotency_key,
+        receipt_id: item.receiptId,
+        payload_hash: item.payloadHash,
+        failure_code: "INSUFFICIENT_STOCK",
+        edge_received_at: item.edgeReceivedAt,
+        resolution_id: resolutionId,
+        outcome: "RETRY" as const
+      }]
+    };
+    const sentBodies: any[] = [];
+    await runInDO(stub as any, async (instance: any) => {
+      const queue = instance.env.POS_INGEST_QUEUE;
+      const original = queue.sendBatch.bind(queue);
+      Object.defineProperty(queue, "sendBatch", {
+        configurable: true,
+        value: async (messages: any[]) => {
+          for (const msg of messages) sentBodies.push(msg.body);
+        }
+      });
+      try {
+        await instance.submitBatch(submission([item]), retryCheckpoint);
+      } finally {
+        Object.defineProperty(queue, "sendBatch", { configurable: true, value: original });
+      }
+    });
+    expect(sentBodies).toHaveLength(1);
+    expect(sentBodies[0]?.store_id).toBe(STORE);
+    expect(sentBodies[0]?.recovery_resolution_id).toBe(resolutionId);
+
+    // Mismatched retry generation must be rejected (fenced), while matching generation is accepted.
+    await stub.markFailed(TENANT, TERMINAL, item.sale.idempotency_key, "WRONG_GEN_FAILURE", "00000000-0000-4000-8000-000000000099");
+    expect((await stub.getStatus(TENANT, TERMINAL, item.sale.idempotency_key)).status).toBe("queued");
+    await stub.markFailed(TENANT, TERMINAL, item.sale.idempotency_key, "RETRY_FAILED_AGAIN", resolutionId);
+    expect((await stub.getStatus(TENANT, TERMINAL, item.sale.idempotency_key)).status).toBe("failed");
+  });
+
+  it("deduplicates in-flight RETRY reconciliation without resetting QUEUED to ENQUEUE_PENDING (HIGH #6)", async () => {
+    const stub = getStub("in-flight-retry-dedup");
+    const item = prepared("in-flight-retry-dedup-key", "b".repeat(64), 1);
+    await stub.submitBatch(submission([item]));
+    await stub.markFailed(TENANT, TERMINAL, item.sale.idempotency_key, "INSUFFICIENT_STOCK");
+    const resolutionId = "00000000-0000-4000-8000-000000000041";
+    const retryCheckpoint = {
+      store_id: STORE,
+      last_committed_seq_no: 0,
+      last_hlc_physical_ms: 0,
+      last_hlc_logical: 0,
+      last_resolved_seq_no: 0,
+      last_resolved_hlc_physical_ms: 0,
+      last_resolved_hlc_logical: 0,
+      terminal_failures: [{
+        terminal_seq_no: 1,
+        sale_id: item.sale.sale_id,
+        idempotency_key: item.sale.idempotency_key,
+        receipt_id: item.receiptId,
+        payload_hash: item.payloadHash,
+        failure_code: "INSUFFICIENT_STOCK",
+        edge_received_at: item.edgeReceivedAt,
+        resolution_id: resolutionId,
+        outcome: "RETRY" as const
+      }]
+    };
+    let sendCount = 0;
+    await runInDO(stub as any, async (instance: any) => {
+      const queue = instance.env.POS_INGEST_QUEUE;
+      const original = queue.sendBatch.bind(queue);
+      Object.defineProperty(queue, "sendBatch", {
+        configurable: true,
+        value: async (messages: any[]) => { sendCount += messages.length; }
+      });
+      try {
+        await instance.applyOriginCheckpoint(retryCheckpoint);
+        expect(sendCount).toBe(1);
+        // Repeating checkpoint reconciliation while the same RETRY generation is already QUEUED must not re-enqueue.
+        await instance.applyOriginCheckpoint(retryCheckpoint);
+        expect(sendCount).toBe(1);
+        // A newer authorized RETRY generation must re-enqueue once.
+        const secondResolutionId = "00000000-0000-4000-8000-000000000042";
+        await instance.applyOriginCheckpoint({
+          ...retryCheckpoint,
+          terminal_failures: [{ ...retryCheckpoint.terminal_failures[0]!, resolution_id: secondResolutionId }]
+        });
+        expect(sendCount).toBe(2);
+      } finally {
+        Object.defineProperty(queue, "sendBatch", { configurable: true, value: original });
+      }
+    });
+  });
+
+  it("verifies durable DO outbox retention only for active QUEUED receipts with alarm", async () => {
+    const stub = getStub("durable-outbox-retention");
+    const item = prepared("durable-outbox-retention-key", "c".repeat(64), 1);
+    expect(await stub.verifyDurableOutboxRetention(TENANT, TERMINAL, item.sale.idempotency_key)).toBe(false);
+    await stub.submitBatch(submission([item]));
+    expect(await stub.verifyDurableOutboxRetention(TENANT, TERMINAL, item.sale.idempotency_key)).toBe(true);
+    await stub.markFailed(TENANT, TERMINAL, item.sale.idempotency_key, "INSUFFICIENT_STOCK");
+    expect(await stub.verifyDurableOutboxRetention(TENANT, TERMINAL, item.sale.idempotency_key)).toBe(false);
+  });
 });
