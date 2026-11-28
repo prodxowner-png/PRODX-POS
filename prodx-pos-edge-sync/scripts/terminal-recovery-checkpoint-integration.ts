@@ -101,8 +101,11 @@ try {
      SELECT f.tenant_id,'POS_SYNC_RECOVERY_OPERATOR',$3,'POS_TERMINAL_SEQUENCE_VOIDED',
             'TERMINAL_SEQUENCE_FAILURE',f.id,f.payload_hash,NULL,
             jsonb_build_object('terminal_id',f.terminal_id,'terminal_seq_no',f.terminal_seq_no,
-              'idempotency_key',f.idempotency_key,'ci_fixture',true),now()
+              'idempotency_key',f.idempotency_key,'resolution_id',r.resolution_id::text,'ci_fixture',true),now()
        FROM terminal_sequence_failures f
+       JOIN terminal_sequence_resolutions r
+         ON r.tenant_id=f.tenant_id AND r.terminal_id=f.terminal_id
+        AND r.terminal_seq_no=f.terminal_seq_no AND r.failure_id=f.id AND r.disposition='VOID'
       WHERE f.tenant_id=$1 AND f.terminal_id=$2 AND f.terminal_seq_no<=5001`,
     [tenantId,terminalId,actorId]
   );

@@ -341,6 +341,12 @@ BEGIN
         WHERE s.tenant_id=f.tenant_id AND s.terminal_id=f.terminal_id
           AND s.terminal_seq_no=f.terminal_seq_no AND s.sale_id=f.sale_id
       )
+      AND NOT EXISTS (
+        SELECT 1 FROM terminal_sequence_resolutions r
+        WHERE r.tenant_id=f.tenant_id AND r.terminal_id=f.terminal_id
+          AND r.terminal_seq_no=f.terminal_seq_no AND r.failure_id=f.id
+          AND r.disposition='VOID'
+      )
   ) THEN RAISE EXCEPTION 'RECONCILIATION_FAILED: unresolved_failed_sequence_without_sale_snapshot'; END IF;
 
   IF EXISTS (
