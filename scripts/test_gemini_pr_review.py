@@ -247,9 +247,10 @@ class GeminiReviewContractTests(unittest.TestCase):
         workflow = Path(__file__).parents[1] / ".github/workflows/gemini-ai-review.yml"
         text = workflow.read_text()
         self.assertNotIn("workflow_dispatch", text)
-        self.assertIn("pull-requests: read", text)
-        self.assertIn("issues: write", text)
-        self.assertNotIn("pull-requests: write", text)
+        self.assertIn("contents: read", text)
+        self.assertNotIn("contents: write", text)
+        self.assertIn("pull-requests: write", text)
+        self.assertNotIn("issues: write", text)
 
     def test_review_slot_is_persisted_before_billable_call(self):
         import gemini_pr_review as review
@@ -412,9 +413,62 @@ class GeminiReviewContractTests(unittest.TestCase):
         with patch.object(review.urllib.request, "urlopen", side_effect=error):
             with self.assertRaises(review.ReviewError) as raised:
                 review._request_json(review.GEMINI_API, api_key="not-a-real-key", method="POST", payload={})
+        self.assertIn("Gemini API", str(raised.exception))
         self.assertIn("HTTP 403", str(raised.exception))
         self.assertIn("PERMISSION_DENIED", str(raised.exception))
         self.assertIn("API key is restricted", str(raised.exception))
+
+    def test_github_http_error_includes_provider_and_top_level_message(self):
+        import gemini_pr_review as review
+        import io
+        from unittest.mock import patch
+        from urllib.error import HTTPError
+
+        url = f"{review.GITHUB_API}/repos/org/repo/issues/10/comments"
+        error = HTTPError(
+            url, 403, "Forbidden", {},
+            io.BytesIO(b'{"message":"Resource not accessible by integration","status":"403"}'),
+        )
+        with patch.object(review.urllib.request, "urlopen", side_effect=error):
+            with self.assertRaises(review.ReviewError) as raised:
+                review._request_json(url, token="token", method="POST", payload={"body": "hi"})
+        self.assertIn("GitHub API", str(raised.exception))
+        self.assertIn("HTTP 403", str(raised.exception))
+        self.assertIn("Resource not accessible by integration", str(raised.exception))
+
+    def test_github_mutations_are_restricted_to_pr_issue_comments_only(self):
+        import gemini_pr_review as review
+        from unittest.mock import patch
+
+        disallowed = [
+            (f"{review.GITHUB_API}/repos/org/repo/pulls/10/reviews", "POST"),
+            (f"{review.GITHUB_API}/repos/org/repo/pulls/10/merge", "PUT"),
+            (f"{review.GITHUB_API}/repos/org/repo/issues/comments/123", "DELETE"),
+            (f"{review.GITHUB_API}/repos/org/repo/issues/10/comments", "PATCH"),
+            (f"{review.GITHUB_API}/repos/org/repo/issues/comments/123", "POST"),
+        ]
+        with patch.object(review.urllib.request, "urlopen") as urlopen:
+            for url, method in disallowed:
+                with self.subTest(url=url, method=method):
+                    with self.assertRaises(review.ReviewError) as raised:
+                        review._request_json(url, token="token", method=method, payload={})
+                    self.assertIn("Refused disallowed GitHub API mutation endpoint", str(raised.exception))
+            urlopen.assert_not_called()
+
+        class FakeResponse:
+            def __enter__(self): return self
+            def __exit__(self, *_): return False
+            def read(self): return b'{"id": 123}'
+
+        allowed = [
+            (f"{review.GITHUB_API}/repos/org/repo/issues/10/comments", "POST"),
+            (f"{review.GITHUB_API}/repos/org/repo/issues/comments/123", "PATCH"),
+        ]
+        with patch.object(review.urllib.request, "urlopen", return_value=FakeResponse()) as urlopen:
+            for url, method in allowed:
+                result = review._request_json(url, token="token", method=method, payload={"body": "ok"})
+                self.assertEqual(result["id"], 123)
+            self.assertEqual(urlopen.call_count, 2)
 
     def test_http_api_failure_is_reported_as_api_error(self):
         import contextlib
@@ -435,7 +489,7 @@ class GeminiReviewContractTests(unittest.TestCase):
         blocked = {
             "verdict": "BLOCKED",
             "coverage": "partial",
-            "summary": "API request failed with HTTP 403 (PERMISSION_DENIED).",
+            "summary": "Gemini API request failed with HTTP 403 (PERMISSION_DENIED).",
             "findings": [],
             "head_sha": "b" * 40,
         }

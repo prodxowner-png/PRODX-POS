@@ -59,6 +59,26 @@ def redact_sensitive_data(value: str) -> tuple[str, bool]:
     return redacted, changed
 
 
+_ALLOWED_GITHUB_COMMENT_POST = re.compile(
+    r"^https://api\.github\.com/repos/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/issues/[0-9]+/comments$"
+)
+_ALLOWED_GITHUB_COMMENT_PATCH = re.compile(
+    r"^https://api\.github\.com/repos/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/issues/comments/[0-9]+$"
+)
+
+
+def _assert_allowed_github_mutation(url: str, method: str) -> None:
+    """Defense-in-depth guard: even with pull-requests: write, never submit reviews or merges."""
+    normalized = method.upper()
+    if normalized == "GET":
+        return
+    if normalized == "POST" and _ALLOWED_GITHUB_COMMENT_POST.fullmatch(url):
+        return
+    if normalized == "PATCH" and _ALLOWED_GITHUB_COMMENT_PATCH.fullmatch(url):
+        return
+    raise ReviewError("Refused disallowed GitHub API mutation endpoint.")
+
+
 def _request_json(
     url: str,
     *,
@@ -67,6 +87,9 @@ def _request_json(
     method: str = "GET",
     payload: dict[str, Any] | None = None,
 ) -> Any:
+    provider = "Gemini API" if api_key else "GitHub API"
+    if token:
+        _assert_allowed_github_mutation(url, method)
     headers = {
         "Accept": "application/json" if api_key else "application/vnd.github+json",
         "User-Agent": "PRODX-Gemini-PR-Review",
@@ -89,18 +112,22 @@ def _request_json(
         try:
             raw = error.read(16_384).decode("utf-8", errors="replace")
             parsed = json.loads(raw)
-            api_error = parsed.get("error", {}) if isinstance(parsed, dict) else {}
-            if isinstance(api_error, dict):
-                reason = _safe_text(api_error.get("status"), 120)
-                message = _safe_text(api_error.get("message"), 500)
-                detail = ": ".join(part for part in (reason, message) if part)
+            if isinstance(parsed, dict):
+                api_error = parsed.get("error")
+                if isinstance(api_error, dict):
+                    reason = _safe_text(api_error.get("status"), 120)
+                    message = _safe_text(api_error.get("message"), 500)
+                    detail = ": ".join(part for part in (reason, message) if part)
+                else:
+                    message = _safe_text(parsed.get("message"), 500)
+                    detail = message
         except (ValueError, TypeError, AttributeError):
             detail = ""
         detail, _ = redact_sensitive_data(detail)
         suffix = f" ({detail})" if detail else ""
-        raise ReviewError(f"API request failed with HTTP {error.code}{suffix}.") from None
+        raise ReviewError(f"{provider} request failed with HTTP {error.code}{suffix}.") from None
     except (urllib.error.URLError, TimeoutError, OSError, ValueError):
-        raise ReviewError("API request failed; no response could be validated.") from None
+        raise ReviewError(f"{provider} request failed; no response could be validated.") from None
 
 
 def _safe_text(value: Any, limit: int = 1_000) -> str:
