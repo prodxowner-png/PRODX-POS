@@ -25,7 +25,15 @@ interface WriteCteResult {
   prior_status: string | null;
   prior_sale_id: string | null;
   prior_sequence_sale_id: string | null;
+  prior_sequence_resolution_id: string | null;
   prior_sequence_resolution_disposition: string | null;
+  prior_sequence_resolution_idempotency_key: string | null;
+  prior_sequence_resolution_payload_hash: string | null;
+  prior_sequence_resolution_sale_id: string | null;
+  prior_sequence_resolution_tenant_id: string | null;
+  prior_sequence_resolution_terminal_id: string | null;
+  prior_sequence_resolution_seq_no: string | number | null;
+  prior_sequence_resolution_store_id: string | null;
   terminal_store_valid: number;
   resolved_store_id: string | null;
 }
@@ -48,6 +56,25 @@ function moneyFromLines(lines: SaleLine[]): number {
     if (total > MAX_SAFE_MINOR) throw new PermanentDataError("AMOUNT_OVERFLOW", true);
   }
   return Number(total);
+}
+
+function resolveVoidIdentity(row: WriteCteResult, message: QueueSale): boolean {
+  if (row.prior_sequence_resolution_disposition !== "VOID") return false;
+  const matchesAll =
+    Boolean(row.prior_sequence_resolution_id) &&
+    row.prior_sequence_resolution_idempotency_key === message.idempotency_key &&
+    row.prior_sequence_resolution_payload_hash?.trim() === message.payload_hash &&
+    row.prior_sequence_resolution_sale_id === message.sale.sale_id &&
+    row.prior_sequence_resolution_tenant_id === message.tenant_id &&
+    row.prior_sequence_resolution_terminal_id === message.terminal_id &&
+    Number(row.prior_sequence_resolution_seq_no) === message.sale.terminal_seq_no &&
+    row.prior_sequence_resolution_store_id !== null &&
+    row.prior_sequence_resolution_store_id === row.resolved_store_id;
+  if (matchesAll) return true;
+  if (row.prior_sequence_resolution_idempotency_key === message.idempotency_key) {
+    throw new PermanentDataError("IDEMPOTENCY_PAYLOAD_MISMATCH");
+  }
+  throw new PermanentDataError("TERMINAL_SEQUENCE_ALREADY_RESOLVED");
 }
 
 /**
@@ -130,11 +157,20 @@ WITH
     WHERE tenant_id=$1 AND terminal_id=$2 AND terminal_seq_no=$7
  ),
  prior_sequence_resolution AS MATERIALIZED (
-   SELECT disposition
-     FROM terminal_sequence_resolutions
-    WHERE tenant_id=$1 AND terminal_id=$2 AND terminal_seq_no=$7
-      AND disposition='VOID'
-    ORDER BY created_at DESC,resolution_id DESC
+   SELECT r.resolution_id::text AS resolution_id,
+          r.disposition,
+          f.idempotency_key,
+          f.payload_hash,
+          f.sale_id::text AS sale_id,
+          f.tenant_id::text AS tenant_id,
+          f.terminal_id::text AS terminal_id,
+          f.terminal_seq_no::text AS terminal_seq_no,
+          f.store_id::text AS store_id
+     FROM terminal_sequence_resolutions r
+     JOIN terminal_sequence_failures f ON f.id=r.failure_id
+    WHERE r.tenant_id=$1 AND r.terminal_id=$2 AND r.terminal_seq_no=$7
+      AND r.disposition='VOID'
+    ORDER BY r.created_at DESC,r.resolution_id DESC
     LIMIT 1
  ),
  sales_insert AS (
@@ -224,7 +260,15 @@ SELECT
   (SELECT status FROM prior_idempotency LIMIT 1) AS prior_status,
   (SELECT sale_id FROM prior_idempotency LIMIT 1) AS prior_sale_id,
   (SELECT sale_id FROM prior_sequence_sale LIMIT 1) AS prior_sequence_sale_id,
+  (SELECT resolution_id FROM prior_sequence_resolution LIMIT 1) AS prior_sequence_resolution_id,
   (SELECT disposition FROM prior_sequence_resolution LIMIT 1) AS prior_sequence_resolution_disposition,
+  (SELECT idempotency_key FROM prior_sequence_resolution LIMIT 1) AS prior_sequence_resolution_idempotency_key,
+  (SELECT payload_hash FROM prior_sequence_resolution LIMIT 1) AS prior_sequence_resolution_payload_hash,
+  (SELECT sale_id FROM prior_sequence_resolution LIMIT 1) AS prior_sequence_resolution_sale_id,
+  (SELECT tenant_id FROM prior_sequence_resolution LIMIT 1) AS prior_sequence_resolution_tenant_id,
+  (SELECT terminal_id FROM prior_sequence_resolution LIMIT 1) AS prior_sequence_resolution_terminal_id,
+  (SELECT terminal_seq_no FROM prior_sequence_resolution LIMIT 1) AS prior_sequence_resolution_seq_no,
+  (SELECT store_id FROM prior_sequence_resolution LIMIT 1) AS prior_sequence_resolution_store_id,
   (SELECT COUNT(*)::integer FROM terminal_store_guard) AS terminal_store_valid,
   (SELECT store_id::text FROM terminal_store_guard LIMIT 1) AS resolved_store_id
 `;
@@ -294,6 +338,12 @@ export async function commitSale(env: Env, message: QueueSale): Promise<"committ
     // A single parameterized PostgreSQL statement performs the entire sale
     // transaction (including duplicate resolution), RLS context, idempotency,
     // ledger writes, inventory trigger, immutable audit, and checkpoint advance.
+    // Error classification policy (explicit sequenceFailureEligible):
+    // - Recovery-eligible terminal failures (true): INSUFFICIENT_STOCK (23514 / PZ001),
+    //   PRODUCT_NOT_FOUND_IN_TENANT (23503 sale_lines_tenant_id_product_id_fkey / PZ002).
+    // - Non-eligible integrity/configuration conflicts (false):
+    //   TERMINAL_STORE_MAPPING_MISMATCH, STORE_INVENTORY_POLICY_MISSING.
+    // - All other DB errors remain transient and propagate for retry.
     let result: { rows: unknown[] };
     try {
       result = await client.query(COMMIT_SALE_CTE, [
@@ -317,10 +367,20 @@ export async function commitSale(env: Env, message: QueueSale): Promise<"committ
       ]);
     } catch (error) {
       if (typeof error === "object" && error !== null && "code" in error) {
-        const code=(error as { code?: string }).code;
-        if (code === "PZ001") throw new PermanentDataError("INSUFFICIENT_STOCK", true);
-        if (code === "PZ002" || (code === "23503" && "constraint" in error &&
-            (error as { constraint?: string }).constraint === "sale_lines_tenant_id_product_id_fkey")) {
+        const databaseError = error as { code?: string; message?: string; constraint?: string };
+        const code = databaseError.code;
+        const dbMessage = String(databaseError.message ?? "");
+        if (code === "PZ001" || (code === "23514" && dbMessage.includes("INSUFFICIENT_STOCK"))) {
+          throw new PermanentDataError("INSUFFICIENT_STOCK", true);
+        }
+        if (code === "23514" && dbMessage.includes("TERMINAL_STORE_MAPPING_MISMATCH")) {
+          throw new PermanentDataError("TERMINAL_STORE_MAPPING_MISMATCH", false);
+        }
+        if (code === "23514" && dbMessage.includes("STORE_INVENTORY_POLICY_MISSING")) {
+          throw new PermanentDataError("STORE_INVENTORY_POLICY_MISSING", false);
+        }
+        if (code === "PZ002" || (code === "23503" &&
+            databaseError.constraint === "sale_lines_tenant_id_product_id_fkey")) {
           throw new PermanentDataError("PRODUCT_NOT_FOUND_IN_TENANT", true);
         }
       }
@@ -345,7 +405,7 @@ export async function commitSale(env: Env, message: QueueSale): Promise<"committ
       if (Number(row.terminal_store_valid) !== 1 || !row.resolved_store_id) {
         throw new PermanentDataError("TERMINAL_STORE_MAPPING_MISMATCH");
       }
-      if (row.prior_sequence_resolution_disposition === "VOID") return "voided";
+      if (resolveVoidIdentity(row, message)) return "voided";
       const lastSequence = Number(row.last_resolved_seq_no ?? 0);
       if (message.sale.terminal_seq_no > lastSequence + 1) {
         throw new Error("TERMINAL_SEQUENCE_GAP:" + (lastSequence + 1) + "-" + (message.sale.terminal_seq_no - 1));
@@ -372,7 +432,7 @@ export async function commitSale(env: Env, message: QueueSale): Promise<"committ
     }
 
     if (Number(row.inserted_sales) !== 1 || Number(row.completed_idempotency) !== 1) {
-      if (row.prior_sequence_resolution_disposition === "VOID") return "voided";
+      if (resolveVoidIdentity(row, message)) return "voided";
       const lastSequence = Number(row.last_resolved_seq_no ?? 0);
       if (message.sale.terminal_seq_no > lastSequence + 1) {
         throw new Error("TERMINAL_SEQUENCE_GAP:" + (lastSequence + 1) + "-" + (message.sale.terminal_seq_no - 1));
@@ -390,19 +450,6 @@ export async function commitSale(env: Env, message: QueueSale): Promise<"committ
     }
 
     return "committed";
-  } catch (error) {
-    const databaseError = error as { code?: string; message?: string };
-    if (databaseError.code === "23514") {
-      const message = String(databaseError.message);
-      for (const permanentCode of [
-        "INSUFFICIENT_STOCK",
-        "TERMINAL_STORE_MAPPING_MISMATCH",
-        "STORE_INVENTORY_POLICY_MISSING",
-      ]) {
-        if (message.includes(permanentCode)) throw new PermanentDataError(permanentCode);
-      }
-    }
-    throw error;
   } finally {
     await client.end().catch(() => undefined);
   }
