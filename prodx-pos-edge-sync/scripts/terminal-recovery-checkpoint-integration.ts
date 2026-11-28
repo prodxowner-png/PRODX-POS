@@ -22,10 +22,20 @@ const doName = `${tenantId}:${terminalId}`;
 const receivedAt = new Date().toISOString();
 const admin = new Client({ connectionString: adminUrl });
 const runtime = new Client({ connectionString: runtimeUrl });
+let adminConnected = false;
+let adminInTransaction = false;
+let runtimeConnected = false;
+let runtimeInTransaction = false;
+let stage = "connect-admin";
 
 try {
   await admin.connect();
+  adminConnected = true;
+  await admin.query("SET statement_timeout = '60000ms'");
+  await admin.query("SET lock_timeout = '15000ms'");
   await admin.query("BEGIN");
+  adminInTransaction = true;
+  stage = "seed-tenant-store-terminal";
   await admin.query("SELECT set_config('app.current_tenant_id',$1,true)", [tenantId]);
   await admin.query(
     `INSERT INTO pos_stores(id,tenant_id,name,is_default,active)
@@ -43,6 +53,7 @@ try {
 
   // 5,001 historical VOID outcomes plus one active failure. The active receipt
   // has a valid immutable snapshot so cold-restore remains possible.
+  stage = "seed-5002-failures";
   await admin.query(
     `WITH sequence_rows AS (
        SELECT seq,
@@ -71,6 +82,7 @@ try {
     [tenantId,terminalId,storeId,payloadHash,receivedAt,productId,doName]
   );
 
+  stage = "seed-5001-resolutions";
   await admin.query(
     `INSERT INTO terminal_sequence_resolutions
        (tenant_id,terminal_id,terminal_seq_no,failure_id,idempotency_key,payload_hash,
@@ -82,6 +94,7 @@ try {
       WHERE f.tenant_id=$1 AND f.terminal_id=$2 AND f.terminal_seq_no<=5001`,
     [tenantId,terminalId,actorId]
   );
+  stage = "seed-5001-audit-events";
   await admin.query(
     `INSERT INTO audit_logs
        (tenant_id,actor_type,actor_id,action,entity_type,entity_id,payload_hash,catalog_version,metadata,created_at)
@@ -93,15 +106,25 @@ try {
       WHERE f.tenant_id=$1 AND f.terminal_id=$2 AND f.terminal_seq_no<=5001`,
     [tenantId,terminalId,actorId]
   );
+  stage = "commit-fixtures";
+  await admin.query("COMMIT");
+  adminInTransaction = false;
+  stage = "analyze-fixtures";
   await admin.query("ANALYZE terminal_sequence_failures");
   await admin.query("ANALYZE terminal_sequence_resolutions");
   await admin.query("ANALYZE terminal_sequence_retry_failures");
-  await admin.query("COMMIT");
+  console.log("FIXTURE_READY: 5,002 failure rows, 5,001 immutable VOID resolutions and audit events committed.");
 
+  stage = "connect-runtime";
   await runtime.connect();
+  runtimeConnected = true;
+  await runtime.query("SET statement_timeout = '60000ms'");
+  await runtime.query("SET lock_timeout = '15000ms'");
   await runtime.query("BEGIN ISOLATION LEVEL REPEATABLE READ");
+  runtimeInTransaction = true;
   await runtime.query("SELECT set_config('app.current_tenant_id',$1,true)", [tenantId]);
 
+  stage = "targeted-history-checkpoint";
   const byHistoricalKey = await readTerminalCheckpoint(runtime,tenantId,terminalId,storeId,[
     { idempotency_key: historicalKey, terminal_seq_no: 7000 }
   ]);
@@ -111,11 +134,14 @@ try {
     throw new Error("BOUNDED_CHECKPOINT_HISTORICAL_KEY_LOOKUP_FAILED");
   }
 
+  stage = "active-only-checkpoint";
   const activeOnly = await readTerminalCheckpoint(runtime,tenantId,terminalId,storeId);
   if (activeOnly.terminal_failures.length !== 1 || activeOnly.terminal_failures[0]?.terminal_seq_no !== activeSequence) {
     throw new Error("BOUNDED_CHECKPOINT_TRANSFERRED_HISTORICAL_ROWS");
   }
+  console.log("CHECKPOINT_READY: historical key lookup and active-only checkpoint both returned bounded rows.");
 
+  stage = "history-keyset-pagination";
   const firstPage = await readTerminalFailureHistoryPage(runtime,tenantId,terminalId,4998,2);
   const secondPage = await readTerminalFailureHistoryPage(runtime,tenantId,terminalId,Number(firstPage.next_cursor),2);
   if (firstPage.items.map((row) => row.terminal_seq_no).join(",") !== "4999,5000" ||
@@ -126,12 +152,18 @@ try {
   }
 
   await runtime.query("COMMIT");
+  runtimeInTransaction = false;
   console.log("PASS: 5,001 historical failures + one active failure; checkpoint returned only active + targeted history under NOBYPASSRLS; stable keyset pages verified.");
 } catch (error) {
-  await admin.query("ROLLBACK").catch(() => undefined);
-  await runtime.query("ROLLBACK").catch(() => undefined);
+  if (runtimeConnected && runtimeInTransaction) await runtime.query("ROLLBACK").catch(() => undefined);
+  if (adminConnected && adminInTransaction) await admin.query("ROLLBACK").catch(() => undefined);
+  console.error("terminal_recovery_checkpoint_integration_failed", {
+    stage,
+    error_name: error instanceof Error ? error.name : "UNKNOWN",
+    error_message: error instanceof Error ? error.message : String(error)
+  });
   throw error;
 } finally {
-  await runtime.end().catch(() => undefined);
-  await admin.end().catch(() => undefined);
+  if (runtimeConnected) await runtime.end().catch(() => undefined);
+  if (adminConnected) await admin.end().catch(() => undefined);
 }
