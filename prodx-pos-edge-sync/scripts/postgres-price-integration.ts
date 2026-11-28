@@ -179,6 +179,7 @@ try{
     }
   }
 
+  console.log("[integration] sequence 2 RETRY and retry-generation checks");
   const retryMessage=await makeRecoveryMessage(2);
   await expectRecoverableStockFailure(retryMessage);
   const retryInput={tenantId,terminalId,terminalSeqNo:2,disposition:"RETRY" as const,
@@ -269,6 +270,7 @@ try{
     throw new Error("IDEMPOTENT_RETRY_REQUEST_DID_NOT_REPORT_CURRENT_COMMITTED_OUTCOME");
   }
 
+  console.log("[integration] sequence 3 VOID and identity checks");
   const voidMessage=await makeRecoveryMessage(3);
   await expectRecoverableStockFailure(voidMessage);
   const voidResolution=await resolveFailedSequence(runtimeEnv,{
@@ -383,6 +385,7 @@ try{
 
   // Two concurrent identical VOID requests must serialize on the origin
   // checkpoint and converge on one immutable resolution/audit identity.
+  console.log("[integration] sequence 4 concurrent VOID requests");
   const concurrentVoidMessage=await makeRecoveryMessage(4);
   await expectRecoverableStockFailure(concurrentVoidMessage);
   const concurrentVoidInput={
@@ -418,6 +421,7 @@ try{
      VALUES($1,$2,$3,$4,1,'OPENING_BALANCE')`,[tenantId,storeId,productId,randomUUID()]
   );
   await admin.query("COMMIT");
+  console.log("[integration] sequence 5 sale after VOID checkpoint");
   const postVoidSale5=await makeRecoveryMessage(5);
   const postVoidCommit=await commitSale(runtimeEnv,postVoidSale5);
   if(postVoidCommit!=="committed") throw new Error("SALE_AFTER_VOID_DID_NOT_COMMIT");
@@ -450,6 +454,7 @@ try{
     await admin.query("COMMIT");
   }
 
+  console.log("[integration] REV-002 commit versus VOID race, sequence 6");
   const commitVoidMessage=await makeRecoveryMessage(6);
   await expectRecoverableStockFailure(commitVoidMessage);
   await adjustTestInventory(1);
@@ -458,10 +463,18 @@ try{
     requestId:randomUUID(),actorSubject:"integration-recovery-admin",
     reason:"Race exact sale commit against operator VOID"
   };
-  const [commitVoidResult,voidRaceResult]=await Promise.all([
+  const [commitVoidSettled,voidRaceSettled]=await Promise.allSettled([
     commitSale(runtimeEnv,commitVoidMessage),
     resolveFailedSequence(runtimeEnv,commitVoidInput)
   ]);
+  if (commitVoidSettled.status==="rejected") {
+    throw new Error(`COMMIT_VS_VOID_COMMIT_FAILED:${commitVoidSettled.reason instanceof Error?commitVoidSettled.reason.message:"unknown"}`);
+  }
+  if (voidRaceSettled.status==="rejected") {
+    throw new Error(`COMMIT_VS_VOID_RESOLUTION_FAILED:${voidRaceSettled.reason instanceof Error?voidRaceSettled.reason.message:"unknown"}`);
+  }
+  const commitVoidResult=commitVoidSettled.value;
+  const voidRaceResult=voidRaceSettled.value;
   if ((commitVoidResult!=="committed" && commitVoidResult!=="voided") ||
       (voidRaceResult.outcome!=="COMMITTED" && voidRaceResult.outcome!=="VOIDED") ||
       (commitVoidResult==="committed" && voidRaceResult.outcome!=="COMMITTED") ||
@@ -493,6 +506,7 @@ try{
   );
   const quantityBeforeRetryRace=Number(balanceBeforeRetryRace.rows[0]?.quantity ?? 0);
   if (quantityBeforeRetryRace>0) await adjustTestInventory(-quantityBeforeRetryRace);
+  console.log("[integration] REV-002 commit versus RETRY race, sequence 7");
   const commitRetryMessage=await makeRecoveryMessage(7);
   await expectRecoverableStockFailure(commitRetryMessage);
   await adjustTestInventory(1);
@@ -501,10 +515,18 @@ try{
     requestId:randomUUID(),actorSubject:"integration-recovery-admin",
     reason:"Race exact sale commit against operator RETRY"
   };
-  const [commitRetryResult,retryRaceResult]=await Promise.all([
+  const [commitRetrySettled,retryRaceSettled]=await Promise.allSettled([
     commitSale(runtimeEnv,commitRetryMessage),
     resolveFailedSequence(runtimeEnv,commitRetryInput)
   ]);
+  if (commitRetrySettled.status==="rejected") {
+    throw new Error(`COMMIT_VS_RETRY_COMMIT_FAILED:${commitRetrySettled.reason instanceof Error?commitRetrySettled.reason.message:"unknown"}`);
+  }
+  if (retryRaceSettled.status==="rejected") {
+    throw new Error(`COMMIT_VS_RETRY_RESOLUTION_FAILED:${retryRaceSettled.reason instanceof Error?retryRaceSettled.reason.message:"unknown"}`);
+  }
+  const commitRetryResult=commitRetrySettled.value;
+  const retryRaceResult=retryRaceSettled.value;
   if ((commitRetryResult!=="committed" && commitRetryResult!=="duplicate") ||
       (retryRaceResult.outcome!=="RETRY" && retryRaceResult.outcome!=="COMMITTED")) {
     throw new Error("COMMIT_VS_RETRY_RACE_DID_NOT_CONVERGE");
