@@ -406,6 +406,41 @@ export async function commitSale(env: Env, message: QueueSale): Promise<"committ
         throw new PermanentDataError("TERMINAL_STORE_MAPPING_MISMATCH");
       }
       if (resolveVoidIdentity(row, message)) return "voided";
+      // The CTE snapshot is established before checkpoint_lock waits. If an
+      // operator VOID commits while this statement waits on FOR UPDATE, the
+      // locked checkpoint is current but the lateral resolution read can be
+      // stale. Re-read the immutable VOID identity in a fresh READ COMMITTED
+      // statement before classifying the already-resolved sequence as an error.
+      if (!row.prior_sequence_resolution_id) {
+        const freshVoid = await client.query<{
+          resolution_id:string;idempotency_key:string;payload_hash:string;sale_id:string;
+          tenant_id:string;terminal_id:string;terminal_seq_no:string;store_id:string;
+        }>(
+          `SELECT r.resolution_id::text AS resolution_id,f.idempotency_key,
+                  f.payload_hash,f.sale_id::text AS sale_id,f.tenant_id::text AS tenant_id,
+                  f.terminal_id::text AS terminal_id,f.terminal_seq_no::text AS terminal_seq_no,
+                  f.store_id::text AS store_id
+             FROM terminal_sequence_resolutions r
+             JOIN terminal_sequence_failures f ON f.id=r.failure_id
+            WHERE r.tenant_id=$1 AND r.terminal_id=$2 AND r.terminal_seq_no=$3
+              AND r.disposition='VOID'
+            ORDER BY r.created_at DESC,r.resolution_id DESC LIMIT 1`,
+          [message.tenant_id,message.terminal_id,message.sale.terminal_seq_no]
+        );
+        const resolution=freshVoid.rows[0];
+        if (resolution && resolveVoidIdentity({
+          ...row,
+          prior_sequence_resolution_id:resolution.resolution_id,
+          prior_sequence_resolution_disposition:"VOID",
+          prior_sequence_resolution_idempotency_key:resolution.idempotency_key,
+          prior_sequence_resolution_payload_hash:resolution.payload_hash,
+          prior_sequence_resolution_sale_id:resolution.sale_id,
+          prior_sequence_resolution_tenant_id:resolution.tenant_id,
+          prior_sequence_resolution_terminal_id:resolution.terminal_id,
+          prior_sequence_resolution_seq_no:resolution.terminal_seq_no,
+          prior_sequence_resolution_store_id:resolution.store_id
+        },message)) return "voided";
+      }
       const lastSequence = Number(row.last_resolved_seq_no ?? 0);
       if (message.sale.terminal_seq_no > lastSequence + 1) {
         throw new Error("TERMINAL_SEQUENCE_GAP:" + (lastSequence + 1) + "-" + (message.sale.terminal_seq_no - 1));

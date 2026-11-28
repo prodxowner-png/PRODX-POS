@@ -432,6 +432,96 @@ try{
     throw new Error("POST_VOID_SALE5_CHECKPOINT_ASSERTION_FAILED");
   }
 
+  // REV-002: a sale commit racing an operator VOID must converge on exactly
+  // one terminal outcome. The winner is serialized by terminal_sync_state FOR UPDATE.
+  async function adjustTestInventory(delta:number):Promise<void> {
+    if (!Number.isSafeInteger(delta) || delta===0) throw new Error("INVALID_TEST_INVENTORY_DELTA");
+    await admin.query("BEGIN");
+    await admin.query("SELECT set_config('app.current_tenant_id',$1,true)",[tenantId]);
+    await admin.query(
+      "SELECT set_config('app.inventory_actor_id',$1,true), set_config('app.inventory_payload_hash',$2,true)",
+      [terminalId,randomUUID().replace(/-/g,"")+randomUUID().replace(/-/g,"").slice(0,32)]
+    );
+    await admin.query(
+      `INSERT INTO inventory_ledger(tenant_id,store_id,product_id,reference_id,quantity_delta,reason)
+       VALUES($1,$2,$3,$4,$5,'STOCK_ADJUSTMENT')`,
+      [tenantId,storeId,productId,randomUUID(),delta]
+    );
+    await admin.query("COMMIT");
+  }
+
+  const commitVoidMessage=await makeRecoveryMessage(6);
+  await expectRecoverableStockFailure(commitVoidMessage);
+  await adjustTestInventory(1);
+  const commitVoidInput={
+    tenantId,terminalId,terminalSeqNo:6,disposition:"VOID" as const,
+    requestId:randomUUID(),actorSubject:"integration-recovery-admin",
+    reason:"Race exact sale commit against operator VOID"
+  };
+  const [commitVoidResult,voidRaceResult]=await Promise.all([
+    commitSale(runtimeEnv,commitVoidMessage),
+    resolveFailedSequence(runtimeEnv,commitVoidInput)
+  ]);
+  if ((commitVoidResult!=="committed" && commitVoidResult!=="voided") ||
+      (voidRaceResult.outcome!=="COMMITTED" && voidRaceResult.outcome!=="VOIDED") ||
+      (commitVoidResult==="committed" && voidRaceResult.outcome!=="COMMITTED") ||
+      (commitVoidResult==="voided" && voidRaceResult.outcome!=="VOIDED")) {
+    throw new Error("COMMIT_VS_VOID_RACE_DID_NOT_CONVERGE");
+  }
+  const commitVoidAudit=await admin.query(
+    `SELECT
+       (SELECT COUNT(*)::int FROM sales WHERE tenant_id=$1 AND terminal_id=$2 AND terminal_seq_no=6) AS sales,
+       (SELECT COUNT(*)::int FROM terminal_sequence_resolutions
+         WHERE tenant_id=$1 AND terminal_id=$2 AND terminal_seq_no=6 AND disposition='VOID') AS voids,
+       (SELECT last_committed_seq_no FROM terminal_sync_state WHERE tenant_id=$1 AND terminal_id=$2) AS committed,
+       (SELECT last_resolved_seq_no FROM terminal_sync_state WHERE tenant_id=$1 AND terminal_id=$2) AS resolved`,
+    [tenantId,terminalId]
+  );
+  const commitVoidState=commitVoidAudit.rows[0];
+  if (Number(commitVoidState?.sales)!==(commitVoidResult==="committed"?1:0) ||
+      Number(commitVoidState?.voids)!==(commitVoidResult==="voided"?1:0) ||
+      Number(commitVoidState?.committed)!==(commitVoidResult==="committed"?6:5) ||
+      Number(commitVoidState?.resolved)!==6) {
+    throw new Error("COMMIT_VS_VOID_CREATED_OVERLAPPING_OR_INCOMPLETE_OUTCOMES");
+  }
+
+  // Leave the shared fixture product at zero stock so sequence 7 first fails,
+  // then race an exact commit with the operator RETRY authorization.
+  const balanceBeforeRetryRace=await admin.query(
+    `SELECT quantity FROM inventory_balances WHERE tenant_id=$1 AND store_id=$2 AND product_id=$3`,
+    [tenantId,storeId,productId]
+  );
+  const quantityBeforeRetryRace=Number(balanceBeforeRetryRace.rows[0]?.quantity ?? 0);
+  if (quantityBeforeRetryRace>0) await adjustTestInventory(-quantityBeforeRetryRace);
+  const commitRetryMessage=await makeRecoveryMessage(7);
+  await expectRecoverableStockFailure(commitRetryMessage);
+  await adjustTestInventory(1);
+  const commitRetryInput={
+    tenantId,terminalId,terminalSeqNo:7,disposition:"RETRY" as const,
+    requestId:randomUUID(),actorSubject:"integration-recovery-admin",
+    reason:"Race exact sale commit against operator RETRY"
+  };
+  const [commitRetryResult,retryRaceResult]=await Promise.all([
+    commitSale(runtimeEnv,commitRetryMessage),
+    resolveFailedSequence(runtimeEnv,commitRetryInput)
+  ]);
+  if ((commitRetryResult!=="committed" && commitRetryResult!=="duplicate") ||
+      (retryRaceResult.outcome!=="RETRY" && retryRaceResult.outcome!=="COMMITTED")) {
+    throw new Error("COMMIT_VS_RETRY_RACE_DID_NOT_CONVERGE");
+  }
+  const retryRaceReplay=await resolveFailedSequence(runtimeEnv,commitRetryInput);
+  const retryRaceState=await admin.query(
+    `SELECT COUNT(*)::int AS sales,
+            (SELECT last_committed_seq_no FROM terminal_sync_state WHERE tenant_id=$1 AND terminal_id=$2) AS committed,
+            (SELECT last_resolved_seq_no FROM terminal_sync_state WHERE tenant_id=$1 AND terminal_id=$2) AS resolved
+       FROM sales WHERE tenant_id=$1 AND terminal_id=$2 AND terminal_seq_no=7`,
+    [tenantId,terminalId]
+  );
+  if (retryRaceReplay.outcome!=="COMMITTED" || Number(retryRaceState.rows[0]?.sales)!==1 ||
+      Number(retryRaceState.rows[0]?.committed)!==7 || Number(retryRaceState.rows[0]?.resolved)!==7) {
+    throw new Error("COMMIT_VS_RETRY_RACE_DID_NOT_CONVERGE_TO_ONE_COMMITTED_SALE");
+  }
+
   const recoveryAudit=await admin.query(
     `SELECT action FROM audit_logs WHERE tenant_id=$1
       AND action IN ('POS_TERMINAL_SEQUENCE_FAILED','POS_TERMINAL_SEQUENCE_RETRY_AUTHORIZED',
