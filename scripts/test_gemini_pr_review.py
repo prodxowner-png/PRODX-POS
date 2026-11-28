@@ -378,5 +378,80 @@ class GeminiReviewContractTests(unittest.TestCase):
         self.assertIn("author_association == 'COLLABORATOR'", text)
         self.assertNotIn("workflow_dispatch", text)
 
+
+    def test_closed_merged_pull_request_is_a_successful_skip(self):
+        import os
+        import gemini_pr_review as review
+        from unittest.mock import patch
+
+        closed_pr = {
+            "state": "closed", "merged": True,
+            "head": {"sha": "a" * 40},
+        }
+        env = {
+            "GITHUB_REPOSITORY": "org/repo",
+            "GITHUB_TOKEN": "token",
+            "PR_NUMBER": "402",
+        }
+        with patch.dict(os.environ, env), \
+             patch.object(review, "fetch_pr", return_value=closed_pr), \
+             patch.object(review, "global_review_throttle_reason") as throttle:
+            self.assertEqual(review.main(), 0)
+            throttle.assert_not_called()
+
+    def test_gemini_http_error_includes_safe_google_reason(self):
+        import gemini_pr_review as review
+        import io
+        from unittest.mock import patch
+        from urllib.error import HTTPError
+
+        error = HTTPError(
+            review.GEMINI_API, 403, "Forbidden", {},
+            io.BytesIO(b'{"error":{"status":"PERMISSION_DENIED","message":"API key is restricted"}}'),
+        )
+        with patch.object(review.urllib.request, "urlopen", side_effect=error):
+            with self.assertRaises(review.ReviewError) as raised:
+                review._request_json(review.GEMINI_API, api_key="not-a-real-key", method="POST", payload={})
+        self.assertIn("HTTP 403", str(raised.exception))
+        self.assertIn("PERMISSION_DENIED", str(raised.exception))
+        self.assertIn("API key is restricted", str(raised.exception))
+
+    def test_http_api_failure_is_reported_as_api_error(self):
+        import contextlib
+        import io
+        import json
+        import os
+        import gemini_pr_review as review
+        from unittest.mock import patch
+
+        pr = {"state": "open", "merged": False, "head": {"sha": "b" * 40}, "title": "test", "body": "test"}
+        env = {
+            "GITHUB_REPOSITORY": "org/repo",
+            "GITHUB_TOKEN": "token",
+            "PR_NUMBER": "10",
+            "GITHUB_RUN_ID": "203",
+            "GEMINI_API_KEY": "not-a-real-key",
+        }
+        blocked = {
+            "verdict": "BLOCKED",
+            "coverage": "partial",
+            "summary": "API request failed with HTTP 403 (PERMISSION_DENIED).",
+            "findings": [],
+            "head_sha": "b" * 40,
+        }
+        output = io.StringIO()
+        with patch.dict(os.environ, env), \
+             patch.object(review, "fetch_pr", side_effect=[pr, pr]), \
+             patch.object(review, "global_review_throttle_reason", return_value=None), \
+             patch.object(review, "find_existing_review_comment", return_value=None), \
+             patch.object(review, "review_throttle_reason", return_value=None), \
+             patch.object(review, "reserve_review_slot", return_value={"id": 1}), \
+             patch.object(review, "fetch_files_and_diff", return_value=([{"filename": "server/a.py"}], "diff", False)), \
+             patch.object(review, "review_diff", return_value=blocked), \
+             patch.object(review, "post_comment"), \
+             contextlib.redirect_stdout(output):
+            self.assertEqual(review.main(), 0)
+        self.assertEqual(json.loads(output.getvalue())["status"], "API_ERROR")
+
 if __name__ == "__main__":
     unittest.main()
