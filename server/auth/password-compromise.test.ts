@@ -30,3 +30,20 @@ test('HIBP screening fails closed when the service is unavailable', async () => 
     PasswordCompromiseCheckUnavailable,
   );
 });
+
+test('HIBP screening fails closed when the request exceeds its timeout', async () => {
+  await assert.rejects(
+    () => checkPasswordCompromise('password', {
+      timeoutMs: 5,
+      fetchImpl: async (_input, init) => new Promise<Response>((_resolve, reject) => {
+        const signal = init?.signal;
+        if (signal?.aborted) {
+          reject(signal.reason);
+          return;
+        }
+        signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+      }),
+    }),
+    PasswordCompromiseCheckUnavailable,
+  );
+});

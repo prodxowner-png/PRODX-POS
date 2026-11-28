@@ -35,7 +35,7 @@ test('timeclock PostgreSQL integration proves idempotency, lockout persistence, 
 
   process.env.TIMECLOCK_PIN_PEPPER = pepper;
 
-  const pool = createPostgresPool({ connectionString: databaseUrl });
+  const pool = createPostgresPool({ connectionString: databaseUrl, max: 4 });
   const db = createTransactionalPostgresExecutor(pool);
   const service = createTimeclockService(db);
 

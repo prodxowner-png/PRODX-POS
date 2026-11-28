@@ -28,3 +28,23 @@ test('production sync ping uses the server healthz endpoint and bearer auth', as
     globalThis.fetch = originalFetch;
   }
 });
+
+test('production sync ping uses same-origin API routing when no API origin is configured', async () => {
+  const originalFetch = globalThis.fetch;
+  let requestedUrl = '';
+  globalThis.fetch = async (input) => {
+    requestedUrl = String(input);
+    return new Response(JSON.stringify({ status: 'ok' }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  };
+
+  try {
+    const api = createProductionSyncApi('token-123');
+    await api.ping(456);
+    assert.equal(requestedUrl, '/api/v1/healthz');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

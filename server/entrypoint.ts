@@ -24,6 +24,7 @@ import { registerCatalogRoute } from './http/catalog-route.ts';
 import { registerCatalogImportRoute } from './http/catalog-import-route.ts';
 import { registerCatalogPricingRoute } from './http/catalog-pricing-route.ts';
 import { registerPaymentLifecycleRoute } from './http/payment-lifecycle-route.ts';
+import { registerPaymentWebhookRoute } from './http/payment-webhook-route.ts';
 import { registerSyncRoute } from './http/sync-route.ts';
 import { registerSupervisorAuthorizationRoute } from './http/supervisor-authorization-route.ts';
 import { registerDiscountPolicyRoute } from './http/discount-policy-route.ts';
@@ -73,6 +74,7 @@ export const createProductionApp = async (options: ProductionAppOptions = {}) =>
           config: readFirstTenantBootstrapConfig(process.env),
         },
       });
+      registerPaymentWebhookRoute(configuredApp, transactions);
       registerWebAuthnRoutes(configuredApp, requestScopedSql, sessions);
       registerPublicInfrastructureRoutes(configuredApp, pool);
     },

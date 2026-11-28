@@ -45,6 +45,7 @@ import type { CheckoutRequest } from '../../adapters/types';
 import { createProductionSupervisorAuthorizationApi } from '../../adapters/productionSupervisorAuthorizationApi';
 import { createProductionDiscountPolicyApi, getLocalDiscountPolicy } from '../../adapters/productionDiscountPolicyApi';
 import { hasProductionUrl } from '../../adapters/env';
+import { withCheckoutMutation } from '../../services/checkoutMutationTracker';
 import {
   Banknote,
   CreditCard,
@@ -301,6 +302,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
 
       if (e.key === 'Escape') {
         e.preventDefault();
+        if (isProcessing) return;
         onClose();
         return;
       }
@@ -324,7 +326,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, completedOrder, onClose]);
+  }, [isOpen, completedOrder, isProcessing, onClose]);
 
   if (!session) return null;
 
@@ -531,7 +533,9 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
         });
       } else {
         // Live server checkout
-        const response = await productionOrderApi.createOrder(checkoutPayload);
+        const response = await withCheckoutMutation(() =>
+          productionOrderApi.createOrder(checkoutPayload)
+        );
         setCompletedOrder(response.order);
         onOrderCompleted?.(response.order);
         clearPaymentTenders();
@@ -714,7 +718,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
       <Modal
         isOpen={isOpen}
         fullScreenOnMobile={true}
-        onClose={completedOrder ? handleNextSale : onClose}
+        onClose={completedOrder ? handleNextSale : () => { if (!isProcessing) onClose(); }}
         title={
           title ||
           (completedOrder

@@ -63,7 +63,11 @@ export interface OperationalScope {
   readonly terminalCode: string;
 }
 
+export type SessionAuthProvider = 'supabase' | 'pin';
+
 export interface SessionContext {
+  /** Client routing hint only; never an authorization claim. The backend still verifies every bearer. */
+  readonly authProvider?: SessionAuthProvider;
   readonly organization: Organization;
   readonly currentStore: Store;
   readonly registerId: string;

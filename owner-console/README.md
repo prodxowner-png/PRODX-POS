@@ -19,8 +19,26 @@ Create a separate Vercel project linked to `prodxowner-png/PRODX-POS` with **Roo
 Configure these in the dedicated `PRODX-OWNER-AUTH` Supabase project before the first sign-in:
 
 - Disable public sign-ups in the project's Auth settings, and enable TOTP MFA.
-- Deploy the Edge Function from the repository root so `supabase/config.toml` (`verify_jwt = true`) applies, for example `supabase functions deploy owner-authorize --project-ref <owner-auth-project-ref>`. Never deploy it with `--no-verify-jwt`.
-- Set `OWNER_CONSOLE_ORIGINS` (see below), for example `supabase secrets set OWNER_CONSOLE_ORIGINS=https://<console-domain> --project-ref <owner-auth-project-ref>`. `SUPABASE_URL` and `SUPABASE_ANON_KEY` are provided to Edge Functions by the platform.
+- Deploy both Edge Functions from the repository root so `supabase/config.toml` keeps gateway JWT verification enabled:
+  `supabase functions deploy owner-authorize --project-ref <owner-auth-project-ref>`
+  and
+  `supabase functions deploy owner-audit --project-ref <owner-auth-project-ref>`.
+  Never deploy either function with `--no-verify-jwt`.
+- Set `OWNER_CONSOLE_ORIGINS` (see below), for example `supabase secrets set OWNER_CONSOLE_ORIGINS=https://<console-domain> --project-ref <owner-auth-project-ref>`.
+- Edge Functions receive platform API keys. The service-role key is used only inside the Edge Function runtime for server-side audit writes/reads; never add it to Vite variables, browser requests, or client bundles.
+
+## Owner security audit trail
+
+The Owner Console reads a sanitized audit feed from the `owner-audit` Edge Function. The function independently validates the user JWT, trusted `app_metadata.owner_role = owner`, a verified TOTP factor, and AAL2 before using server-side credentials to call the restricted database feed.
+
+- Supabase Auth Audit Logs remain the source of truth for login, logout, TOTP enrollment, challenge, and verification events. The browser does not submit its own claims about successful or failed authentication.
+- The custom `owner_security_audit_events` ledger stores only Owner authorization denials and trusted role-administration events. It has forced RLS, no browser policies, server-only INSERT, and database triggers rejecting UPDATE, DELETE, and TRUNCATE.
+- The SQL feed returns only event ID, timestamp, event type, actor UUID, normalized outcome/reason, and source. It never returns raw Auth payloads, IP addresses, user agents, email addresses, passwords, OTPs, or tokens.
+- Failed-login abuse controls remain with Supabase Auth's built-in rate limiting; no public unauthenticated audit-write endpoint is introduced.
+- Supabase Auth Postgres persistence must be enabled for the Owner Console to read Auth events from `auth.audit_log_entries`. In Authentication → Audit Logs, disable the setting **Disable writing auth audit logs to project database**. This is a remote Auth configuration change and must be approved and verified before rollout. External Auth logs remain managed separately.
+- Owner role provision/revoke events are reserved for a future trusted administrative provisioning path. Do not write these events from browser code or accept target role/actor metadata from the client.
+
+Apply the additive migration only to the dedicated `PRODX-OWNER-AUTH` project after reviewing the SQL diff and obtaining explicit approval. Do not apply it to POS Staff Auth or the POS production database.
 
 ## Owner provisioning
 
