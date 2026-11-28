@@ -7677,6 +7677,93 @@ async function performEndToEndHealthCheck(pool, requestId2 = `shc-${Date.now()}-
   };
 }
 
+// server/services/ociBridgeService.ts
+var PREVIEW_HOST = /^[a-f0-9]{8}-prodx-oci-bridge-staging\.prodx-pos\.workers\.dev$/i;
+var REQUEST_TIMEOUT_MS = 1e4;
+function isRequestTimeout(error4) {
+  if (!error4 || typeof error4 !== "object" || !("name" in error4))
+    return false;
+  const name = error4.name;
+  return name === "TimeoutError" || name === "AbortError";
+}
+function readEndpoint(value) {
+  if (!value)
+    return null;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" || url.username || url.password || url.port || url.pathname !== "/" || url.search || url.hash || !PREVIEW_HOST.test(url.hostname))
+      return null;
+    return url;
+  } catch {
+    return null;
+  }
+}
+async function getOciTenancyStatus(env = process.env, fetchImpl = fetch) {
+  const endpoint = readEndpoint(env.OCI_BRIDGE_PREVIEW_URL);
+  const accessClientId = env.OCI_BRIDGE_ACCESS_CLIENT_ID?.trim();
+  const accessClientSecret = env.OCI_BRIDGE_ACCESS_CLIENT_SECRET?.trim();
+  const bridgeBearerToken = env.OCI_BRIDGE_BEARER_TOKEN?.trim();
+  if (!endpoint || !accessClientId || !accessClientSecret || !bridgeBearerToken) {
+    return { ok: false, statusCode: 503, code: "OCI_BRIDGE_NOT_CONFIGURED" };
+  }
+  const started = performance.now();
+  let response;
+  try {
+    response = await fetchImpl(new URL("/v1/oci/tenancy", endpoint), {
+      method: "GET",
+      headers: {
+        accept: "application/json",
+        authorization: `Bearer ${bridgeBearerToken}`,
+        "cf-access-client-id": accessClientId,
+        "cf-access-client-secret": accessClientSecret
+      },
+      cache: "no-store",
+      redirect: "manual",
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+    });
+  } catch (error4) {
+    if (isRequestTimeout(error4)) {
+      return { ok: false, statusCode: 504, code: "OCI_BRIDGE_TIMEOUT" };
+    }
+    return { ok: false, statusCode: 502, code: "OCI_BRIDGE_UNAVAILABLE" };
+  }
+  if (response.status !== 200) {
+    if (response.status === 401 || response.status === 403) {
+      return { ok: false, statusCode: 502, code: "OCI_BRIDGE_AUTHENTICATION_FAILED" };
+    }
+    return { ok: false, statusCode: 502, code: "OCI_BRIDGE_UPSTREAM_REJECTED" };
+  }
+  let payload;
+  try {
+    payload = await response.json();
+  } catch (error4) {
+    if (isRequestTimeout(error4)) {
+      return { ok: false, statusCode: 504, code: "OCI_BRIDGE_TIMEOUT" };
+    }
+    return { ok: false, statusCode: 502, code: "OCI_BRIDGE_INVALID_RESPONSE" };
+  }
+  const tenancy = payload && typeof payload === "object" ? payload.tenancy : undefined;
+  if (!tenancy || typeof tenancy !== "object") {
+    return { ok: false, statusCode: 502, code: "OCI_BRIDGE_INVALID_RESPONSE" };
+  }
+  const record = tenancy;
+  if (typeof record.name !== "string" || typeof record.home_region_key !== "string" || typeof record.lifecycle_state !== "string" || record.time_created !== undefined && record.time_created !== null && typeof record.time_created !== "string") {
+    return { ok: false, statusCode: 502, code: "OCI_BRIDGE_INVALID_RESPONSE" };
+  }
+  return {
+    ok: true,
+    status: {
+      name: record.name,
+      homeRegionKey: record.home_region_key,
+      lifecycleState: record.lifecycle_state,
+      timeCreated: typeof record.time_created === "string" ? record.time_created : null,
+      integration: "read-only",
+      checkedAt: new Date().toISOString(),
+      latencyMs: Number((performance.now() - started).toFixed(1))
+    }
+  };
+}
+
 // server/http/infrastructureRoutes.ts
 var registeredPublicInfraApps = new WeakSet;
 function registerPublicInfrastructureRoutes(app, pool) {
@@ -7764,7 +7851,7 @@ function registerPublicInfrastructureRoutes(app, pool) {
     });
   });
 }
-function registerInfrastructureRoutes(app, pool) {
+function registerInfrastructureRoutes(app, pool, ociStatusProvider = getOciTenancyStatus) {
   registerPublicInfrastructureRoutes(app, pool);
   const enforceInfraRbac = requirePermission("settings.manage");
   app.use("/api/v1/infrastructure", (req, res, next) => {
@@ -7773,6 +7860,30 @@ function registerInfrastructureRoutes(app, pool) {
       return;
     }
     enforceInfraRbac(req, res, next);
+  });
+  app.get("/api/v1/infrastructure/oci/tenancy", async (req, res) => {
+    res.setHeader("cache-control", "no-store");
+    try {
+      const result = await ociStatusProvider();
+      if (result.ok === false) {
+        return res.status(result.statusCode).json({
+          error: {
+            code: result.code,
+            message: "OCI tenancy status is unavailable.",
+            requestId: req.id
+          }
+        });
+      }
+      return res.status(200).json({ success: true, data: result.status });
+    } catch {
+      return res.status(502).json({
+        error: {
+          code: "OCI_BRIDGE_UNAVAILABLE",
+          message: "OCI tenancy status is unavailable.",
+          requestId: req.id
+        }
+      });
+    }
   });
   app.get("/api/v1/infrastructure/health", (_req, res) => {
     try {
