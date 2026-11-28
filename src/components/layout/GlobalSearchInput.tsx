@@ -235,7 +235,7 @@ export const GlobalSearchInput: React.FC<GlobalSearchInputProps> = ({
           th: 'ธีมองค์กร Enterprise Blue / Obsidian, โหมดมืด/สว่าง, โลโก้, ปรับแต่งหน้าจอลูกค้า CFD',
           en: 'Enterprise themes, dark/light mode, logo upload, customer facing display banner',
         },
-        icon: <Palette className="h-4 w-4 text-indigo-500" />,
+        icon: <Palette className="h-4 w-4 text-brand-text-accent" />,
         keywords:
           'appearance theme preset enterprise blue deep obsidian dark light mode cfd customer display banner logo รูปลักษณ์ ธีม โหมดมืด สว่าง จอลูกค้า โลโก้ สี',
       },
@@ -283,7 +283,7 @@ export const GlobalSearchInput: React.FC<GlobalSearchInputProps> = ({
           th: 'รหัส PIN พนักงาน, ล็อกหน้าจออัตโนมัติ, การอนุมัติยกเลิกบิล, แก้ไขราคา, สิทธิ์ RBAC',
           en: 'Staff PIN codes, auto-lock timeout, void authorizations, price override, RBAC roles',
         },
-        icon: <ShieldCheck className="h-4 w-4 text-purple-500" />,
+        icon: <ShieldCheck className="h-4 w-4 text-brand-text-accent" />,
         keywords:
           'security pin code auto lock timeout void authorization discount price override refund cashier manager admin rbac ความปลอดภัย รหัส พิน ล็อกหน้าจอ ยกเลิกบิล สิทธิ์ ผู้จัดการ',
       },
@@ -528,7 +528,7 @@ export const GlobalSearchInput: React.FC<GlobalSearchInputProps> = ({
             : 'border-border border-crisp hover:bg-background hover:border-text/30'
         }`}
       >
-        <div className="pl-3 pr-2 text-text/50 flex items-center justify-center shrink-0 pointer-events-none">
+        <div className="pl-3 pr-2 text-brand-text-secondary flex items-center justify-center shrink-0 pointer-events-none">
           <Search className="h-4 w-4" />
         </div>
 
@@ -549,7 +549,7 @@ export const GlobalSearchInput: React.FC<GlobalSearchInputProps> = ({
               ? `ค้นหาสินค้า, ลูกค้า, ตั้งค่า... (${shortcutKeyLabel})`
               : `Search products, customers, settings... (${shortcutKeyLabel})`
           }
-          className="w-full py-1.5 md:py-2 text-xs text-text placeholder:text-text/40 bg-transparent focus:outline-hidden font-medium"
+          className="w-full py-1.5 md:py-2 text-xs text-text placeholder:text-brand-text-secondary bg-transparent focus:outline-hidden font-medium"
           autoComplete="off"
           spellCheck="false"
         />
@@ -565,17 +565,17 @@ export const GlobalSearchInput: React.FC<GlobalSearchInputProps> = ({
                 setSelectedIndex(0);
                 inputRef.current?.focus();
               }}
-              className="p-1 rounded-md text-text/40 hover:text-text hover:bg-card transition-colors cursor-pointer"
+              className="p-1 rounded-md text-brand-text-secondary hover:text-text hover:bg-card transition-colors cursor-pointer"
               title="Clear search (ESC)"
             >
               <X className="h-3.5 w-3.5" />
             </button>
           ) : (
             <div className="flex items-center gap-1">
-              <kbd className="inline-flex items-center justify-center px-1.5 py-0.5 text-[10px] font-mono rounded bg-card border border-border border-crisp text-text/60 font-semibold shadow-2xs">
+              <kbd className="inline-flex items-center justify-center px-1.5 py-0.5 text-[10px] font-mono tabular-nums rounded bg-card border border-border border-crisp text-text/60 font-semibold shadow-2xs">
                 {shortcutKeyLabel}
               </kbd>
-              <kbd className="hidden lg:inline-flex items-center justify-center px-1.5 py-0.5 text-[10px] font-mono rounded bg-card border border-border border-crisp text-text/40 font-semibold">
+              <kbd className="hidden lg:inline-flex items-center justify-center px-1.5 py-0.5 text-[10px] font-mono tabular-nums rounded bg-card border border-border border-crisp text-brand-text-secondary font-semibold">
                 /
               </kbd>
             </div>
@@ -628,15 +628,15 @@ export const GlobalSearchInput: React.FC<GlobalSearchInputProps> = ({
                   }}
                   className={`px-2.5 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-all duration-150 active:scale-95 cursor-pointer flex items-center gap-1.5 ${
                     isActive
-                      ? 'bg-primary text-white shadow-xs'
+                      ? 'bg-primary text-primary-foreground shadow-xs'
                       : 'bg-card border border-border border-crisp text-text/70 hover:bg-background hover:text-text'
                   }`}
                 >
                   {tab.icon}
                   <span>{tab.label}</span>
                   <span
-                    className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
-                      isActive ? 'bg-white/20 text-white' : 'bg-background text-text/50'
+                    className={`text-[10px] font-mono tabular-nums px-1.5 py-0.2 rounded-full ${
+                      isActive ? 'bg-white/20 text-white' : 'bg-background text-brand-text-secondary'
                     }`}
                   >
                     {tab.count}
@@ -659,7 +659,7 @@ export const GlobalSearchInput: React.FC<GlobalSearchInputProps> = ({
                 <h4 className="text-xs font-bold text-text">
                   {language === 'th' ? 'ไม่พบข้อมูลที่ตรงกับการค้นหา' : 'No matching results found'}
                 </h4>
-                <p className="text-[11px] text-text/50 mt-1 max-w-xs mx-auto">
+                <p className="text-[11px] text-brand-text-secondary mt-1 max-w-xs mx-auto">
                   {language === 'th'
                     ? 'ลองค้นหาด้วยชื่อสินค้า, รหัส SKU, ชื่อลูกค้า, เบอร์โทร, หรือชื่อการตั้งค่า'
                     : 'Try searching by product name, SKU, customer name, phone number, or setting keyword'}
@@ -708,12 +708,12 @@ export const GlobalSearchInput: React.FC<GlobalSearchInputProps> = ({
                             >
                               {renderHighlighted(prod.name, query)}
                             </span>
-                            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-background border border-border text-text/60 shrink-0">
+                            <span className="text-[10px] font-mono tabular-nums px-1.5 py-0.5 rounded bg-background border border-border text-text/60 shrink-0">
                               {prod.sku}
                             </span>
                           </div>
 
-                          <div className="flex items-center gap-2 mt-0.5 text-[11px] text-text/50">
+                          <div className="flex items-center gap-2 mt-0.5 text-[11px] text-brand-text-secondary">
                             <span className="truncate">{item.categoryName}</span>
                             <span>·</span>
                             <span
@@ -736,15 +736,15 @@ export const GlobalSearchInput: React.FC<GlobalSearchInputProps> = ({
                       </div>
 
                       <div className="flex items-center gap-2.5 shrink-0 ml-2">
-                        <span className="text-xs font-mono font-bold text-text">
+                        <span className="text-xs font-mono tabular-nums font-bold text-text">
                           {formatMoney(prod.price)}
                         </span>
 
                         <div
                           className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-all ${
                             isSelected
-                              ? 'bg-primary text-white shadow-xs'
-                              : 'bg-background border border-border text-text/70 group-hover:bg-primary group-hover:text-white group-hover:border-primary'
+                              ? 'bg-primary text-primary-foreground shadow-xs'
+                              : 'bg-background border border-border text-text/70 group-hover:bg-primary group-hover:text-primary-foreground group-hover:border-primary'
                           }`}
                         >
                           <Plus className="h-3 w-3" />
@@ -759,7 +759,7 @@ export const GlobalSearchInput: React.FC<GlobalSearchInputProps> = ({
                 if (item.type === 'customer') {
                   const cust = item.customer;
                   const tierColors: Record<string, string> = {
-                    VIP: 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30',
+                    VIP: 'bg-primary/10 text-brand-text-accent border-primary/30',
                     Gold: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30',
                     Silver: 'bg-slate-500/10 text-slate-600 dark:text-slate-300 border-slate-500/30',
                     Bronze: 'bg-primary/10 text-primary dark:text-orange-400 border-primary/30',
@@ -807,8 +807,8 @@ export const GlobalSearchInput: React.FC<GlobalSearchInputProps> = ({
                             </span>
                           </div>
 
-                          <div className="flex items-center gap-2 mt-0.5 text-[11px] text-text/50">
-                            <span className="font-mono flex items-center gap-1">
+                          <div className="flex items-center gap-2 mt-0.5 text-[11px] text-brand-text-secondary">
+                            <span className="font-mono tabular-nums flex items-center gap-1">
                               <Phone className="h-2.5 w-2.5 opacity-60" />
                               {renderHighlighted(cust.phone, query)}
                             </span>
@@ -819,15 +819,15 @@ export const GlobalSearchInput: React.FC<GlobalSearchInputProps> = ({
                       </div>
 
                       <div className="flex items-center gap-2.5 shrink-0 ml-2">
-                        <span className="text-[11px] font-mono font-bold text-primary">
+                        <span className="text-[11px] font-mono tabular-nums font-bold text-primary">
                           {cust.loyaltyPoints} {language === 'th' ? 'แต้ม' : 'pts'}
                         </span>
 
                         <div
                           className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-all ${
                             isSelected
-                              ? 'bg-primary text-white shadow-xs'
-                              : 'bg-background border border-border text-text/70 group-hover:bg-primary group-hover:text-white group-hover:border-primary'
+                              ? 'bg-primary text-primary-foreground shadow-xs'
+                              : 'bg-background border border-border text-text/70 group-hover:bg-primary group-hover:text-primary-foreground group-hover:border-primary'
                           }`}
                         >
                           <span>{language === 'th' ? 'เลือกลูกค้า' : 'Select'}</span>
@@ -857,7 +857,7 @@ export const GlobalSearchInput: React.FC<GlobalSearchInputProps> = ({
                       <div className="flex items-center gap-2.5 min-w-0">
                         <div
                           className={`p-2 rounded-lg shrink-0 border border-border ${
-                            isSelected ? 'bg-primary text-white' : 'bg-background text-text/70'
+                            isSelected ? 'bg-primary text-primary-foreground' : 'bg-background text-text/70'
                           }`}
                         >
                           {item.icon}
@@ -875,12 +875,12 @@ export const GlobalSearchInput: React.FC<GlobalSearchInputProps> = ({
                                 query
                               )}
                             </span>
-                            <span className="text-[9px] font-mono uppercase px-1.5 py-0.2 rounded bg-background border border-border text-text/50 shrink-0">
+                            <span className="text-[9px] font-mono tabular-nums uppercase px-1.5 py-0.2 rounded bg-background border border-border text-brand-text-secondary shrink-0">
                               {item.tabId}
                             </span>
                           </div>
 
-                          <p className="text-[11px] text-text/50 truncate mt-0.5">
+                          <p className="text-[11px] text-brand-text-secondary truncate mt-0.5">
                             {language === 'th' ? item.description.th : item.description.en}
                           </p>
                         </div>
@@ -890,8 +890,8 @@ export const GlobalSearchInput: React.FC<GlobalSearchInputProps> = ({
                         <div
                           className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-all ${
                             isSelected
-                              ? 'bg-primary text-white shadow-xs'
-                              : 'bg-background border border-border text-text/70 group-hover:bg-primary group-hover:text-white group-hover:border-primary'
+                              ? 'bg-primary text-primary-foreground shadow-xs'
+                              : 'bg-background border border-border text-text/70 group-hover:bg-primary group-hover:text-primary-foreground group-hover:border-primary'
                           }`}
                         >
                           <span>{language === 'th' ? 'ไปที่ตั้งค่า' : 'Open'}</span>
@@ -908,25 +908,25 @@ export const GlobalSearchInput: React.FC<GlobalSearchInputProps> = ({
           </div>
 
           {/* Footer Shortcuts Hint */}
-          <div className="px-3 py-2 border-t border-border border-crisp bg-background/50 flex items-center justify-between text-[10px] text-text/50 shrink-0">
+          <div className="px-3 py-2 border-t border-border border-crisp bg-background/50 flex items-center justify-between text-[10px] text-brand-text-secondary shrink-0">
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-1">
-                <kbd className="px-1 py-0.2 rounded bg-card border border-border font-mono">↑↓</kbd>
+                <kbd className="px-1 py-0.2 rounded bg-card border border-border font-mono tabular-nums">↑↓</kbd>
                 <span>{language === 'th' ? 'เลื่อน' : 'Navigate'}</span>
               </div>
               <div className="flex items-center gap-1">
-                <kbd className="px-1 py-0.2 rounded bg-card border border-border font-mono">↵</kbd>
+                <kbd className="px-1 py-0.2 rounded bg-card border border-border font-mono tabular-nums">↵</kbd>
                 <span>{language === 'th' ? 'เลือก' : 'Select'}</span>
               </div>
               <div className="flex items-center gap-1">
-                <kbd className="px-1 py-0.2 rounded bg-card border border-border font-mono">
+                <kbd className="px-1 py-0.2 rounded bg-card border border-border font-mono tabular-nums">
                   ESC
                 </kbd>
                 <span>{language === 'th' ? 'ปิด' : 'Close'}</span>
               </div>
             </div>
 
-            <div className="font-mono opacity-70">
+            <div className="font-mono tabular-nums opacity-70">
               {filteredResults.length} {language === 'th' ? 'รายการ' : 'matches'}
             </div>
           </div>

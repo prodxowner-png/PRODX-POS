@@ -114,16 +114,16 @@ export const PosAiAssistantModal: React.FC<PosAiAssistantModalProps> = ({
     >
       <div className="space-y-4">
         {/* Cart Summary Banner */}
-        <div className="p-3.5 rounded-xl bg-background border border-border border-crisp flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-indigo-600/10 text-indigo-600 dark:text-indigo-400">
+        <div className="p-3.5 rounded-xl bg-brand-surface-muted border border-brand-border border-crisp flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="p-2 rounded-lg bg-brand-surface-selected text-brand-text-accent shrink-0">
               <ShoppingBag className="h-5 w-5" />
             </div>
-            <div>
-              <div className="text-xs font-semibold text-slate-500">
+            <div className="min-w-0">
+              <div className="text-xs font-semibold text-brand-text-secondary">
                 {isThai ? 'สถานะตะกร้าปัจจุบัน' : 'Current Active Cart'}
               </div>
-              <div className="text-sm font-bold text-text">
+              <div className="text-sm font-bold text-brand-text truncate tabular-nums">
                 {items.length} {isThai ? 'รายการ' : 'items'} · {formatMoney(totals.grandTotal)}
               </div>
             </div>
@@ -133,7 +133,7 @@ export const PosAiAssistantModal: React.FC<PosAiAssistantModalProps> = ({
             size="sm"
             onClick={() => handleAskAi('แนะนำสินค้าขายคู่กัน')}
             disabled={isLoading}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold"
+            className="min-h-[44px] bg-brand-primary hover:bg-brand-primary-hover text-brand-primary-text text-xs font-semibold shrink-0"
           >
             {isLoading ? (
               <RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" />
@@ -145,14 +145,19 @@ export const PosAiAssistantModal: React.FC<PosAiAssistantModalProps> = ({
         </div>
 
         {/* Chat / Recommendation Stream */}
-        <div className="h-72 overflow-y-auto rounded-xl border border-border border-crisp bg-slate-50/50 dark:bg-slate-950/40 p-4 space-y-3 font-sans">
+        <div
+          role="log"
+          aria-live="polite"
+          aria-label={isThai ? 'ประวัติการสนทนากับผู้ช่วย AI' : 'AI assistant conversation log'}
+          className="max-h-[42svh] min-h-[200px] overflow-y-auto rounded-xl border border-brand-border border-crisp bg-brand-surface-muted p-4 space-y-3 font-sans"
+        >
           {chatHistory.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-400">
-              <Bot className="h-10 w-10 text-indigo-400 mb-2 opacity-80 animate-bounce" />
-              <p className="text-sm font-medium text-text/80">
+            <div className="min-h-[168px] flex flex-col items-center justify-center text-center p-6 text-brand-text-secondary">
+              <Bot className="h-10 w-10 text-brand-text-accent mb-2 opacity-90" />
+              <p className="text-sm font-medium text-brand-text">
                 {isThai ? 'สวัสดีครับ! ผมคือผู้ช่วย AI ประจำเครื่องคิดเงิน' : 'Hello! I am your POS AI Assistant'}
               </p>
-              <p className="text-xs text-slate-500 mt-1 max-w-sm">
+              <p className="text-xs text-brand-text-secondary mt-1 max-w-sm">
                 {isThai
                   ? 'กดปุ่ม "AI แนะนำสินค้าจับคู่" ด้านบน หรือพิมพ์สอบถามเกี่ยวกับการขาย/สินค้าได้ทันที'
                   : 'Click "Recommend Upsell" or type any cashier query below.'}
@@ -165,15 +170,15 @@ export const PosAiAssistantModal: React.FC<PosAiAssistantModalProps> = ({
                 className={`flex gap-2.5 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
               >
                 {msg.role === 'ai' && (
-                  <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-600 text-white shrink-0 mt-0.5 shadow-xs">
+                  <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-primary text-brand-primary-text shrink-0 mt-0.5 shadow-xs">
                     <Sparkles className="h-4 w-4" />
                   </div>
                 )}
                 <div
                   className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-xs sm:text-sm leading-relaxed whitespace-pre-wrap ${
                     msg.role === 'user'
-                      ? 'bg-indigo-600 text-white rounded-tr-none'
-                      : 'bg-card border border-border border-crisp text-text rounded-tl-none shadow-xs'
+                      ? 'bg-brand-primary text-brand-primary-text rounded-tr-none'
+                      : 'bg-brand-surface border border-brand-border border-crisp text-brand-text rounded-tl-none shadow-xs'
                   }`}
                 >
                   {msg.text}
@@ -195,14 +200,16 @@ export const PosAiAssistantModal: React.FC<PosAiAssistantModalProps> = ({
             type="text"
             value={userQuery}
             onChange={(e) => setUserQuery(e.target.value)}
+            aria-label={isThai ? 'พิมพ์คำถามถึงผู้ช่วย AI' : 'Ask the POS AI assistant'}
             placeholder={isThai ? 'พิมพ์คำถามหรือขอคำแนะนำจาก AI เช่น "แนะนำเครื่องดื่มคู่กับครัวซองต์"...' : 'Ask AI anything about menu, upsell, promotions...'}
-            className="flex-1 px-3.5 py-2.5 rounded-xl border border-border border-crisp bg-card text-text text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+            className="flex-1 min-h-[44px] px-3.5 py-2.5 rounded-xl border border-brand-border border-crisp bg-brand-surface text-brand-text placeholder:text-brand-text-muted text-base sm:text-sm focus:ring-2 focus:ring-cta focus:outline-none"
           />
           <Button
             type="submit"
             variant="primary"
             disabled={isLoading || !userQuery.trim()}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white min-w-[44px]"
+            aria-label={isThai ? 'ส่งคำถาม' : 'Send message'}
+            className="bg-brand-primary hover:bg-brand-primary-hover text-brand-primary-text min-h-[44px] min-w-[44px]"
           >
             {isLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
           </Button>

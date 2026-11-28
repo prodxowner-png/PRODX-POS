@@ -52,6 +52,7 @@ import { RbacGuard } from './components/auth/RbacGuard';
 import { FrontendAssistant } from './components/ai/FrontendAssistant';
 import { useShift } from './context/ShiftContext';
 import { StartShiftModal } from './components/shift/StartShiftModal';
+import { PwaUpdateGate, StandalonePwaUpdateGate } from './components/pwa/PwaUpdateGate';
 
 const TaskManagementScreen = React.lazy(() => import('./modules/tasks/TaskManagementScreen'));
 
@@ -74,7 +75,7 @@ const checkIsDedicatedAdminLoginPath = () => {
 };
 
 const MainApplication: React.FC = () => {
-  const { session } = useAuth();
+  const { session, isInitializing } = useAuth();
   const { currentShift, isLoading: isShiftLoading } = useShift();
   const [isStartShiftModalOpen, setIsStartShiftModalOpen] = useState(false);
   const autoShiftPromptKeyRef = React.useRef<string | null>(null);
@@ -135,7 +136,7 @@ const MainApplication: React.FC = () => {
 
   // Register operational keyboard shortcuts (F1 = POS, F2 = Dashboard, F9 = Shortcuts Overlay, etc.)
   useEffect(() => {
-    if (isAdminMode) return;
+    if (isAdminMode || isAdminLoginRoute) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       // Allow F9 to toggle the shortcuts overlay from anywhere
       if (e.key === 'F9') {
@@ -200,7 +201,7 @@ const MainApplication: React.FC = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isAdminMode, session]);
+  }, [isAdminMode, isAdminLoginRoute, session]);
 
   const enterAdminConsole = (section: AdminConsoleSection = 'overview') => {
     if (typeof window !== 'undefined') {
@@ -211,12 +212,26 @@ const MainApplication: React.FC = () => {
     setIsAdminMode(true);
   };
 
+  if (isInitializing && (isAdminMode || isAdminLoginRoute)) {
+    return <AdminConsoleSkeleton />;
+  }
+
   if (isAdminMode || isAdminLoginRoute) {
     // If explicitly on /admin/login and not authenticated as admin yet, show the dedicated AdminLoginScreen
     if (isAdminLoginRoute && (!session || session.currentUser.role !== 'admin')) {
       return (
         <ErrorBoundary moduleName="Administrator Login">
-          <React.Suspense fallback={<div className="min-h-screen bg-brand-bg flex items-center justify-center"><Loader2 className="animate-spin text-primary h-8 w-8" /></div>}>
+          <React.Suspense
+            fallback={
+              <div
+                role="status"
+                aria-label="Loading administrator login"
+                className="min-h-[100svh] bg-brand-bg flex items-center justify-center"
+              >
+                <Loader2 className="animate-spin text-primary h-8 w-8" />
+              </div>
+            }
+          >
             <AdminLoginScreen
               onBackToPos={exitAdminMode}
               onLoginSuccess={() => {
@@ -243,6 +258,7 @@ const MainApplication: React.FC = () => {
               requiredPermissions={['org:manage', 'settings:manage']}
               hideMode="denied-card"
               onRedirectToPos={exitAdminMode}
+              onNavigateToAdminLogin={enterAdminLogin}
             >
               {adminSection === 'rbac' ? (
                 <SettingsScreen />
@@ -481,6 +497,7 @@ export default function App() {
           <AuthProvider>
             <ThemeProvider>
               <LanguageProvider>
+                <StandalonePwaUpdateGate />
                 <React.Suspense fallback={<div className="min-h-screen bg-brand-bg flex items-center justify-center"><Loader2 className="animate-spin text-primary h-12 w-12" /></div>}>
                   <KitchenDisplayScreen />
                 </React.Suspense>
@@ -498,6 +515,7 @@ export default function App() {
         <GlobalErrorRecoveryProvider>
           <ThemeProvider>
             <LanguageProvider>
+              <StandalonePwaUpdateGate />
               <ReceiptValidationPortal />
             </LanguageProvider>
           </ThemeProvider>
@@ -512,6 +530,7 @@ export default function App() {
         <GlobalErrorRecoveryProvider>
           <ThemeProvider>
             <LanguageProvider>
+              <StandalonePwaUpdateGate />
               <CustomerDisplayView />
             </LanguageProvider>
           </ThemeProvider>
@@ -533,6 +552,7 @@ export default function App() {
                       <OfflineProvider>
                         <ShiftProvider>
                           <CartProvider>
+                            <PwaUpdateGate />
                             <ReceiptPrinterProvider>
                               <VisualInspectorProvider>
                                 <BreadcrumbProvider>

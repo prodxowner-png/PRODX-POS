@@ -1,12 +1,11 @@
 import React, { useState } from 'react';
-import { UserRound, Lock, Eye, EyeOff, Loader2, KeyRound, QrCode } from 'lucide-react';
+import { Eye, EyeOff, Loader2, Lock, UserRound } from 'lucide-react';
 
 interface EmailPasswordFormProps {
   isThai: boolean;
   terminalReady: boolean;
   isLoading: boolean;
   onSubmit: (email: string, pass: string) => void;
-  onSwitchMode: (mode: 'pin' | 'biometric' | 'qr' | 'email') => void;
   onForgotPin: () => void;
 }
 
@@ -15,7 +14,6 @@ export const EmailPasswordForm: React.FC<EmailPasswordFormProps> = ({
   terminalReady,
   isLoading,
   onSubmit,
-  onSwitchMode,
   onForgotPin,
 }) => {
   const [email, setEmail] = useState('');
@@ -29,56 +27,83 @@ export const EmailPasswordForm: React.FC<EmailPasswordFormProps> = ({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-3.5 max-w-[340px] mx-auto py-1">
+    <form onSubmit={handleSubmit} className="space-y-3 max-w-[340px] mx-auto">
       <div className="space-y-1">
-        <label htmlFor="pos-email" className="text-[11px] font-black uppercase text-[#183D32] dark:text-[#F8FAFC] block cursor-pointer">
-          {isThai ? 'อีเมลบัญชีผู้ใช้ (Account Email)' : 'Account Email'}
+        <label
+          htmlFor="operator-login-email"
+          className="text-xs font-black uppercase text-brand-text-secondary cursor-pointer"
+        >
+          {isThai ? 'อีเมลบัญชีผู้ใช้' : 'Account Email'}
         </label>
         <div className="relative">
-          <UserRound className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[#64748B] dark:text-[#94A3B8]" />
+          <UserRound
+            className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-text-secondary pointer-events-none"
+            aria-hidden="true"
+          />
           <input
-            id="pos-email"
+            id="operator-login-email"
             name="email"
             type="email"
             value={email}
             disabled={!terminalReady || isLoading}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="cashier@prodx.co"
-            required
             autoComplete="username"
+            autoCapitalize="none"
+            autoCorrect="off"
             spellCheck={false}
             enterKeyHint="next"
-            className="w-full h-11 bg-[#FFFFFF] dark:bg-[#0F172A] border border-[#CBD5E1] dark:border-[#475569] rounded-xl pl-10 pr-3 text-xs font-bold text-[#183D32] dark:text-[#F8FAFC] outline-none focus:border-[#F97316] focus:ring-2 focus:ring-[#F97316]/30 transition-all disabled:opacity-50"
+            required
+            className="w-full min-h-[44px] bg-brand-surface border-2 border-brand-border-strong rounded-xl pl-9 pr-3 py-2 text-base sm:text-sm font-bold text-brand-text outline-none focus:border-cta focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta transition-all disabled:opacity-50"
           />
         </div>
       </div>
 
       <div className="space-y-1">
-        <label htmlFor="pos-password" className="text-[11px] font-black uppercase text-[#183D32] dark:text-[#F8FAFC] block cursor-pointer">
-          {isThai ? 'รหัสผ่าน (Password)' : 'Password'}
+        <label
+          htmlFor="operator-login-password"
+          className="text-xs font-black uppercase text-brand-text-secondary cursor-pointer"
+        >
+          {isThai ? 'รหัสผ่าน' : 'Password'}
         </label>
         <div className="relative">
-          <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[#64748B] dark:text-[#94A3B8]" />
+          <Lock
+            className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-text-secondary pointer-events-none"
+            aria-hidden="true"
+          />
           <input
-            id="pos-password"
+            id="operator-login-password"
             name="password"
             type={showPassword ? 'text' : 'password'}
             value={password}
             disabled={!terminalReady || isLoading}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="••••••••"
-            required
             autoComplete="current-password"
             enterKeyHint="done"
-            className="w-full h-11 bg-[#FFFFFF] dark:bg-[#0F172A] border border-[#CBD5E1] dark:border-[#475569] rounded-xl pl-10 pr-10 text-xs font-bold text-[#183D32] dark:text-[#F8FAFC] outline-none focus:border-[#F97316] focus:ring-2 focus:ring-[#F97316]/30 transition-all disabled:opacity-50"
+            required
+            className="w-full min-h-[44px] bg-brand-surface border-2 border-brand-border-strong rounded-xl pl-9 pr-12 py-2 text-base sm:text-sm font-bold text-brand-text outline-none focus:border-cta focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta transition-all disabled:opacity-50"
           />
           <button
             type="button"
             onClick={() => setShowPassword((prev) => !prev)}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-[#64748B] dark:text-[#94A3B8] hover:text-[#183D32] dark:hover:text-[#F8FAFC] p-1 rounded-md focus-visible:ring-2 focus-visible:ring-[#F97316] cursor-pointer"
-            aria-label={showPassword ? 'Hide password' : 'Show password'}
+            aria-pressed={showPassword}
+            className="absolute right-0.5 top-1/2 -translate-y-1/2 min-h-[44px] min-w-[44px] flex items-center justify-center text-brand-text-secondary hover:text-brand-text rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta cursor-pointer"
+            aria-label={
+              showPassword
+                ? isThai
+                  ? 'ซ่อนรหัสผ่าน'
+                  : 'Hide password'
+                : isThai
+                  ? 'แสดงรหัสผ่าน'
+                  : 'Show password'
+            }
           >
-            {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            {showPassword ? (
+              <EyeOff className="w-4 h-4" aria-hidden="true" />
+            ) : (
+              <Eye className="w-4 h-4" aria-hidden="true" />
+            )}
           </button>
         </div>
       </div>
@@ -86,55 +111,26 @@ export const EmailPasswordForm: React.FC<EmailPasswordFormProps> = ({
       <button
         type="submit"
         disabled={!terminalReady || !email.trim() || !password || isLoading}
-        className="w-full h-12 px-4 bg-gradient-to-br from-[#F97316] to-[#EA580C] text-[#FFFFFF] rounded-xl font-black text-xs flex items-center justify-center gap-2 hover:from-[#EA580C] hover:to-[#C2410C] active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-[#F97316] focus-visible:ring-offset-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-md shadow-orange-500/25 cursor-pointer whitespace-nowrap"
+        className={`w-full min-h-[48px] px-4 py-2.5 rounded-xl font-black text-sm flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta focus-visible:ring-offset-2 transition-all whitespace-nowrap ${
+          !terminalReady || !email.trim() || !password || isLoading
+            ? 'bg-brand-surface-muted border border-brand-border text-brand-text-muted shadow-none cursor-not-allowed'
+            : 'bg-cta text-cta-text hover:bg-cta-hover active:bg-cta-pressed active:scale-[0.98] shadow-md shadow-cta/25 cursor-pointer'
+        }`}
       >
         {isLoading ? (
-          <Loader2 className="w-4 h-4 animate-spin shrink-0 text-[#FFFFFF]" />
+          <Loader2 className="w-4 h-4 animate-spin shrink-0" aria-hidden="true" />
         ) : (
-          <span className="text-[#FFFFFF]">{isThai ? 'เข้าสู่ระบบด้วยอีเมล' : 'Sign in with Email'}</span>
+          <span>{isThai ? 'เข้าสู่ระบบด้วยอีเมล' : 'Sign in with Email'}</span>
         )}
       </button>
 
-      {/* Mode Switcher */}
-      <div className="pt-2 space-y-2">
-        <div className="text-center text-xs font-bold text-[#64748B] dark:text-[#94A3B8]">
-          {isThai ? 'เลือกวิธีเข้าสู่ระบบ' : 'Select Login Method'}
-        </div>
-        <div className="grid grid-cols-3 gap-2">
-          <button
-            type="button"
-            onClick={() => onSwitchMode('pin')}
-            className="h-10 px-2 rounded-xl bg-[#FFFFFF] dark:bg-[#0F172A] border border-[#E2E8F0] dark:border-[#334155] text-[#64748B] dark:text-[#94A3B8] hover:text-[#183D32] dark:hover:text-[#F8FAFC] hover:bg-[#FFF7ED] dark:hover:bg-background text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer"
-          >
-            <KeyRound className="w-3.5 h-3.5" />
-            <span>PIN</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => onSwitchMode('email')}
-            className="h-10 px-2 rounded-xl bg-[#F5E1D0] dark:bg-[#F97316]/20 border-2 border-[#F97316] text-[#183D32] dark:text-[#F97316] text-xs font-black flex items-center justify-center gap-1.5 shadow-2xs transition-all cursor-pointer"
-          >
-            <UserRound className="w-3.5 h-3.5" />
-            <span className="truncate">{isThai ? 'ผู้ใช้ / รหัสผ่าน' : 'User / Pass'}</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => onSwitchMode('qr')}
-            className="h-10 px-2 rounded-xl bg-[#FFFFFF] dark:bg-[#0F172A] border border-[#E2E8F0] dark:border-[#334155] text-[#64748B] dark:text-[#94A3B8] hover:text-[#183D32] dark:hover:text-[#F8FAFC] hover:bg-[#FFF7ED] dark:hover:bg-background text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer"
-          >
-            <QrCode className="w-3.5 h-3.5" />
-            <span>{isThai ? 'สแกน QR' : 'Scan QR'}</span>
-          </button>
-        </div>
-      </div>
-
-      <div className="text-center pt-1">
+      <div className="flex items-center justify-end text-xs font-bold text-brand-text-secondary">
         <button
           type="button"
           onClick={onForgotPin}
-          className="text-xs text-[#64748B] dark:text-[#94A3B8] hover:text-[#F97316] dark:hover:text-[#F97316] underline cursor-pointer"
+          className="min-h-[44px] px-2 text-brand-text-secondary hover:text-brand-text-accent underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta rounded-lg transition-colors cursor-pointer inline-flex items-center"
         >
-          {isThai ? 'ลืมรหัสผ่านหรือ PIN?' : 'Forgot password or PIN?'}
+          {isThai ? 'ลืมรหัสผ่าน?' : 'Forgot password?'}
         </button>
       </div>
     </form>

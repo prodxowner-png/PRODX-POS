@@ -323,7 +323,7 @@ export class IdempotencyGate extends DurableObject<Env> {
         ).toArray()[0];
         const receiptId = prior?.receipt_id ?? item.receiptId;
         const queueMessage: QueueSale = {
-          tenant_id: input.tenantId, terminal_id: input.terminalId,
+          tenant_id: input.tenantId, terminal_id: input.terminalId, store_id: input.storeId,
           idempotency_key: item.sale.idempotency_key, payload_hash: item.payloadHash,
           do_name: input.doName, sale: item.sale,
           edge_received_at: item.edgeReceivedAt, receipt_id: receiptId

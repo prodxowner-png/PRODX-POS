@@ -384,7 +384,7 @@ export const AdminActivityHeatmap: React.FC<AdminActivityHeatmapProps> = ({
             <Clock className="h-3.5 w-3.5 text-primary" />
             {data.dayLabel ? `${data.dayLabel} • ${data.hourLabel}` : data.hourLabel}
           </span>
-          <span className="font-mono font-bold text-primary">
+          <span className="font-mono tabular-nums font-bold text-primary">
             {data.activeValue} {isThai ? 'รายการ' : 'ops'}
           </span>
         </div>
@@ -392,19 +392,19 @@ export const AdminActivityHeatmap: React.FC<AdminActivityHeatmapProps> = ({
         <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px]">
           <div className="flex items-center justify-between">
             <span className="text-emerald-500 font-semibold">CREATE:</span>
-            <span className="font-mono font-bold text-text">{data.createCount}</span>
+            <span className="font-mono tabular-nums font-bold text-text">{data.createCount}</span>
           </div>
           <div className="flex items-center justify-between">
             <span className="text-blue-500 font-semibold">UPDATE:</span>
-            <span className="font-mono font-bold text-text">{data.updateCount}</span>
+            <span className="font-mono tabular-nums font-bold text-text">{data.updateCount}</span>
           </div>
           <div className="flex items-center justify-between">
             <span className="text-amber-500 font-semibold">CONFIG:</span>
-            <span className="font-mono font-bold text-text">{data.configCount}</span>
+            <span className="font-mono tabular-nums font-bold text-text">{data.configCount}</span>
           </div>
           <div className="flex items-center justify-between">
             <span className="text-rose-500 font-semibold">DELETE:</span>
-            <span className="font-mono font-bold text-text">{data.deleteCount}</span>
+            <span className="font-mono tabular-nums font-bold text-text">{data.deleteCount}</span>
           </div>
         </div>
       </div>
@@ -426,7 +426,7 @@ export const AdminActivityHeatmap: React.FC<AdminActivityHeatmapProps> = ({
                   ? 'แผนภูมิความร้อนกิจกรรมการตั้งค่าและ CRUD ผู้ดูแลระบบ (30 วันล่าสุด)'
                   : 'Admin Activity Heatmap — 30-Day Config & CRUD Peak Hours'}
               </h2>
-              <span className="text-[11px] font-mono text-text/60">
+              <span className="text-[11px] font-mono tabular-nums text-text/60">
                 · 30D TELEMETRY
               </span>
             </div>
@@ -483,18 +483,18 @@ export const AdminActivityHeatmap: React.FC<AdminActivityHeatmapProps> = ({
             {/* Key Peak Insights */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 flex-1">
               <div className="p-3 rounded-xl bg-background/60 border border-border/70">
-                <div className="text-[10px] font-bold uppercase tracking-wider text-text/50 flex items-center gap-1">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-brand-text-secondary flex items-center gap-1">
                   <Clock className="h-3 w-3 text-primary" />
                   <span>{isThai ? 'ช่วงเวลาพีคสูงสุด' : 'Peak Activity Hour'}</span>
                 </div>
-                <div className="mt-1 text-sm sm:text-base font-black font-mono text-text">
+                <div className="mt-1 text-sm sm:text-base font-black font-mono tabular-nums text-text">
                   {peakHourSlot}
                 </div>
               </div>
 
               <div className="p-3 rounded-xl bg-background/60 border border-border/70">
-                <div className="text-[10px] font-bold uppercase tracking-wider text-text/50 flex items-center gap-1">
-                  <Calendar className="h-3 w-3 text-purple-500" />
+                <div className="text-[10px] font-bold uppercase tracking-wider text-brand-text-secondary flex items-center gap-1">
+                  <Calendar className="h-3 w-3 text-brand-text-accent" />
                   <span>{isThai ? 'วันที่หนาแน่นสุด' : 'Most Active Day'}</span>
                 </div>
                 <div className="mt-1 text-sm sm:text-base font-black text-text">
@@ -503,24 +503,24 @@ export const AdminActivityHeatmap: React.FC<AdminActivityHeatmapProps> = ({
               </div>
 
               <div className="p-3 rounded-xl bg-background/60 border border-border/70">
-                <div className="text-[10px] font-bold uppercase tracking-wider text-text/50 flex items-center gap-1">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-brand-text-secondary flex items-center gap-1">
                   <Activity className="h-3 w-3 text-emerald-500" />
                   <span>{isThai ? 'ธุรกรรมแอดมิน (30 วัน)' : '30-Day Admin Ops'}</span>
                 </div>
-                <div className="mt-1 text-sm sm:text-base font-black font-mono text-text">
+                <div className="mt-1 text-sm sm:text-base font-black font-mono tabular-nums text-text">
                   {totalOperations30d}{' '}
-                  <span className="text-[11px] font-sans font-medium text-text/50">
+                  <span className="text-[11px] font-sans font-medium text-brand-text-secondary">
                     {isThai ? 'ครั้ง' : 'events'}
                   </span>
                 </div>
               </div>
 
               <div className="p-3 rounded-xl bg-background/60 border border-border/70">
-                <div className="text-[10px] font-bold uppercase tracking-wider text-text/50 flex items-center gap-1">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-brand-text-secondary flex items-center gap-1">
                   <Layers className="h-3 w-3 text-amber-500" />
                   <span>{isThai ? 'สัดส่วน CRUD / Config' : 'CRUD & Config Split'}</span>
                 </div>
-                <div className="mt-1 text-xs font-mono font-bold text-text flex items-center gap-1.5">
+                <div className="mt-1 text-xs font-mono tabular-nums font-bold text-text flex items-center gap-1.5">
                   <span className="text-emerald-500" title="Create">+{crudBreakdown.create}</span>
                   <span>·</span>
                   <span className="text-blue-500" title="Update">~{crudBreakdown.update}</span>
@@ -549,7 +549,7 @@ export const AdminActivityHeatmap: React.FC<AdminActivityHeatmapProps> = ({
                   onClick={() => setActivityFilter(item.id)}
                   className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                     activityFilter === item.id
-                      ? 'bg-primary text-white shadow-2xs'
+                      ? 'bg-primary text-primary-foreground shadow-2xs'
                       : 'text-text/60 hover:text-text'
                   }`}
                 >
@@ -575,7 +575,7 @@ export const AdminActivityHeatmap: React.FC<AdminActivityHeatmapProps> = ({
                      ticks={[0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22]}
                     tickFormatter={(h) => `${String(h).padStart(2, '0')}:00`}
                     stroke="currentColor"
-                    className="text-text/50 text-[10px] font-mono"
+                    className="text-brand-text-secondary text-[10px] font-mono tabular-nums"
                     tickLine={false}
                     axisLine={{ stroke: 'rgba(148,163,184,0.2)' }}
                   />
@@ -616,13 +616,13 @@ export const AdminActivityHeatmap: React.FC<AdminActivityHeatmapProps> = ({
                   <XAxis
                     dataKey="hourLabel"
                     stroke="currentColor"
-                    className="text-text/50 text-[10px] font-mono"
+                    className="text-brand-text-secondary text-[10px] font-mono tabular-nums"
                     tickLine={false}
                     interval={1}
                   />
                   <YAxis
                     stroke="currentColor"
-                    className="text-text/50 text-[10px] font-mono"
+                    className="text-brand-text-secondary text-[10px] font-mono tabular-nums"
                     tickLine={false}
                     axisLine={false}
                     allowDecimals={false}
@@ -642,18 +642,18 @@ export const AdminActivityHeatmap: React.FC<AdminActivityHeatmapProps> = ({
             <div className="flex items-center gap-2 flex-wrap">
               <span>{isThai ? 'ระดับความหนาแน่น:' : 'Activity Intensity:'}</span>
               <div className="flex items-center gap-1">
-                <span className="text-[10px] font-mono">{isThai ? 'ต่ำ' : 'Low'}</span>
+                <span className="text-[10px] font-mono tabular-nums">{isThai ? 'ต่ำ' : 'Low'}</span>
                 <span className="w-3.5 h-3.5 rounded-xs inline-block" style={{ backgroundColor: 'rgba(148, 163, 184, 0.15)' }} />
                 <span className="w-3.5 h-3.5 rounded-xs inline-block" style={{ backgroundColor: 'rgba(59, 130, 246, 0.28)' }} />
                 <span className="w-3.5 h-3.5 rounded-xs inline-block" style={{ backgroundColor: 'rgba(59, 130, 246, 0.52)' }} />
                 <span className="w-3.5 h-3.5 rounded-xs inline-block" style={{ backgroundColor: 'rgba(139, 92, 246, 0.75)' }} />
                 <span className="w-3.5 h-3.5 rounded-xs inline-block" style={{ backgroundColor: 'rgba(249, 115, 22, 0.88)' }} />
                 <span className="w-3.5 h-3.5 rounded-xs inline-block" style={{ backgroundColor: '#ef4444' }} />
-                <span className="text-[10px] font-mono">{isThai ? 'พีคสูงสุด' : 'Peak'}</span>
+                <span className="text-[10px] font-mono tabular-nums">{isThai ? 'พีคสูงสุด' : 'Peak'}</span>
               </div>
             </div>
 
-            <div className="flex items-center gap-3 font-mono text-[10px]">
+            <div className="flex items-center gap-3 font-mono tabular-nums text-[10px]">
               <span className="inline-flex items-center gap-1">
                 <span className="w-2 h-2 rounded-full bg-emerald-500" /> CREATE
               </span>

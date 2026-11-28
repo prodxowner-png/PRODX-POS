@@ -7,37 +7,41 @@ interface PosTerminalIllustrationProps {
 
 /**
  * Retail Store Checkout Illustration
- * Exact faithful vector rendering of the retail minimart counter scene
- * with seamless Light Mode & Dark Mode token adaptation.
+ * Decorative vector rendering of the retail minimart counter scene used as
+ * the desktop login hero. Text uses semantic brand tokens so Light/Dark
+ * themes keep WCAG AA contrast; the SVG itself is aria-hidden.
  */
 export const PosTerminalIllustration: React.FC<PosTerminalIllustrationProps> = ({
   className = '',
   isThai = true,
 }) => {
   return (
-    <div className={`relative w-full h-full flex flex-col justify-between select-none ${className}`}>
+    <div className={`relative w-full h-full flex flex-col justify-between gap-6 select-none ${className}`}>
       {/* Brand & Headline */}
       <div className="space-y-4 max-w-lg z-10">
         <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-2xl bg-[#F97316] text-[#FFFFFF] flex items-center justify-center font-black text-2xl shadow-md shadow-orange-500/20">
+          <div
+            aria-hidden="true"
+            className="w-11 h-11 rounded-2xl bg-cta text-cta-text flex items-center justify-center font-black text-2xl shadow-md"
+          >
             P
           </div>
           <div>
-            <div className="text-xl font-black text-[#183D32] dark:text-[#F8FAFC] tracking-tight">
-              PRODX <span className="text-[#F97316]">POS</span>
+            <div className="text-xl font-black text-brand-text tracking-tight">
+              PRODX <span className="text-brand-text-accent">POS</span>
             </div>
-            <div className="text-[9px] font-bold uppercase tracking-[0.28em] text-[#64748B] dark:text-[#94A3B8]">
+            <div className="text-[10px] font-bold uppercase tracking-[0.28em] text-brand-text-secondary">
               - PROFESSIONAL POS SYSTEM -
             </div>
           </div>
         </div>
 
-        <h1 className="text-3xl xl:text-4xl 2xl:text-5xl font-black text-[#183D32] dark:text-[#F8FAFC] tracking-tight leading-[1.15]">
+        <h2 className="text-3xl xl:text-4xl 2xl:text-5xl font-black text-brand-text tracking-tight leading-[1.15] text-balance">
           Smart POS for <br />
-          <span className="text-[#F97316]">Minimart & Retail</span>
-        </h1>
+          <span className="text-brand-text-accent">Minimart &amp; Retail</span>
+        </h2>
 
-        <p className="text-xs sm:text-sm text-[#475569] dark:text-[#94A3B8] leading-relaxed max-w-md">
+        <p className="text-sm text-brand-text-secondary leading-relaxed max-w-md text-pretty">
           {isThai
             ? 'ระบบจุดชำระเงินอัจฉริยะสำหรับร้านค้าปลีกและมินิมาร์ท รองรับขายออฟไลน์ สแกนบาร์โค้ด และจัดการกะพนักงานสมบูรณ์แบบ'
             : 'Next-generation intelligent point-of-sale for retail shops and minimarts with offline sync, rapid barcode scanning, and shift audit trail.'}
@@ -191,7 +195,7 @@ export const PosTerminalIllustration: React.FC<PosTerminalIllustrationProps> = (
       </div>
 
       {/* Footer System Invariant Note */}
-      <div className="z-10 text-[10px] text-[#64748B] dark:text-[#94A3B8] font-bold tracking-wider uppercase pt-4 border-t border-[#E2E8F0]/70 dark:border-[#334155] flex items-center justify-between">
+      <div className="z-10 text-[10px] text-brand-text-secondary font-bold tracking-wider uppercase pt-4 border-t border-brand-border flex items-center justify-between">
         <span>PRODX POS Enterprise Engine</span>
         <span>Version 2.5</span>
       </div>

@@ -75,6 +75,9 @@ jobs:
       - name: Production build
         run: npm run build
 
+      - name: WebAuthn fail-closed regression tests
+        run: npm run auth:webauthn:test
+
       - name: M2 PostgreSQL authentication integration
         run: npm run server:test:integration
 

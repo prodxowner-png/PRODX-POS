@@ -1,14 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { randomUUID } from 'node:crypto';
-import { createPostgresPool, resolveConfiguredDatabaseUrl } from '../db/postgres';
+import { createPostgresPool } from '../db/postgres';
+import { resolveDisposableTestDatabaseUrl } from '../db/test-database-guard';
 import { createTransactionalPostgresExecutor } from '../db/transaction';
 import { createApp } from './createApp';
 import { registerSyncRoute } from './sync-route';
 import type { CheckoutRequest } from '../../src/adapters/types';
 import type { TransactionalSqlExecutor } from '../db/transaction';
 
-const url = resolveConfiguredDatabaseUrl(process.env.DATABASE_URL);
+const url = resolveDisposableTestDatabaseUrl(process.env.DATABASE_URL, 'server/http/sync-route.test.ts');
 const pool = url ? createPostgresPool({ connectionString: url, max: 8 }) : null;
 const db = pool ? createTransactionalPostgresExecutor(pool) : null;
 // Append-only audit events are retained; each integration run owns isolated fixtures.
@@ -50,10 +51,173 @@ test('sync route rejects unsupported outbox command types before database work',
     const response = await fetch(`${server.baseUrl}/api/v1/sync/commands`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ item: { id: 'outbox-1', type: 'shift_movement', idempotencyKey: 'sync-1', payload: {}, createdAt: '2026-10-02T00:00:00.000Z', attempts: 0, syncState: 'queued' } }),
+      body: JSON.stringify({ item: { id: 'outbox-1', type: 'refund_transaction', idempotencyKey: 'sync-1', payload: { idempotencyKey: 'sync-1' }, createdAt: '2026-10-02T00:00:00.000Z', attempts: 0, syncState: 'queued' } }),
     });
     assert.equal(response.status, 400);
     assert.equal((await response.json()).error.code, 'SYNC_COMMAND_UNSUPPORTED');
+  } finally {
+    await server.close();
+  }
+});
+
+test('sync route enforces RBAC permissions and payload validation for shift_movement and stock_adjustment before database work', async () => {
+  let allowedPermissions = new Set<string>(['pos.sell']);
+  const app = createApp({
+    authenticateRequest: () => principal,
+    authorizeRequest: (_context, permission) => allowedPermissions.has(permission),
+    configureRoutes: (configuredApp) => registerSyncRoute(configuredApp, unreachableDb),
+  });
+  const server = await start(app);
+  try {
+    // 1. shift_movement denied without cash.shift.movement permission
+    const deniedShift = await fetch(`${server.baseUrl}/api/v1/sync/commands`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        item: {
+          id: 'outbox-shift-deny',
+          type: 'shift_movement',
+          idempotencyKey: 'shift-deny-1',
+          payload: {
+            idempotencyKey: 'shift-deny-1',
+            shiftId: 'shift-1',
+            type: 'paid_in',
+            amount: { amountInCents: 1000, currency: 'THB' },
+            reason: 'Petty cash',
+          },
+          createdAt: '2026-10-02T00:00:00.000Z',
+          attempts: 0,
+          syncState: 'queued',
+        },
+      }),
+    });
+    assert.equal(deniedShift.status, 403);
+    assert.equal((await deniedShift.json()).error.code, 'FORBIDDEN');
+
+    // 2. stock_adjustment denied without inventory.adjust permission
+    const deniedStock = await fetch(`${server.baseUrl}/api/v1/sync/commands`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        item: {
+          id: 'outbox-stock-deny',
+          type: 'stock_adjustment',
+          idempotencyKey: 'stock-deny-1',
+          payload: {
+            idempotencyKey: 'stock-deny-1',
+            productIds: ['prod-1'],
+            quantityDelta: 5,
+            reason: 'purchase_received',
+          },
+          createdAt: '2026-10-02T00:00:00.000Z',
+          attempts: 0,
+          syncState: 'queued',
+        },
+      }),
+    });
+    assert.equal(deniedStock.status, 403);
+    assert.equal((await deniedStock.json()).error.code, 'FORBIDDEN');
+
+    // 3. Grant permissions and verify malformed payloads and cross-store mismatches are rejected before DB work
+    allowedPermissions = new Set(['pos.sell', 'cash.shift.movement', 'inventory.adjust']);
+
+    for (const invalidShiftPayload of [
+      { idempotencyKey: 'shift-bad-1', shiftId: 'shift-1', type: 'cash_sale', amount: { amountInCents: 1000, currency: 'THB' }, reason: 'Server-only type' },
+      { idempotencyKey: 'shift-bad-1', shiftId: 'shift-1', type: 'opening_float', amount: { amountInCents: 1000, currency: 'THB' }, reason: 'Server-only type' },
+      { idempotencyKey: 'shift-bad-1', shiftId: 'shift-1', type: 'paid_out', amount: { amountInCents: 0, currency: 'THB' }, reason: 'Zero amount' },
+      { idempotencyKey: 'shift-bad-1', shiftId: 'shift-1', type: 'paid_out', amount: { amountInCents: 500, currency: 'THB' }, reason: '' },
+    ]) {
+      const res = await fetch(`${server.baseUrl}/api/v1/sync/commands`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          item: {
+            id: 'outbox-shift-bad',
+            type: 'shift_movement',
+            idempotencyKey: 'shift-bad-1',
+            payload: invalidShiftPayload,
+            createdAt: '2026-10-02T00:00:00.000Z',
+            attempts: 0,
+            syncState: 'queued',
+          },
+        }),
+      });
+      assert.equal(res.status, 400);
+      assert.equal((await res.json()).error.code, 'SYNC_PAYLOAD_INVALID');
+    }
+
+    const crossStoreShift = await fetch(`${server.baseUrl}/api/v1/sync/commands`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        item: {
+          id: 'outbox-shift-cross-store',
+          type: 'shift_movement',
+          idempotencyKey: 'shift-cross-1',
+          payload: {
+            idempotencyKey: 'shift-cross-1',
+            storeId: 'other-store',
+            shiftId: 'shift-1',
+            type: 'paid_in',
+            amount: { amountInCents: 1000, currency: 'THB' },
+            reason: 'Cross store attempt',
+          },
+          createdAt: '2026-10-02T00:00:00.000Z',
+          attempts: 0,
+          syncState: 'queued',
+        },
+      }),
+    });
+    assert.equal(crossStoreShift.status, 403);
+    assert.equal((await crossStoreShift.json()).error.code, 'FORBIDDEN');
+
+    for (const invalidStockPayload of [
+      { idempotencyKey: 'stock-bad-1', productIds: [], quantityDelta: 2, reason: 'purchase_received' },
+      { idempotencyKey: 'stock-bad-1', productIds: ['prod-1'], quantityDelta: 0, reason: 'purchase_received' },
+      { idempotencyKey: 'stock-bad-1', productIds: ['prod-1'], quantityDelta: -1, reason: 'sale_deduction' },
+    ]) {
+      const res = await fetch(`${server.baseUrl}/api/v1/sync/commands`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          item: {
+            id: 'outbox-stock-bad',
+            type: 'stock_adjustment',
+            idempotencyKey: 'stock-bad-1',
+            payload: invalidStockPayload,
+            createdAt: '2026-10-02T00:00:00.000Z',
+            attempts: 0,
+            syncState: 'queued',
+          },
+        }),
+      });
+      assert.equal(res.status, 400);
+      assert.equal((await res.json()).error.code, 'SYNC_PAYLOAD_INVALID');
+    }
+
+    const crossStoreStock = await fetch(`${server.baseUrl}/api/v1/sync/commands`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        item: {
+          id: 'outbox-stock-cross-store',
+          type: 'stock_adjustment',
+          idempotencyKey: 'stock-cross-1',
+          payload: {
+            idempotencyKey: 'stock-cross-1',
+            storeId: 'other-store',
+            productIds: ['prod-1'],
+            quantityDelta: 2,
+            reason: 'purchase_received',
+          },
+          createdAt: '2026-10-02T00:00:00.000Z',
+          attempts: 0,
+          syncState: 'queued',
+        },
+      }),
+    });
+    assert.equal(crossStoreStock.status, 403);
+    assert.equal((await crossStoreStock.json()).error.code, 'FORBIDDEN');
   } finally {
     await server.close();
   }
@@ -127,7 +291,7 @@ const request = (key: string): CheckoutRequest => ({
   payments: [{ id: ids.payment, method: 'cash', amount: { amountInCents: 1000, currency: 'THB' }, tenderedCash: { amountInCents: 1000, currency: 'THB' }, changeGiven: { amountInCents: 0, currency: 'THB' }, timestamp: '2026-10-05T00:00:00.000Z' }],
 });
 
-test('production sync HTTP path commits once and returns cached result on replay', async (t) => {
+test('production sync HTTP path commits order_transaction, shift_movement, and stock_adjustment once and returns cached result on replay with conflict protection', async (t) => {
   if (!pool || !db) { t.skip('DATABASE_URL not configured'); return; }
 
   try {
@@ -140,9 +304,18 @@ test('production sync HTTP path commits once and returns cached result on replay
     await pool.query('INSERT INTO prodx_categories(id,organization_id,store_id,name,slug) VALUES($1,$2,$3,$4,$5)', [ids.category, ids.org, ids.store, 'Sync Category', `sync-category-${runSuffix}`]);
     await pool.query("INSERT INTO prodx_products(id,organization_id,store_id,category_id,sku,barcode,name,price_amount,cost_price_amount,currency,tax_rate_bps,current_stock,reorder_point,unit_of_measure) VALUES($1,$2,$3,$4,$5,$5,'Sync Product',10.00,5.00,'THB',0,10,1,'each')", [ids.product, ids.org, ids.store, ids.category, `SYNC-${runSuffix}`]);
     let discountAuthorized = true;
-    const app = createApp({ authenticateRequest: () => ({ userId: ids.user, organizationId: ids.org, storeId: ids.store, sessionId: 'sync-http-session' }), authorizeRequest: (_context, permission) => permission === 'pos.sell' || (permission === 'pos.discount' && discountAuthorized), configureRoutes: (configuredApp) => registerSyncRoute(configuredApp, db) });
+    const app = createApp({
+      authenticateRequest: () => ({ userId: ids.user, organizationId: ids.org, storeId: ids.store, sessionId: 'sync-http-session' }),
+      authorizeRequest: (_context, permission) =>
+        permission === 'pos.sell' ||
+        permission === 'cash.shift.movement' ||
+        permission === 'inventory.adjust' ||
+        (permission === 'pos.discount' && discountAuthorized),
+      configureRoutes: (configuredApp) => registerSyncRoute(configuredApp, db),
+    });
     const server = await start(app);
     try {
+      // 1. order_transaction: commit (201) -> replay (200) -> payload mismatch conflict (409)
       const basePayload = request(`offline-sync-${runSuffix}`);
       const discountedPayload: CheckoutRequest = {
         ...basePayload,
@@ -153,7 +326,9 @@ test('production sync HTTP path commits once and returns cached result on replay
       const item = { id: `offline-sync-${runSuffix}`, type: 'order_transaction' as const, idempotencyKey: `offline-sync-${runSuffix}`, payload: discountedPayload, createdAt: '2026-10-05T00:00:00.000Z', attempts: 0, syncState: 'queued' as const };
       const first = await fetch(`${server.baseUrl}/api/v1/sync/commands`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ item }) });
       assert.equal(first.status, 201);
-      const firstBody = await first.json() as { confirmedOrder: { id: string }; serverConfirmed: boolean; idempotencyCached: boolean };
+      const firstBody = await first.json() as { commandType: string; confirmedEntityId: string; confirmedOrder: { id: string }; serverConfirmed: boolean; idempotencyCached: boolean };
+      assert.equal(firstBody.commandType, 'order_transaction');
+      assert.equal(firstBody.confirmedEntityId, firstBody.confirmedOrder.id);
       assert.equal(firstBody.serverConfirmed, true); assert.equal(firstBody.idempotencyCached, false);
       discountAuthorized = false;
       const replay = await fetch(`${server.baseUrl}/api/v1/sync/commands`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ item: { ...item, attempts: 1 } }) });
@@ -168,6 +343,207 @@ test('production sync HTTP path commits once and returns cached result on replay
       assert.equal((await pool.query('SELECT current_stock FROM prodx_products WHERE id=$1', [ids.product])).rows[0].current_stock, 9);
       assert.equal((await pool.query('SELECT grand_total_amount::text FROM prodx_orders WHERE id=$1', [firstBody.confirmedOrder.id])).rows[0].grand_total_amount, '9.50');
       assert.equal((await pool.query('SELECT count(*)::int AS count FROM prodx_payments WHERE store_id=$1 AND order_id=$2', [ids.store, firstBody.confirmedOrder.id])).rows[0].count, 1);
+
+      // 2. shift_movement: commit (201) -> replay (200) -> payload mismatch conflict (409)
+      const shiftIdemKey = `offline-shift-mov-${runSuffix}`;
+      const shiftPayload = {
+        idempotencyKey: shiftIdemKey,
+        storeId: ids.store,
+        shiftId: ids.shift,
+        type: 'paid_in' as const,
+        amount: { amountInCents: 2500, currency: 'THB' },
+        reason: 'Offline drawer replenishment',
+        performedByUserId: ids.user,
+      };
+      const shiftItem = {
+        id: `outbox-shift-${runSuffix}`,
+        type: 'shift_movement' as const,
+        idempotencyKey: shiftIdemKey,
+        payload: shiftPayload,
+        createdAt: '2026-10-05T00:01:00.000Z',
+        attempts: 0,
+        syncState: 'queued' as const,
+      };
+      const shiftFirst = await fetch(`${server.baseUrl}/api/v1/sync/commands`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ item: shiftItem }),
+      });
+      assert.equal(shiftFirst.status, 201);
+      const shiftFirstBody = await shiftFirst.json() as {
+        commandType: string;
+        confirmedEntityId: string;
+        confirmedMovement: { id: string; shiftId: string; type: string; amount: { amountInCents: number; currency: string }; reason: string };
+        serverConfirmed: boolean;
+        idempotencyCached: boolean;
+      };
+      assert.equal(shiftFirstBody.commandType, 'shift_movement');
+      assert.equal(shiftFirstBody.serverConfirmed, true);
+      assert.equal(shiftFirstBody.idempotencyCached, false);
+      assert.equal(shiftFirstBody.confirmedEntityId, shiftFirstBody.confirmedMovement.id);
+      assert.equal(shiftFirstBody.confirmedMovement.amount.amountInCents, 2500);
+
+      const shiftReplay = await fetch(`${server.baseUrl}/api/v1/sync/commands`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ item: { ...shiftItem, attempts: 1 } }),
+      });
+      assert.equal(shiftReplay.status, 200);
+      const shiftReplayBody = await shiftReplay.json() as typeof shiftFirstBody;
+      assert.equal(shiftReplayBody.serverConfirmed, true);
+      assert.equal(shiftReplayBody.idempotencyCached, true);
+      assert.equal(shiftReplayBody.confirmedEntityId, shiftFirstBody.confirmedEntityId);
+
+      const shiftConflict = await fetch(`${server.baseUrl}/api/v1/sync/commands`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          item: {
+            ...shiftItem,
+            attempts: 2,
+            payload: { ...shiftPayload, amount: { amountInCents: 9900, currency: 'THB' } },
+          },
+        }),
+      });
+      assert.equal(shiftConflict.status, 409);
+      assert.equal((await shiftConflict.json()).error.code, 'SHIFT_CONFLICT');
+
+      // Closed-shift movement attempt via sync route returns 409 SHIFT_CONFLICT
+      const closedShiftId = randomUUID();
+      await pool.query(
+        "INSERT INTO prodx_shifts(id,organization_id,store_id,register_id,cashier_id,status,closed_at,opening_float_amount,actual_counted_cash_amount,currency) VALUES($1,$2,$3,$4,$5,'closed',CURRENT_TIMESTAMP,0,0,'THB')",
+        [closedShiftId, ids.org, ids.store, ids.register, ids.user],
+      );
+      const closedShiftKey = `offline-shift-closed-${runSuffix}`;
+      const closedShiftRes = await fetch(`${server.baseUrl}/api/v1/sync/commands`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          item: {
+            id: `outbox-shift-closed-${runSuffix}`,
+            type: 'shift_movement',
+            idempotencyKey: closedShiftKey,
+            payload: {
+              idempotencyKey: closedShiftKey,
+              storeId: ids.store,
+              shiftId: closedShiftId,
+              type: 'paid_out',
+              amount: { amountInCents: 500, currency: 'THB' },
+              reason: 'Movement against closed shift',
+            },
+            createdAt: '2026-10-05T00:01:30.000Z',
+            attempts: 0,
+            syncState: 'queued',
+          },
+        }),
+      });
+      assert.equal(closedShiftRes.status, 409);
+      assert.equal((await closedShiftRes.json()).error.code, 'SHIFT_CONFLICT');
+
+      assert.equal(
+        (await pool.query("SELECT count(*)::int AS count FROM prodx_cash_movements WHERE shift_id=$1 AND type='paid_in'", [ids.shift])).rows[0].count,
+        1,
+      );
+      assert.equal(
+        (await pool.query("SELECT count(*)::int AS count FROM prodx_audit_log WHERE store_id=$1 AND action='cash_movement_recorded'", [ids.store])).rows[0].count,
+        1,
+      );
+
+      // 3. stock_adjustment: commit (201) -> replay (200) -> payload mismatch conflict (409) -> negative stock rejection (409)
+      const stockIdemKey = `offline-stock-adj-${runSuffix}`;
+      const stockPayload = {
+        idempotencyKey: stockIdemKey,
+        storeId: ids.store,
+        productIds: [ids.product],
+        quantityDelta: -2,
+        reason: 'damaged_write_off' as const,
+        notes: 'Offline damaged write-off',
+        requesterUserId: ids.user,
+      };
+      const stockItem = {
+        id: `outbox-stock-${runSuffix}`,
+        type: 'stock_adjustment' as const,
+        idempotencyKey: stockIdemKey,
+        payload: stockPayload,
+        createdAt: '2026-10-05T00:02:00.000Z',
+        attempts: 0,
+        syncState: 'queued' as const,
+      };
+      const stockFirst = await fetch(`${server.baseUrl}/api/v1/sync/commands`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ item: stockItem }),
+      });
+      assert.equal(stockFirst.status, 201);
+      const stockFirstBody = await stockFirst.json() as {
+        commandType: string;
+        confirmedEntityId: string;
+        confirmedAdjustment: { adjustmentId: string; entries: Array<{ resulting_stock: number; quantity_delta: number }> };
+        serverConfirmed: boolean;
+        idempotencyCached: boolean;
+      };
+      assert.equal(stockFirstBody.commandType, 'stock_adjustment');
+      assert.equal(stockFirstBody.serverConfirmed, true);
+      assert.equal(stockFirstBody.idempotencyCached, false);
+      assert.equal(stockFirstBody.confirmedEntityId, stockFirstBody.confirmedAdjustment.adjustmentId);
+      assert.equal(stockFirstBody.confirmedAdjustment.entries.length, 1);
+      assert.equal(stockFirstBody.confirmedAdjustment.entries[0].resulting_stock, 7);
+
+      const stockReplay = await fetch(`${server.baseUrl}/api/v1/sync/commands`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ item: { ...stockItem, attempts: 1 } }),
+      });
+      assert.equal(stockReplay.status, 200);
+      const stockReplayBody = await stockReplay.json() as typeof stockFirstBody;
+      assert.equal(stockReplayBody.serverConfirmed, true);
+      assert.equal(stockReplayBody.idempotencyCached, true);
+      assert.equal(stockReplayBody.confirmedEntityId, stockFirstBody.confirmedEntityId);
+      assert.equal((await pool.query('SELECT current_stock FROM prodx_products WHERE id=$1', [ids.product])).rows[0].current_stock, 7);
+
+      const stockConflict = await fetch(`${server.baseUrl}/api/v1/sync/commands`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          item: {
+            ...stockItem,
+            attempts: 2,
+            payload: { ...stockPayload, quantityDelta: -5 },
+          },
+        }),
+      });
+      assert.equal(stockConflict.status, 409);
+      assert.equal((await stockConflict.json()).error.code, 'INVENTORY_ADJUSTMENT_CONFLICT');
+
+      const negativeStockKey = `offline-stock-neg-${runSuffix}`;
+      const negativeStockRes = await fetch(`${server.baseUrl}/api/v1/sync/commands`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          item: {
+            id: `outbox-stock-neg-${runSuffix}`,
+            type: 'stock_adjustment',
+            idempotencyKey: negativeStockKey,
+            payload: {
+              idempotencyKey: negativeStockKey,
+              storeId: ids.store,
+              productIds: [ids.product],
+              quantityDelta: -50,
+              reason: 'audit_count_adjustment',
+            },
+            createdAt: '2026-10-05T00:03:00.000Z',
+            attempts: 0,
+            syncState: 'queued',
+          },
+        }),
+      });
+      assert.equal(negativeStockRes.status, 409);
+      assert.equal((await negativeStockRes.json()).error.code, 'INVENTORY_ADJUSTMENT_CONFLICT');
+      assert.equal((await pool.query('SELECT current_stock FROM prodx_products WHERE id=$1', [ids.product])).rows[0].current_stock, 7);
+      assert.equal(
+        (await pool.query("SELECT count(*)::int AS count FROM prodx_audit_log WHERE store_id=$1 AND action='inventory_adjustment_committed'", [ids.store])).rows[0].count,
+        1,
+      );
     } finally { await server.close(); }
   } finally { await pool.end(); }
 });

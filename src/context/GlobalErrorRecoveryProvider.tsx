@@ -166,7 +166,7 @@ export class InternalCrashBoundary extends Component<ErrorBoundaryProps, ErrorBo
             <button
               type="button"
               onClick={() => window.location.reload()}
-              className="rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+              className="rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
             >
               Reload application
             </button>
@@ -186,7 +186,7 @@ export interface StateSanitationResult {
 }
 
 const VALID_OUTBOX_TYPES = new Set(['order_transaction', 'shift_movement', 'stock_adjustment']);
-const VALID_SYNC_STATES = new Set(['queued', 'syncing', 'synced', 'failed', 'conflict_requires_attention']);
+const VALID_SYNC_STATES = new Set(['queued', 'syncing', 'synced', 'failed', 'conflict_requires_attention', 'dead_letter']);
 
 export function isValidOutboxQueueItem(item: any): boolean {
   if (!item || typeof item !== 'object' || Array.isArray(item)) return false;

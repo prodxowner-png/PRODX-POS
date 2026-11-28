@@ -1,20 +1,40 @@
-export const isMockDisabled = (): boolean => 
+export const isMockDisabled = (): boolean =>
   typeof localStorage !== 'undefined' && localStorage.getItem('prodx_disable_mocks') === 'true';
 
-export const hasProductionUrl = (): boolean => {
-  const url = import.meta.env.VITE_AUTH_API_BASE_URL?.trim() || '';
-  return !!url && url.startsWith('http');
-};
+const isViteDevelopmentBuild = (): boolean =>
+  typeof import.meta.env !== 'undefined' && import.meta.env.DEV === true;
 
-export const isAiStudioPreview = (): boolean => {
-  if (typeof window === 'undefined') return false;
-  const h = window.location.hostname;
-  return h.includes('aistudio.google.com') || 
-         h.includes('asia-southeast1.run.app') || 
-         h.includes('localhost');
-};
+export const hasProductionApiRoute = (flags: {
+  isDev: boolean;
+  isPreview: boolean;
+  mocksDisabled: boolean;
+}): boolean => flags.mocksDisabled || (!flags.isDev && !flags.isPreview);
 
-export const shouldReadMock = (): boolean => {
-  if (isMockDisabled()) return false;
-  return import.meta.env.DEV || !hasProductionUrl() || isAiStudioPreview();
-};
+export const hasProductionUrl = (): boolean => hasProductionApiRoute({
+  isDev: isViteDevelopmentBuild(),
+  isPreview: isAiStudioPreview(),
+  mocksDisabled: isMockDisabled(),
+});
+
+export const isAiStudioPreviewHostname = (hostname: string): boolean =>
+  hostname === 'localhost' ||
+  hostname.endsWith('.localhost') ||
+  hostname === 'aistudio.google.com' ||
+  hostname.endsWith('.aistudio.google.com');
+
+export const isAiStudioPreview = (): boolean =>
+  typeof window !== 'undefined' && isAiStudioPreviewHostname(window.location.hostname);
+
+export const shouldUseDevelopmentMocks = (flags: {
+  isDev: boolean;
+  isPreview: boolean;
+  mocksDisabled: boolean;
+}): boolean => !flags.mocksDisabled && (flags.isDev || flags.isPreview);
+
+export const isDevelopmentMode = (): boolean => shouldUseDevelopmentMocks({
+  isDev: isViteDevelopmentBuild(),
+  isPreview: isAiStudioPreview(),
+  mocksDisabled: isMockDisabled(),
+});
+
+export const shouldReadMock = (): boolean => isDevelopmentMode();
