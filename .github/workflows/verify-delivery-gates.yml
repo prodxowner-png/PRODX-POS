@@ -189,6 +189,10 @@ jobs:
         id: inventory_integration
         run: npm run integration:inventory 2>&1 | tee artifacts/logs/inventory-integration.log
 
+      - name: Gate 4.7 — Bounded terminal recovery checkpoint and history pagination
+        id: terminal_recovery_integration
+        run: npm run integration:terminal-recovery 2>&1 | tee artifacts/logs/terminal-recovery-checkpoint-integration.log
+
       # No opening-stock seed is needed here: the CI chaos harness creates a
       # disposable tenant/product and records its opening quantity through the
       # immutable inventory_ledger path before testing POS sale deltas.
@@ -228,6 +232,7 @@ jobs:
           RLS_OUTCOME: ${{ steps.rls.outcome }}
           INTEGRATION_OUTCOME: ${{ steps.postgres_integration.outcome }}
           INVENTORY_OUTCOME: ${{ steps.inventory_integration.outcome }}
+          TERMINAL_RECOVERY_OUTCOME: ${{ steps.terminal_recovery_integration.outcome }}
           CHAOS_OUTCOME: ${{ steps.chaos.outcome }}
           RECONCILE_OUTCOME: ${{ steps.reconcile.outcome }}
         run: |
@@ -240,7 +245,7 @@ jobs:
             echo "| 1. Architecture Approved | Reviewed architecture baseline; not re-evaluated by this workflow | BASELINE |"
             echo "| 2. Implementation Complete | Versioned source package checked out | BASELINE |"
             echo "| 3. Build Verified | npm ci: $(result "$INSTALL_OUTCOME"); dependency audit: $(result "$AUDIT_OUTCOME"); Wrangler types: $(result "$TYPES_OUTCOME"); TypeScript: $(result "$TYPECHECK_OUTCOME"); workerd: $(result "$EDGE_OUTCOME") | $( [ "$INSTALL_OUTCOME" = success ] && [ "$AUDIT_OUTCOME" = success ] && [ "$TYPES_OUTCOME" = success ] && [ "$TYPECHECK_OUTCOME" = success ] && [ "$EDGE_OUTCOME" = success ] && echo PASS || echo FAIL ) |"
-            echo "| 4. Integration Verified | Base migration: $(result "$MIGRATION_OUTCOME"); legacy Store preflight: $(result "$INVENTORY_PREFLIGHT_OUTCOME"); Store migration: $(result "$INVENTORY_MIGRATION_OUTCOME"); recovery migrations: $(result "$RECOVERY_MIGRATION_OUTCOME"); roles/grants/privileges: $(result "$ROLES_OUTCOME")/$(result "$GRANTS_OUTCOME")/$(result "$PRIVILEGES_OUTCOME"); RLS: $(result "$RLS_OUTCOME"); PostgreSQL CTE: $(result "$INTEGRATION_OUTCOME"); Store inventory: $(result "$INVENTORY_OUTCOME") | $( [ "$MIGRATION_OUTCOME" = success ] && [ "$INVENTORY_PREFLIGHT_OUTCOME" = success ] && [ "$INVENTORY_MIGRATION_OUTCOME" = success ] && [ "$RECOVERY_MIGRATION_OUTCOME" = success ] && [ "$ROLES_OUTCOME" = success ] && [ "$GRANTS_OUTCOME" = success ] && [ "$PRIVILEGES_OUTCOME" = success ] && [ "$RLS_OUTCOME" = success ] && [ "$INTEGRATION_OUTCOME" = success ] && [ "$INVENTORY_OUTCOME" = success ] && echo PASS || echo FAIL ) |"
+            echo "| 4. Integration Verified | Base migration: $(result "$MIGRATION_OUTCOME"); legacy Store preflight: $(result "$INVENTORY_PREFLIGHT_OUTCOME"); Store migration: $(result "$INVENTORY_MIGRATION_OUTCOME"); recovery migrations: $(result "$RECOVERY_MIGRATION_OUTCOME"); roles/grants/privileges: $(result "$ROLES_OUTCOME")/$(result "$GRANTS_OUTCOME")/$(result "$PRIVILEGES_OUTCOME"); RLS: $(result "$RLS_OUTCOME"); PostgreSQL CTE: $(result "$INTEGRATION_OUTCOME"); Store inventory: $(result "$INVENTORY_OUTCOME"); bounded terminal recovery: $(result "$TERMINAL_RECOVERY_OUTCOME") | $( [ "$MIGRATION_OUTCOME" = success ] && [ "$INVENTORY_PREFLIGHT_OUTCOME" = success ] && [ "$INVENTORY_MIGRATION_OUTCOME" = success ] && [ "$RECOVERY_MIGRATION_OUTCOME" = success ] && [ "$ROLES_OUTCOME" = success ] && [ "$GRANTS_OUTCOME" = success ] && [ "$PRIVILEGES_OUTCOME" = success ] && [ "$RLS_OUTCOME" = success ] && [ "$INTEGRATION_OUTCOME" = success ] && [ "$INVENTORY_OUTCOME" = success ] && [ "$TERMINAL_RECOVERY_OUTCOME" = success ] && echo PASS || echo FAIL ) |"
             echo "| 5. Load & Recovery Verified | 300 terminal CI-scale PostgreSQL load: $(result "$CHAOS_OUTCOME"); SQL reconciliation: $(result "$RECONCILE_OUTCOME") | $( [ "$CHAOS_OUTCOME" = success ] && [ "$RECONCILE_OUTCOME" = success ] && echo PASS || echo FAIL ) |"
             echo "| 6. Production Ready | Requires deployed Cloudflare staging, real DO/Queue crash recovery, mTLS/WAF validation and production-like load evidence | HOLD |"
             echo ""

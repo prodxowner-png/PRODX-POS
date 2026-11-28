@@ -576,6 +576,24 @@ describe("PRODX Edge sync Durable Object", () => {
     });
   });
 
+  it("fails closed when a bounded origin checkpoint exceeds the 256-row safety cap", async () => {
+    const stub = getStub("origin-checkpoint-bound");
+    const checkpoint = {
+      store_id: STORE,
+      last_committed_seq_no: 0,
+      last_hlc_physical_ms: 0,
+      last_hlc_logical: 0,
+      last_resolved_seq_no: 0,
+      last_resolved_hlc_physical_ms: 0,
+      last_resolved_hlc_logical: 0,
+      terminal_failures: Array.from({ length: 257 }, () => ({}))
+    } as any;
+    await runInDO(stub, async (instance: IdempotencyGate) => {
+      await expect(instance.applyOriginCheckpoint(checkpoint))
+        .rejects.toThrow("INVALID_ORIGIN_TERMINAL_CHECKPOINT");
+    });
+  });
+
   it("verifies durable DO outbox retention only for active QUEUED receipts with alarm", async () => {
     const stub = getStub("durable-outbox-retention");
     const item = prepared("durable-outbox-retention-key", "c".repeat(64), 1);

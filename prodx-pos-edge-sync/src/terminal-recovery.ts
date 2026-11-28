@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { Client } from "pg";
-import type { QueueSale, TerminalCheckpoint, TerminalFailureCheckpoint } from "./contracts";
+import { MAX_TERMINAL_CHECKPOINT_FAILURES, MAX_TERMINAL_FAILURE_LOOKUP } from "./contracts";
+import type { QueueSale, TerminalCheckpoint, TerminalFailureCheckpoint, TerminalFailureLookup } from "./contracts";
 import { canonicalize, sha256Hex, assertSaleShape } from "./canonical";
 import { recoveryReplayOutcome } from "./recovery-outcome";
 
@@ -76,15 +77,24 @@ async function resolveAuthoritativeTerminalStoreId(
 }
 
 /**
- * Read the authoritative origin checkpoint and all durable failed-sequence
- * outcomes for one tenant/terminal. The caller must already have set RLS context.
+ * Read a bounded recovery checkpoint: active failures plus only historical failures
+ * matching this request's idempotency keys or terminal sequence numbers. The caller
+ * must already have set RLS context inside the same transaction as the terminal state read.
  */
 export async function readTerminalCheckpoint(
   client: Client,
   tenantId: string,
   terminalId: string,
-  authoritativeStoreId?: string
+  authoritativeStoreId?: string,
+  lookup: readonly TerminalFailureLookup[] = []
 ): Promise<TerminalCheckpoint> {
+  if (lookup.length > MAX_TERMINAL_FAILURE_LOOKUP || lookup.some((item) =>
+    (item.idempotency_key !== undefined &&
+      (typeof item.idempotency_key !== "string" || item.idempotency_key.length < 16 || item.idempotency_key.length > 200)) ||
+    !safeInteger(item.terminal_seq_no, 1)
+  )) throw new Error("INVALID_TERMINAL_FAILURE_LOOKUP");
+  const lookupKeys = [...new Set(lookup.flatMap((item) => item.idempotency_key ? [item.idempotency_key] : []))];
+  const lookupSequences = [...new Set(lookup.map((item) => item.terminal_seq_no))];
   const stateResult = await client.query<{
     store_id: string;
     last_committed_seq_no: string;
@@ -129,7 +139,17 @@ export async function readTerminalCheckpoint(
     retry_failure_id: string | null;
     retry_failure_code: string | null;
   }>(
-    `SELECT f.terminal_seq_no::text AS terminal_seq_no,
+    `WITH candidate_ids AS MATERIALIZED (
+       SELECT id FROM terminal_sequence_failures
+        WHERE tenant_id=$1 AND terminal_id=$2 AND terminal_seq_no=$5::bigint + 1
+       UNION
+       SELECT id FROM terminal_sequence_failures
+        WHERE tenant_id=$1 AND terminal_id=$2 AND idempotency_key=ANY($3::text[])
+       UNION
+       SELECT id FROM terminal_sequence_failures
+        WHERE tenant_id=$1 AND terminal_id=$2 AND terminal_seq_no=ANY($4::bigint[])
+     )
+     SELECT f.terminal_seq_no::text AS terminal_seq_no,
             f.sale_id::text AS sale_id,
             f.idempotency_key,
             f.receipt_id::text AS receipt_id,
@@ -145,7 +165,8 @@ export async function readTerminalCheckpoint(
             r.resolution_id::text AS latest_resolution_id,
             rf.retry_failure_id::text AS retry_failure_id,
             rf.failure_code AS retry_failure_code
-       FROM terminal_sequence_failures f
+       FROM candidate_ids c
+       JOIN terminal_sequence_failures f ON f.id=c.id
        LEFT JOIN LATERAL (
          SELECT resolution_id,disposition
            FROM terminal_sequence_resolutions
@@ -164,11 +185,20 @@ export async function readTerminalCheckpoint(
          ON s.tenant_id=f.tenant_id AND s.terminal_id=f.terminal_id
         AND s.terminal_seq_no=f.terminal_seq_no
       WHERE f.tenant_id=$1 AND f.terminal_id=$2
+        AND (
+          (f.terminal_seq_no=$5::bigint + 1 AND s.sale_id IS NULL AND COALESCE(r.disposition,'') <> 'VOID')
+          OR f.idempotency_key=ANY($3::text[])
+          OR f.terminal_seq_no=ANY($4::bigint[])
+        )
       ORDER BY f.terminal_seq_no
-      LIMIT 5001`,
-    [tenantId, terminalId]
+      LIMIT $6`,
+    [tenantId, terminalId, lookupKeys, lookupSequences,
+      state?.last_resolved_seq_no ?? state?.last_committed_seq_no ?? "0",
+      MAX_TERMINAL_CHECKPOINT_FAILURES + 1]
   );
-  if (failureResult.rows.length > 5000) throw new Error("TERMINAL_FAILURE_RECONCILIATION_LIMIT");
+  if (failureResult.rows.length > MAX_TERMINAL_CHECKPOINT_FAILURES) {
+    throw new Error("TERMINAL_FAILURE_CHECKPOINT_LIMIT");
+  }
   const failures: TerminalFailureCheckpoint[] = failureResult.rows.map((row) => {
     if (row.matched_sale_id && row.matched_sale_id !== row.sale_id) {
       throw new Error("TERMINAL_FAILURE_SALE_ID_CONFLICT");
@@ -219,6 +249,103 @@ export async function readTerminalCheckpoint(
     throw new Error("INVALID_ORIGIN_TERMINAL_CHECKPOINT");
   }
   return checkpoint;
+}
+
+export interface TerminalFailureHistoryItem {
+  terminal_seq_no: number;
+  sale_id: string;
+  idempotency_key: string;
+  receipt_id: string;
+  payload_hash: string;
+  failure_code: string;
+  failed_at: string;
+  outcome: TerminalFailureCheckpoint["outcome"];
+  resolution_id: string | null;
+  resolution_at: string | null;
+  retry_failure_code: string | null;
+}
+
+export interface TerminalFailureHistoryPage {
+  items: TerminalFailureHistoryItem[];
+  has_more: boolean;
+  next_cursor: string | null;
+}
+
+/** Stable keyset pagination over immutable terminal failure history. */
+export async function readTerminalFailureHistoryPage(
+  client: Client,
+  tenantId: string,
+  terminalId: string,
+  afterSeqNo: number,
+  limit: number
+): Promise<TerminalFailureHistoryPage> {
+  if (!UUID.test(tenantId) || !UUID.test(terminalId) || !safeInteger(afterSeqNo) ||
+      !safeInteger(limit, 1) || limit > 100) {
+    throw new Error("INVALID_TERMINAL_FAILURE_PAGE");
+  }
+  const result = await client.query<{
+    terminal_seq_no: string; sale_id: string; idempotency_key: string; receipt_id: string;
+    payload_hash: string; failure_code: string; failed_at: string; matched_sale_id: string | null;
+    disposition: string | null; resolution_id: string | null; resolution_at: string | null;
+    retry_failure_id: string | null; retry_failure_code: string | null;
+  }>(
+    `SELECT f.terminal_seq_no::text AS terminal_seq_no,
+            f.sale_id::text AS sale_id,
+            f.idempotency_key,
+            f.receipt_id::text AS receipt_id,
+            f.payload_hash,
+            f.failure_code,
+            f.failed_at::text AS failed_at,
+            s.sale_id::text AS matched_sale_id,
+            r.disposition,
+            r.resolution_id::text AS resolution_id,
+            r.created_at::text AS resolution_at,
+            rf.retry_failure_id::text AS retry_failure_id,
+            rf.failure_code AS retry_failure_code
+       FROM terminal_sequence_failures f
+       LEFT JOIN LATERAL (
+         SELECT resolution_id,disposition,created_at
+           FROM terminal_sequence_resolutions
+          WHERE failure_id=f.id
+          ORDER BY created_at DESC,resolution_id DESC
+          LIMIT 1
+       ) r ON true
+       LEFT JOIN LATERAL (
+         SELECT retry_failure_id,failure_code
+           FROM terminal_sequence_retry_failures
+          WHERE failure_id=f.id AND resolution_id=r.resolution_id
+          ORDER BY failed_at DESC,retry_failure_id DESC
+          LIMIT 1
+       ) rf ON true
+       LEFT JOIN sales s
+         ON s.tenant_id=f.tenant_id AND s.terminal_id=f.terminal_id
+        AND s.terminal_seq_no=f.terminal_seq_no
+      WHERE f.tenant_id=$1 AND f.terminal_id=$2 AND f.terminal_seq_no>$3
+      ORDER BY f.terminal_seq_no ASC
+      LIMIT $4`,
+    [tenantId,terminalId,afterSeqNo,limit+1]
+  );
+  const hasMore = result.rows.length > limit;
+  const rows = result.rows.slice(0,limit);
+  const items: TerminalFailureHistoryItem[] = rows.map((row) => ({
+    terminal_seq_no: Number(row.terminal_seq_no),
+    sale_id: row.sale_id,
+    idempotency_key: row.idempotency_key,
+    receipt_id: row.receipt_id,
+    payload_hash: row.payload_hash.trim(),
+    failure_code: row.failure_code,
+    failed_at: row.failed_at,
+    outcome: row.matched_sale_id ? "COMMITTED" : row.disposition === "VOID" ? "VOIDED" :
+      row.disposition === "RETRY" && !row.retry_failure_id ? "RETRY" : "FAILED",
+    resolution_id: row.resolution_id,
+    resolution_at: row.resolution_at,
+    retry_failure_code: row.retry_failure_code
+  }));
+  return {
+    items,
+    has_more: hasMore,
+    next_cursor: hasMore && items.length ? String(items[items.length-1]!.terminal_seq_no) : null
+  };
 }
 
 /**
@@ -564,7 +691,7 @@ export async function resolveFailedSequence(
           prior.actor_subject !== actorSubject || prior.reason !== reason) {
         throw new Error("TERMINAL_SEQUENCE_RECOVERY_REQUEST_ID_CONFLICT");
       }
-      const checkpoint = await readTerminalCheckpoint(client,input.tenantId,input.terminalId,storeId);
+      const checkpoint = await readTerminalCheckpoint(client,input.tenantId,input.terminalId,storeId,[{terminal_seq_no:input.terminalSeqNo}]);
       const currentFailure = checkpoint.terminal_failures.find((failure) =>
         failure.terminal_seq_no === input.terminalSeqNo
       );
@@ -599,7 +726,7 @@ export async function resolveFailedSequence(
       if (saleAtSequence.rows[0]!.sale_id !== failure.sale_id) {
         throw new Error("TERMINAL_SEQUENCE_COMMIT_CONFLICT");
       }
-      const checkpoint = await readTerminalCheckpoint(client,input.tenantId,input.terminalId,storeId);
+      const checkpoint = await readTerminalCheckpoint(client,input.tenantId,input.terminalId,storeId,[{terminal_seq_no:input.terminalSeqNo}]);
       await client.query("COMMIT");
       return { resolution_id: null, outcome: "COMMITTED", checkpoint };
     }
@@ -613,7 +740,7 @@ export async function resolveFailedSequence(
     );
     if (latest.rows[0]?.disposition === "VOID") {
       if (input.disposition !== "VOID") throw new Error("TERMINAL_SEQUENCE_ALREADY_VOIDED");
-      const checkpoint = await readTerminalCheckpoint(client,input.tenantId,input.terminalId,storeId);
+      const checkpoint = await readTerminalCheckpoint(client,input.tenantId,input.terminalId,storeId,[{terminal_seq_no:input.terminalSeqNo}]);
       await client.query("COMMIT");
       return { resolution_id: null, outcome: "VOIDED", checkpoint };
     }
@@ -672,7 +799,7 @@ export async function resolveFailedSequence(
          reason
        })]
     );
-    const checkpoint = await readTerminalCheckpoint(client,input.tenantId,input.terminalId,storeId);
+    const checkpoint = await readTerminalCheckpoint(client,input.tenantId,input.terminalId,storeId,[{terminal_seq_no:input.terminalSeqNo}]);
     await client.query("COMMIT");
     return {
       resolution_id: resolutionId,

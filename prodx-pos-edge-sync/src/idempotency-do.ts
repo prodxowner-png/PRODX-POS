@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { MAX_TERMINAL_CHECKPOINT_FAILURES } from "./contracts";
 import type {
   IdempotencyBatchResult, IdempotencyResultItem, IdempotencySubmission, QueueSale, TerminalCheckpoint
 } from "./contracts";
@@ -183,7 +184,7 @@ export class IdempotencyGate extends DurableObject<Env> {
         !Number.isSafeInteger(checkpoint.last_resolved_hlc_physical_ms) || checkpoint.last_resolved_hlc_physical_ms < 0 ||
         !Number.isSafeInteger(checkpoint.last_resolved_hlc_logical) || checkpoint.last_resolved_hlc_logical < 0 ||
         checkpoint.last_resolved_hlc_logical > 2147483647 ||
-        !Array.isArray(checkpoint.terminal_failures) || checkpoint.terminal_failures.length > 5000) {
+        !Array.isArray(checkpoint.terminal_failures) || checkpoint.terminal_failures.length > MAX_TERMINAL_CHECKPOINT_FAILURES) {
       throw new Error("INVALID_ORIGIN_TERMINAL_CHECKPOINT");
     }
     const local=this.ctx.storage.sql.exec<{

@@ -2,7 +2,7 @@ import type { SyncBatch, QueueSale } from "./contracts";
 import { canonicalize, sha256Hex, assertSaleShape, isUuid } from "./canonical";
 import { authenticate, authenticateTenantOperator, authenticateRecoveryOperator, verifyTerminalCertificate } from "./auth";
 import { commitSale, PermanentDataError } from "./postgres";
-import { recordFailedSequence, resolveFailedSequence } from "./terminal-recovery";
+import { recordFailedSequence, resolveFailedSequence, readTerminalFailureHistoryPage } from "./terminal-recovery";
 import { verifySalePrices, signCatalogSnapshot, signCatalogPriceProofs } from "./catalog-crypto";
 import { catalogSigningKey } from "./secrets";
 export { IdempotencyGate } from "./idempotency-do";
@@ -50,7 +50,6 @@ function getDoName(tenantId: string, terminalId: string): string {
 
 async function handleSync(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const auth = await authenticate(request, env);
-  const originCheckpoint = await verifyTerminalCertificate(request,env,auth);
   const contentLengthHeader = request.headers.get("content-length");
   if (contentLengthHeader !== null) {
     if (!/^\d+$/.test(contentLengthHeader)) return json({ error: "INVALID_CONTENT_LENGTH" }, 400);
@@ -77,6 +76,15 @@ async function handleSync(request: Request, env: Env, ctx: ExecutionContext): Pr
     return json({ error: "BATCH_MUST_CONTAIN_10_TO_50_SALES" }, 400);
   }
 
+  const failureLookup = batch.sales.flatMap((sale) => {
+    const sequence = sale?.terminal_seq_no;
+    if (!Number.isSafeInteger(sequence) || sequence < 1) return [];
+    const key = typeof sale.idempotency_key === "string" &&
+      sale.idempotency_key.length >= 16 && sale.idempotency_key.length <= 200
+      ? sale.idempotency_key : undefined;
+    return [{ idempotency_key: key, terminal_seq_no: sequence }];
+  });
+  const originCheckpoint = await verifyTerminalCertificate(request,env,auth,failureLookup);
   const edgeReceivedAt = new Date().toISOString();
   const prepared = [];
   try {
@@ -166,6 +174,59 @@ async function handleTerminalDiagnostics(request: Request, env: Env): Promise<Re
   const stub = env.IDEMPOTENCY.get(env.IDEMPOTENCY.idFromName(doName));
   return json({ tenant_id: operator.tenantId, terminal_id: terminalId,
     exported_at: new Date().toISOString(), ...(await stub.getDiagnostics(operator.tenantId, terminalId)) });
+}
+
+async function handleTerminalFailureHistory(request: Request, env: Env): Promise<Response> {
+  const operator = await authenticateTenantOperator(request, env);
+  const url = new URL(request.url);
+  const terminalId = url.searchParams.get("terminal_id");
+  const cursorRaw = url.searchParams.get("after_seq_no") ?? "0";
+  const limitRaw = url.searchParams.get("limit") ?? "50";
+  if (!terminalId || !isUuid(terminalId)) return json({ error: "INVALID_TERMINAL_ID" }, 400);
+  if (!/^(0|[1-9][0-9]*)$/.test(cursorRaw) || !/^[1-9][0-9]*$/.test(limitRaw)) {
+    return json({ error: "INVALID_TERMINAL_FAILURE_PAGE" }, 400);
+  }
+  const afterSeqNo = Number(cursorRaw);
+  const limit = Number(limitRaw);
+  if (!Number.isSafeInteger(afterSeqNo) || !Number.isSafeInteger(limit) || limit > 100) {
+    return json({ error: "INVALID_TERMINAL_FAILURE_PAGE" }, 400);
+  }
+  const { Client } = await import("pg");
+  const client = new Client({ connectionString: env.HYPERDRIVE_DIRECT.connectionString });
+  try {
+    await client.connect();
+    await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ");
+    await client.query("SELECT set_config('app.current_tenant_id',$1,true)", [operator.tenantId]);
+    const mapped = await client.query<{ store_id: string }>(
+      `SELECT DISTINCT d.store_id::text AS store_id
+         FROM terminal_devices d
+         JOIN pos_stores st ON st.tenant_id=d.tenant_id AND st.id=d.store_id
+        WHERE d.tenant_id=$1 AND d.terminal_id=$2`,
+      [operator.tenantId,terminalId]
+    );
+    if (mapped.rowCount !== 1) {
+      await client.query("ROLLBACK");
+      return json({ error: "TERMINAL_NOT_FOUND" }, 404);
+    }
+    const page = await readTerminalFailureHistoryPage(client,operator.tenantId,terminalId,afterSeqNo,limit);
+    await client.query("COMMIT");
+    return json({
+      tenant_id: operator.tenantId,
+      terminal_id: terminalId,
+      items: page.items,
+      has_more: page.has_more,
+      next_cursor: page.next_cursor
+    });
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    console.error("terminal_failure_history_unavailable", {
+      terminal_id: terminalId,
+      error_name: error instanceof Error ? error.name : "UNKNOWN"
+    });
+    return json({ error: "TERMINAL_FAILURE_HISTORY_UNAVAILABLE" }, 503);
+  } finally {
+    await client.end().catch(() => undefined);
+  }
 }
 
 async function handleReceiptStatus(request: Request, env: Env): Promise<Response> {
@@ -377,6 +438,9 @@ export default {
       }
       if (request.method === "GET" && url.pathname === "/api/v1/ops/terminal-sync-diagnostics") {
         return await handleTerminalDiagnostics(request, env);
+      }
+      if (request.method === "GET" && url.pathname === "/api/v1/ops/terminal-sequence-failures") {
+        return await handleTerminalFailureHistory(request, env);
       }
       if (request.method === "POST" && url.pathname === "/api/v1/ops/terminal-sequence-recovery") {
         return await handleTerminalSequenceRecovery(request,env);

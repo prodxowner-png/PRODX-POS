@@ -1,6 +1,6 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import type { JWTPayload } from "jose";
-import type { AuthContext, TerminalCheckpoint } from "./contracts";
+import type { AuthContext, TerminalCheckpoint, TerminalFailureLookup } from "./contracts";
 import { readTerminalCheckpoint } from "./terminal-recovery";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -70,7 +70,7 @@ export async function authenticateRecoveryOperator(request: Request, env: Env): 
   return { tenantId, subject };
 }
 
-export async function verifyTerminalCertificate(request: Request, env: Env, auth: AuthContext): Promise<TerminalCheckpoint> {
+export async function verifyTerminalCertificate(request: Request, env: Env, auth: AuthContext, lookup: readonly TerminalFailureLookup[] = []): Promise<TerminalCheckpoint> {
   const tls = (request as Request & { cf?: { tlsClientAuth?: {
     certVerified?: string; certRevoked?: boolean | string; certFingerprintSHA256?: string;
   } | null } }).cf?.tlsClientAuth;
@@ -99,7 +99,7 @@ export async function verifyTerminalCertificate(request: Request, env: Env, auth
     );
     if (mapped.rowCount !== 1) throw new Response("mTLS certificate is not enrolled for this tenant/terminal", { status: 403 });
     const storeId = mapped.rows[0]!.store_id;
-    const checkpoint = await readTerminalCheckpoint(client,auth.tenantId,auth.terminalId,storeId);
+    const checkpoint = await readTerminalCheckpoint(client,auth.tenantId,auth.terminalId,storeId,lookup);
     await client.query("COMMIT");
     return checkpoint;
   } catch (error) {
