@@ -86,21 +86,33 @@ async function resolveFreshVoidIdentity(
   message:QueueSale
 ):Promise<boolean> {
   if (row.prior_sequence_resolution_id) return false;
-  const freshVoid=await client.query<{
-    resolution_id:string;idempotency_key:string;payload_hash:string;sale_id:string;
-    tenant_id:string;terminal_id:string;terminal_seq_no:string;store_id:string;
-  }>(
-    `SELECT r.resolution_id::text AS resolution_id,f.idempotency_key,
-            f.payload_hash,f.sale_id::text AS sale_id,f.tenant_id::text AS tenant_id,
-            f.terminal_id::text AS terminal_id,f.terminal_seq_no::text AS terminal_seq_no,
-            f.store_id::text AS store_id
-       FROM terminal_sequence_resolutions r
-       JOIN terminal_sequence_failures f ON f.id=r.failure_id
-      WHERE r.tenant_id=$1 AND r.terminal_id=$2 AND r.terminal_seq_no=$3
-        AND r.disposition='VOID'
-      ORDER BY r.created_at DESC,r.resolution_id DESC LIMIT 1`,
-    [message.tenant_id,message.terminal_id,message.sale.terminal_seq_no]
-  );
+  // The write CTE's set_config(..., true) is transaction-local and resets
+  // after its autocommit statement. Re-establish tenant context in a fresh
+  // READ COMMITTED transaction or FORCE RLS correctly hides the VOID row.
+  await client.query("BEGIN READ ONLY");
+  let freshVoid;
+  try {
+    await client.query("SELECT set_config('app.current_tenant_id',$1,true)",[message.tenant_id]);
+    freshVoid=await client.query<{
+      resolution_id:string;idempotency_key:string;payload_hash:string;sale_id:string;
+      tenant_id:string;terminal_id:string;terminal_seq_no:string;store_id:string;
+    }>(
+      `SELECT r.resolution_id::text AS resolution_id,f.idempotency_key,
+              f.payload_hash,f.sale_id::text AS sale_id,f.tenant_id::text AS tenant_id,
+              f.terminal_id::text AS terminal_id,f.terminal_seq_no::text AS terminal_seq_no,
+              f.store_id::text AS store_id
+         FROM terminal_sequence_resolutions r
+         JOIN terminal_sequence_failures f ON f.id=r.failure_id
+        WHERE r.tenant_id=$1 AND r.terminal_id=$2 AND r.terminal_seq_no=$3
+          AND r.disposition='VOID'
+        ORDER BY r.created_at DESC,r.resolution_id DESC LIMIT 1`,
+      [message.tenant_id,message.terminal_id,message.sale.terminal_seq_no]
+    );
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK").catch(()=>undefined);
+    throw error;
+  }
   const resolution=freshVoid.rows[0];
   if (!resolution) return false;
   return resolveVoidIdentity({
