@@ -1,5 +1,7 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import type { AuthContext, TerminalCheckpoint } from "./contracts";
+import type { JWTPayload } from "jose";
+import type { AuthContext, TerminalCheckpoint, TerminalFailureLookup } from "./contracts";
+import { readTerminalCheckpoint } from "./terminal-recovery";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 // Cache only the issuer's JWKS resolver (not request/user state) per isolate.
@@ -11,6 +13,12 @@ function jwksFor(issuer: string) {
     jwksByIssuer.set(issuer, jwks);
   }
   return jwks;
+}
+
+function customClaim(payload: JWTPayload, name: string): unknown {
+  const custom = (payload as JWTPayload & { custom?: unknown }).custom;
+  if (custom === null || typeof custom !== "object" || Array.isArray(custom)) return undefined;
+  return (custom as Record<string, unknown>)[name];
 }
 
 async function verifiedClaims(request: Request, env: Env) {
@@ -25,8 +33,10 @@ async function verifiedClaims(request: Request, env: Env) {
 
 export async function authenticate(request: Request, env: Env): Promise<AuthContext> {
   const payload = await verifiedClaims(request, env);
-  const tenantId = payload.tenant_id;
-  const terminalId = payload.terminal_id;
+  // Cloudflare Access nests custom OIDC claims under the signed `custom` object.
+  // Do not accept lookalike top-level claims outside that namespace.
+  const tenantId = customClaim(payload, "tenant_id");
+  const terminalId = customClaim(payload, "terminal_id");
   if (typeof tenantId !== "string" || typeof terminalId !== "string" ||
       !UUID.test(tenantId) || !UUID.test(terminalId)) {
     throw new Response("Forbidden", { status: 403 });
@@ -38,13 +48,29 @@ export async function authenticateTenantOperator(request: Request, env: Env): Pr
   tenantId: string; subject: string;
 }> {
   const payload = await verifiedClaims(request, env);
-  if (payload.role !== "POS_SYNC_AUDITOR" || typeof payload.tenant_id !== "string" || !UUID.test(payload.tenant_id)) {
+  const subject = typeof payload.sub === "string" ? payload.sub.trim() : "";
+  const tenantId = customClaim(payload, "tenant_id");
+  if (customClaim(payload, "role") !== "POS_SYNC_AUDITOR" || typeof tenantId !== "string" ||
+      !UUID.test(tenantId) || subject.length < 1 || subject.length > 255) {
     throw new Response("Forbidden", { status: 403 });
   }
-  return { tenantId: payload.tenant_id, subject: String(payload.sub ?? "") };
+  return { tenantId, subject };
 }
 
-export async function verifyTerminalCertificate(request: Request, env: Env, auth: AuthContext): Promise<TerminalCheckpoint> {
+export async function authenticateRecoveryOperator(request: Request, env: Env): Promise<{
+  tenantId: string; subject: string;
+}> {
+  const payload = await verifiedClaims(request, env);
+  const subject = typeof payload.sub === "string" ? payload.sub.trim() : "";
+  const tenantId = customClaim(payload, "tenant_id");
+  if (customClaim(payload, "role") !== "POS_SYNC_RECOVERY_ADMIN" || typeof tenantId !== "string" ||
+      !UUID.test(tenantId) || subject.length < 1 || subject.length > 255) {
+    throw new Response("Forbidden", { status: 403 });
+  }
+  return { tenantId, subject };
+}
+
+export async function verifyTerminalCertificate(request: Request, env: Env, auth: AuthContext, lookup: readonly TerminalFailureLookup[] = []): Promise<TerminalCheckpoint> {
   const tls = (request as Request & { cf?: { tlsClientAuth?: {
     certVerified?: string; certRevoked?: boolean | string; certFingerprintSHA256?: string;
   } | null } }).cf?.tlsClientAuth;
@@ -61,16 +87,10 @@ export async function verifyTerminalCertificate(request: Request, env: Env, auth
     await client.connect();
     await client.query("BEGIN");
     await client.query("SELECT set_config('app.current_tenant_id',$1,true)", [auth.tenantId]);
-    const mapped = await client.query<{
-      last_committed_seq_no:string;last_hlc_physical_ms:string;last_hlc_logical:number;store_id:string;
-    }>(
-      `SELECT d.store_id::text AS store_id,
-              COALESCE(s.last_committed_seq_no,0)::text AS last_committed_seq_no,
-              COALESCE(s.last_hlc_physical_ms,0)::text AS last_hlc_physical_ms,
-              COALESCE(s.last_hlc_logical,0) AS last_hlc_logical
+    const mapped = await client.query<{ store_id: string }>(
+      `SELECT d.store_id::text AS store_id
          FROM terminal_devices d
          JOIN pos_stores st ON st.tenant_id=d.tenant_id AND st.id=d.store_id AND st.active=true
-         LEFT JOIN terminal_sync_state s ON s.tenant_id=d.tenant_id AND s.terminal_id=d.terminal_id
         WHERE d.tenant_id=$1 AND d.terminal_id=$2 AND d.cert_fingerprint_sha256=$3::char(64)
           AND d.active=true AND d.revoked_at IS NULL AND d.not_before<=now()
           AND (d.not_after IS NULL OR d.not_after>now())
@@ -78,13 +98,10 @@ export async function verifyTerminalCertificate(request: Request, env: Env, auth
       [auth.tenantId,auth.terminalId,fingerprint]
     );
     if (mapped.rowCount !== 1) throw new Response("mTLS certificate is not enrolled for this tenant/terminal", { status: 403 });
+    const storeId = mapped.rows[0]!.store_id;
+    const checkpoint = await readTerminalCheckpoint(client,auth.tenantId,auth.terminalId,storeId,lookup);
     await client.query("COMMIT");
-    return {
-      store_id:mapped.rows[0]!.store_id,
-      last_committed_seq_no:Number(mapped.rows[0]!.last_committed_seq_no),
-      last_hlc_physical_ms:Number(mapped.rows[0]!.last_hlc_physical_ms),
-      last_hlc_logical:mapped.rows[0]!.last_hlc_logical
-    };
+    return checkpoint;
   } catch (error) {
     await client.query("ROLLBACK").catch(()=>undefined);
     if (error instanceof Response) throw error;

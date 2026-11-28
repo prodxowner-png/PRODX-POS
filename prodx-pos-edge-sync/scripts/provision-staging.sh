@@ -78,6 +78,25 @@ api() {
     --header "Content-Type: application/json" "$@"
 }
 
+verify_staging_access() {
+  local apps
+  apps="$(api GET "/accounts/$CLOUDFLARE_ACCOUNT_ID/access/apps?aud=$POS_STAGING_ACCESS_AUD&per_page=100")"
+  jq -e --arg aud "$POS_STAGING_ACCESS_AUD" '
+    .success == true and
+    any(.result[]?;
+      .aud == $aud and
+      .type == "self_hosted" and
+      .name == "PRODX POS Staging Operators" and
+      any(.policies[]?; .name == "POS Staging Auditor" and .decision == "allow" and (.include | length) > 0) and
+      any(.policies[]?; .name == "POS Staging Recovery Admin" and .decision == "allow" and (.include | length) > 0)
+    )
+  ' <<<"$apps" >/dev/null || {
+    echo "ERROR: dedicated Staging Access app/policies are missing or do not match POS_STAGING_ACCESS_AUD." >&2
+    echo "Create 'PRODX POS Staging Operators' with allow policies 'POS Staging Auditor' and 'POS Staging Recovery Admin'; never reuse 'All Workers'." >&2
+    exit 1
+  }
+}
+
 queue_exists() {
   local queue_name="$1"
   api GET "/accounts/$CLOUDFLARE_ACCOUNT_ID/queues?per_page=100" |
@@ -167,6 +186,9 @@ if [[ "$CONFIG_ACCOUNT" != "$CLOUDFLARE_ACCOUNT_ID" ]]; then
   echo "ERROR: CLOUDFLARE_ACCOUNT_ID does not match wrangler.jsonc account_id" >&2
   exit 1
 fi
+
+# Verify the dedicated Staging operator audience before creating any Cloudflare resources.
+verify_staging_access
 
 ensure_queue "prodx-pos-ingest-staging"
 ensure_queue "prodx-pos-ingest-dlq-staging"

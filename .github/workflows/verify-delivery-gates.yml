@@ -115,7 +115,7 @@ jobs:
       - name: Gate 3.1a — Validate manual Cloudflare Staging automation syntax
         run: |
           bash -n scripts/provision-staging.sh
-          ruby -e 'require "yaml"; YAML.parse_file("../.github/workflows/verify-gate6-staging.yml"); puts "Gate 6 workflow YAML syntax: PASS"'
+          ruby -e 'require "yaml"; YAML.parse_file("../.github/workflows/verify-gate6-staging.yml"); YAML.parse_file("../.github/workflows/gate6-staging-bootstrap.yml"); puts "Gate 6 workflows YAML syntax: PASS"'
           echo "Staging provisioning shell syntax: PASS"
 
 
@@ -134,7 +134,7 @@ jobs:
       # ─────────────────────────────────────────────────────────────
       # Gate 4 — PostgreSQL 16 CTE, RLS, Signed Price & Ledger Tests
       # ─────────────────────────────────────────────────────────────
-      - name: Gate 4.1 — Apply PostgreSQL migration
+      - name: Gate 4.1 — Apply immutable PostgreSQL base migration
         id: migration
         run: psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/001_pos_ledger.sql 2>&1 | tee artifacts/logs/migration.log
 
@@ -145,6 +145,17 @@ jobs:
       - name: Gate 4.1.2 — Apply Store-scoped inventory migration
         id: inventory_migration
         run: psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/002_store_scoped_inventory.sql 2>&1 | tee artifacts/logs/migration-002-store-scoped.log
+
+      - name: Gate 4.1.3 — Apply forward failed-sequence recovery migrations twice
+        id: failed_sequence_recovery_migration
+        run: |
+          set -euo pipefail
+          psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/003_failed_sequence_recovery.sql 2>&1 | tee artifacts/logs/failed-sequence-recovery-migration.log
+          psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/003_failed_sequence_recovery.sql 2>&1 | tee artifacts/logs/failed-sequence-recovery-migration-rerun.log
+          psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/004_terminal_retry_attempt_audit.sql 2>&1 | tee artifacts/logs/terminal-retry-attempt-audit-migration.log
+          psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/004_terminal_retry_attempt_audit.sql 2>&1 | tee artifacts/logs/terminal-retry-attempt-audit-migration-rerun.log
+          psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/005_terminal_failure_sale_snapshot.sql 2>&1 | tee artifacts/logs/terminal-failure-sale-snapshot-migration.log
+          psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/005_terminal_failure_sale_snapshot.sql 2>&1 | tee artifacts/logs/terminal-failure-sale-snapshot-migration-rerun.log
 
       - name: Gate 4.2 — Create isolated CI database roles
         id: create_roles
@@ -162,6 +173,10 @@ jobs:
         id: grants
         run: psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/grant-runtime-role.sql 2>&1 | tee artifacts/logs/grant-runtime-role.log
 
+      - name: Gate 4.3b — Verify least-privilege runtime role permissions across all 15 tables
+        id: verify_privileges
+        run: psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/verify-runtime-role-privileges.sql 2>&1 | tee artifacts/logs/verify-runtime-role-privileges.log
+
       - name: Gate 4.4 — Verify RLS with NOBYPASSRLS auditor
         id: rls
         run: psql "$RLS_AUDIT_DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/rls-smoke.sql 2>&1 | tee artifacts/logs/rls-smoke.log
@@ -173,6 +188,10 @@ jobs:
       - name: Gate 4.6 — Store-scoped inventory and concurrent oversell integration
         id: inventory_integration
         run: npm run integration:inventory 2>&1 | tee artifacts/logs/inventory-integration.log
+
+      - name: Gate 4.7 — Bounded terminal recovery checkpoint and history pagination
+        id: terminal_recovery_integration
+        run: npm run integration:terminal-recovery 2>&1 | tee artifacts/logs/terminal-recovery-checkpoint-integration.log
 
       # No opening-stock seed is needed here: the CI chaos harness creates a
       # disposable tenant/product and records its opening quantity through the
@@ -206,11 +225,14 @@ jobs:
           MIGRATION_OUTCOME: ${{ steps.migration.outcome }}
           INVENTORY_PREFLIGHT_OUTCOME: ${{ steps.inventory_migration_preflight.outcome }}
           INVENTORY_MIGRATION_OUTCOME: ${{ steps.inventory_migration.outcome }}
+          RECOVERY_MIGRATION_OUTCOME: ${{ steps.failed_sequence_recovery_migration.outcome }}
           ROLES_OUTCOME: ${{ steps.create_roles.outcome }}
           GRANTS_OUTCOME: ${{ steps.grants.outcome }}
+          PRIVILEGES_OUTCOME: ${{ steps.verify_privileges.outcome }}
           RLS_OUTCOME: ${{ steps.rls.outcome }}
           INTEGRATION_OUTCOME: ${{ steps.postgres_integration.outcome }}
           INVENTORY_OUTCOME: ${{ steps.inventory_integration.outcome }}
+          TERMINAL_RECOVERY_OUTCOME: ${{ steps.terminal_recovery_integration.outcome }}
           CHAOS_OUTCOME: ${{ steps.chaos.outcome }}
           RECONCILE_OUTCOME: ${{ steps.reconcile.outcome }}
         run: |
@@ -223,7 +245,7 @@ jobs:
             echo "| 1. Architecture Approved | Reviewed architecture baseline; not re-evaluated by this workflow | BASELINE |"
             echo "| 2. Implementation Complete | Versioned source package checked out | BASELINE |"
             echo "| 3. Build Verified | npm ci: $(result "$INSTALL_OUTCOME"); dependency audit: $(result "$AUDIT_OUTCOME"); Wrangler types: $(result "$TYPES_OUTCOME"); TypeScript: $(result "$TYPECHECK_OUTCOME"); workerd: $(result "$EDGE_OUTCOME") | $( [ "$INSTALL_OUTCOME" = success ] && [ "$AUDIT_OUTCOME" = success ] && [ "$TYPES_OUTCOME" = success ] && [ "$TYPECHECK_OUTCOME" = success ] && [ "$EDGE_OUTCOME" = success ] && echo PASS || echo FAIL ) |"
-            echo "| 4. Integration Verified | Base migration: $(result "$MIGRATION_OUTCOME"); legacy Store preflight: $(result "$INVENTORY_PREFLIGHT_OUTCOME"); Store migration: $(result "$INVENTORY_MIGRATION_OUTCOME"); roles/grants: $(result "$ROLES_OUTCOME")/$(result "$GRANTS_OUTCOME"); RLS: $(result "$RLS_OUTCOME"); PostgreSQL CTE: $(result "$INTEGRATION_OUTCOME"); Store inventory: $(result "$INVENTORY_OUTCOME") | $( [ "$MIGRATION_OUTCOME" = success ] && [ "$INVENTORY_PREFLIGHT_OUTCOME" = success ] && [ "$INVENTORY_MIGRATION_OUTCOME" = success ] && [ "$ROLES_OUTCOME" = success ] && [ "$GRANTS_OUTCOME" = success ] && [ "$RLS_OUTCOME" = success ] && [ "$INTEGRATION_OUTCOME" = success ] && [ "$INVENTORY_OUTCOME" = success ] && echo PASS || echo FAIL ) |"
+            echo "| 4. Integration Verified | Base migration: $(result "$MIGRATION_OUTCOME"); legacy Store preflight: $(result "$INVENTORY_PREFLIGHT_OUTCOME"); Store migration: $(result "$INVENTORY_MIGRATION_OUTCOME"); recovery migrations: $(result "$RECOVERY_MIGRATION_OUTCOME"); roles/grants/privileges: $(result "$ROLES_OUTCOME")/$(result "$GRANTS_OUTCOME")/$(result "$PRIVILEGES_OUTCOME"); RLS: $(result "$RLS_OUTCOME"); PostgreSQL CTE: $(result "$INTEGRATION_OUTCOME"); Store inventory: $(result "$INVENTORY_OUTCOME"); bounded terminal recovery: $(result "$TERMINAL_RECOVERY_OUTCOME") | $( [ "$MIGRATION_OUTCOME" = success ] && [ "$INVENTORY_PREFLIGHT_OUTCOME" = success ] && [ "$INVENTORY_MIGRATION_OUTCOME" = success ] && [ "$RECOVERY_MIGRATION_OUTCOME" = success ] && [ "$ROLES_OUTCOME" = success ] && [ "$GRANTS_OUTCOME" = success ] && [ "$PRIVILEGES_OUTCOME" = success ] && [ "$RLS_OUTCOME" = success ] && [ "$INTEGRATION_OUTCOME" = success ] && [ "$INVENTORY_OUTCOME" = success ] && [ "$TERMINAL_RECOVERY_OUTCOME" = success ] && echo PASS || echo FAIL ) |"
             echo "| 5. Load & Recovery Verified | 300 terminal CI-scale PostgreSQL load: $(result "$CHAOS_OUTCOME"); SQL reconciliation: $(result "$RECONCILE_OUTCOME") | $( [ "$CHAOS_OUTCOME" = success ] && [ "$RECONCILE_OUTCOME" = success ] && echo PASS || echo FAIL ) |"
             echo "| 6. Production Ready | Requires deployed Cloudflare staging, real DO/Queue crash recovery, mTLS/WAF validation and production-like load evidence | HOLD |"
             echo ""

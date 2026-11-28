@@ -1,13 +1,43 @@
 import type { SyncBatch, QueueSale } from "./contracts";
 import { canonicalize, sha256Hex, assertSaleShape, isUuid } from "./canonical";
-import { authenticate, authenticateTenantOperator, verifyTerminalCertificate } from "./auth";
+import { authenticate, authenticateTenantOperator, authenticateRecoveryOperator, verifyTerminalCertificate } from "./auth";
 import { commitSale, PermanentDataError } from "./postgres";
+import { recordFailedSequence, resolveFailedSequence, readTerminalFailureHistoryPage } from "./terminal-recovery";
 import { verifySalePrices, signCatalogSnapshot, signCatalogPriceProofs } from "./catalog-crypto";
 import { catalogSigningKey } from "./secrets";
 export { IdempotencyGate } from "./idempotency-do";
 
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
 const MAX_BODY_BYTES = 1_000_000;
+class PayloadTooLargeError extends Error {}
+
+async function readBoundedBody(request: Request): Promise<string> {
+  const reader = request.body?.getReader();
+  if (!reader) return "";
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > MAX_BODY_BYTES) {
+        await reader.cancel();
+        throw new PayloadTooLargeError("PAYLOAD_TOO_LARGE");
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
+}
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), { status, headers: JSON_HEADERS });
@@ -20,13 +50,18 @@ function getDoName(tenantId: string, terminalId: string): string {
 
 async function handleSync(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const auth = await authenticate(request, env);
-  const originCheckpoint = await verifyTerminalCertificate(request,env,auth);
-  const contentLength = Number(request.headers.get("content-length") ?? "0");
-  if (contentLength > MAX_BODY_BYTES) return json({ error: "PAYLOAD_TOO_LARGE" }, 413);
+  const contentLengthHeader = request.headers.get("content-length");
+  if (contentLengthHeader !== null) {
+    if (!/^\d+$/.test(contentLengthHeader)) return json({ error: "INVALID_CONTENT_LENGTH" }, 400);
+    if (Number(contentLengthHeader) > MAX_BODY_BYTES) return json({ error: "PAYLOAD_TOO_LARGE" }, 413);
+  }
 
-  const raw = await request.text();
-  if (new TextEncoder().encode(raw).byteLength > MAX_BODY_BYTES) {
-    return json({ error: "PAYLOAD_TOO_LARGE" }, 413);
+  let raw: string;
+  try {
+    raw = await readBoundedBody(request);
+  } catch (error) {
+    if (error instanceof PayloadTooLargeError) return json({ error: "PAYLOAD_TOO_LARGE" }, 413);
+    throw error;
   }
 
   let batch: SyncBatch;
@@ -41,6 +76,15 @@ async function handleSync(request: Request, env: Env, ctx: ExecutionContext): Pr
     return json({ error: "BATCH_MUST_CONTAIN_10_TO_50_SALES" }, 400);
   }
 
+  const failureLookup = batch.sales.flatMap((sale) => {
+    const sequence = sale?.terminal_seq_no;
+    if (!Number.isSafeInteger(sequence) || sequence < 1) return [];
+    const key = typeof sale.idempotency_key === "string" &&
+      sale.idempotency_key.length >= 16 && sale.idempotency_key.length <= 200
+      ? sale.idempotency_key : undefined;
+    return [{ idempotency_key: key, terminal_seq_no: sequence }];
+  });
+  const originCheckpoint = await verifyTerminalCertificate(request,env,auth,failureLookup);
   const edgeReceivedAt = new Date().toISOString();
   const prepared = [];
   try {
@@ -52,7 +96,11 @@ async function handleSync(request: Request, env: Env, ctx: ExecutionContext): Pr
           idempotency_key: sale.idempotency_key }, 413);
       }
       const { payload_hash: claimedHash, ...payload } = sale;
-      const canonicalPayload = canonicalize(payload);
+      const canonicalPayload = canonicalize({
+        tenant_id: auth.tenantId,
+        terminal_id: auth.terminalId,
+        sale: payload
+      });
       const actualHash = await sha256Hex(canonicalPayload);
       if (actualHash !== claimedHash.toLowerCase()) {
         return json({
@@ -61,15 +109,27 @@ async function handleSync(request: Request, env: Env, ctx: ExecutionContext): Pr
           idempotency_key: sale.idempotency_key
         }, 422);
       }
-      if (!(await verifySalePrices(sale, catalogSigningKey(env)))) {
+      const originFailure = originCheckpoint.terminal_failures.find((failure) =>
+        failure.idempotency_key === sale.idempotency_key ||
+        failure.terminal_seq_no === sale.terminal_seq_no
+      );
+      if (originFailure && (originFailure.idempotency_key !== sale.idempotency_key ||
+          originFailure.payload_hash !== actualHash ||
+          originFailure.sale_id !== sale.sale_id ||
+          originFailure.terminal_seq_no !== sale.terminal_seq_no)) {
+        return json({batch_id:batch.batch_id,error:"TERMINAL_SEQUENCE_ALREADY_OWNED",
+          idempotency_key:sale.idempotency_key},409);
+      }
+      const proofTime = originFailure ? Date.parse(originFailure.edge_received_at) : undefined;
+      if (!(await verifySalePrices(sale, catalogSigningKey(env), proofTime))) {
         return json({ batch_id: batch.batch_id, error: "SIGNED_CATALOG_INVALID_OR_EXPIRED",
           idempotency_key: sale.idempotency_key }, 422);
       }
       prepared.push({
         sale,
         payloadHash: actualHash,
-        edgeReceivedAt,
-        receiptId: crypto.randomUUID()
+        edgeReceivedAt: originFailure?.edge_received_at ?? edgeReceivedAt,
+        receiptId: originFailure?.receipt_id ?? crypto.randomUUID()
       });
     }
 
@@ -89,6 +149,7 @@ async function handleSync(request: Request, env: Env, ctx: ExecutionContext): Pr
       accepted_count: results.results.filter((r) => r.status === "accepted").length,
       duplicate_count: results.results.filter((r) => r.status === "duplicate").length,
       committed_count: results.results.filter((r) => r.status === "committed").length,
+      voided_count: results.results.filter((r) => r.status === "voided").length,
       has_sequence_gaps: results.sequence_gaps.length > 0,
       sequence_gaps: results.sequence_gaps,
       last_contiguous_seq_no: results.last_contiguous_seq_no,
@@ -115,6 +176,59 @@ async function handleTerminalDiagnostics(request: Request, env: Env): Promise<Re
     exported_at: new Date().toISOString(), ...(await stub.getDiagnostics(operator.tenantId, terminalId)) });
 }
 
+async function handleTerminalFailureHistory(request: Request, env: Env): Promise<Response> {
+  const operator = await authenticateTenantOperator(request, env);
+  const url = new URL(request.url);
+  const terminalId = url.searchParams.get("terminal_id");
+  const cursorRaw = url.searchParams.get("after_seq_no") ?? "0";
+  const limitRaw = url.searchParams.get("limit") ?? "50";
+  if (!terminalId || !isUuid(terminalId)) return json({ error: "INVALID_TERMINAL_ID" }, 400);
+  if (!/^(0|[1-9][0-9]*)$/.test(cursorRaw) || !/^[1-9][0-9]*$/.test(limitRaw)) {
+    return json({ error: "INVALID_TERMINAL_FAILURE_PAGE" }, 400);
+  }
+  const afterSeqNo = Number(cursorRaw);
+  const limit = Number(limitRaw);
+  if (!Number.isSafeInteger(afterSeqNo) || !Number.isSafeInteger(limit) || limit > 100) {
+    return json({ error: "INVALID_TERMINAL_FAILURE_PAGE" }, 400);
+  }
+  const { Client } = await import("pg");
+  const client = new Client({ connectionString: env.HYPERDRIVE_DIRECT.connectionString });
+  try {
+    await client.connect();
+    await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ");
+    await client.query("SELECT set_config('app.current_tenant_id',$1,true)", [operator.tenantId]);
+    const mapped = await client.query<{ store_id: string }>(
+      `SELECT DISTINCT d.store_id::text AS store_id
+         FROM terminal_devices d
+         JOIN pos_stores st ON st.tenant_id=d.tenant_id AND st.id=d.store_id
+        WHERE d.tenant_id=$1 AND d.terminal_id=$2`,
+      [operator.tenantId,terminalId]
+    );
+    if (mapped.rowCount !== 1) {
+      await client.query("ROLLBACK");
+      return json({ error: "TERMINAL_NOT_FOUND" }, 404);
+    }
+    const page = await readTerminalFailureHistoryPage(client,operator.tenantId,terminalId,afterSeqNo,limit);
+    await client.query("COMMIT");
+    return json({
+      tenant_id: operator.tenantId,
+      terminal_id: terminalId,
+      items: page.items,
+      has_more: page.has_more,
+      next_cursor: page.next_cursor
+    });
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    console.error("terminal_failure_history_unavailable", {
+      terminal_id: terminalId,
+      error_name: error instanceof Error ? error.name : "UNKNOWN"
+    });
+    return json({ error: "TERMINAL_FAILURE_HISTORY_UNAVAILABLE" }, 503);
+  } finally {
+    await client.end().catch(() => undefined);
+  }
+}
+
 async function handleReceiptStatus(request: Request, env: Env): Promise<Response> {
   const auth = await authenticate(request, env);
   const url = new URL(request.url);
@@ -127,7 +241,82 @@ async function handleReceiptStatus(request: Request, env: Env): Promise<Response
   const result = await stub.getStatus(auth.tenantId, auth.terminalId, key);
   if (result.status === "not_found") return json(result, 404);
   if (result.status === "failed") return json(result, 409);
-  return json(result, result.status === "committed" ? 200 : 202);
+  return json(result, result.status === "committed" || result.status === "voided" ? 200 : 202);
+}
+
+async function handleTerminalSequenceRecovery(request: Request, env: Env): Promise<Response> {
+  const operator = await authenticateRecoveryOperator(request,env);
+  const url = new URL(request.url);
+  const terminalId = url.searchParams.get("terminal_id");
+  const seqRaw = url.searchParams.get("terminal_seq_no");
+  if (!terminalId || !isUuid(terminalId) || !seqRaw || !/^[1-9][0-9]*$/.test(seqRaw)) {
+    return json({error:"INVALID_TERMINAL_SEQUENCE_SCOPE"},400);
+  }
+  const terminalSeqNo = Number(seqRaw);
+  if (!Number.isSafeInteger(terminalSeqNo)) return json({error:"INVALID_TERMINAL_SEQUENCE_SCOPE"},400);
+  let body:unknown;
+  try { body=JSON.parse(await readBoundedBody(request)); }
+  catch (error) {
+    if (error instanceof PayloadTooLargeError) return json({error:"PAYLOAD_TOO_LARGE"},413);
+    return json({error:"INVALID_JSON"},400);
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) return json({error:"INVALID_RECOVERY_BODY"},400);
+  const record=body as Record<string,unknown>;
+  const allowed=new Set(["action","request_id","reason"]);
+  if (Object.keys(record).some((key)=>!allowed.has(key)) ||
+      (record.action !== "RETRY" && record.action !== "VOID") ||
+      typeof record.request_id !== "string" || !isUuid(record.request_id) ||
+      typeof record.reason !== "string" || !record.reason.trim() || record.reason.trim().length > 1000) {
+    return json({error:"INVALID_RECOVERY_BODY"},400);
+  }
+  let resolution;
+  try {
+    resolution=await resolveFailedSequence(env,{
+      tenantId:operator.tenantId,
+      terminalId,
+      terminalSeqNo,
+      disposition:record.action,
+      requestId:record.request_id,
+      actorSubject:operator.subject,
+      reason:record.reason
+    });
+  } catch (error) {
+    const rawCode = error instanceof Error ? error.message : "";
+    const isAllowlisted = /^(TERMINAL_SEQUENCE_[A-Z0-9_]+|INVALID_[A-Z0-9_]+|TERMINAL_STORE_MAPPING_MISMATCH)$/.test(rawCode);
+    if (isAllowlisted) {
+      const status = rawCode === "TERMINAL_SEQUENCE_FAILURE_NOT_FOUND" ? 404 :
+        rawCode.startsWith("INVALID_") ? 400 : 409;
+      return json({ error: rawCode }, status);
+    }
+    console.error("terminal_sequence_recovery_unavailable", {
+      terminal_id: terminalId,
+      terminal_seq_no: terminalSeqNo,
+      error_name: error instanceof Error ? error.name : "UNKNOWN"
+    });
+    return json({ error: "TERMINAL_SEQUENCE_RECOVERY_UNAVAILABLE" }, 503);
+  }
+  const doName=getDoName(operator.tenantId,terminalId);
+  const stub=env.IDEMPOTENCY.get(env.IDEMPOTENCY.idFromName(doName));
+  try {
+    await stub.applyOriginCheckpoint(resolution.checkpoint);
+  } catch (error) {
+    console.error("origin_resolution_do_reconciliation_pending",error);
+    return json({
+      error:"ORIGIN_RESOLUTION_COMMITTED_DO_RECONCILIATION_PENDING",
+      origin_committed:true,
+      resolution_id:resolution.resolution_id,
+      outcome:resolution.outcome
+    },503);
+  }
+  return json({
+    resolution_id:resolution.resolution_id,
+    outcome:resolution.outcome,
+    tenant_id:operator.tenantId,
+    terminal_id:terminalId,
+    terminal_seq_no:terminalSeqNo,
+    last_committed_seq_no:resolution.checkpoint.last_committed_seq_no,
+    last_resolved_seq_no:resolution.checkpoint.last_resolved_seq_no
+  },200);
 }
 
 async function handleCatalog(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -250,6 +439,12 @@ export default {
       if (request.method === "GET" && url.pathname === "/api/v1/ops/terminal-sync-diagnostics") {
         return await handleTerminalDiagnostics(request, env);
       }
+      if (request.method === "GET" && url.pathname === "/api/v1/ops/terminal-sequence-failures") {
+        return await handleTerminalFailureHistory(request, env);
+      }
+      if (request.method === "POST" && url.pathname === "/api/v1/ops/terminal-sequence-recovery") {
+        return await handleTerminalSequenceRecovery(request,env);
+      }
       return json({ error: "NOT_FOUND" }, 404);
     } catch (error) {
       if (error instanceof Response) return error;
@@ -261,16 +456,76 @@ export default {
   async queue(batch: MessageBatch<unknown>, env: Env): Promise<void> {
     if (batch.queue === env.POS_INGEST_DLQ_QUEUE) {
       for (const message of batch.messages) {
-        const failed = message.body as QueueSale & { failure_code?: string };
+        const failed = message.body as QueueSale & { failure_code?: string; recovery_eligible?: boolean };
         try {
-          const doName = getDoName(failed.tenant_id,failed.terminal_id);
+          if (!failed || typeof failed !== "object" ||
+              typeof failed.tenant_id !== "string" || typeof failed.terminal_id !== "string" ||
+              typeof failed.idempotency_key !== "string") {
+            console.error("dlq_malformed_envelope_unroutable");
+            message.retry({ delaySeconds: 60 });
+            continue;
+          }
+          const doName = getDoName(failed.tenant_id, failed.terminal_id);
           const stub = env.IDEMPOTENCY.get(env.IDEMPOTENCY.idFromName(doName));
-          await stub.markFailed(failed.tenant_id,failed.terminal_id,failed.idempotency_key,
-            failed.failure_code ?? "QUEUE_RETRY_EXHAUSTED");
-          message.ack();
+          if (failed.recovery_eligible === false) {
+            // Only confirmed envelope corruption explicitly marked non-recovery-eligible
+            // by the main queue consumer may finalize DO failure without a PG recovery row.
+            await stub.markFailed(
+              failed.tenant_id,
+              failed.terminal_id,
+              failed.idempotency_key,
+              failed.failure_code ?? "QUEUE_RETRY_EXHAUSTED",
+              failed.recovery_resolution_id
+            );
+            message.ack();
+            continue;
+          }
+          // Raw QueueSale routed to DLQ automatically by Cloudflare (recovery_eligible === undefined)
+          // and recovery-eligible DLQ messages MUST record durable failure in PostgreSQL first.
+          try {
+            const recorded = await recordFailedSequence(env, failed, failed.failure_code ?? "QUEUE_RETRY_EXHAUSTED");
+            if (recorded === "committed") {
+              await stub.markCommitted(failed.tenant_id, failed.terminal_id, failed.idempotency_key);
+            } else if (recorded === "voided") {
+              await stub.markVoided(failed.tenant_id, failed.terminal_id, failed.idempotency_key);
+            } else if (recorded !== "retry") {
+              await stub.markFailed(
+                failed.tenant_id,
+                failed.terminal_id,
+                failed.idempotency_key,
+                failed.failure_code ?? "QUEUE_RETRY_EXHAUSTED",
+                failed.recovery_resolution_id
+              );
+            }
+            // An origin-authorized RETRY has already reconciled the DO and re-enqueued
+            // the original receipt. A delayed duplicate DLQ delivery must not re-mark
+            // that receipt failed and cancel the authorized retry.
+            message.ack();
+          } catch (recordError) {
+            const recordReason = recordError instanceof Error ? recordError.message : "";
+            if (recordReason === "TERMINAL_SEQUENCE_FAILURE_NOT_NEXT") {
+              // Sequence behind an unresolved earlier failure: NEVER markFailed.
+              // Only ACK if durable DO outbox retention (QUEUED + next_retry_at + alarm) is proven.
+              const retained = await stub.verifyDurableOutboxRetention(
+                failed.tenant_id,
+                failed.terminal_id,
+                failed.idempotency_key
+              );
+              if (retained) {
+                message.ack();
+              } else {
+                console.error("dlq_not_next_without_durable_do_retention", {
+                  receipt_id: failed.receipt_id
+                });
+                message.retry({ delaySeconds: 60 });
+              }
+              continue;
+            }
+            throw recordError;
+          }
         } catch (error) {
-          console.error("dlq_receipt_finalization_failed",error);
-          message.retry({delaySeconds:60});
+          console.error("dlq_receipt_finalization_failed", error);
+          message.retry({ delaySeconds: 60 });
         }
       }
       return;
@@ -278,36 +533,86 @@ export default {
     for (const message of batch.messages) {
       const saleMessage = message.body as QueueSale;
       try {
-        await commitSale(env, saleMessage);
+        const outcome = await commitSale(env, saleMessage);
         const id = env.IDEMPOTENCY.idFromName(saleMessage.do_name);
         const stub = env.IDEMPOTENCY.get(id);
-        await stub.markCommitted(saleMessage.tenant_id, saleMessage.terminal_id, saleMessage.idempotency_key);
+        if (outcome === "voided") await stub.markVoided(saleMessage.tenant_id, saleMessage.terminal_id, saleMessage.idempotency_key);
+        else await stub.markCommitted(saleMessage.tenant_id, saleMessage.terminal_id, saleMessage.idempotency_key);
         message.ack();
       } catch (error) {
         const reason = error instanceof Error ? error.message : "UNKNOWN";
+        const isSequenceGap = reason.startsWith("TERMINAL_SEQUENCE_GAP");
+        if (isSequenceGap) {
+          // Never convert an unresolved sequence gap into a permanent failure on
+          // attempts threshold. Only ACK once durable DO outbox retention is proven.
+          if (Number(message.attempts ?? 0) >= 90) {
+            try {
+              const doName = getDoName(saleMessage.tenant_id, saleMessage.terminal_id);
+              const stub = env.IDEMPOTENCY.get(env.IDEMPOTENCY.idFromName(doName));
+              const retained = await stub.verifyDurableOutboxRetention(
+                saleMessage.tenant_id,
+                saleMessage.terminal_id,
+                saleMessage.idempotency_key
+              );
+              if (retained) {
+                message.ack();
+                continue;
+              }
+            } catch (verifyError) {
+              console.error("sequence_gap_outbox_retention_verification_failed", {
+                receipt_id: saleMessage.receipt_id,
+                error_name: verifyError instanceof Error ? verifyError.name : "UNKNOWN"
+              });
+            }
+          }
+          console.error("sale_commit_retry", { receipt_id: saleMessage.receipt_id, error: reason });
+          message.retry({ delaySeconds: 60 });
+          continue;
+        }
         const mustDeadLetter = error instanceof PermanentDataError || Number(message.attempts ?? 0) >= 90;
         if (mustDeadLetter) {
+          const recoveryEligible = error instanceof PermanentDataError
+            ? error.sequenceFailureEligible
+            : Number(message.attempts ?? 0) >= 90;
           // Finalize the DO receipt only after the DLQ accepted the failure.
           // DLQ consumers deduplicate by tenant_id + idempotency_key.
           try {
+            const doName = getDoName(saleMessage.tenant_id, saleMessage.terminal_id);
+            const stub = env.IDEMPOTENCY.get(env.IDEMPOTENCY.idFromName(doName));
+            let recorded: "recorded" | "committed" | "voided" | "retry" | "retry_failed" | undefined;
+            if (recoveryEligible) {
+              recorded = await recordFailedSequence(env, saleMessage, reason);
+              if (recorded === "committed") {
+                await stub.markCommitted(saleMessage.tenant_id, saleMessage.terminal_id, saleMessage.idempotency_key);
+                message.ack();
+                continue;
+              }
+              if (recorded === "voided") {
+                await stub.markVoided(saleMessage.tenant_id, saleMessage.terminal_id, saleMessage.idempotency_key);
+                message.ack();
+                continue;
+              }
+            }
             await env.POS_INGEST_DLQ.send({
               ...saleMessage,
               failure_code: reason,
+              recovery_eligible: recoveryEligible,
               failed_at: new Date().toISOString()
             });
-            const doName = getDoName(saleMessage.tenant_id,saleMessage.terminal_id);
-            const stub = env.IDEMPOTENCY.get(env.IDEMPOTENCY.idFromName(doName));
-            await stub.markFailed(saleMessage.tenant_id,saleMessage.terminal_id,saleMessage.idempotency_key,reason);
+            if (recorded !== "retry") {
+              await stub.markFailed(saleMessage.tenant_id, saleMessage.terminal_id, saleMessage.idempotency_key,
+                reason, saleMessage.recovery_resolution_id);
+            }
             message.ack();
           } catch (dlqError) {
             console.error("dead_letter_enqueue_or_finalize_failed", dlqError);
             message.retry({ delaySeconds: 60 });
           }
         } else {
-          console.error("sale_commit_retry", { receipt_id:saleMessage.receipt_id,error:reason });
+          console.error("sale_commit_retry", { receipt_id: saleMessage.receipt_id, error: reason });
           // Missing earlier terminal sequence numbers are recoverable when the
           // POS replays its missing outbox entries; retry with a longer delay.
-          message.retry({ delaySeconds: reason.startsWith("TERMINAL_SEQUENCE_GAP") ? 60 : 15 });
+          message.retry({ delaySeconds: 15 });
         }
       }
     }

@@ -1,7 +1,9 @@
 import { DurableObject } from "cloudflare:workers";
+import { MAX_TERMINAL_CHECKPOINT_FAILURES } from "./contracts";
 import type {
   IdempotencyBatchResult, IdempotencyResultItem, IdempotencySubmission, QueueSale, TerminalCheckpoint
 } from "./contracts";
+import { canonicalize } from "./canonical";
 
 const IDEMPOTENCY_RETENTION_MS = 30 * 86400_000;
 const MAX_OUT_OF_ORDER_SEQUENCES = 1000;
@@ -19,7 +21,7 @@ export class IdempotencyGate extends DurableObject<Env> {
         canonical_payload TEXT NOT NULL,
         receipt_id TEXT NOT NULL,
         queue_payload TEXT NOT NULL,
-        state TEXT NOT NULL CHECK (state IN ('ENQUEUE_PENDING','QUEUED','COMMITTED')),
+        state TEXT NOT NULL CHECK (state IN ('ENQUEUE_PENDING','QUEUED','COMMITTED','VOIDED')),
         failure_code TEXT,
         delivery_attempts INTEGER NOT NULL DEFAULT 0,
         next_retry_at TEXT,
@@ -51,7 +53,46 @@ export class IdempotencyGate extends DurableObject<Env> {
     if (!idempotencyColumns.includes("failure_code")) this.ctx.storage.sql.exec(`ALTER TABLE idempotency ADD COLUMN failure_code TEXT`);
     if (!idempotencyColumns.includes("delivery_attempts")) this.ctx.storage.sql.exec(`ALTER TABLE idempotency ADD COLUMN delivery_attempts INTEGER NOT NULL DEFAULT 0`);
     if (!idempotencyColumns.includes("next_retry_at")) this.ctx.storage.sql.exec(`ALTER TABLE idempotency ADD COLUMN next_retry_at TEXT`);
-    this.ctx.storage.sql.exec(`CREATE INDEX IF NOT EXISTS idx_idempotency_retry ON idempotency(state,next_retry_at)`);
+    const idempotencyTableSql = this.ctx.storage.sql.exec<{sql:string}>(
+      `SELECT sql FROM sqlite_master WHERE type='table' AND name='idempotency'`
+    ).toArray()[0]?.sql ?? "";
+    if (!idempotencyTableSql.includes("'VOIDED'")) {
+      // Existing DO databases have a CHECK constraint that predates VOIDED.
+      // Rebuild the local cache table once; never translate a void into COMMITTED.
+      this.ctx.storage.sql.exec(`
+        DROP INDEX IF EXISTS idx_idempotency_pending;
+        DROP INDEX IF EXISTS idx_idempotency_retention;
+        DROP INDEX IF EXISTS idx_idempotency_retry;
+        ALTER TABLE idempotency RENAME TO idempotency_before_voided;
+        CREATE TABLE idempotency (
+          idempotency_key TEXT PRIMARY KEY,
+          tenant_id TEXT NOT NULL,
+          terminal_id TEXT NOT NULL,
+          payload_hash TEXT NOT NULL,
+          canonical_payload TEXT NOT NULL,
+          receipt_id TEXT NOT NULL,
+          queue_payload TEXT NOT NULL,
+          state TEXT NOT NULL CHECK (state IN ('ENQUEUE_PENDING','QUEUED','COMMITTED','VOIDED')),
+          failure_code TEXT,
+          delivery_attempts INTEGER NOT NULL DEFAULT 0,
+          next_retry_at TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        INSERT INTO idempotency
+          (idempotency_key,tenant_id,terminal_id,payload_hash,canonical_payload,receipt_id,
+           queue_payload,state,failure_code,delivery_attempts,next_retry_at,created_at,updated_at)
+        SELECT idempotency_key,tenant_id,terminal_id,payload_hash,canonical_payload,receipt_id,
+               queue_payload,state,failure_code,delivery_attempts,next_retry_at,created_at,updated_at
+          FROM idempotency_before_voided;
+        DROP TABLE idempotency_before_voided;
+      `);
+    }
+    this.ctx.storage.sql.exec(`
+      CREATE INDEX IF NOT EXISTS idx_idempotency_pending ON idempotency(state, created_at);
+      CREATE INDEX IF NOT EXISTS idx_idempotency_retention ON idempotency(state, updated_at);
+      CREATE INDEX IF NOT EXISTS idx_idempotency_retry ON idempotency(state,next_retry_at);
+    `);
     // Old QUEUED rows predate next_retry_at; re-enqueue them once after upgrade.
     this.ctx.storage.sql.exec(
       `UPDATE idempotency SET next_retry_at=? WHERE state='QUEUED' AND next_retry_at IS NULL AND failure_code IS NULL`,
@@ -122,16 +163,13 @@ export class IdempotencyGate extends DurableObject<Env> {
 
   private pruneStorage(now = Date.now()): void {
     const cutoff = new Date(now - IDEMPOTENCY_RETENTION_MS).toISOString();
-    const contiguous = this.ctx.storage.sql.exec<{ last_contiguous_seq_no:number }>(
-      `SELECT last_contiguous_seq_no FROM terminal_sequence_state WHERE singleton=1`
-    ).toArray()[0]?.last_contiguous_seq_no ?? 0;
-    // PostgreSQL is the permanent idempotency authority. Keep the Edge receipt
-    // cache for thirty days, retain only out-of-order sequence rows, and preserve
-    // open gaps. This bounds per-terminal SQLite growth.
+    // PostgreSQL is the permanent idempotency authority. Expire only committed
+    // receipt cache rows. Sequence ownership is retained until the PostgreSQL
+    // checkpoint explicitly confirms the corresponding sequence numbers.
+    // Failed receipts remain durable until an explicit origin-side resolution exists.
     this.ctx.storage.sql.exec(
       `DELETE FROM idempotency WHERE state='COMMITTED' AND updated_at < ?`,cutoff
     );
-    this.ctx.storage.sql.exec(`DELETE FROM terminal_sequence_seen WHERE seq_no <= ?`,contiguous);
     this.ctx.storage.sql.exec(
       `DELETE FROM terminal_sequence_gaps WHERE status='CLOSED' AND resolved_at < ?`,cutoff
     );
@@ -141,37 +179,237 @@ export class IdempotencyGate extends DurableObject<Env> {
     if (!Number.isSafeInteger(checkpoint.last_committed_seq_no) || checkpoint.last_committed_seq_no < 0 ||
         !Number.isSafeInteger(checkpoint.last_hlc_physical_ms) || checkpoint.last_hlc_physical_ms < 0 ||
         !Number.isSafeInteger(checkpoint.last_hlc_logical) || checkpoint.last_hlc_logical < 0 ||
-        checkpoint.last_hlc_logical > 2147483647) throw new Error("INVALID_ORIGIN_TERMINAL_CHECKPOINT");
+        checkpoint.last_hlc_logical > 2147483647 ||
+        !Number.isSafeInteger(checkpoint.last_resolved_seq_no) || checkpoint.last_resolved_seq_no < checkpoint.last_committed_seq_no ||
+        !Number.isSafeInteger(checkpoint.last_resolved_hlc_physical_ms) || checkpoint.last_resolved_hlc_physical_ms < 0 ||
+        !Number.isSafeInteger(checkpoint.last_resolved_hlc_logical) || checkpoint.last_resolved_hlc_logical < 0 ||
+        checkpoint.last_resolved_hlc_logical > 2147483647 ||
+        !Array.isArray(checkpoint.terminal_failures) || checkpoint.terminal_failures.length > MAX_TERMINAL_CHECKPOINT_FAILURES) {
+      throw new Error("INVALID_ORIGIN_TERMINAL_CHECKPOINT");
+    }
     const local=this.ctx.storage.sql.exec<{
       last_contiguous_seq_no:number;last_hlc_physical_ms:number;last_hlc_logical:number;
     }>(`SELECT last_contiguous_seq_no,last_hlc_physical_ms,last_hlc_logical
        FROM terminal_sequence_state WHERE singleton=1`).toArray()[0];
     if (!local) throw new Error("TERMINAL_SEQUENCE_STATE_MISSING");
-    if (checkpoint.last_committed_seq_no > local.last_contiguous_seq_no) {
-      // PostgreSQL is the permanent authority after DO restore/recreation. Never
-      // let a restored Edge checkpoint fall behind committed origin transactions.
+    if (checkpoint.last_resolved_seq_no > local.last_contiguous_seq_no) {
+      // PostgreSQL is the permanent authority after DO restore/recreation. A VOID
+      // advances only the resolved checkpoint; it never becomes a committed sale.
       this.ctx.storage.sql.exec(
         `UPDATE terminal_sequence_state SET last_contiguous_seq_no=?,last_hlc_physical_ms=?,last_hlc_logical=?
-         WHERE singleton=1`,checkpoint.last_committed_seq_no,checkpoint.last_hlc_physical_ms,checkpoint.last_hlc_logical
+         WHERE singleton=1`,
+        checkpoint.last_resolved_seq_no,checkpoint.last_resolved_hlc_physical_ms,checkpoint.last_resolved_hlc_logical
       );
-      this.ctx.storage.sql.exec(`DELETE FROM terminal_sequence_seen WHERE seq_no<=?`,checkpoint.last_committed_seq_no);
       this.ctx.storage.sql.exec(
         `UPDATE terminal_sequence_gaps SET status='CLOSED',resolved_at=?
-         WHERE status='OPEN' AND gap_to_seq_no<=?`,now,checkpoint.last_committed_seq_no
+         WHERE status='OPEN' AND gap_to_seq_no<=?`,now,checkpoint.last_resolved_seq_no
       );
       this.ctx.storage.sql.exec(
         `UPDATE terminal_sequence_gaps SET gap_from_seq_no=?
          WHERE status='OPEN' AND gap_from_seq_no<=? AND gap_to_seq_no>?`,
-        checkpoint.last_committed_seq_no+1,checkpoint.last_committed_seq_no,checkpoint.last_committed_seq_no
+        checkpoint.last_resolved_seq_no+1,checkpoint.last_resolved_seq_no,checkpoint.last_resolved_seq_no
       );
-    } else if (checkpoint.last_committed_seq_no === local.last_contiguous_seq_no &&
-      (checkpoint.last_hlc_physical_ms !== local.last_hlc_physical_ms || checkpoint.last_hlc_logical !== local.last_hlc_logical)) {
-      // At an equal sequence checkpoint, PostgreSQL's HLC is authoritative.
+    } else if (checkpoint.last_resolved_seq_no === local.last_contiguous_seq_no &&
+      (checkpoint.last_resolved_hlc_physical_ms !== local.last_hlc_physical_ms ||
+       checkpoint.last_resolved_hlc_logical !== local.last_hlc_logical)) {
       this.ctx.storage.sql.exec(
         `UPDATE terminal_sequence_state SET last_hlc_physical_ms=?,last_hlc_logical=? WHERE singleton=1`,
-        checkpoint.last_hlc_physical_ms,checkpoint.last_hlc_logical
+        checkpoint.last_resolved_hlc_physical_ms,checkpoint.last_resolved_hlc_logical
       );
     }
+    // Remove only sequence claims the origin has authoritatively resolved.
+    this.ctx.storage.sql.exec(
+      `DELETE FROM terminal_sequence_seen WHERE seq_no<=?`,checkpoint.last_resolved_seq_no
+    );
+
+    for (const failure of checkpoint.terminal_failures) {
+      if (!Number.isSafeInteger(failure.terminal_seq_no) || failure.terminal_seq_no < 1 ||
+          !/^[0-9a-f-]{36}$/i.test(failure.sale_id) ||
+          !/^[0-9a-f-]{36}$/i.test(failure.receipt_id) ||
+          typeof failure.idempotency_key !== "string" ||
+          failure.idempotency_key.length < 16 || failure.idempotency_key.length > 200 ||
+          !/^[0-9a-f]{64}$/i.test(failure.payload_hash) ||
+          (failure.resolution_id !== null && !/^[0-9a-f-]{36}$/i.test(failure.resolution_id)) ||
+          (failure.outcome === "RETRY" && !failure.resolution_id) ||
+          !["FAILED","RETRY","VOIDED","COMMITTED"].includes(failure.outcome)) {
+        throw new Error("INVALID_ORIGIN_TERMINAL_FAILURE_RECORD");
+      }
+      const row=this.ctx.storage.sql.exec<{
+        payload_hash:string;queue_payload:string;state:string;failure_code:string|null;next_retry_at:string|null;
+      }>(`SELECT payload_hash,queue_payload,state,failure_code,next_retry_at FROM idempotency
+         WHERE idempotency_key=?`,failure.idempotency_key).toArray()[0];
+      if (!row) {
+        const resolvedWithoutPayload=failure.outcome === "VOIDED" || failure.outcome === "COMMITTED";
+        const snapshot=failure.sale_snapshot ?? (resolvedWithoutPayload ? {
+          idempotency_key:failure.idempotency_key,payload_hash:failure.payload_hash,
+          sale_id:failure.sale_id,terminal_seq_no:failure.terminal_seq_no,
+          hlc:{physical_ms:0,logical:0},catalog_version:1,signed_price_proofs:[],
+          client_recorded_at:failure.edge_received_at,currency:"THB",lines:[]
+        } as QueueSale["sale"] : null);
+        if (!snapshot || failure.tenant_id === undefined || failure.terminal_id === undefined ||
+            failure.store_id !== checkpoint.store_id || !failure.do_name ||
+            snapshot.sale_id !== failure.sale_id || snapshot.idempotency_key !== failure.idempotency_key ||
+            snapshot.payload_hash !== failure.payload_hash || snapshot.terminal_seq_no !== failure.terminal_seq_no) {
+          throw new Error("ORIGIN_TERMINAL_FAILURE_SNAPSHOT_MISSING");
+        }
+        const restoredQueue:QueueSale={
+          tenant_id:failure.tenant_id,terminal_id:failure.terminal_id,store_id:failure.store_id,
+          idempotency_key:failure.idempotency_key,payload_hash:failure.payload_hash,
+          do_name:failure.do_name,sale:snapshot,edge_received_at:failure.edge_received_at,
+          receipt_id:failure.receipt_id,
+          recovery_resolution_id:failure.outcome === "RETRY" ? (failure.resolution_id ?? undefined) : undefined
+        };
+        const restoredState=failure.outcome === "VOIDED" ? "VOIDED"
+          : failure.outcome === "COMMITTED" ? "COMMITTED"
+          : failure.outcome === "RETRY" ? "ENQUEUE_PENDING" : "QUEUED";
+        this.ctx.storage.sql.exec(
+          `INSERT INTO idempotency
+           (idempotency_key,tenant_id,terminal_id,payload_hash,canonical_payload,receipt_id,
+            queue_payload,state,failure_code,delivery_attempts,next_retry_at,created_at,updated_at)
+           VALUES(?,?,?,?,?,?,?,?,?,0,NULL,?,?)`,
+          failure.idempotency_key,failure.tenant_id,failure.terminal_id,failure.payload_hash,
+          canonicalize({tenant_id:failure.tenant_id,terminal_id:failure.terminal_id,sale:snapshot}),
+          failure.receipt_id,JSON.stringify(restoredQueue),restoredState,
+          failure.outcome === "FAILED" ? failure.failure_code : null,now,now
+        );
+        if (failure.outcome === "FAILED" || failure.outcome === "RETRY") {
+          const seen=this.ctx.storage.sql.exec<{sale_id:string}>(
+            `SELECT sale_id FROM terminal_sequence_seen WHERE seq_no=?`,failure.terminal_seq_no
+          ).toArray()[0];
+          if (seen && seen.sale_id !== failure.sale_id) throw new Error("ORIGIN_TERMINAL_FAILURE_SEQUENCE_OWNER_CONFLICT");
+          this.ctx.storage.sql.exec(
+            `INSERT OR IGNORE INTO terminal_sequence_seen
+             (seq_no,sale_id,seen_at,hlc_physical_ms,hlc_logical) VALUES(?,?,?,?,?)`,
+            failure.terminal_seq_no,failure.sale_id,now,snapshot.hlc.physical_ms,snapshot.hlc.logical
+          );
+        }
+        continue;
+      }
+      let queued:QueueSale;
+      try { queued=JSON.parse(row.queue_payload) as QueueSale; }
+      catch { throw new Error("ORIGIN_TERMINAL_FAILURE_OUTBOX_CORRUPT"); }
+      if (row.payload_hash !== failure.payload_hash ||
+          (failure.sale_snapshot !== null && failure.sale_snapshot !== undefined &&
+            canonicalize(queued.sale) !== canonicalize(failure.sale_snapshot)) ||
+          queued.sale?.sale_id !== failure.sale_id ||
+          queued.sale?.terminal_seq_no !== failure.terminal_seq_no ||
+          queued.receipt_id !== failure.receipt_id ||
+          queued.edge_received_at !== failure.edge_received_at) {
+        throw new Error("ORIGIN_TERMINAL_FAILURE_OUTBOX_MISMATCH");
+      }
+      if (failure.outcome === "FAILED") {
+        if (row.state === "COMMITTED" || row.state === "VOIDED") {
+          throw new Error("ORIGIN_FAILURE_OUTCOME_CONFLICT");
+        }
+        if (failure.resolution_id) {
+          queued.recovery_resolution_id = failure.resolution_id;
+          this.ctx.storage.sql.exec(
+            `UPDATE idempotency SET queue_payload=?,failure_code=?,next_retry_at=NULL,updated_at=?
+             WHERE idempotency_key=?`,
+            JSON.stringify(queued),failure.failure_code,new Date(now).toISOString(),failure.idempotency_key
+          );
+        } else {
+          this.ctx.storage.sql.exec(
+            `UPDATE idempotency SET failure_code=?,next_retry_at=NULL,updated_at=? WHERE idempotency_key=?`,
+            failure.failure_code,new Date(now).toISOString(),failure.idempotency_key
+          );
+        }
+      } else if (failure.outcome === "RETRY") {
+        if (row.state === "COMMITTED" || row.state === "VOIDED") {
+          throw new Error("ORIGIN_RETRY_OUTCOME_CONFLICT");
+        }
+        if (row.state === "QUEUED" &&
+            row.failure_code === null &&
+            queued.recovery_resolution_id === failure.resolution_id) {
+          if (!row.next_retry_at) {
+            this.ctx.storage.sql.exec(
+              `UPDATE idempotency SET next_retry_at=?,updated_at=? WHERE idempotency_key=?`,
+              new Date(Date.now() + 10 * 60_000).toISOString(), new Date(now).toISOString(), failure.idempotency_key
+            );
+          }
+          continue;
+        }
+        queued.recovery_resolution_id = failure.resolution_id!;
+        this.ctx.storage.sql.exec(
+          `UPDATE idempotency SET queue_payload=?,state='ENQUEUE_PENDING',failure_code=NULL,next_retry_at=NULL,updated_at=?
+           WHERE idempotency_key=?`,
+          JSON.stringify(queued),new Date(now).toISOString(),failure.idempotency_key
+        );
+      } else if (failure.outcome === "VOIDED") {
+        if (row.state === "COMMITTED") throw new Error("ORIGIN_VOID_COMMITTED_CONFLICT");
+        this.ctx.storage.sql.exec(
+          `UPDATE idempotency SET state='VOIDED',failure_code=NULL,next_retry_at=NULL,updated_at=?
+           WHERE idempotency_key=?`,
+          new Date(now).toISOString(),failure.idempotency_key
+        );
+      } else {
+        if (row.state === "VOIDED") throw new Error("ORIGIN_COMMIT_VOID_CONFLICT");
+        this.ctx.storage.sql.exec(
+          `UPDATE idempotency SET state='COMMITTED',failure_code=NULL,next_retry_at=NULL,updated_at=?
+           WHERE idempotency_key=?`,
+          new Date(now).toISOString(),failure.idempotency_key
+        );
+      }
+    }
+
+    // Rebuild the local contiguous sequence checkpoint after restoring origin-only receipts.
+    const localState=this.ctx.storage.sql.exec<{
+      last_contiguous_seq_no:number;last_hlc_physical_ms:number;last_hlc_logical:number;
+    }>(`SELECT last_contiguous_seq_no,last_hlc_physical_ms,last_hlc_logical
+       FROM terminal_sequence_state WHERE singleton=1`).toArray()[0];
+    if (!localState) throw new Error("TERMINAL_SEQUENCE_STATE_MISSING");
+    let contiguous=localState.last_contiguous_seq_no;
+    let lastPhysical=localState.last_hlc_physical_ms;
+    let lastLogical=localState.last_hlc_logical;
+    while (true) {
+      const next=this.ctx.storage.sql.exec<{hlc_physical_ms:number;hlc_logical:number}>(
+        `SELECT hlc_physical_ms,hlc_logical FROM terminal_sequence_seen WHERE seq_no=?`,contiguous+1
+      ).toArray()[0];
+      if (!next) break;
+      if (next.hlc_physical_ms < lastPhysical ||
+          (next.hlc_physical_ms === lastPhysical && next.hlc_logical < lastLogical)) {
+        throw new Error("INVALID_HLC_REGRESSION");
+      }
+      contiguous++;
+      lastPhysical=next.hlc_physical_ms;
+      lastLogical=next.hlc_logical;
+    }
+    this.ctx.storage.sql.exec(
+      `UPDATE terminal_sequence_state SET last_contiguous_seq_no=?,last_hlc_physical_ms=?,last_hlc_logical=? WHERE singleton=1`,
+      contiguous,lastPhysical,lastLogical
+    );
+  }
+
+  private async ensureRecoveryAlarm(): Promise<void> {
+    const pending = this.ctx.storage.sql.exec<{count:number}>(
+      `SELECT COUNT(*) AS count FROM idempotency WHERE state='ENQUEUE_PENDING' AND failure_code IS NULL`
+    ).toArray()[0]?.count ?? 0;
+    const nextRetryAt = this.ctx.storage.sql.exec<{next_retry_at:string|null}>(
+      `SELECT MIN(next_retry_at) AS next_retry_at FROM idempotency
+       WHERE state='QUEUED' AND failure_code IS NULL AND next_retry_at IS NOT NULL`
+    ).toArray()[0]?.next_retry_at;
+    const existingAlarm = await this.ctx.storage.getAlarm();
+    if (pending > 0) {
+      const target = Date.now() + 30_000;
+      if (existingAlarm === null || existingAlarm > target) {
+        await this.ctx.storage.setAlarm(target);
+      }
+    } else if (nextRetryAt) {
+      const parsed = Date.parse(nextRetryAt);
+      if (Number.isFinite(parsed)) {
+        const target = Math.max(Date.now() + 1_000, parsed);
+        if (existingAlarm === null || existingAlarm > target) {
+          await this.ctx.storage.setAlarm(target);
+        }
+      }
+    }
+  }
+
+  async applyOriginCheckpoint(checkpoint:TerminalCheckpoint):Promise<void>{
+    const now=new Date().toISOString();
+    this.ctx.storage.transactionSync(()=>this.reconcileOriginCheckpoint(checkpoint,now));
+    await this.flushPending();
+    await this.ensureRecoveryAlarm();
   }
 
   private trimResolvedGaps(contiguous: number, now: string): void {
@@ -208,20 +446,47 @@ export class IdempotencyGate extends DurableObject<Env> {
     const now = new Date().toISOString();
 
     const result = this.ctx.storage.transactionSync(() => {
-      // First pass: validate all already-known idempotency keys before any write.
+      if (originCheckpoint) this.reconcileOriginCheckpoint(originCheckpoint,now);
+      const originFailures = originCheckpoint?.terminal_failures ?? [];
+      // First pass: validate all known keys and origin failure ownership before any write.
       for (const item of input.sales) {
         const prior = this.ctx.storage.sql.exec<{ payload_hash: string; failure_code: string | null }>(
           `SELECT payload_hash,failure_code FROM idempotency WHERE idempotency_key=?`, item.sale.idempotency_key
         ).toArray()[0];
         if (prior && prior.payload_hash !== item.payloadHash) throw new Error("IDEMPOTENCY_PAYLOAD_MISMATCH");
-        if (prior?.failure_code) throw new Error("IDEMPOTENCY_PREVIOUSLY_FAILED");
+        const originFailure = originFailures.find((failure) =>
+          failure.idempotency_key === item.sale.idempotency_key ||
+          failure.terminal_seq_no === item.sale.terminal_seq_no
+        );
+        if (originFailure && (originFailure.idempotency_key !== item.sale.idempotency_key ||
+            originFailure.payload_hash !== item.payloadHash ||
+            originFailure.sale_id !== item.sale.sale_id ||
+            originFailure.terminal_seq_no !== item.sale.terminal_seq_no)) {
+          throw new Error("TERMINAL_SEQUENCE_ALREADY_OWNED");
+        }
+        if (prior?.failure_code || originFailure?.outcome === "FAILED") {
+          throw new Error("IDEMPOTENCY_PREVIOUSLY_FAILED");
+        }
       }
 
-      if (originCheckpoint) this.reconcileOriginCheckpoint(originCheckpoint,now);
       const sequenceState = this.ctx.storage.sql.exec<{
         last_contiguous_seq_no: number; last_hlc_physical_ms: number; last_hlc_logical: number;
       }>(`SELECT last_contiguous_seq_no,last_hlc_physical_ms,last_hlc_logical
            FROM terminal_sequence_state WHERE singleton=1`).toArray()[0]!;
+      const failedRows = this.ctx.storage.sql.exec<{queue_payload:string}>(
+        `SELECT queue_payload FROM idempotency
+         WHERE failure_code IS NOT NULL`
+      ).toArray();
+      const failedSequences = failedRows.map((row) => {
+        try {
+          const sequence = (JSON.parse(row.queue_payload) as QueueSale).sale.terminal_seq_no;
+          if (!Number.isSafeInteger(sequence) || sequence < 1) throw new Error();
+          return sequence;
+        } catch {
+          throw new Error("TERMINAL_SEQUENCE_BLOCKED_BY_UNPARSEABLE_FAILED_RECEIPT");
+        }
+      });
+      const originResolvedSeq = originCheckpoint?.last_resolved_seq_no ?? 0;
       const sorted = [...input.sales].sort((a, b) => a.sale.terminal_seq_no - b.sale.terminal_seq_no);
       const batchKeys = new Map<string, string>();
       const newSequences = new Set<number>();
@@ -236,8 +501,36 @@ export class IdempotencyGate extends DurableObject<Env> {
         const existingKey = this.ctx.storage.sql.exec<{ idempotency_key: string }>(
           `SELECT idempotency_key FROM idempotency WHERE idempotency_key=?`, key
         ).toArray()[0];
-        if (existingKey) continue; // Exact replay: do not re-run sequence/HLC advancement.
+        if (existingKey) continue;
         const seq = item.sale.terminal_seq_no;
+        const originFailure = originFailures.find((failure) => failure.terminal_seq_no === seq);
+        if (originFailure) {
+          if (originFailure.idempotency_key !== key || originFailure.payload_hash !== item.payloadHash ||
+              originFailure.sale_id !== item.sale.sale_id) {
+            throw new Error("TERMINAL_SEQUENCE_ALREADY_OWNED");
+          }
+          if (originFailure.outcome === "FAILED") throw new Error("TERMINAL_SEQUENCE_BLOCKED_BY_FAILED_RECEIPT");
+          if (originFailure.outcome === "VOIDED" || originFailure.outcome === "COMMITTED") continue;
+          if (originFailure.outcome === "RETRY") {
+            const priorSeq = this.ctx.storage.sql.exec<{ sale_id:string }>(
+              `SELECT sale_id FROM terminal_sequence_seen WHERE seq_no=?`,seq
+            ).toArray()[0];
+            if (priorSeq && priorSeq.sale_id !== item.sale.sale_id) throw new Error("INVALID_TERMINAL_SEQUENCE_REUSE");
+            if (!priorSeq) {
+              if (seq <= sequenceState.last_contiguous_seq_no) throw new Error("TERMINAL_SEQUENCE_RETRY_OWNERSHIP_MISSING");
+              newSequences.add(seq);
+            }
+            if (item.sale.hlc.physical_ms > Date.now() + 300_000) throw new Error("INVALID_HLC_FUTURE_CLOCK");
+            continue;
+          }
+        }
+        if (failedSequences.some((failedSeq) => failedSeq > originResolvedSeq && failedSeq <= seq) ||
+            originFailures.some((failure) =>
+              (failure.outcome === "FAILED" || failure.outcome === "RETRY") &&
+              failure.terminal_seq_no > originResolvedSeq && failure.terminal_seq_no < seq
+            )) {
+          throw new Error("TERMINAL_SEQUENCE_BLOCKED_BY_FAILED_RECEIPT");
+        }
         if (newSequences.has(seq)) throw new Error("INVALID_DUPLICATE_TERMINAL_SEQUENCE");
         newSequences.add(seq);
         if (item.sale.hlc.physical_ms > Date.now() + 300_000) throw new Error("INVALID_HLC_FUTURE_CLOCK");
@@ -258,17 +551,29 @@ export class IdempotencyGate extends DurableObject<Env> {
       ).toArray()[0]?.high ?? sequenceState.last_contiguous_seq_no;
       let observedHigh = Math.max(seenHigh, sequenceState.last_contiguous_seq_no);
 
-      // Record newly accepted sequences. An unseen key cannot claim a sequence
-      // already owned by a different accepted sale.
+      // Record newly accepted sequences. Origin-resolved historical failures
+      // (VOIDED/COMMITTED) and already-seen RETRY sequences never claim a new slot.
       for (const item of sorted) {
         const existingKey = this.ctx.storage.sql.exec<{ idempotency_key: string }>(
           `SELECT idempotency_key FROM idempotency WHERE idempotency_key=?`, item.sale.idempotency_key
         ).toArray()[0];
         if (existingKey) continue;
         const seq = item.sale.terminal_seq_no;
-        // A replay older than the Edge retention window is delegated to PostgreSQL,
-        // whose unique idempotency and terminal sequence constraints are permanent.
-        if (seq <= sequenceState.last_contiguous_seq_no) continue;
+        const originFailure = originFailures.find((failure) => failure.terminal_seq_no === seq);
+        if (originFailure && (originFailure.outcome === "VOIDED" || originFailure.outcome === "COMMITTED")) continue;
+        if (originFailure?.outcome === "RETRY") {
+          const priorSeq = this.ctx.storage.sql.exec<{ sale_id: string }>(
+            `SELECT sale_id FROM terminal_sequence_seen WHERE seq_no=?`,seq
+          ).toArray()[0];
+          if (priorSeq) {
+            if (priorSeq.sale_id !== item.sale.sale_id) throw new Error("INVALID_TERMINAL_SEQUENCE_REUSE");
+            continue;
+          }
+        }
+        if (seq <= sequenceState.last_contiguous_seq_no) {
+          if (seq <= originResolvedSeq) continue;
+          throw new Error("TERMINAL_SEQUENCE_ALREADY_ACCEPTED");
+        }
         const priorSeq = this.ctx.storage.sql.exec<{ sale_id: string }>(
           `SELECT sale_id FROM terminal_sequence_seen WHERE seq_no=?`, seq
         ).toArray()[0];
@@ -318,30 +623,52 @@ export class IdempotencyGate extends DurableObject<Env> {
       this.pruneStorage(Date.now());
       const output: IdempotencyResultItem[] = [];
       for (const item of input.sales) {
+        const originFailure = originFailures.find((failure) => failure.terminal_seq_no === item.sale.terminal_seq_no);
         const prior = this.ctx.storage.sql.exec<{ state: string; receipt_id: string }>(
           `SELECT state,receipt_id FROM idempotency WHERE idempotency_key=?`, item.sale.idempotency_key
         ).toArray()[0];
-        const receiptId = prior?.receipt_id ?? item.receiptId;
+        const receiptId = prior?.receipt_id ?? originFailure?.receipt_id ?? item.receiptId;
         const queueMessage: QueueSale = {
           tenant_id: input.tenantId, terminal_id: input.terminalId, store_id: input.storeId,
           idempotency_key: item.sale.idempotency_key, payload_hash: item.payloadHash,
           do_name: input.doName, sale: item.sale,
-          edge_received_at: item.edgeReceivedAt, receipt_id: receiptId
+          edge_received_at: originFailure?.edge_received_at ?? item.edgeReceivedAt, receipt_id: receiptId,
+          recovery_resolution_id: originFailure?.outcome === "RETRY"
+            ? (originFailure.resolution_id ?? undefined)
+            : undefined
         };
         if (!prior) {
-          this.ctx.storage.sql.exec(
-            `INSERT INTO idempotency
-             (idempotency_key,tenant_id,terminal_id,payload_hash,canonical_payload,receipt_id,
-              queue_payload,state,failure_code,delivery_attempts,next_retry_at,created_at,updated_at)
-             VALUES (?,?,?,?,?,?,?,'ENQUEUE_PENDING',NULL,0,NULL,?,?)`,
-            item.sale.idempotency_key,input.tenantId,input.terminalId,item.payloadHash,
-            "",receiptId,JSON.stringify(queueMessage),now,now
-          );
-          output.push({ idempotency_key:item.sale.idempotency_key,status:"accepted",receipt_id:receiptId,payload_hash:item.payloadHash });
+          if (originFailure && (originFailure.outcome === "VOIDED" || originFailure.outcome === "COMMITTED")) {
+            const state = originFailure.outcome === "VOIDED" ? "VOIDED" : "COMMITTED";
+            this.ctx.storage.sql.exec(
+              `INSERT INTO idempotency
+               (idempotency_key,tenant_id,terminal_id,payload_hash,canonical_payload,receipt_id,
+                queue_payload,state,failure_code,delivery_attempts,next_retry_at,created_at,updated_at)
+               VALUES (?,?,?,?,?,?,?, ?,NULL,0,NULL,?,?)`,
+              item.sale.idempotency_key,input.tenantId,input.terminalId,item.payloadHash,
+              "",receiptId,JSON.stringify(queueMessage),state,now,now
+            );
+            output.push({
+              idempotency_key:item.sale.idempotency_key,
+              status:state === "VOIDED" ? "voided" : "committed",
+              receipt_id:receiptId,payload_hash:item.payloadHash
+            });
+          } else {
+            const failureCode = originFailure?.outcome === "FAILED" ? originFailure.failure_code : null;
+            this.ctx.storage.sql.exec(
+              `INSERT INTO idempotency
+               (idempotency_key,tenant_id,terminal_id,payload_hash,canonical_payload,receipt_id,
+                queue_payload,state,failure_code,delivery_attempts,next_retry_at,created_at,updated_at)
+               VALUES (?,?,?,?,?,?,?,'ENQUEUE_PENDING',?,0,NULL,?,?)`,
+              item.sale.idempotency_key,input.tenantId,input.terminalId,item.payloadHash,
+              "",receiptId,JSON.stringify(queueMessage),failureCode,now,now
+            );
+            output.push({ idempotency_key:item.sale.idempotency_key,status:"accepted",receipt_id:receiptId,payload_hash:item.payloadHash });
+          }
         } else {
           output.push({
             idempotency_key:item.sale.idempotency_key,
-            status:prior.state === "COMMITTED" ? "committed" : "duplicate",
+            status:prior.state === "VOIDED" ? "voided" : prior.state === "COMMITTED" ? "committed" : "duplicate",
             receipt_id:receiptId,payload_hash:item.payloadHash
           });
         }
@@ -396,7 +723,7 @@ export class IdempotencyGate extends DurableObject<Env> {
             this.ctx.storage.sql.exec(
               `UPDATE idempotency SET state='QUEUED',delivery_attempts=delivery_attempts+1,
                  next_retry_at=?,updated_at=?
-               WHERE idempotency_key=? AND failure_code IS NULL AND state<>'COMMITTED'`,
+               WHERE idempotency_key=? AND failure_code IS NULL AND state NOT IN ('COMMITTED','VOIDED')`,
               nextRetryAt,new Date(sentAt).toISOString(),item.idempotency_key
             );
           }
@@ -439,13 +766,13 @@ export class IdempotencyGate extends DurableObject<Env> {
        FROM terminal_sequence_state WHERE singleton=1`).toArray()[0];
     const pendingCount=this.ctx.storage.sql.exec<{count:number}>(
       `SELECT COUNT(*) AS count FROM idempotency WHERE tenant_id=? AND terminal_id=?
-       AND (state<>'COMMITTED' OR failure_code IS NOT NULL)`,
+       AND (state NOT IN ('COMMITTED','VOIDED') OR failure_code IS NOT NULL)`,
       tenantId,terminalId
     ).toArray()[0]?.count??0;
     const pending=this.ctx.storage.sql.exec<{
       idempotency_key:string;state:string;failure_code:string|null;queue_payload:string;updated_at:string;
     }>(`SELECT idempotency_key,state,failure_code,queue_payload,updated_at FROM idempotency
-       WHERE tenant_id=? AND terminal_id=? AND (state<>'COMMITTED' OR failure_code IS NOT NULL)
+       WHERE tenant_id=? AND terminal_id=? AND (state NOT IN ('COMMITTED','VOIDED') OR failure_code IS NOT NULL)
        ORDER BY updated_at LIMIT 5000`,tenantId,terminalId).toArray().map((row)=>{
          let sequence:number|null=null;
          try{const value=Number((JSON.parse(row.queue_payload) as QueueSale).sale.terminal_seq_no);sequence=Number.isSafeInteger(value)?value:null;}catch{}
@@ -463,30 +790,82 @@ export class IdempotencyGate extends DurableObject<Env> {
   }
 
   getStatus(tenantId:string,terminalId:string,idempotencyKey:string):{
-    status:"pending"|"queued"|"committed"|"failed"|"not_found";receipt_id?:string;payload_hash?:string;failure_code?:string;
+    status:"pending"|"queued"|"committed"|"voided"|"failed"|"not_found";receipt_id?:string;payload_hash?:string;failure_code?:string;
   }{
     const row=this.ctx.storage.sql.exec<{state:string;receipt_id:string;payload_hash:string;failure_code:string|null}>(
       `SELECT state,receipt_id,payload_hash,failure_code FROM idempotency
        WHERE tenant_id=? AND terminal_id=? AND idempotency_key=?`,tenantId,terminalId,idempotencyKey
     ).toArray()[0];
     if(!row)return {status:"not_found"};
-    return {status:row.failure_code?"failed":row.state==="COMMITTED"?"committed":row.state==="QUEUED"?"queued":"pending",
+    return {status:row.failure_code?"failed":row.state==="VOIDED"?"voided":row.state==="COMMITTED"?"committed":row.state==="QUEUED"?"queued":"pending",
       receipt_id:row.receipt_id,payload_hash:row.payload_hash,failure_code:row.failure_code??undefined};
   }
 
   markCommitted(tenantId:string,terminalId:string,idempotencyKey:string):void{
     this.ctx.storage.sql.exec(
       `UPDATE idempotency SET state='COMMITTED',failure_code=NULL,updated_at=?
-       WHERE tenant_id=? AND terminal_id=? AND idempotency_key=?`,
+       WHERE tenant_id=? AND terminal_id=? AND idempotency_key=? AND state<>'VOIDED'`,
       new Date().toISOString(),tenantId,terminalId,idempotencyKey
     );
   }
-  markFailed(tenantId:string,terminalId:string,idempotencyKey:string,failureCode:string):void{
+  markVoided(tenantId:string,terminalId:string,idempotencyKey:string):void{
+    this.ctx.storage.sql.exec(
+      `UPDATE idempotency SET state='VOIDED',failure_code=NULL,next_retry_at=NULL,updated_at=?
+       WHERE tenant_id=? AND terminal_id=? AND idempotency_key=? AND state<>'COMMITTED'`,
+      new Date().toISOString(),tenantId,terminalId,idempotencyKey
+    );
+  }
+  markFailed(
+    tenantId:string,terminalId:string,idempotencyKey:string,failureCode:string,
+    expectedResolutionId?:string
+  ):void{
+    const row=this.ctx.storage.sql.exec<{queue_payload:string}>(
+      `SELECT queue_payload FROM idempotency
+        WHERE tenant_id=? AND terminal_id=? AND idempotency_key=?`,
+      tenantId,terminalId,idempotencyKey
+    ).toArray()[0];
+    if(!row) return;
+    let currentResolutionId:string|undefined;
+    try {
+      currentResolutionId=(JSON.parse(row.queue_payload) as QueueSale).recovery_resolution_id;
+    } catch {
+      throw new Error("IDEMPOTENCY_OUTBOX_CORRUPT");
+    }
+    // A late failure from an older delivery generation must not overwrite a
+    // newer origin-authorized retry. The retry generation is carried in QueueSale.
+    if((currentResolutionId ?? null)!==(expectedResolutionId ?? null)) return;
     this.ctx.storage.sql.exec(
       `UPDATE idempotency SET failure_code=?,next_retry_at=NULL,updated_at=?
-       WHERE tenant_id=? AND terminal_id=? AND idempotency_key=? AND state<>'COMMITTED'`,
+       WHERE tenant_id=? AND terminal_id=? AND idempotency_key=? AND state NOT IN ('COMMITTED','VOIDED')`,
       failureCode.slice(0,200),new Date().toISOString(),tenantId,terminalId,idempotencyKey
     );
+  }
+
+  async verifyDurableOutboxRetention(
+    tenantId: string,
+    terminalId: string,
+    idempotencyKey: string
+  ): Promise<boolean> {
+    const row = this.ctx.storage.sql.exec<{
+      state: string;
+      failure_code: string | null;
+      next_retry_at: string | null;
+    }>(
+      `SELECT state,failure_code,next_retry_at FROM idempotency
+        WHERE tenant_id=? AND terminal_id=? AND idempotency_key=?`,
+      tenantId, terminalId, idempotencyKey
+    ).toArray()[0];
+    if (!row || row.state !== "QUEUED" || row.failure_code !== null || !row.next_retry_at) {
+      return false;
+    }
+    const retryMs = Date.parse(row.next_retry_at);
+    if (!Number.isFinite(retryMs)) return false;
+    let alarm = await this.ctx.storage.getAlarm();
+    if (alarm === null) {
+      await this.ctx.storage.setAlarm(Math.max(Date.now() + 1_000, retryMs));
+      alarm = await this.ctx.storage.getAlarm();
+    }
+    return alarm !== null;
   }
 
 }

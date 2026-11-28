@@ -10,13 +10,14 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:edge": "vitest run test/edge-sync.test.ts test/database-guard.test.ts",
+    "test:edge": "vitest run test",
     "chaos": "tsx scripts/chaos-load-test.ts",
     "integration:postgres": "tsx scripts/postgres-price-integration.ts",
     "integration:inventory": "tsx scripts/inventory-integrity-integration.ts",
     "export:do-health": "tsx scripts/export-do-health.ts",
-    "verify:ci": "npm run typecheck && npm run test:edge && npm run migration:preflight && npm run integration:postgres && npm run integration:inventory && npm run chaos",
-    "migration:preflight": "tsx scripts/store-migration-preflight-integration.ts"
+    "verify:ci": "npm run typecheck && npm run test:edge && npm run migration:preflight && npm run integration:postgres && npm run integration:inventory && npm run integration:terminal-recovery && npm run chaos",
+    "migration:preflight": "tsx scripts/store-migration-preflight-integration.ts",
+    "integration:terminal-recovery": "tsx scripts/terminal-recovery-checkpoint-integration.ts"
   },
   "dependencies": {
     "jose": "^6.1.0",
