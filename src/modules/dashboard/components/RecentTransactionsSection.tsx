@@ -182,13 +182,13 @@ export const RecentTransactionsSection: React.FC<RecentTransactionsSectionProps>
             <table className="w-full text-left text-xs border-collapse">
               <thead>
                 <tr className="border-b border-border text-text/70 bg-card font-medium">
-                  <th className="py-3.5 px-5">{t.orders.orderNumber}</th>
-                  <th className="py-3.5 px-4">{t.orders.dateTime}</th>
-                  <th className="py-3.5 px-4">{t.orders.cashier}</th>
-                  <th className="py-3.5 px-4">{t.orders.customer}</th>
-                  <th className="py-3.5 px-4">{t.orders.payment}</th>
-                  <th className="py-3.5 px-4">{t.orders.status}</th>
-                  <th className="py-3.5 px-5 text-right">
+                  <th scope="col" className="py-3.5 px-5">{t.orders.orderNumber}</th>
+                  <th scope="col" className="py-3.5 px-4">{t.orders.dateTime}</th>
+                  <th scope="col" className="py-3.5 px-4">{t.orders.cashier}</th>
+                  <th scope="col" className="py-3.5 px-4">{t.orders.customer}</th>
+                  <th scope="col" className="py-3.5 px-4">{t.orders.payment}</th>
+                  <th scope="col" className="py-3.5 px-4">{t.orders.status}</th>
+                  <th scope="col" className="py-3.5 px-5 text-right tabular-nums">
                     {isManager
                       ? t.orders.total
                       : language === 'th'
@@ -204,15 +204,29 @@ export const RecentTransactionsSection: React.FC<RecentTransactionsSectionProps>
                   return (
                     <React.Fragment key={order.id}>
                       <tr
+                        tabIndex={0}
+                        aria-expanded={isExpanded}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            toggleOrderExpansion(order.id);
+                          }
+                        }}
                         onClick={() => toggleOrderExpansion(order.id)}
-                        className="hover:bg-primary/5 cursor-pointer transition-colors"
+                        className="hover:bg-primary/5 cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cta"
                       >
                         <td className="py-3.5 px-5 font-mono font-bold text-text">
                           <div className="flex items-center gap-2">
                             <button
                               type="button"
+                              aria-expanded={isExpanded}
+                              aria-label={
+                                isExpanded
+                                  ? language === 'th' ? 'ย่อรายละเอียด' : 'Collapse line items'
+                                  : language === 'th' ? 'ขยายดูสินค้าในใบเสร็จ' : 'Expand line items'
+                              }
                               onClick={(e) => toggleOrderExpansion(order.id, e)}
-                              className={`p-1 rounded-lg transition-colors cursor-pointer ${
+                              className={`p-1.5 min-h-[32px] min-w-[32px] inline-flex items-center justify-center rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta ${
                                 isExpanded
                                   ? 'bg-primary/20 text-primary'
                                   : 'hover:bg-primary/10 text-text/60 hover:text-text'
@@ -232,7 +246,7 @@ export const RecentTransactionsSection: React.FC<RecentTransactionsSectionProps>
                             <span className="truncate">{order.orderNumber}</span>
                           </div>
                         </td>
-                        <td className="py-3.5 px-4 text-text/70 font-mono">
+                        <td className="py-3.5 px-4 text-brand-text-secondary font-mono tabular-nums">
                           {new Date(order.createdAt).toLocaleDateString([], {
                             month: 'short',
                             day: 'numeric',
@@ -268,7 +282,7 @@ export const RecentTransactionsSection: React.FC<RecentTransactionsSectionProps>
                             </Badge>
                           )}
                         </td>
-                        <td className="py-3.5 px-5 text-right font-mono font-bold text-text">
+                        <td className="py-3.5 px-5 text-right font-mono tabular-nums font-bold text-text">
                           {isManager ? (
                             formatMoney(order.totals.grandTotal)
                           ) : (
@@ -317,13 +331,13 @@ export const RecentTransactionsSection: React.FC<RecentTransactionsSectionProps>
                                     </div>
 
                                     <div className="rounded-lg border border-border overflow-hidden bg-background/50">
-                                      <table className="w-full text-left text-xs border-collapse font-mono">
+                                      <table className="w-full text-left text-xs border-collapse font-mono tabular-nums">
                                         <thead>
                                           <tr className="bg-card/80 text-text/70 border-b border-border text-[11px] font-semibold">
-                                            <th className="py-2 px-3 font-sans">{language === 'th' ? 'สินค้า' : 'Item'}</th>
-                                            <th className="py-2 px-2 text-center w-16">{language === 'th' ? 'จำนวน' : 'Qty'}</th>
-                                            <th className="py-2 px-3 text-right w-24">{language === 'th' ? 'ราคา/หน่วย' : 'Unit'}</th>
-                                            <th className="py-2 px-3 text-right w-28">{language === 'th' ? 'รวม' : 'Total'}</th>
+                                            <th scope="col" className="py-2 px-3 font-sans">{language === 'th' ? 'สินค้า' : 'Item'}</th>
+                                            <th scope="col" className="py-2 px-2 text-center w-16">{language === 'th' ? 'จำนวน' : 'Qty'}</th>
+                                            <th scope="col" className="py-2 px-3 text-right w-24">{language === 'th' ? 'ราคา/หน่วย' : 'Unit'}</th>
+                                            <th scope="col" className="py-2 px-3 text-right w-28">{language === 'th' ? 'รวม' : 'Total'}</th>
                                           </tr>
                                         </thead>
                                         <tbody className="divide-y divide-border/60 text-xs">

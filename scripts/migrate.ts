@@ -3,6 +3,7 @@ import path from 'node:path';
 import process from 'node:process';
 import pg from 'pg';
 import { resolveConfiguredDatabaseUrl } from '../server/db/postgres';
+import { isNonTransactionalMigration, recoverInvalidConcurrentIndex } from '../server/db/migration-runner-utils';
 
 const { Pool } = pg;
 const migrationDir = path.resolve(process.cwd(), 'db/migrations');
@@ -26,9 +27,10 @@ try {
       applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
+  // Hold a session-level lock because non-transactional migrations must run outside BEGIN.
+  await client.query("SELECT pg_advisory_lock(hashtextextended('prodx-pos:migrations', 0))");
   await client.query('BEGIN');
   transactionStarted = true;
-  await client.query("SELECT pg_advisory_xact_lock(hashtextextended('prodx-pos:migrations', 0))");
 
   for (const file of migrationFiles) {
     const version = file.slice(0, -'.sql'.length);
@@ -43,7 +45,31 @@ try {
     if (!sql.trim()) throw new Error(`Migration ${version} is empty.`);
 
     console.log(`Applying migration ${version}`);
-    await client.query(sql);
+    const nonTransactional = isNonTransactionalMigration(sql);
+    if (nonTransactional) {
+      // Commit earlier transactional migrations before executing statements such as
+      // CREATE INDEX CONCURRENTLY, which PostgreSQL rejects inside a transaction.
+      if (transactionStarted) {
+        await client.query('COMMIT');
+        transactionStarted = false;
+      }
+
+      // Recover an INVALID index left behind by an interrupted CREATE INDEX CONCURRENTLY.
+      await recoverInvalidConcurrentIndex(sql, async (query, parameters) => {
+        const result = await client.query(query, parameters ? [...parameters] : undefined);
+        return { rowCount: result.rowCount };
+      });
+
+      await client.query(sql);
+      await client.query('BEGIN');
+      transactionStarted = true;
+      await client.query(
+        'INSERT INTO prodx_schema_migrations(version) VALUES ($1) ON CONFLICT (version) DO NOTHING',
+        [version],
+      );
+    } else {
+      await client.query(sql);
+    }
 
     const recorded = await client.query(
       'SELECT 1 FROM prodx_schema_migrations WHERE version = $1 LIMIT 1',
@@ -61,6 +87,7 @@ try {
     DECLARE
       object_name text;
       object_signature text;
+      is_trigger_function boolean;
       role_name text;
     BEGIN
       FOR object_name IN
@@ -87,8 +114,14 @@ try {
         END LOOP;
       END LOOP;
 
-      FOR object_signature IN
-        SELECT p.oid::regprocedure::text FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+      FOR object_signature, is_trigger_function IN
+        SELECT p.oid::regprocedure::text,
+               (
+                 p.prorettype = 'pg_catalog.trigger'::regtype
+                 OR p.oid = to_regprocedure('public.prodx_auth_find_supervisor_credential(uuid, uuid, text)')
+               )
+          FROM pg_proc p
+          JOIN pg_namespace n ON n.oid = p.pronamespace
          WHERE n.nspname = 'public' AND left(p.proname, 6) = 'prodx_'
       LOOP
         EXECUTE format('REVOKE EXECUTE ON FUNCTION %s FROM PUBLIC', object_signature);
@@ -97,7 +130,11 @@ try {
             EXECUTE format('REVOKE EXECUTE ON FUNCTION %s FROM %I', object_signature, role_name);
           END IF;
         END LOOP;
-        EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO prodx_app', object_signature);
+        IF is_trigger_function THEN
+          EXECUTE format('REVOKE EXECUTE ON FUNCTION %s FROM prodx_app', object_signature);
+        ELSE
+          EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO prodx_app', object_signature);
+        END IF;
       END LOOP;
 
       REVOKE ALL PRIVILEGES ON TABLE public.prodx_schema_migrations, public.prodx_migration_lock, public.prodx_auth_login_throttles FROM prodx_app;
@@ -112,6 +149,10 @@ try {
   if (transactionStarted) await client.query('ROLLBACK');
   throw error;
 } finally {
-  client.release();
-  await pool.end();
+  try {
+    await client.query("SELECT pg_advisory_unlock(hashtextextended('prodx-pos:migrations', 0))");
+  } finally {
+    client.release();
+    await pool.end();
+  }
 }

@@ -1,8 +1,15 @@
-# PRODX POS Edge Checkout & Offline Sync — v1.1.2
+# PRODX POS Edge Sync — legacy direct-PostgreSQL prototype (v1.1.2)
 
-This package implements an Edge ingestion tier. PostgreSQL remains the financial system of record. `202 Accepted` means the Edge outbox/Queue accepted work; it does **not** mean the sale committed. POS clients must retain their local outbox until receipt status reports `committed`.
+> **PRODUCTION HOLD — DO NOT DEPLOY OR APPLY THIS SCHEMA TO PRODX-POS.**
+>
+> This package currently writes to a separate Edge financial schema (`sales`, `sale_lines`, `inventory_ledger`, `inventory_balances`, `audit_logs`, `pos_idempotency`). That is a parallel financial authority and conflicts with the approved CF-01 architecture. Do not deploy this Worker, provision Hyperdrive for it, create its runtime DB roles/secrets, or apply `migrations/001_pos_ledger.sql` to Preview or Production.
+>
+> The approved target is **PWA → Cloudflare Worker → Durable Object/Queue → authenticated PRODX backend adapter → existing `CheckoutService` → existing PRODX PostgreSQL schema**. The Worker is a transport/queue tier only; it must not write financial tables or hold a PostgreSQL credential. See PR #376 (CF-01 Checkout Adapter Contract) and `docs/superpowers/specs/2026-11-16-direct-pwa-device-auth-design.md`.
+>
+> `202 Accepted` means only that the Edge transport accepted work; it is never a committed sale. POS clients retain the local outbox until the backend's authenticated committed receipt is returned.
 
-## Architecture
+
+## Legacy prototype internals — not the approved production architecture
 
 - Worker ES Modules entrypoint; no Service Worker event listeners.
 - One SQLite-backed Durable Object shard per `tenant_id:terminal_id`.
@@ -10,7 +17,7 @@ This package implements an Edge ingestion tier. PostgreSQL remains the financial
 - DO SQLite outbox persists `ENQUEUE_PENDING` and keeps `QUEUED` records until PostgreSQL commit is confirmed. The single alarm per DO re-enqueues uncommitted records with exponential backoff (10, 20, 40, then 60 minutes) so Queue retention/consumer loss cannot silently strand a sale. Queue is at-least-once; PostgreSQL unique constraints make replay financially idempotent. Outbox sends are chunked below the 256 KB `sendBatch` request ceiling, and each sale is capped at 100 KB to stay below the 128 KB per-message limit.
 - HMAC-SHA256 signs each catalog page and each product price proof. The HMAC secret stays server-side; the POS stores the per-product proof and sends only proofs for products in the sale. The Worker verifies the proofs before Edge acceptance and again in the PostgreSQL transaction. The catalog page signature covers product ID, SKU, name, product version, unit price and tax rate. New `sale_lines` rows persist `catalog_version`, `signed_unit_price_minor` and `signed_price_verified=true`; legacy rows remain explicitly unverified rather than being backfilled with invented signature evidence. `audit_logs` stores the catalog version as a column and the signed unit-price list in immutable metadata. Hyperdrive CACHED page results carry their own `catalog_version` and are accepted only when it matches the uncached DIRECT version read; otherwise the Worker falls back to DIRECT, preventing stale cached prices from being re-signed under a newer version. A sale can use its signed price even after the current product price changes, while expired/forged proofs fail.
 
-- **Inventory balance integrity:** `inventory_ledger` is the only write path. An `AFTER INSERT` `SECURITY DEFINER` trigger applies each append-only delta to `inventory_balances` inside the same transaction. POS and inventory-admin roles cannot directly update balances. Opening stock and manual adjustments must use `scripts/seed-opening-inventory.sql` or `scripts/record-inventory-adjustment.sql`; do not seed `inventory_balances` directly. On an existing database, run reconciliation first and record any opening delta before enabling live writes.
+- **Inventory balance integrity:** `inventory_ledger` is the only write path. A `BEFORE INSERT` `SECURITY DEFINER` trigger applies each append-only delta by conflict-serialized row initialization followed by a conditional atomic UPDATE to `inventory_balances` inside the same transaction. POS and inventory-admin roles cannot directly update balances. Opening stock and manual adjustments must use `scripts/seed-opening-inventory.sql` or `scripts/record-inventory-adjustment.sql` with both `tenant_id` and `store_id`; do not seed `inventory_balances` directly. Every ledger insert must supply an explicit `reference_id` (`adjustment_id` in the operator scripts); the database removes the random default and preserves the reason-sensitive unique `(tenant_id, reference_id, product_id, reason)` key so same-reason retries cannot create a second stock movement while a sale can still be followed by its void/return movement. The database trigger also requires transaction-local `app.inventory_actor_id` and a SHA-256 `app.inventory_payload_hash` for every non-POS ledger insert, then appends the matching immutable audit event in the same transaction; direct inventory-admin inserts cannot bypass audit by skipping the scripts. Create additional Stores through `scripts/create-store.sql` as `prodx_device_admin`; the database automatically creates each Store's default-false inventory policy. Change the backorder policy through `scripts/set-store-inventory-policy.sql` as `prodx_device_admin`; the database requires an actor and payload hash and appends the audit event in the same transaction. Do not trust a POS-supplied flag. Legacy queued sales without `store_id` resolve only when the enrolled terminal has exactly one Store mapping; ambiguous historical mappings fail closed. New Queue messages carry the resolved Store identity. Migration 002 never assigns historical tenant-wide records to a physical Default Store: the old schema did not retain that identity. It fails closed if any existing terminal, checkpoint, sale, non-sale ledger, or balance row lacks an explicit operator-reviewed `store_id`, or if a sale-line/POS-ledger child has no mapped parent sale; stage a reviewed mapping before retrying. It also fails closed if ledger/balance totals disagree or any legacy balance is negative; reconcile these conditions before retrying. Run `scripts/reconcile.sql` after migration and before enabling live writes.
 - PostgreSQL transactions set tenant context with `set_config('app.current_tenant_id',$1,true)` before tenant queries. RLS is enabled and forced for business tables and the terminal certificate registry. The Worker verifies the Cloudflare mTLS certificate fingerprint against `terminal_devices` under the same tenant/terminal identity in an uncached Hyperdrive transaction. The Worker DB role must be `NOBYPASSRLS` and must not be a superuser.
 - `HYPERDRIVE_DIRECT` is used for transactional writes; `HYPERDRIVE_CACHED` is used for catalog reads. DB clients are per invocation and closed in `finally`.
 
@@ -33,60 +40,23 @@ The HMAC key is a server secret and must never be shipped to POS clients. Client
 
 Each sale contains `terminal_seq_no` and `hlc: { physical_ms, logical }`. DO tracks `last_contiguous_seq_no`, last HLC, seen sequence numbers and open gaps. The response includes `has_sequence_gaps`, `sequence_gaps`, `last_contiguous_seq_no`, and the current contiguous `last_hlc` checkpoint. A terminal enrollment/reset workflow must initialize the expected sequence baseline before a device starts with a non-1 sequence.
 
-### Database migration / RLS
+### Legacy prototype database / RLS — disposable sandbox only
 
-Apply `migrations/001_pos_ledger.sql` with a migration/admin role. It creates a monotonic tenant catalog revision, signed-price columns, HLC columns, immutable-ledger triggers, and `ENABLE` + `FORCE ROW LEVEL SECURITY` policies. Configure separate runtime roles with `NOBYPASSRLS`, least-privilege grants, and no ownership/superuser privileges. Product-catalog writers cannot directly modify `tenant_catalog_versions`; a protected trigger function advances it when product data changes. Run `scripts/rls-smoke.sql` as `prodx_rls_auditor` (NOBYPASSRLS), not as the Worker role.
+The prototype migrations (`migrations/001_pos_ledger.sql` followed by `migrations/002_store_scoped_inventory.sql`) create a parallel Edge ledger and are **not** migrations for the existing PRODX-POS database. Do not apply them to Preview, Staging shared databases, or Production. The only acceptable use of these migrations is an isolated, disposable test database with a verified database name/host allowlist and synthetic data. When exercised in a disposable sandbox, configure separate runtime roles with `NOBYPASSRLS`, least-privilege grants, and no ownership/superuser privileges, and run `scripts/rls-smoke.sql` as `prodx_rls_auditor` (`NOBYPASSRLS`), not as the Worker role. The approved integration must call the existing backend `CheckoutService` and use the existing PRODX transaction executor, RLS, grants, inventory ledger, payment/cash movement, and audit tables.
 
-Existing deployments should back up and review the migration before applying it. `CREATE TABLE IF NOT EXISTS` does not retrofit all old schema constraints; the included `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` covers the new sale columns, but operators must verify prior table definitions and indexes before production rollout.
+## Current setup status
 
-## Setup
+This package is **not approved for deployment**. The connected Cloudflare account inventory on 2026-11-16 found no deployed Edge Sync Worker, no Durable Object namespaces, no Hyperdrive configurations, and two staging Queues with zero producers and consumers. No provisioning or deployment is authorized by this README.
 
-1. Node.js 22+.
-2. `npm install`.
-3. Create Hyperdrive DIRECT (caching disabled) and CACHED (short TTL) configurations; set the real IDs in `wrangler.jsonc`. The connected Cloudflare account currently has no Hyperdrive configs or Queues, so these resources still need provisioning.
-4. Create DLQ `prodx-pos-ingest-dlq` first, then Queue `prodx-pos-ingest` with that DLQ configured.
-5. Apply the PostgreSQL migration, create the six non-owner `LOGIN` roles, and run `scripts/grant-runtime-role.sql` as the database administrator. Register each POS client certificate fingerprint with `scripts/register-terminal-device.sql`; revoke devices with `scripts/revoke-terminal-device.sql`. Use a separate tenant-scoped `prodx_device_admin` role for enrollment management, and `prodx_inventory_admin` for audited opening-stock/adjustment ledger entries.
-6. Set the HMAC secret locally in `.dev.vars` and remotely with `npx wrangler secret put CATALOG_SIGNING_KEY`. Generate at least 32 random bytes; do not commit the value.
-7. Create a dedicated Cloudflare Access application for POS terminals with trusted `tenant_id` and `terminal_id` JWT claims, plus a separate trusted `role=POS_SYNC_AUDITOR` claim for the tenant-scoped diagnostics endpoint; enforce WAF mTLS for the sync endpoint. The connected account currently has an `All Workers` Access app whose policy is limited to account members; do not reuse it for POS terminals. `ACCESS_TEAM_DOMAIN` is populated from the connected Zero Trust organization's `auth_domain`; replace `ACCESS_AUD` with the audience of the dedicated POS application.
-8. Run `npx wrangler types` to generate `worker-configuration.d.ts`.
-
-## Commands
+Safe local checks (Node.js 22+ with the pinned npm 10.9.4 toolchain and committed lockfile):
 
 ```bash
-npm install
-npx wrangler login
-npx wrangler types
+npm ci --no-audit --no-fund --legacy-peer-deps
 npm run typecheck
 npm run test:edge
-npm run integration:postgres
-npx wrangler dev
-npx wrangler deploy --dry-run
-npx wrangler deploy
-npx wrangler tail prodx-pos-edge-sync
 ```
 
-Hyperdrive examples:
-
-```bash
-npx wrangler hyperdrive create prodx-pos-direct --connection-string="$DATABASE_URL" --caching-disabled
-npx wrangler hyperdrive create prodx-pos-cached --connection-string="$DATABASE_URL" --max-age=15 --swr=5
-```
-
-Queues:
-
-```bash
-npx wrangler queues create prodx-pos-ingest-dlq
-npx wrangler queues create prodx-pos-ingest
-```
-
-Migration and security checks:
-
-```bash
-psql "$MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/001_pos_ledger.sql
-psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/grant-runtime-role.sql
-# RLS_AUDIT_DATABASE_URL uses prodx_rls_auditor (NOBYPASSRLS).
-psql "$RLS_AUDIT_DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/rls-smoke.sql
-```
+`npm run migration:preflight`, `npm run integration:postgres`, `npm run integration:inventory`, and `npm run chaos` require a disposable PostgreSQL test database only. Never point them at a shared, Preview, or Production database. Do not run `wrangler deploy`, `wrangler hyperdrive create`, `wrangler queues create`, `wrangler secret put`, or `psql -f migrations/001_pos_ledger.sql` / `migrations/002_store_scoped_inventory.sql` until the CF-01 runtime design, backend adapter, isolated staging credentials, and explicit owner authorization are complete.
 
 ## Tests and chaos harness
 
@@ -97,7 +67,7 @@ npm run test:edge
 npm run test
 ```
 
-The suite covers 50-item batch atomicity on an existing-key hash mismatch, DO Alarm recovery after an injected Queue outage, queued-outbox re-enqueue until commit, sequence gap/HLC recovery, permanent-failure finalization, and signed offline-price acceptance/tamper rejection. `scripts/postgres-price-integration.ts` is a separate real-PostgreSQL integration harness: it issues a signed old price, changes the current product price, commits through the runtime role, verifies the old signed price persisted, replays the same idempotency key, checks active/unknown mTLS certificate mapping, and verifies cross-tenant RLS isolation. Run it only against a disposable integration database after applying the migration.
+The suite covers Store-scoped concurrent final-unit checkout, per-Store backorder policy, cross-Store stock isolation, positive stock receipts after disabling backorders, 50-item batch atomicity on an existing-key hash mismatch, DO Alarm recovery after an injected Queue outage, queued-outbox re-enqueue until commit, sequence gap/HLC recovery, permanent-failure finalization, and signed offline-price acceptance/tamper rejection. `scripts/postgres-price-integration.ts` is a separate real-PostgreSQL integration harness: it issues a signed old price, changes the current product price, commits through the runtime role, verifies the old signed price persisted, replays the same idempotency key, checks active/unknown mTLS certificate mapping, and verifies cross-tenant RLS isolation. Run it only against a disposable integration database after applying the migration.
 
 For the 300-terminal load harness, provide 300 valid Access JWTs and 300 matching client certificate/key file pairs in the same order (each fingerprint enrolled for its own terminal in `terminal_devices`). The load harness obtains signed price proofs through the API and never needs the HMAC secret. Never place tokens or private keys in command history or source control:
 
@@ -120,15 +90,13 @@ psql "$RECONCILIATION_DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/reconcile.sql
 
 The export creates `do-outbox-export.csv`; `scripts/reconcile.sql` imports it with `\copy` and runs the DO-local pending/gap/checkpoint checks in the same `psql` session. Run only against an isolated staging database with test products and inventory.
 
-## Gate 6 Staging `workers.dev` Access mTLS
+## Gate 6 Staging — HOLD / legacy proxy workflow is insufficient
 
-The Gate 6 Staging environment uses the dedicated `prodx-pos-edge-sync-staging.<account-subdomain>.workers.dev` hostname (`workers_dev=true` only under the `staging` Wrangler environment). Protect that exact hostname with a dedicated Cloudflare Access application. Configure a Service Auth policy with the upstream Linked App Token selector in `include` and the enrolled CI client certificate selector in `require`, so both the trusted terminal/operator JWT and the Vercel-to-Worker CI mTLS certificate are mandatory. Associate the issuing CA with this exact hostname.
-
-The Worker must still validate the downstream Access JWT audience/issuer and `request.cf.tlsClientAuth` fingerprint against the active `terminal_devices` row for the dedicated Staging test terminal. Before running Gate 6 E2E, verify that Access mTLS populates the expected Worker certificate fields and that a missing/invalid certificate is rejected. If the account plan does not include Access mTLS or the Worker cannot observe the certificate fingerprint, keep Gate 6 on HOLD; do not replace the check with a caller-supplied fingerprint or shared-secret bypass. Access mTLS plan availability is documented by Cloudflare and must be confirmed for the account.
+The existing Gate 6 workflow targets a Vercel Preview proxy and does not prove direct PWA-to-Worker ingress or the approved backend CheckoutService path. The connected account has no deployed Edge Sync Worker or Durable Object namespaces; the two staging Queues have no producers/consumers. Do not dispatch the workflow or provision resources until the CF-01 backend adapter, device identity, service identity, isolated database, and direct-browser E2E contracts are approved. Hyperdrive is not required for the approved Worker-to-backend design. Application-layer ECDSA signatures are not mTLS; Production mTLS remains unchanged.
 
 The WAF custom rule below is the alternative for a zone-managed hostname using Cloudflare SSL/TLS client-certificate validation; it is not the current `workers.dev` Staging enforcement mechanism.
 
-## WAF mTLS custom rule
+## Legacy WAF mTLS reference only — not the approved Staging device-auth path
 
 Block action expression:
 
@@ -139,7 +107,7 @@ Block action expression:
       or cf.tls_client_auth.cert_revoked))
 ```
 
-Enable client certificate authentication and trusted CA configuration before activating the rule. The Worker also requires a matching active fingerprint row in `terminal_devices` for the exact `tenant_id` and `terminal_id` from the Access JWT; WAF validation alone is not treated as device authorization.
+This expression is retained only as a historical reference for a future zone-managed mTLS deployment. It is not part of the approved Free-plan Staging WebCrypto design and is not authorization to configure DNS, a Zone, WAF, or certificates. Any future mTLS deployment requires separate owner approval and must preserve the existing Production mTLS contract.
 
 ## Known release gates / limitations
 
@@ -160,10 +128,10 @@ Enable client certificate authentication and trusted CA configuration before act
 
 ## GitHub Actions Delivery Gate Verification (v1.1.2)
 
-The workflow `.github/workflows/verify-delivery-gates.yml` runs on push, pull request, and manual dispatch. It provisions a disposable PostgreSQL 16 service, installs Node.js 22 dependencies, generates Wrangler types, runs full TypeScript checking and the Cloudflare workerd test suite, applies the migration, creates isolated CI roles, verifies RLS, runs the PostgreSQL signed-price/CTE integration harness, executes a 300-terminal / 15,000-sale PostgreSQL CI load with 3,000 exact duplicate replays, and fails strict SQL reconciliation on any anomaly. Logs are uploaded as a GitHub Actions artifact.
+The workflow `.github/workflows/verify-delivery-gates.yml` runs on push, pull request, and manual dispatch. It provisions a disposable PostgreSQL 16 service, generates per-run database-role credentials, installs Node.js 22 dependencies, audits locked Edge dependencies, generates Wrangler types, runs TypeScript and Cloudflare workerd tests, proves Store migration rollback against unmapped legacy inventory in a separate disposable database, applies the Store migration, creates isolated CI roles, verifies RLS, runs signed-price and Store-scoped concurrent-inventory integration, executes a 300-terminal / 15,000-sale PostgreSQL CI load with 3,000 exact duplicate replays, and fails strict SQL reconciliation on any anomaly. Logs are uploaded as a GitHub Actions artifact.
 
-The CI role bootstrap (`scripts/create-ci-roles.sql`) is only for disposable CI databases. It creates the six least-privilege roles with an ephemeral shared test password; do not run it against production. The workflow's `CATALOG_SIGNING_KEY` is a dummy test-only value. The chaos harness uses `POS_CI_MODE=true` to test the PostgreSQL CTE directly; it does not claim to exercise a deployed Cloudflare Queue or live Durable Object alarms. Those require a separate Cloudflare staging recovery test.
+The Edge PostgreSQL write harnesses require `POS_CI_MODE=true`, a local `prodx_pos_*_ci` or `prodx_pos_*_test` database, and a separate runtime role; they reject remote hosts, connection-string host overrides, production runtimes, and mismatched admin/runtime targets. The CI role bootstrap (`scripts/create-ci-roles.sql`) is only for disposable CI databases. It creates the six least-privilege roles with distinct cryptographically random passwords generated for each workflow run; do not run it against production. The PostgreSQL service's bootstrap password is fixed only inside the isolated, ephemeral GitHub Actions service container; the workflow generates a separate random credential for each database role and a random `CATALOG_SIGNING_KEY` for every run. The chaos harness uses `POS_CI_MODE=true` to test the PostgreSQL CTE directly; it does not claim to exercise a deployed Cloudflare Queue or live Durable Object alarms. Those require a separate Cloudflare staging recovery test.
 
-The CI workflow runs `npm install` because this source package does not include a generated npm lockfile. After the first successful GitHub run, review and commit the resulting `package-lock.json`, then switch the workflow to `npm ci` for deterministic dependency resolution.
+The source package includes a committed `package-lock.json` (lockfileVersion 3). The delivery-gate workflow installs from it with `npm ci --no-audit --no-fund --legacy-peer-deps` using npm 10.9.4; keep local installs aligned with that command and review lockfile changes in pull requests.
 
 The Hyperdrive IDs in `wrangler.jsonc` are valid-shape non-production placeholders for local type generation only. Replace them with actual Hyperdrive configuration IDs before deployment. The all-zero/all-one IDs are not deployable resources.

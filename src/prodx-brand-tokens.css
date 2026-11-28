@@ -60,6 +60,7 @@
   --brand-night-border-strong: #6f7e8a;
 
   /* Semantic roles — light */
+  color-scheme: light;
   --brand-bg: var(--brand-cream-100);
   --brand-surface: var(--brand-cream-50);
   --brand-surface-raised: var(--brand-cream-50);
@@ -83,6 +84,7 @@
   --brand-primary-hover: var(--brand-green-700);
   --brand-primary-pressed: var(--brand-green-600);
   --brand-primary-text: var(--brand-cream-100);
+  --brand-on-solid: #fbf8f3;
 
   /* CTA / payment only. Never use white text on orange. */
   --brand-cta: var(--brand-orange-500);
@@ -114,6 +116,7 @@
 :root.dark,
 .dark,
 [data-theme="dark"] {
+  color-scheme: dark;
   --brand-bg: var(--brand-night-bg);
   --brand-surface: var(--brand-night-surface-1);
   --brand-surface-raised: var(--brand-night-surface-2);
@@ -144,7 +147,7 @@
   --brand-cta-hover: var(--brand-orange-hover);
   --brand-cta-pressed: var(--brand-orange-600);
   --brand-cta-text: var(--brand-ink-900);
-  --brand-cta-subtle: var(--brand-orange-100);
+  --brand-cta-subtle: rgba(232, 137, 74, 0.16);
 
   /* Status labels use readable neutral text on the dark surface.
      Status hue is carried by the approved status icon/border/fill token. */

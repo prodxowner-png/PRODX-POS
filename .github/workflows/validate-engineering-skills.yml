@@ -1,0 +1,44 @@
+name: Engineering Skill Pack Validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".agents/skills/**"
+      - "docs/engineering-skills/**"
+      - "scripts/validate-engineering-skills.*"
+      - ".github/workflows/validate-engineering-skills.yml"
+  push:
+    branches: [main]
+    paths:
+      - ".agents/skills/**"
+      - "docs/engineering-skills/**"
+      - "scripts/validate-engineering-skills.*"
+      - ".github/workflows/validate-engineering-skills.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate engineering skill metadata and evidence contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.12.0
+      - name: Validate UI/UX Pro Max catalog
+        run: python3 .agents/skills/ui-ux-pro-max/scripts/validate_data.py
+      - name: Run UI/UX Pro Max regression tests
+        run: python3 -B .agents/skills/ui-ux-pro-max/scripts/test_regressions.py
+      - name: Run Frontend Design script regression tests
+        run: node --test .agents/skills/frontend-design/scripts/frontend-design-scripts.test.mjs
+      - name: Validate skill pack
+        run: node scripts/validate-engineering-skills.mjs
+      - name: Run validator regression tests
+        run: node --test scripts/validate-engineering-skills.test.mjs

@@ -135,7 +135,7 @@ export default defineConfig(() => {
         },
       },
       VitePWA({
-        registerType: 'autoUpdate',
+        registerType: 'prompt',
         includeAssets: ['favicon.svg', 'prodx-logo.svg', 'prodx-pos-logo.svg', 'prodx-pos-receipt-logo.svg'],
         manifest: {
           id: '/',
@@ -164,8 +164,8 @@ export default defineConfig(() => {
         },
         workbox: {
           maximumFileSizeToCacheInBytes: 10000000,
-          skipWaiting: true,
-          clientsClaim: true,
+          skipWaiting: false,
+          clientsClaim: false,
           navigateFallbackDenylist: [/^\/$/],
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2,json}'],
           runtimeCaching: [

@@ -5,9 +5,15 @@ import { firmwareRegistryService } from '../services/firmwareRegistryService';
 import { performEndToEndHealthCheck } from '../services/systemHealthCheckService';
 import { getOciTenancyStatus } from '../services/ociBridgeService';
 import { requirePermission } from './createApp';
-import { GoogleGenAI } from '@google/genai';
+
+const registeredPublicInfraApps = new WeakSet<Express>();
 
 export function registerPublicInfrastructureRoutes(app: Express, pool?: Pool) {
+  if (registeredPublicInfraApps.has(app)) {
+    return;
+  }
+  registeredPublicInfraApps.add(app);
+
   // End-to-end ping of the production PostgreSQL database and the optional legacy Firestore dependency.
   app.get('/api/v1/infrastructure/system-health-check', async (req: Request, res: Response) => {
     try {
@@ -490,37 +496,6 @@ export function registerInfrastructureRoutes(
       res.json({ success: true, data: deviceResult, suiteSummary: suite });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message || 'Single hardware device test failed' });
-    }
-  });
-
-  // Gemini Frontend AI Assistant Endpoint
-  app.post('/api/v1/ai/frontend-assistant', async (req: Request, res: Response) => {
-    try {
-      const { prompt, history } = req.body;
-      if (!prompt) {
-        return res.status(400).json({ success: false, error: 'prompt is required' });
-      }
-
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) {
-        // Fallback intelligent POS assistant response if API key is not set
-        return res.json({
-          success: true,
-          response: `ยินดีต้อนรับครับ! ในฐานะ Gemini AI Assistant ประจำ PRODX-POS ผมพร้อมช่วยเหลือคุณในการใช้งานระบบ POS, การจัดการสต็อก, การชำระเงิน หรือการตรวจสอบอุปกรณ์ครับ (หมายเหตุ: กรุณาตั้งค่า GEMINI_API_KEY เพื่อเปิดใช้งานความสามารถเต็มรูปแบบ)`,
-        });
-      }
-
-      const ai = new GoogleGenAI({ apiKey });
-      const interaction = await ai.interactions.create({
-        model: 'gemini-3.8-flash',
-        system_instruction: 'You are the intelligent frontend AI assistant for PRODX-POS, a professional Point of Sale system. Assist cashiers and store managers in polite, professional Thai language regarding POS operations, sales, refunds, inventory, and hardware.',
-        input: prompt,
-      });
-
-      const responseText = interaction.output_text || 'ขออภัยครับ ไม่สามารถประมวลผลคำตอบได้ในขณะนี้';
-      res.json({ success: true, response: responseText });
-    } catch (error: any) {
-      res.status(500).json({ success: false, error: error.message || 'AI Assistant request failed' });
     }
   });
 }

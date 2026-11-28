@@ -15,9 +15,14 @@ These agent skills turn PRODX-POS production principles into repeatable review p
 - [prodx-observability](prodx-observability/SKILL.md) — safe diagnostics, correlation, metrics, alerts, and audit boundaries.
 - [prodx-ci-cd](prodx-ci-cd/SKILL.md) — CI gates, branch protection, artifact provenance, release, and rollback.
 - [prodx-backup-recovery](prodx-backup-recovery/SKILL.md) — restore drills, integrity checks, RPO/RTO, and DR.
+- [prodx-production-infrastructure](prodx-production-infrastructure/SKILL.md) — platform wiring, network/TLS, secrets delivery, runtime health, capacity, and operational configuration.
 - [prodx-production-readiness](prodx-production-readiness/SKILL.md) — aggregate hard-gate decision and status reporting.
+- [ui-ux-pro-max](ui-ux-pro-max/SKILL.md) — searchable UI/UX design systems, accessibility, responsive layout, interaction, typography, and stack-specific frontend guidance; follow its PRODX guardrails.
 - [prodx-code-review](prodx-code-review/SKILL.md) — adversarial pull-request review contract already present in this repository.
 - [prodx-ai-tooling](prodx-ai-tooling/SKILL.md) — safe AI tool-calling, permission boundaries, prompt injection, idempotency, and auditable execution.
+
+- [modern-web-guidance](modern-web-guidance/SKILL.md) — modern HTML/CSS/DOM/browser APIs, accessibility, responsive UI, performance, security, and evidence-based implementation guidance.
+- [frontend-design](frontend-design/SKILL.md) — production-grade frontend design guidance, design tokens, typography, palettes, component generation, and accessibility analysis; obeys PRODX integration guardrails.
 
 ## Required evidence vocabulary
 Every skill must distinguish:

@@ -101,6 +101,16 @@ export const resolveProductionDatabaseUrl = async (
   return payload.databaseUrl;
 };
 
+const DEFAULT_PG_CONNECTION_TIMEOUT_MS = 10_000;
+const DEFAULT_PG_IDLE_TIMEOUT_MS = 30_000;
+const DEFAULT_PG_STATEMENT_TIMEOUT_MS = 30_000;
+
+const resolveTimeoutEnvMs = (rawValue: string | undefined, fallbackMs: number): number => {
+  if (rawValue === undefined || rawValue.trim() === '') return fallbackMs;
+  const parsed = Number.parseInt(rawValue, 10);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : fallbackMs;
+};
+
 export const createPostgresPool = (config: PoolConfig = {}): Pool => {
   const connectionString = resolveConfiguredDatabaseUrl(config.connectionString ?? process.env.DATABASE_URL);
   if (!connectionString) {
@@ -118,6 +128,12 @@ export const createPostgresPool = (config: PoolConfig = {}): Pool => {
     ...config,
     connectionString,
     max: config.max ?? (process.env.VERCEL ? 1 : 10),
+    connectionTimeoutMillis: config.connectionTimeoutMillis ??
+      resolveTimeoutEnvMs(process.env.PG_CONNECTION_TIMEOUT_MS, DEFAULT_PG_CONNECTION_TIMEOUT_MS),
+    idleTimeoutMillis: config.idleTimeoutMillis ??
+      resolveTimeoutEnvMs(process.env.PG_IDLE_TIMEOUT_MS, DEFAULT_PG_IDLE_TIMEOUT_MS),
+    statement_timeout: config.statement_timeout ??
+      resolveTimeoutEnvMs(process.env.PG_STATEMENT_TIMEOUT_MS, DEFAULT_PG_STATEMENT_TIMEOUT_MS),
     ssl: config.ssl ?? (isProductionRuntime() ? { rejectUnauthorized: true } : undefined),
   });
 };

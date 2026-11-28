@@ -144,12 +144,12 @@ export const AppShell: React.FC<AppShellProps> = ({
               </div>
               <h2 className="text-lg font-bold text-text mb-2">กำลังรอการโหลดข้อมูล...</h2>
               <p className="text-sm text-text/60 max-w-md mb-6">
-                ระบบกำลังพยายามโหลดหน้า <span className="font-mono font-bold text-amber-500 uppercase">{currentRoute}</span> หากค้างนานเกินไป โปรดลองกดปุ่มรีเซ็ตด้านล่าง
+                ระบบกำลังพยายามโหลดหน้า <span className="font-mono tabular-nums font-bold text-amber-500 uppercase">{currentRoute}</span> หากค้างนานเกินไป โปรดลองกดปุ่มรีเซ็ตด้านล่าง
               </p>
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => window.location.reload()}
-                  className="px-6 py-2.5 rounded-xl bg-primary text-white font-bold text-sm shadow-md hover:bg-primary-dark transition-all cursor-pointer active:scale-95"
+                  className="px-6 py-2.5 rounded-xl bg-primary text-primary-foreground font-bold text-sm shadow-md hover:bg-primary-dark transition-all cursor-pointer active:scale-95"
                 >
                   โหลดหน้าเว็บใหม่ (Reload)
                 </button>
@@ -204,7 +204,8 @@ export const AppShell: React.FC<AppShellProps> = ({
                 key={tab.id}
                 type="button"
                 onClick={() => onNavigate(tab.id)}
-                className={`flex-1 min-h-[44px] py-1 rounded-xl flex flex-col items-center justify-center gap-0.5 transition-all cursor-pointer active:scale-95 ${
+                aria-current={active ? 'page' : undefined}
+                className={`flex-1 min-h-[44px] py-1 rounded-xl flex flex-col items-center justify-center gap-0.5 transition-all cursor-pointer active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
                   active
                     ? 'text-primary font-black bg-primary/10'
                     : 'text-text/60 hover:text-text font-semibold'
@@ -220,7 +221,7 @@ export const AppShell: React.FC<AppShellProps> = ({
           <button
             type="button"
             onClick={() => setIsMobileMenuOpen(true)}
-            className="flex-1 min-h-[44px] py-1 rounded-xl flex flex-col items-center justify-center gap-0.5 text-text/60 hover:text-text font-semibold transition-all cursor-pointer active:scale-95"
+            className="flex-1 min-h-[44px] py-1 rounded-xl flex flex-col items-center justify-center gap-0.5 text-text/60 hover:text-text font-semibold transition-all cursor-pointer active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
           >
             <Menu className="h-4 w-4 shrink-0" />
             <span className="text-[10px] leading-tight">

@@ -9,7 +9,7 @@ export interface AiConfig {
 export const AI_BACKEND_CHAT_PATH = '/api/v1/ai/chat';
 
 export const DEFAULT_AI_CONFIG: AiConfig = {
-  model: 'gemini-3.8-flash',
+  model: 'google/gemini-3.8-flash',
   enabled: true,
   temperature: 0.7,
 };
@@ -54,7 +54,8 @@ export class AiService {
   }
 
   private sanitize(value: Record<string, unknown>): AiConfig {
-    const model = typeof value.model === 'string' && value.model.trim() ? value.model.trim() : DEFAULT_AI_CONFIG.model;
+    const requestedModel = typeof value.model === 'string' && value.model.trim() ? value.model.trim() : DEFAULT_AI_CONFIG.model;
+    const model = requestedModel === 'gemini-3.8-flash' ? DEFAULT_AI_CONFIG.model : requestedModel;
     const temperature = typeof value.temperature === 'number' && Number.isFinite(value.temperature)
       ? Math.min(1, Math.max(0, value.temperature))
       : DEFAULT_AI_CONFIG.temperature;
@@ -77,7 +78,7 @@ export class AiService {
       method: 'POST',
       credentials: 'include',
       headers,
-      body: JSON.stringify({ messages, model: config.model, temperature: config.temperature }),
+      body: JSON.stringify({ messages, model: config.model === DEFAULT_AI_CONFIG.model ? undefined : config.model, temperature: config.temperature }),
     });
 
     if (!res.ok) {
@@ -94,13 +95,54 @@ export class AiService {
 
     const data = await res.json();
     const reply = data?.choices?.[0]?.message?.content;
-    if (typeof reply !== 'string' || !reply.trim()) throw new Error('ไม่พบคำตอบจาก Gemini AI');
+    if (typeof reply !== 'string' || !reply.trim()) throw new Error('ไม่พบคำตอบจาก AI Gateway');
     return reply;
   }
 
-  public async analyzeSalesDashboard(context: { totalRevenue: string; totalOrders: number; topProducts: Array<{ name: string; qty: number; revenue: string }>; paymentBreakdown: Record<string, string>; dateRange: string; timeframe: string }): Promise<string> {
-    const systemPrompt = 'คุณเป็น PRODX AI ผู้เชี่ยวชาญการวิเคราะห์ธุรกิจร้านค้าและการขาย (POS & Retail Analytics Specialist) ตอบเป็นภาษาไทยแบบมืออาชีพ กระชับ ชัดเจน';
-    const userPrompt = `วิเคราะห์ข้อมูลช่วง "${context.timeframe}" (${context.dateRange}): ยอดขายรวม ${context.totalRevenue}; จำนวนคำสั่งซื้อ ${context.totalOrders}; ช่องทางชำระเงิน ${JSON.stringify(context.paymentBreakdown)}; 5 อันดับสินค้า ${context.topProducts.map((p) => `${p.name} - ${p.qty} ชิ้น - ${p.revenue}`).join('; ')}. สรุปจุดเด่น แนวโน้ม cross-selling/upselling และข้อเสนอแนะเชิงกลยุทธ์ 2-3 ข้อ`;
+  public async askFrontendAssistant(
+    prompt: string,
+    history: ReadonlyArray<{ role: 'user' | 'assistant'; content: string }> = [],
+  ): Promise<string> {
+    const config = this.sanitize(this.getConfig() as unknown as Record<string, unknown>);
+    if (!config.enabled) throw new Error('ฟีเจอร์ผู้ช่วย AI ถูกปิดใช้งานอยู่');
+    if (!this.sessionToken) throw new Error('กรุณาเข้าสู่ระบบก่อนใช้งานผู้ช่วย AI');
+
+    const res = await fetch('/api/v1/ai/frontend-assistant', {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        Authorization: `Bearer ${this.sessionToken}`,
+      },
+      body: JSON.stringify({
+        prompt,
+        history,
+        model: config.model === DEFAULT_AI_CONFIG.model ? undefined : config.model,
+        temperature: config.temperature,
+      }),
+    });
+
+    if (!res.ok) {
+      if (res.status === 401) throw new Error('กรุณาเข้าสู่ระบบก่อนใช้งานผู้ช่วย AI');
+      if (res.status === 403) throw new Error('บัญชีของคุณไม่มีสิทธิ์ ai:use สำหรับผู้ช่วย AI');
+      throw new Error('ขออภัยครับ เกิดข้อผิดพลาดในการเชื่อมต่อกับ AI Assistant');
+    }
+
+    const data = await res.json();
+    const reply = typeof data?.response === 'string' && data.response.trim()
+      ? data.response.trim()
+      : data?.choices?.[0]?.message?.content;
+    if (typeof reply !== 'string' || !reply.trim()) throw new Error('ไม่พบคำตอบจาก AI Gateway');
+    return reply;
+  }
+
+  public async analyzeSalesDashboard(context: { totalRevenue: string; totalOrders: number; topProducts: Array<{ name: string; qty: number }>; paymentBreakdown: Record<string, string>; dateRange: string; timeframe: string }): Promise<string> {
+    const systemPrompt = 'คุณเป็น PRODX AI ผู้เชี่ยวชาญการวิเคราะห์ธุรกิจร้านค้าและการขาย (POS & Retail Analytics Specialist) ตอบเป็นภาษาไทยแบบมืออาชีพ กระชับ ชัดเจน วิเคราะห์เฉพาะข้อมูลที่ได้รับเท่านั้น ห้ามแต่งยอดขาย จำนวนสินค้า ช่วงเวลาพีค สินค้าขายดี หรือสาเหตุที่ไม่มีอยู่ในข้อมูล หากข้อมูลไม่เพียงพอให้ระบุอย่างตรงไปตรงมา';
+    const topProducts = context.topProducts.length
+      ? context.topProducts.map((p) => `${p.name} - ${p.qty} ชิ้น`).join('; ')
+      : 'ไม่มีข้อมูลรายการสินค้าที่ขายและยืนยันแล้วในช่วงนี้';
+    const userPrompt = `วิเคราะห์ข้อมูลช่วง "${context.timeframe}" (${context.dateRange}): ยอดขายรวม ${context.totalRevenue}; จำนวนคำสั่งซื้อที่ยืนยันแล้ว ${context.totalOrders}; ช่องทางชำระเงิน ${JSON.stringify(context.paymentBreakdown)}; 5 อันดับสินค้าตามจำนวนขายที่ยืนยันแล้ว: ${topProducts}. หากไม่มีข้อมูลสินค้า ห้ามคาดเดาหรือสร้างอันดับสินค้า ให้สรุปเฉพาะยอดขายและจำนวนคำสั่งซื้อที่มี และเสนอขั้นตอนตรวจสอบข้อมูลเพิ่มเติมแทน`;
     return this.chatCompletion([{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }]);
   }
 
@@ -124,7 +166,7 @@ export class AiService {
     try {
       return JSON.parse(raw.replace(/\`\`\`json/gi, '').replace(/\`\`\`/gi, '').trim());
     } catch {
-      throw new Error('Gemini AI returned invalid product JSON.');
+      throw new Error('AI Gateway returned invalid product JSON.');
     }
   }
 }

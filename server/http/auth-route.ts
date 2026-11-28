@@ -222,6 +222,11 @@ const loadSessionContext = async (
  * through the same SessionIssuer used by the global middleware.
  */
 export type AuthRouteOptions = {
+  /**
+   * Server-side kill switch for Supabase POS session exchange and renewal.
+   * Bootstrap remains separately protected by its operator secret and allowlisted subject.
+   */
+  supabaseSessionEnabled?: boolean;
   firstTenantBootstrap?: {
     config: FirstTenantBootstrapConfig | null;
     repository: FirstTenantBootstrapRepository;
@@ -306,6 +311,10 @@ export const registerAuthRoutes = (
   }));
 
   app.post('/auth/supabase/session', asyncRoute(async (request, response) => {
+    if (options.supabaseSessionEnabled !== true) {
+      response.status(404).json(errorBody(request, 'NOT_FOUND', 'Not found.'));
+      return;
+    }
     const token = bearerToken(request);
     if (!token) { sendUnauthenticated(request, response); return; }
     const body = request.body as Record<string, unknown> | null;
@@ -342,6 +351,42 @@ export const registerAuthRoutes = (
       sendAdminRoleRequired(request, response);
       return;
     }
+    response.status(200).json(context);
+  }));
+
+  app.post('/auth/supabase/renew', asyncRoute(async (request, response) => {
+    if (options.supabaseSessionEnabled !== true) {
+      response.status(404).json(errorBody(request, 'NOT_FOUND', 'Not found.'));
+      return;
+    }
+    const posToken = bearerToken(request);
+    const supabaseHeader = request.header('x-supabase-authorization')?.trim() ?? '';
+    const bearerPrefix = 'Bearer ';
+    const hasBearerPrefix = supabaseHeader.slice(0, bearerPrefix.length).toLowerCase() === bearerPrefix.toLowerCase();
+    const supabaseToken = hasBearerPrefix ? supabaseHeader.slice(bearerPrefix.length).trim() : '';
+    if (!posToken || !supabaseToken) {
+      sendUnauthenticated(request, response, 'Both POS and Supabase bearer tokens are required.');
+      return;
+    }
+
+    const renewed = await sessions.renewSupabaseSession({ supabaseToken, posToken });
+    if (!renewed) {
+      sendUnauthenticated(request, response, 'Authentication session cannot be renewed.');
+      return;
+    }
+
+    const principal = await sessions.authenticateBearer(posToken);
+    if (!principal) {
+      sendUnauthenticated(request, response, 'Authentication session is invalid.');
+      return;
+    }
+    const context = await withPrincipalContext(request, principal, () =>
+      loadSessionContext(db, principal, posToken, renewed.expiresAt));
+    if (!context) {
+      sendUnauthenticated(request, response, 'Session scope could not be established.');
+      return;
+    }
+    response.setHeader('Cache-Control', 'private, no-store');
     response.status(200).json(context);
   }));
 

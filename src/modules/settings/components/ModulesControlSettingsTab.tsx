@@ -246,7 +246,7 @@ export const ModulesControlSettingsTab: React.FC<ModulesControlSettingsTabProps>
             <div className="text-[11px] font-semibold text-text/60">
               {language === 'th' ? 'ความปลอดภัย (RBAC)' : 'Security Enforced'}
             </div>
-            <div className="text-lg font-black text-indigo-500 mt-0.5 flex items-center gap-1.5">
+            <div className="text-lg font-black text-brand-text-accent mt-0.5 flex items-center gap-1.5">
               <Shield className="h-4 w-4" />
               <span>Protected</span>
             </div>
@@ -258,7 +258,7 @@ export const ModulesControlSettingsTab: React.FC<ModulesControlSettingsTabProps>
       <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
         {/* Search Input */}
         <div className="relative w-full sm:w-80">
-          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-text/40 pointer-events-none" />
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-brand-text-secondary pointer-events-none" />
           <input
             type="text"
             value={searchQuery}
@@ -268,7 +268,7 @@ export const ModulesControlSettingsTab: React.FC<ModulesControlSettingsTabProps>
                 ? 'ค้นหาโมดูล หรือฟีเจอร์ย่อย...'
                 : 'Search modules or features...'
             }
-            className="w-full pl-9 pr-4 py-2 text-xs font-bold rounded-xl border border-border bg-card text-text placeholder:text-text/40 focus:outline-hidden focus:ring-2 focus:ring-primary/20"
+            className="w-full min-h-[40px] pl-9 pr-4 py-2 text-sm font-bold rounded-xl border border-brand-border-strong bg-card text-text placeholder:text-brand-text-secondary focus:outline-hidden focus-visible:ring-2 focus-visible:ring-cta"
           />
         </div>
 
@@ -277,9 +277,9 @@ export const ModulesControlSettingsTab: React.FC<ModulesControlSettingsTabProps>
           <button
             type="button"
             onClick={() => setFilterMode('all')}
-            className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+            className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta ${
               filterMode === 'all'
-                ? 'bg-primary text-white shadow-xs'
+                ? 'bg-primary text-primary-foreground shadow-xs'
                 : 'text-text/60 hover:text-text'
             }`}
           >
@@ -288,7 +288,7 @@ export const ModulesControlSettingsTab: React.FC<ModulesControlSettingsTabProps>
           <button
             type="button"
             onClick={() => setFilterMode('enabled')}
-            className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+            className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta ${
               filterMode === 'enabled'
                 ? 'bg-emerald-500 text-white shadow-xs'
                 : 'text-text/60 hover:text-text'
@@ -299,7 +299,7 @@ export const ModulesControlSettingsTab: React.FC<ModulesControlSettingsTabProps>
           <button
             type="button"
             onClick={() => setFilterMode('disabled')}
-            className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+            className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta ${
               filterMode === 'disabled'
                 ? 'bg-rose-500 text-white shadow-xs'
                 : 'text-text/60 hover:text-text'
@@ -348,7 +348,7 @@ export const ModulesControlSettingsTab: React.FC<ModulesControlSettingsTabProps>
                           {module.badge}
                         </Badge>
                       )}
-                      <span className="text-[10px] font-mono text-text/40 uppercase">
+                      <span className="text-[10px] font-mono text-brand-text-secondary uppercase">
                         {module.code}
                       </span>
                     </div>
@@ -365,7 +365,7 @@ export const ModulesControlSettingsTab: React.FC<ModulesControlSettingsTabProps>
                       {activeSubCount} / {module.features.length}{' '}
                       {language === 'th' ? 'ฟีเจอร์' : 'Features'}
                     </div>
-                    <div className="text-[10px] text-text/50">
+                    <div className="text-[10px] text-brand-text-secondary">
                       {module.enabled
                         ? language === 'th'
                           ? 'พร้อมทำงาน'
@@ -422,7 +422,7 @@ export const ModulesControlSettingsTab: React.FC<ModulesControlSettingsTabProps>
                         ? 'การกำหนดค่าและฟีเจอร์ย่อยในโมดูลนี้'
                         : 'Module Sub-Features & Component Flags'}
                     </span>
-                    <span className="text-[10px] font-mono text-text/40">
+                    <span className="text-[10px] font-mono text-brand-text-secondary">
                       {activeSubCount} Active
                     </span>
                   </div>
@@ -444,7 +444,7 @@ export const ModulesControlSettingsTab: React.FC<ModulesControlSettingsTabProps>
                               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                             )}
                           </div>
-                          <p className="text-[11px] text-text/50 mt-0.5 leading-snug">
+                          <p className="text-[11px] text-brand-text-secondary mt-0.5 leading-snug">
                             {feature.description[language]}
                           </p>
                         </div>

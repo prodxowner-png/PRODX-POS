@@ -1,27 +1,29 @@
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import test from 'node:test';
-import { createPostgresPool, asSqlExecutor, resolveConfiguredDatabaseUrl } from '../db/postgres';
+import { createPostgresPool, asSqlExecutor } from '../db/postgres';
+import { resolveDisposableTestDatabaseUrl } from '../db/test-database-guard';
 import { createPostgresAuthentication } from './composition';
 import { createPostgresAuthenticationRepository } from './postgres-repository';
 import { hashPassword } from './password';
 import { hashSessionToken } from './session';
 
-const databaseUrl = resolveConfiguredDatabaseUrl(process.env.DATABASE_URL);
+const databaseUrl = resolveDisposableTestDatabaseUrl(process.env.DATABASE_URL, 'server/auth/postgres.integration.test.ts');
 
 const ids = {
-  organizationA: '00000000-0000-4000-8000-000000000201',
-  organizationB: '00000000-0000-4000-8000-000000000202',
-  storeA: '00000000-0000-4000-8000-000000000211',
-  storeB: '00000000-0000-4000-8000-000000000212',
-  userA: '00000000-0000-4000-8000-000000000221',
-  userB: '00000000-0000-4000-8000-000000000222',
-  deviceA: '00000000-0000-4000-8000-000000000231',
-  deviceB: '00000000-0000-4000-8000-000000000232',
-  supabaseUserA: '00000000-0000-4000-8000-000000000241',
-  supabaseUserB: '00000000-0000-4000-8000-000000000242',
+  organizationA: randomUUID(),
+  organizationB: randomUUID(),
+  storeA: randomUUID(),
+  storeB: randomUUID(),
+  userA: randomUUID(),
+  userB: randomUUID(),
+  deviceA: randomUUID(),
+  deviceB: randomUUID(),
+  supabaseUserA: randomUUID(),
+  supabaseUserB: randomUUID(),
 };
 
-const pool = databaseUrl ? createPostgresPool({ connectionString: databaseUrl, max: 2 }) : null;
+const pool = databaseUrl ? createPostgresPool({ connectionString: databaseUrl, max: 4 }) : null;
 const authentication = pool
   ? createPostgresAuthentication(asSqlExecutor(pool), async () => ({ compromised: false, count: 0 }))
   : null;
@@ -29,7 +31,6 @@ const authentication = pool
 const seed = async (): Promise<void> => {
   if (!pool) throw new Error('DATABASE_URL is required for PostgreSQL integration tests.');
   const passwordHash = await hashPassword('correct-password');
-  await pool.query('DELETE FROM prodx_security_audit_events WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
   await pool.query('DELETE FROM prodx_sessions WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
   await pool.query('DELETE FROM prodx_store_memberships WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
   await pool.query('DELETE FROM prodx_user_credentials WHERE user_id IN ($1, $2)', [ids.userA, ids.userB]);
@@ -74,7 +75,6 @@ const seed = async (): Promise<void> => {
 
 const cleanup = async (): Promise<void> => {
   if (!pool) return;
-  await pool.query('DELETE FROM prodx_security_audit_events WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
   await pool.query('DELETE FROM prodx_sessions WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
   await pool.query('DELETE FROM prodx_store_memberships WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
   await pool.query('DELETE FROM prodx_user_credentials WHERE user_id IN ($1, $2)', [ids.userA, ids.userB]);
@@ -84,17 +84,36 @@ const cleanup = async (): Promise<void> => {
   await pool.query('DELETE FROM prodx_organizations WHERE id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
 };
 
+const waitForRenewalLock = async (): Promise<boolean> => {
+  if (!pool) return false;
+  const deadline = Date.now() + 3_000;
+  while (Date.now() < deadline) {
+    const result = await pool.query<{ waiting: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1 FROM pg_stat_activity
+          WHERE datname = current_database()
+            AND pid <> pg_backend_pid()
+            AND wait_event_type = 'Lock'
+            AND query ILIKE '%prodx_auth_renew_supabase_session%'
+       ) AS waiting`,
+    );
+    if (result.rows[0]?.waiting) return true;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  return false;
+};
+
 test('M2 PostgreSQL authentication enforces credential, tenant, session, token-hash, lockout, and security-audit invariants', async (t) => {
   if (!pool || !authentication) {
     t.skip('DATABASE_URL is not configured; run server:test:integration with PostgreSQL.');
     return;
   }
 
-  await seed();
   t.after(async () => {
     await cleanup();
     await pool.end();
   });
+  await seed();
 
   const identityRepository = createPostgresAuthenticationRepository(asSqlExecutor(pool));
   const linkedIdentity = await identityRepository.findUserBySupabaseUserId(ids.supabaseUserA, ids.deviceA);
@@ -148,6 +167,202 @@ test('M2 PostgreSQL authentication enforces credential, tenant, session, token-h
   assert.notEqual(persisted.rows[0].token_hash, result.token);
   assert.equal(persisted.rows[0].revoked_at, null);
 
+  const renewalSession = await authentication.authenticateCredentials({
+    username: 'm2-user-a',
+    password: 'correct-password',
+    deviceId: ids.deviceA,
+  });
+  assert.ok(renewalSession);
+  const initialShortExpiry = new Date(Date.now() + 15 * 60 * 1000);
+  await pool.query('UPDATE prodx_sessions SET expires_at = $1 WHERE id = $2', [
+    initialShortExpiry,
+    renewalSession.sessionId,
+  ]);
+  const earlierRenewalExpiry = new Date(Date.now() + 30 * 60 * 1000);
+  const laterRenewalExpiry = new Date(Date.now() + 60 * 60 * 1000);
+  const concurrentRenewals = await Promise.all([
+    identityRepository.renewSession({
+      sessionId: renewalSession.sessionId,
+      tokenHash: hashSessionToken(renewalSession.token),
+      supabaseUserId: ids.supabaseUserA,
+      expiresAt: earlierRenewalExpiry,
+    }),
+    identityRepository.renewSession({
+      sessionId: renewalSession.sessionId,
+      tokenHash: hashSessionToken(renewalSession.token),
+      supabaseUserId: ids.supabaseUserA,
+      expiresAt: laterRenewalExpiry,
+    }),
+  ]);
+  assert.ok(concurrentRenewals.every((expiry) => expiry instanceof Date));
+  const persistedRenewal = await pool.query<{ expires_at: Date; revoked_at: Date | null }>(
+    'SELECT expires_at, revoked_at FROM prodx_sessions WHERE id = $1',
+    [renewalSession.sessionId],
+  );
+  assert.equal(persistedRenewal.rows[0].expires_at.getTime(), laterRenewalExpiry.getTime());
+  assert.equal(persistedRenewal.rows[0].revoked_at, null);
+
+  const renewalAudit = await pool.query<{
+    organization_id: string;
+    user_id: string;
+    metadata: { session_id: string; expires_at: string };
+  }>(
+    `SELECT organization_id, user_id, metadata
+       FROM prodx_security_audit_events
+      WHERE organization_id = $1
+        AND user_id = $2
+        AND event_type = 'POS_SESSION_RENEWED'
+        AND metadata->>'session_id' = $3
+      ORDER BY occurred_at`,
+    [ids.organizationA, ids.userA, renewalSession.sessionId],
+  );
+  assert.equal(renewalAudit.rows.length, 2, 'each successful renewal must append one audit event');
+  for (const event of renewalAudit.rows) {
+    assert.equal(event.organization_id, ids.organizationA);
+    assert.equal(event.user_id, ids.userA);
+    assert.equal(event.metadata.session_id, renewalSession.sessionId);
+  }
+
+  // Membership revocation wins if it holds the membership row before renewal.
+  const membershipRaceSession = await authentication.authenticateCredentials({
+    username: 'm2-user-a', password: 'correct-password', deviceId: ids.deviceA,
+  });
+  assert.ok(membershipRaceSession);
+  const membershipRevoker = await pool.connect();
+  let membershipTransactionOpen = false;
+  let membershipRenewal: Promise<readonly { expires_at: Date | null }[]> | null = null;
+  try {
+    await membershipRevoker.query('BEGIN');
+    membershipTransactionOpen = true;
+    await membershipRevoker.query(
+      'UPDATE prodx_store_memberships SET active = FALSE WHERE organization_id = $1 AND store_id = $2 AND user_id = $3',
+      [ids.organizationA, ids.storeA, ids.userA],
+    );
+    membershipRenewal = pool.query<{ expires_at: Date | null }>(
+      'SELECT public.prodx_auth_renew_supabase_session($1::uuid, $2, $3::uuid, $4::timestamptz) AS expires_at',
+      [membershipRaceSession.sessionId, hashSessionToken(membershipRaceSession.token), ids.supabaseUserA, new Date(Date.now() + 60 * 60 * 1000)],
+    ).then((result) => result.rows);
+    assert.equal(await waitForRenewalLock(), true, 'renewal must wait for concurrent membership revocation');
+    await membershipRevoker.query('COMMIT');
+    membershipTransactionOpen = false;
+    assert.equal((await membershipRenewal)[0]?.expires_at, null,
+      'membership revoked before renewal commits must prevent renewal');
+  } finally {
+    if (membershipTransactionOpen) await membershipRevoker.query('ROLLBACK');
+    if (membershipRenewal) await membershipRenewal.catch(() => []);
+    membershipRevoker.release();
+    await pool.query(
+      'UPDATE prodx_store_memberships SET active = TRUE WHERE organization_id = $1 AND store_id = $2 AND user_id = $3',
+      [ids.organizationA, ids.storeA, ids.userA],
+    );
+  }
+  const membershipRaceAudit = await pool.query<{ count: number }>(
+    `SELECT COUNT(*)::int AS count FROM prodx_security_audit_events
+      WHERE organization_id = $1 AND event_type = 'POS_SESSION_RENEWED'
+        AND metadata->>'session_id' = $2`,
+    [ids.organizationA, membershipRaceSession.sessionId],
+  );
+  assert.equal(membershipRaceAudit.rows[0]?.count, 0,
+    'rejected membership-race renewal must not append an audit event');
+
+  // Session revocation wins if it locks the bearer before renewal.
+  const revokeRaceSession = await authentication.authenticateCredentials({
+    username: 'm2-user-a', password: 'correct-password', deviceId: ids.deviceA,
+  });
+  assert.ok(revokeRaceSession);
+  const sessionRevoker = await pool.connect();
+  let revokeTransactionOpen = false;
+  let revokeRenewal: Promise<readonly { expires_at: Date | null }[]> | null = null;
+  try {
+    await sessionRevoker.query('BEGIN');
+    revokeTransactionOpen = true;
+    await sessionRevoker.query(
+      'UPDATE prodx_sessions SET revoked_at = clock_timestamp() WHERE id = $1',
+      [revokeRaceSession.sessionId],
+    );
+    revokeRenewal = pool.query<{ expires_at: Date | null }>(
+      'SELECT public.prodx_auth_renew_supabase_session($1::uuid, $2, $3::uuid, $4::timestamptz) AS expires_at',
+      [revokeRaceSession.sessionId, hashSessionToken(revokeRaceSession.token), ids.supabaseUserA, new Date(Date.now() + 60 * 60 * 1000)],
+    ).then((result) => result.rows);
+    assert.equal(await waitForRenewalLock(), true, 'renewal must wait for concurrent session revocation');
+    await sessionRevoker.query('COMMIT');
+    revokeTransactionOpen = false;
+    assert.equal((await revokeRenewal)[0]?.expires_at, null,
+      'a session revoked before renewal commits must not be revived');
+  } finally {
+    if (revokeTransactionOpen) await sessionRevoker.query('ROLLBACK');
+    if (revokeRenewal) await revokeRenewal.catch(() => []);
+    sessionRevoker.release();
+  }
+  const revokeRaceAudit = await pool.query<{ count: number }>(
+    `SELECT COUNT(*)::int AS count FROM prodx_security_audit_events
+      WHERE organization_id = $1 AND event_type = 'POS_SESSION_RENEWED'
+        AND metadata->>'session_id' = $2`,
+    [ids.organizationA, revokeRaceSession.sessionId],
+  );
+  assert.equal(revokeRaceAudit.rows[0]?.count, 0,
+    'rejected revocation-race renewal must not append an audit event');
+
+  // A transaction can begin before expiry and wait on the session row until
+  // after expiry. Wall-clock checks must reject the renewal after that wait.
+  const expiryRaceSession = await authentication.authenticateCredentials({
+    username: 'm2-user-a', password: 'correct-password', deviceId: ids.deviceA,
+  });
+  assert.ok(expiryRaceSession);
+  const expiryRevoker = await pool.connect();
+  let expiryTransactionOpen = false;
+  let expiryRenewal: Promise<readonly { expires_at: Date | null }[]> | null = null;
+  try {
+    await expiryRevoker.query('BEGIN');
+    expiryTransactionOpen = true;
+    await expiryRevoker.query('SELECT id FROM prodx_sessions WHERE id = $1 FOR UPDATE', [expiryRaceSession.sessionId]);
+    expiryRenewal = pool.query<{ expires_at: Date | null }>(
+      'SELECT public.prodx_auth_renew_supabase_session($1::uuid, $2, $3::uuid, $4::timestamptz) AS expires_at',
+      [expiryRaceSession.sessionId, hashSessionToken(expiryRaceSession.token), ids.supabaseUserA, new Date(Date.now() + 60 * 60 * 1000)],
+    ).then((result) => result.rows);
+    assert.equal(await waitForRenewalLock(), true, 'renewal must wait for the locked POS session');
+    await expiryRevoker.query(
+      "UPDATE prodx_sessions SET expires_at = clock_timestamp() + INTERVAL '250 milliseconds' WHERE id = $1",
+      [expiryRaceSession.sessionId],
+    );
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    await expiryRevoker.query('COMMIT');
+    expiryTransactionOpen = false;
+    assert.equal((await expiryRenewal)[0]?.expires_at, null,
+      'a session expired during lock wait must not be revived');
+  } finally {
+    if (expiryTransactionOpen) await expiryRevoker.query('ROLLBACK');
+    if (expiryRenewal) await expiryRenewal.catch(() => []);
+    expiryRevoker.release();
+  }
+  const expiryRaceAudit = await pool.query<{ count: number }>(
+    `SELECT COUNT(*)::int AS count FROM prodx_security_audit_events
+      WHERE organization_id = $1 AND event_type = 'POS_SESSION_RENEWED'
+        AND metadata->>'session_id' = $2`,
+    [ids.organizationA, expiryRaceSession.sessionId],
+  );
+  assert.equal(expiryRaceAudit.rows[0]?.count, 0,
+    'expired-session race must not append an audit event');
+
+  assert.equal(await authentication.revokeBearer(renewalSession.token), true);
+  assert.equal(await identityRepository.renewSession({
+    sessionId: renewalSession.sessionId,
+    tokenHash: hashSessionToken(renewalSession.token),
+    supabaseUserId: ids.supabaseUserA,
+    expiresAt: new Date(Date.now() + 90 * 60 * 1000),
+  }), null, 'a revoked POS bearer must never be revived');
+  const auditAfterRejectedRenewal = await pool.query<{ count: number }>(
+    `SELECT COUNT(*)::int AS count
+       FROM prodx_security_audit_events
+      WHERE organization_id = $1
+        AND user_id = $2
+        AND event_type = 'POS_SESSION_RENEWED'
+        AND metadata->>'session_id' = $3`,
+    [ids.organizationA, ids.userA, renewalSession.sessionId],
+  );
+  assert.equal(auditAfterRejectedRenewal.rows[0]?.count, 2,
+    'a rejected renewal must not append an audit event');
+
   const beforeTouch = await pool.query<{ last_seen_at: Date | null }>(
     'SELECT last_seen_at FROM prodx_sessions WHERE id = $1',
     [result.sessionId],
@@ -181,6 +396,7 @@ test('M2 PostgreSQL authentication enforces credential, tenant, session, token-h
     `SELECT event_type, organization_id, user_id, metadata
        FROM prodx_security_audit_events
       WHERE organization_id = $1
+        AND event_type = 'AUTH_LOCKOUT'
       ORDER BY occurred_at DESC`,
     [ids.organizationA],
   );
@@ -210,7 +426,9 @@ test('M2 PostgreSQL authentication enforces credential, tenant, session, token-h
   assert.equal(resetState.rows[0].locked_until, null);
   const resetAudit = await pool.query<{ event_type: string; metadata: { previous_failed_attempts: number } }>(
     `SELECT event_type, metadata FROM prodx_security_audit_events
-      WHERE organization_id = $1 ORDER BY occurred_at ASC`,
+      WHERE organization_id = $1
+        AND event_type IN ('AUTH_LOCKOUT', 'AUTH_LOCKOUT_RESET')
+      ORDER BY occurred_at ASC`,
     [ids.organizationA],
   );
   assert.equal(resetAudit.rows.length, 2);

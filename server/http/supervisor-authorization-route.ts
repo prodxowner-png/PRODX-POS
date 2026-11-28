@@ -1,38 +1,91 @@
+import crypto from 'node:crypto';
 import type { Express, Request, Response } from 'express';
+import type { CheckoutRequest } from '../../src/adapters/types';
 import {
   createSupervisorAuthorizationService,
   SupervisorAuthorizationError,
 } from '../auth/supervisor-authorization';
 import type { TransactionalSqlExecutor } from '../db/transaction';
+import { requirePermission } from './createApp';
+import { createSupabaseTokenVerifier, type SupabaseTokenVerifier } from '../auth/session';
+import { assertCheckoutRequest, hasCheckoutDiscount } from '../transactions/checkout-validation';
+import { checkoutAuthorizationFingerprint } from '../transactions/checkout-service';
 
 type Body = {
-  action: 'refund' | 'void';
-  orderId: string;
+  action: 'refund' | 'void' | 'discount';
+  orderId?: string;
+  checkout?: CheckoutRequest;
   supervisorUsername?: string;
   supervisorUserId?: string;
-  supervisorSecret: string;
+  supervisorSecret?: string;
+  supervisorAccessToken?: string;
 };
 
 const valid = (value: unknown): value is Body => {
-  if (!value || typeof value !== 'object') return false;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const body = value as Record<string, unknown>;
-  return (body.action === 'refund' || body.action === 'void') &&
-    typeof body.orderId === 'string' && body.orderId.trim().length > 0 &&
-    (typeof body.supervisorUsername === 'string' || typeof body.supervisorUserId === 'string') &&
-    typeof body.supervisorSecret === 'string' && body.supervisorSecret.length > 0;
+  if (!['refund', 'void', 'discount'].includes(String(body.action)) ||
+      (typeof body.supervisorUsername !== 'string' && typeof body.supervisorUserId !== 'string') ||
+      (typeof body.supervisorUserId === 'string' && (body.supervisorUserId.trim().length === 0 || body.supervisorUserId.length > 128)) ||
+      !((typeof body.supervisorSecret === 'string' && body.supervisorSecret.length > 0 && body.supervisorSecret.length <= 1024) || (typeof body.supervisorAccessToken === 'string' && body.supervisorAccessToken.length > 0 && body.supervisorAccessToken.length <= 8192)) ||
+      (typeof body.supervisorAccessToken === 'string' && typeof body.supervisorUserId !== 'string')) return false;
+  if (body.action === 'discount') {
+    if (!body.checkout || typeof body.checkout !== 'object' || Array.isArray(body.checkout)) return false;
+    try { assertCheckoutRequest(body.checkout); } catch { return false; }
+    return hasCheckoutDiscount(body.checkout as CheckoutRequest);
+  }
+  return typeof body.orderId === 'string' && body.orderId.trim().length > 0;
 };
 
-export const registerSupervisorAuthorizationRoute = (app: Express, db: TransactionalSqlExecutor): void => {
+export const registerSupervisorAuthorizationRoute = (app: Express, db: TransactionalSqlExecutor, verifySupervisorToken?: SupabaseTokenVerifier): void => {
+  const tokenVerifier = verifySupervisorToken ?? createSupabaseTokenVerifier(process.env.SUPABASE_POS_AUTH_URL, process.env.SUPABASE_POS_AUTH_JWKS_URL);
+  app.get('/api/v1/authorizations/supervisors', requirePermission('pos.sell'), async (request: Request, response: Response) => {
+    const context = request.prodxContext;
+    if (!context) {
+      response.status(500).json({ error: { code: 'REQUEST_CONTEXT_MISSING', message: 'Request context is required.' } });
+      return;
+    }
+    try {
+      const { rows } = await db.query<{ id: string; username: string; name: string; role: string }>(
+        `SELECT id, username, display_name AS name, role_key AS role
+           FROM (
+             SELECT DISTINCT ON (u.id) u.id, u.username, u.display_name, r.role_key
+               FROM prodx_store_memberships m
+               JOIN prodx_users u ON u.organization_id = m.organization_id AND u.id = m.user_id
+               JOIN prodx_user_roles ur ON ur.organization_id = m.organization_id AND ur.user_id = m.user_id AND ur.store_id = m.store_id AND ur.active = TRUE
+               JOIN prodx_roles r ON r.organization_id = ur.organization_id AND r.id = ur.role_id AND r.active = TRUE
+               JOIN prodx_role_permissions rp ON rp.organization_id = r.organization_id AND rp.role_id = r.id
+               JOIN prodx_permissions p ON p.id = rp.permission_id
+              WHERE m.organization_id = $1 AND m.store_id = $2 AND m.active = TRUE
+                AND u.status = 'active' AND u.supabase_auth_user_id IS NOT NULL
+                AND r.role_key IN ('owner', 'admin', 'manager')
+                AND p.permission_key IN ('pos.discount.approve', 'pos.refund', 'pos.void')
+              ORDER BY u.id, CASE r.role_key WHEN 'owner' THEN 0 WHEN 'admin' THEN 0 ELSE 1 END
+           ) supervisors
+          ORDER BY CASE role WHEN 'owner' THEN 0 WHEN 'admin' THEN 0 ELSE 1 END, name`,
+        [context.principal.organizationId, context.principal.storeId],
+      );
+      response.json({ supervisors: rows });
+    } catch {
+      response.status(503).json({ error: { code: 'SUPERVISOR_DIRECTORY_UNAVAILABLE', message: 'Supervisor directory is temporarily unavailable.' } });
+    }
+  });
+
   app.post('/api/v1/authorizations/supervisor', async (request: Request, response: Response) => {
     const context = request.prodxContext;
     if (!context) {
       response.status(500).json({ error: { code: 'REQUEST_CONTEXT_MISSING', message: 'Request context is required.' } });
       return;
     }
+    if (!valid(request.body)) {
+      response.status(400).json({ error: { code: 'SUPERVISOR_AUTH_VALIDATION_FAILED', message: 'Malformed supervisor authorization request.' } });
+      return;
+    }
+    const body = request.body;
     const authorizer = request.app.locals.prodxAuthorize as ((ctx: typeof context, permission: string) => Promise<boolean>) | undefined;
-    const action = request.body?.action;
-    if (!authorizer || (action !== 'refund' && action !== 'void') || !(await authorizer(context, action === 'void' ? 'pos.void' : 'pos.refund'))) {
-      response.status(403).json({ error: { code: 'FORBIDDEN', message: 'The requested supervisor authorization capability is not authorized.' } });
+    const requesterPermission = body.action === 'discount' ? 'pos.discount' : body.action === 'void' ? 'pos.void' : 'pos.refund';
+    if (!authorizer || !(await authorizer(context, requesterPermission))) {
+      response.status(403).json({ error: { code: 'FORBIDDEN', message: 'The requester is not authorized to request this supervisor approval.' } });
       return;
     }
     const sessionId = 'sessionId' in context.principal && typeof context.principal.sessionId === 'string' ? context.principal.sessionId : null;
@@ -41,34 +94,147 @@ export const registerSupervisorAuthorizationRoute = (app: Express, db: Transacti
       return;
     }
 
-    if (!valid(request.body)) {
-      response.status(400).json({ error: { code: 'SUPERVISOR_AUTH_VALIDATION_FAILED', message: 'Malformed supervisor authorization request.' } });
+    let verifiedSupervisorIdentity = null as Awaited<ReturnType<SupabaseTokenVerifier>>;
+    if (body.supervisorAccessToken) {
+      try {
+        verifiedSupervisorIdentity = await tokenVerifier(body.supervisorAccessToken);
+      } catch {
+        response.status(503).json({ error: { code: 'SUPERVISOR_IDENTITY_PROVIDER_UNAVAILABLE', message: 'Supervisor identity verification is temporarily unavailable.' } });
+        return;
+      }
+    }
+    const outcome = await db.transaction(async (tx) => {
+      try {
+        const service = createSupervisorAuthorizationService({
+          query: async <T extends Record<string, unknown>>(sql: string, parameters: readonly unknown[] = []) =>
+            (await tx.query<T>(sql, parameters)).rows,
+        });
+        let supervisorUserId = body.supervisorUserId;
+        let supervisorIdentityVerified = false;
+        if (body.supervisorAccessToken) {
+          if (!verifiedSupervisorIdentity) {
+            await tx.query(`SELECT public.prodx_record_security_audit_event($1, $2, $3, 'SUPERVISOR_AUTH_FAILED', $4::jsonb)`, [
+              crypto.randomUUID(), context.principal.organizationId, context.principal.userId,
+              JSON.stringify({ action: body.action, requestedSupervisorUserId: body.supervisorUserId, reason: 'supabase_reauthentication_failed' }),
+            ]);
+            throw new SupervisorAuthorizationError('INVALID_CREDENTIALS');
+          }
+          const mappedSupervisor = (await tx.query<{ userId: string; status: string }>(
+            `SELECT user_id AS "userId", status
+               FROM public.prodx_auth_find_supervisor_by_supabase_subject($1, $2, $3)`,
+            [context.principal.organizationId, context.principal.storeId, verifiedSupervisorIdentity.userId],
+          )).rows[0];
+          if (!mappedSupervisor || mappedSupervisor.status !== 'active' || mappedSupervisor.userId !== body.supervisorUserId) {
+            await tx.query(`SELECT public.prodx_record_security_audit_event($1, $2, $3, 'SUPERVISOR_AUTH_DENIED', $4::jsonb)`, [
+              crypto.randomUUID(), context.principal.organizationId, context.principal.userId,
+              JSON.stringify({ action: body.action, requestedSupervisorUserId: body.supervisorUserId, reason: 'supabase_subject_not_authorized' }),
+            ]);
+            throw new SupervisorAuthorizationError('SUPERVISOR_NOT_ALLOWED');
+          }
+          supervisorUserId = mappedSupervisor.userId;
+          supervisorIdentityVerified = true;
+        }
+        if (body.action === 'discount') {
+          const checkout = body.checkout as CheckoutRequest;
+          if (checkout.storeId !== context.principal.storeId || checkout.cashierId !== context.principal.userId) {
+            throw new SupervisorAuthorizationError('SUPERVISOR_NOT_ALLOWED');
+          }
+          const policy = (await tx.query<{ require_supervisor_approval: boolean; max_discount_without_approval_bps: number }>(
+            `SELECT require_supervisor_approval, max_discount_without_approval_bps
+               FROM prodx_discount_policies
+              WHERE organization_id = $1 AND store_id = $2
+              FOR SHARE`,
+            [context.principal.organizationId, context.principal.storeId],
+          )).rows[0];
+          if (!policy) throw new Error('Authoritative discount policy is missing for this store.');
+          const productIds = checkout.items.map((item) => item.product.id);
+          if (new Set(productIds).size !== productIds.length) {
+            throw new SupervisorAuthorizationError('SUPERVISOR_NOT_ALLOWED');
+          }
+          const sortedProductIds = [...productIds].sort();
+          const products = (await tx.query<{ id: string; price_amount: string; currency: string }>(
+            `SELECT id, price_amount::text AS price_amount, currency
+               FROM prodx_products
+              WHERE organization_id = $1 AND store_id = $2 AND active = true AND id = ANY($3::uuid[])
+              ORDER BY id
+              FOR SHARE`,
+            [context.principal.organizationId, context.principal.storeId, sortedProductIds],
+          )).rows;
+          if (products.length !== productIds.length) {
+            throw new SupervisorAuthorizationError('SUPERVISOR_NOT_ALLOWED');
+          }
+          const productsById = new Map(products.map((product) => [product.id, product]));
+          let gross = 0n;
+          let itemDiscounts = 0n;
+          for (const item of checkout.items) {
+            const product = productsById.get(item.product.id);
+            if (!product) throw new SupervisorAuthorizationError('SUPERVISOR_NOT_ALLOWED');
+            const match = /^(\d+)\.(\d{2})$/.exec(String(product.price_amount));
+            if (!match) throw new Error('Database monetary value is invalid.');
+            const unitCents = BigInt(match[1]) * 100n + BigInt(match[2]);
+            const rawLine = unitCents * BigInt(item.quantity);
+            const lineDiscount = (rawLine * BigInt(item.discountBps) + 5000n) / 10000n;
+            gross += rawLine;
+            itemDiscounts += lineDiscount;
+          }
+          const orderDiscountBps = checkout.orderDiscountBps ?? 0;
+          const preOrderDiscount = gross - itemDiscounts;
+          const orderDiscount = (preOrderDiscount * BigInt(orderDiscountBps) + 5000n) / 10000n;
+          const grand = preOrderDiscount - orderDiscount;
+          const effectiveDiscountBps = gross > 0n ? Number(((gross - grand) * 10000n + gross / 2n) / gross) : 0;
+          const maxDiscountBps = Math.max(effectiveDiscountBps, orderDiscountBps, ...checkout.items.map((item) => item.discountBps));
+          if (!policy.require_supervisor_approval || maxDiscountBps <= Number(policy.max_discount_without_approval_bps)) {
+            throw new SupervisorAuthorizationError('SUPERVISOR_NOT_ALLOWED');
+          }
+          await tx.query(
+            `SELECT public.prodx_record_security_audit_event($1, $2, $3, 'SUPERVISOR_AUTHORIZATION_REQUESTED', $4::jsonb)`,
+            [crypto.randomUUID(), context.principal.organizationId, context.principal.userId,
+             JSON.stringify({ action: 'discount', storeId: context.principal.storeId, idempotencyKey: checkout.idempotencyKey, payloadHash: checkoutAuthorizationFingerprint(checkout), thresholdBps: Number(policy.max_discount_without_approval_bps) })],
+          );
+          const result = await service.authorize({
+            organizationId: context.principal.organizationId,
+            storeId: context.principal.storeId,
+            requesterUserId: context.principal.userId,
+            requesterSessionId: sessionId,
+            action: 'discount',
+            checkoutIdempotencyKey: checkout.idempotencyKey,
+            checkoutPayloadHash: checkoutAuthorizationFingerprint(checkout),
+            policyThresholdBps: Number(policy.max_discount_without_approval_bps),
+            policyRequiresApproval: true,
+            supervisorUsername: body.supervisorUsername,
+            supervisorUserId,
+            supervisorSecret: body.supervisorSecret,
+            supervisorIdentityVerified,
+          });
+          return { ok: true as const, result };
+        }
+        const result = await service.authorize({
+          organizationId: context.principal.organizationId,
+          storeId: context.principal.storeId,
+          requesterUserId: context.principal.userId,
+          requesterSessionId: sessionId,
+          action: body.action,
+          orderId: body.orderId,
+          supervisorUsername: body.supervisorUsername,
+          supervisorUserId,
+          supervisorSecret: body.supervisorSecret,
+          supervisorIdentityVerified,
+        });
+        return { ok: true as const, result };
+      } catch (error) {
+        if (error instanceof SupervisorAuthorizationError) {
+          return { ok: false as const, error };
+        }
+        throw error;
+      }
+    });
+
+    if (!outcome.ok) {
+      const status = outcome.error.code === 'SUPERVISOR_NOT_ALLOWED' ? 403 : 401;
+      response.status(status).json({ error: { code: outcome.error.code, message: 'Supervisor authorization was not granted.' } });
       return;
     }
 
-    try {
-      const result = await db.transaction((tx) => createSupervisorAuthorizationService({
-        query: async <T extends Record<string, unknown>>(sql: string, parameters: readonly unknown[] = []) =>
-          (await tx.query<T>(sql, parameters)).rows,
-      }).authorize({
-        organizationId: context.principal.organizationId,
-        storeId: context.principal.storeId,
-        requesterUserId: context.principal.userId,
-        requesterSessionId: sessionId,
-        action: request.body.action,
-        orderId: request.body.orderId,
-        supervisorUsername: request.body.supervisorUsername,
-        supervisorUserId: request.body.supervisorUserId,
-        supervisorSecret: request.body.supervisorSecret,
-      }));
-      response.status(201).json(result);
-    } catch (error) {
-      if (error instanceof SupervisorAuthorizationError) {
-        const status = error.code === 'SUPERVISOR_NOT_ALLOWED' ? 403 : 401;
-        response.status(status).json({ error: { code: error.code, message: 'Supervisor authorization was not granted.' } });
-        return;
-      }
-      throw error;
-    }
+    response.status(201).json(outcome.result);
   });
 };
