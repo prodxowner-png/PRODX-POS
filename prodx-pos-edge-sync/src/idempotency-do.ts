@@ -233,8 +233,8 @@ export class IdempotencyGate extends DurableObject<Env> {
         throw new Error("INVALID_ORIGIN_TERMINAL_FAILURE_RECORD");
       }
       const row=this.ctx.storage.sql.exec<{
-        payload_hash:string;queue_payload:string;state:string;
-      }>(`SELECT payload_hash,queue_payload,state FROM idempotency
+        payload_hash:string;queue_payload:string;state:string;failure_code:string|null;next_retry_at:string|null;
+      }>(`SELECT payload_hash,queue_payload,state,failure_code,next_retry_at FROM idempotency
          WHERE idempotency_key=?`,failure.idempotency_key).toArray()[0];
       if (!row) continue; // A restored DO may not have the old receipt cache.
       let queued:QueueSale;
@@ -268,6 +268,17 @@ export class IdempotencyGate extends DurableObject<Env> {
         if (row.state === "COMMITTED" || row.state === "VOIDED") {
           throw new Error("ORIGIN_RETRY_OUTCOME_CONFLICT");
         }
+        if (row.state === "QUEUED" &&
+            row.failure_code === null &&
+            queued.recovery_resolution_id === failure.resolution_id) {
+          if (!row.next_retry_at) {
+            this.ctx.storage.sql.exec(
+              `UPDATE idempotency SET next_retry_at=?,updated_at=? WHERE idempotency_key=?`,
+              new Date(Date.now() + 10 * 60_000).toISOString(), new Date(now).toISOString(), failure.idempotency_key
+            );
+          }
+          continue;
+        }
         queued.recovery_resolution_id = failure.resolution_id!;
         this.ctx.storage.sql.exec(
           `UPDATE idempotency SET queue_payload=?,state='ENQUEUE_PENDING',failure_code=NULL,next_retry_at=NULL,updated_at=?
@@ -292,10 +303,36 @@ export class IdempotencyGate extends DurableObject<Env> {
     }
   }
 
+  private async ensureRecoveryAlarm(): Promise<void> {
+    const pending = this.ctx.storage.sql.exec<{count:number}>(
+      `SELECT COUNT(*) AS count FROM idempotency WHERE state='ENQUEUE_PENDING' AND failure_code IS NULL`
+    ).toArray()[0]?.count ?? 0;
+    const nextRetryAt = this.ctx.storage.sql.exec<{next_retry_at:string|null}>(
+      `SELECT MIN(next_retry_at) AS next_retry_at FROM idempotency
+       WHERE state='QUEUED' AND failure_code IS NULL AND next_retry_at IS NOT NULL`
+    ).toArray()[0]?.next_retry_at;
+    const existingAlarm = await this.ctx.storage.getAlarm();
+    if (pending > 0) {
+      const target = Date.now() + 30_000;
+      if (existingAlarm === null || existingAlarm > target) {
+        await this.ctx.storage.setAlarm(target);
+      }
+    } else if (nextRetryAt) {
+      const parsed = Date.parse(nextRetryAt);
+      if (Number.isFinite(parsed)) {
+        const target = Math.max(Date.now() + 1_000, parsed);
+        if (existingAlarm === null || existingAlarm > target) {
+          await this.ctx.storage.setAlarm(target);
+        }
+      }
+    }
+  }
+
   async applyOriginCheckpoint(checkpoint:TerminalCheckpoint):Promise<void>{
     const now=new Date().toISOString();
     this.ctx.storage.transactionSync(()=>this.reconcileOriginCheckpoint(checkpoint,now));
     await this.flushPending();
+    await this.ensureRecoveryAlarm();
   }
 
   private trimResolvedGaps(contiguous: number, now: string): void {
@@ -518,7 +555,10 @@ export class IdempotencyGate extends DurableObject<Env> {
           tenant_id: input.tenantId, terminal_id: input.terminalId, store_id: input.storeId,
           idempotency_key: item.sale.idempotency_key, payload_hash: item.payloadHash,
           do_name: input.doName, sale: item.sale,
-          edge_received_at: originFailure?.edge_received_at ?? item.edgeReceivedAt, receipt_id: receiptId
+          edge_received_at: originFailure?.edge_received_at ?? item.edgeReceivedAt, receipt_id: receiptId,
+          recovery_resolution_id: originFailure?.outcome === "RETRY"
+            ? (originFailure.resolution_id ?? undefined)
+            : undefined
         };
         if (!prior) {
           if (originFailure && (originFailure.outcome === "VOIDED" || originFailure.outcome === "COMMITTED")) {
@@ -722,6 +762,33 @@ export class IdempotencyGate extends DurableObject<Env> {
        WHERE tenant_id=? AND terminal_id=? AND idempotency_key=? AND state NOT IN ('COMMITTED','VOIDED')`,
       failureCode.slice(0,200),new Date().toISOString(),tenantId,terminalId,idempotencyKey
     );
+  }
+
+  async verifyDurableOutboxRetention(
+    tenantId: string,
+    terminalId: string,
+    idempotencyKey: string
+  ): Promise<boolean> {
+    const row = this.ctx.storage.sql.exec<{
+      state: string;
+      failure_code: string | null;
+      next_retry_at: string | null;
+    }>(
+      `SELECT state,failure_code,next_retry_at FROM idempotency
+        WHERE tenant_id=? AND terminal_id=? AND idempotency_key=?`,
+      tenantId, terminalId, idempotencyKey
+    ).toArray()[0];
+    if (!row || row.state !== "QUEUED" || row.failure_code !== null || !row.next_retry_at) {
+      return false;
+    }
+    const retryMs = Date.parse(row.next_retry_at);
+    if (!Number.isFinite(retryMs)) return false;
+    let alarm = await this.ctx.storage.getAlarm();
+    if (alarm === null) {
+      await this.ctx.storage.setAlarm(Math.max(Date.now() + 1_000, retryMs));
+      alarm = await this.ctx.storage.getAlarm();
+    }
+    return alarm !== null;
   }
 
 }
