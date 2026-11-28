@@ -168,6 +168,15 @@ try{
     // Queue consumer has already persisted the failure. This must be idempotent.
     const duplicateFailure=await recordFailedSequence(runtimeEnv,message,failure.message);
     if(duplicateFailure!=="recorded") throw new Error("DUPLICATE_DLQ_FAILURE_RECORD_WAS_NOT_IDEMPOTENT");
+    const durableSnapshot=await admin.query<{sale_snapshot:OfflineSale|null}>(
+      `SELECT sale_snapshot FROM terminal_sequence_failures
+        WHERE tenant_id=$1 AND terminal_id=$2 AND terminal_seq_no=$3`,
+      [message.tenant_id,message.terminal_id,message.sale.terminal_seq_no]
+    );
+    if(!durableSnapshot.rows[0]?.sale_snapshot ||
+       canonicalize(durableSnapshot.rows[0].sale_snapshot)!==canonicalize(message.sale)) {
+      throw new Error("FAILED_SEQUENCE_ORIGIN_SALE_SNAPSHOT_MISMATCH");
+    }
   }
 
   const retryMessage=await makeRecoveryMessage(2);

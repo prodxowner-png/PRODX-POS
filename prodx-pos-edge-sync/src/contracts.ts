@@ -62,6 +62,10 @@ export interface QueueSale {
 export interface AuthContext { tenantId: string; terminalId: string; subject: string; }
 
 export interface TerminalFailureCheckpoint {
+  tenant_id?: string;
+  terminal_id?: string;
+  store_id?: string;
+  do_name?: string;
   terminal_seq_no: number;
   sale_id: string;
   idempotency_key: string;
@@ -69,6 +73,7 @@ export interface TerminalFailureCheckpoint {
   payload_hash: string;
   failure_code: string;
   edge_received_at: string;
+  sale_snapshot?: OfflineSale | null;
   resolution_id: string | null;
   outcome: "FAILED" | "RETRY" | "VOIDED" | "COMMITTED";
 }

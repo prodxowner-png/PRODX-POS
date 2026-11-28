@@ -120,6 +120,9 @@ export async function readTerminalCheckpoint(
     payload_hash: string;
     failure_code: string;
     edge_received_at: string | null;
+    store_id: string;
+    do_name: string | null;
+    sale_snapshot: QueueSale["sale"] | null;
     matched_sale_id: string | null;
     latest_disposition: string | null;
     latest_resolution_id: string | null;
@@ -133,6 +136,10 @@ export async function readTerminalCheckpoint(
             f.payload_hash,
             COALESCE(rf.failure_code,f.failure_code) AS failure_code,
             f.failure_metadata->>'edge_received_at' AS edge_received_at,
+            f.store_id::text AS store_id,
+            f.failure_metadata->>'do_name' AS do_name,
+            CASE WHEN s.sale_id IS NULL AND COALESCE(r.disposition,'') <> 'VOID'
+                 THEN f.sale_snapshot ELSE NULL END AS sale_snapshot,
             s.sale_id::text AS matched_sale_id,
             r.disposition AS latest_disposition,
             r.resolution_id::text AS latest_resolution_id,
@@ -177,6 +184,10 @@ export async function readTerminalCheckpoint(
       throw new Error("TERMINAL_FAILURE_ORIGINAL_RECEIPT_TIME_MISSING");
     }
     return {
+      tenant_id: tenantId,
+      terminal_id: terminalId,
+      store_id: row.store_id,
+      do_name: row.do_name ?? undefined,
       terminal_seq_no: Number(row.terminal_seq_no),
       sale_id: row.sale_id,
       idempotency_key: row.idempotency_key,
@@ -184,6 +195,7 @@ export async function readTerminalCheckpoint(
       payload_hash: row.payload_hash.trim(),
       failure_code: row.failure_code,
       edge_received_at: row.edge_received_at,
+      sale_snapshot: row.sale_snapshot,
       resolution_id: row.latest_resolution_id,
       outcome
     };
@@ -401,13 +413,13 @@ export async function recordFailedSequence(
     const inserted = await client.query<{ id: string }>(
       `INSERT INTO terminal_sequence_failures
          (tenant_id,terminal_id,store_id,terminal_seq_no,sale_id,idempotency_key,receipt_id,
-          payload_hash,hlc_physical_ms,hlc_logical,failure_code,failure_metadata,failed_at)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,now())
+          payload_hash,hlc_physical_ms,hlc_logical,failure_code,sale_snapshot,failure_metadata,failed_at)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13::jsonb,now())
        ON CONFLICT (tenant_id,terminal_id,terminal_seq_no) DO NOTHING
        RETURNING id::text AS id`,
       [message.tenant_id,message.terminal_id,storeId,message.sale.terminal_seq_no,message.sale.sale_id,
        message.idempotency_key,message.receipt_id,message.payload_hash,message.sale.hlc.physical_ms,
-       message.sale.hlc.logical,failureCode,JSON.stringify({
+       message.sale.hlc.logical,failureCode,JSON.stringify(message.sale),JSON.stringify({
          edge_received_at: message.edge_received_at,
          do_name: message.do_name,
          store_id: storeId

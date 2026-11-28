@@ -3,7 +3,7 @@ import { env } from "cloudflare:workers";
 import { runInDurableObject, runDurableObjectAlarm } from "cloudflare:test";
 import { IdempotencyGate } from "../src/idempotency-do";
 import { signCatalogPriceProofs, signCatalogSnapshot, verifyCatalogSnapshot, verifySalePrices } from "../src/catalog-crypto";
-import type { PreparedSale, IdempotencySubmission, OfflineSale } from "../src/contracts";
+import type { PreparedSale, IdempotencySubmission, OfflineSale, QueueSale } from "../src/contracts";
 
 const TENANT = "11111111-1111-4111-8111-111111111111";
 const TERMINAL = "22222222-2222-4222-8222-222222222222";
@@ -219,6 +219,65 @@ describe("PRODX Edge sync Durable Object", () => {
     });
   });
 
+  it("restores a missing Durable Object receipt from the immutable origin sale snapshot", async () => {
+    const stub=getStub("cold-origin-sale-snapshot-restore");
+    const item=prepared("cold-origin-snapshot-idempotency-key","e".repeat(64),1);
+    const resolutionId="00000000-0000-4000-8000-000000000055";
+    const checkpoint={
+      store_id:STORE,last_committed_seq_no:0,last_hlc_physical_ms:0,last_hlc_logical:0,
+      last_resolved_seq_no:0,last_resolved_hlc_physical_ms:0,last_resolved_hlc_logical:0,
+      terminal_failures:[{
+        tenant_id:TENANT,terminal_id:TERMINAL,store_id:STORE,do_name:`${TENANT}:${TERMINAL}`,
+        terminal_seq_no:1,sale_id:item.sale.sale_id,idempotency_key:item.sale.idempotency_key,
+        receipt_id:item.receiptId,payload_hash:item.payloadHash,failure_code:"INSUFFICIENT_STOCK",
+        edge_received_at:item.edgeReceivedAt,sale_snapshot:item.sale,resolution_id:resolutionId,outcome:"RETRY" as const
+      }]
+    };
+    const sent:QueueSale[]=[];
+    await runInDO(stub as any,async(instance:any)=>{
+      const queue=instance.env.POS_INGEST_QUEUE;
+      const original=queue.sendBatch.bind(queue);
+      Object.defineProperty(queue,"sendBatch",{configurable:true,value:async(messages:any[])=>{
+        for(const message of messages) sent.push(message.body);
+      }});
+      try { await instance.applyOriginCheckpoint(checkpoint); }
+      finally { Object.defineProperty(queue,"sendBatch",{configurable:true,value:original}); }
+    });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.sale).toEqual(item.sale);
+    expect(sent[0]?.tenant_id).toBe(TENANT);
+    expect(sent[0]?.terminal_id).toBe(TERMINAL);
+    expect(sent[0]?.store_id).toBe(STORE);
+    expect(sent[0]?.receipt_id).toBe(item.receiptId);
+    expect(sent[0]?.edge_received_at).toBe(item.edgeReceivedAt);
+    expect(sent[0]?.recovery_resolution_id).toBe(resolutionId);
+    expect((await stub.getStatus(TENANT,TERMINAL,item.sale.idempotency_key)).status).toBe("queued");
+    await runInDO(stub as any,async(_instance:any,state:any)=>{
+      const sequence=state.storage.sql.exec(
+        `SELECT last_contiguous_seq_no FROM terminal_sequence_state WHERE singleton=1`
+      ).toArray()[0] as {last_contiguous_seq_no:number}|undefined;
+      expect(sequence?.last_contiguous_seq_no).toBe(1);
+    });
+  });
+
+  it("fails closed when a cold Durable Object has no local receipt and the legacy origin row has no snapshot", async () => {
+    const stub=getStub("cold-origin-legacy-snapshot-missing");
+    const item=prepared("cold-origin-legacy-no-snapshot-key","f".repeat(64),1);
+    const checkpoint={
+      store_id:STORE,last_committed_seq_no:0,last_hlc_physical_ms:0,last_hlc_logical:0,
+      last_resolved_seq_no:0,last_resolved_hlc_physical_ms:0,last_resolved_hlc_logical:0,
+      terminal_failures:[{
+        tenant_id:TENANT,terminal_id:TERMINAL,store_id:STORE,do_name:`${TENANT}:${TERMINAL}`,
+        terminal_seq_no:1,sale_id:item.sale.sale_id,idempotency_key:item.sale.idempotency_key,
+        receipt_id:item.receiptId,payload_hash:item.payloadHash,failure_code:"INSUFFICIENT_STOCK",
+        edge_received_at:item.edgeReceivedAt,sale_snapshot:null,resolution_id:null,outcome:"FAILED" as const
+      }]
+    };
+    await runInDO(stub as any,async(instance:any)=>{
+      await expect(instance.applyOriginCheckpoint(checkpoint)).rejects.toThrow("ORIGIN_TERMINAL_FAILURE_SNAPSHOT_MISSING");
+    });
+  });
+
   it("re-enqueues the exact original receipt after an origin-authorized RETRY", async () => {
     const stub=getStub("origin-retry-recovery");
     const item=prepared("origin-retry-idempotency-key","a".repeat(64),1);
@@ -424,6 +483,7 @@ describe("PRODX Edge sync Durable Object", () => {
       last_resolved_hlc_physical_ms: 0,
       last_resolved_hlc_logical: 0,
       terminal_failures: [{
+        tenant_id:TENANT,terminal_id:TERMINAL,store_id:STORE,do_name:`${TENANT}:${TERMINAL}`,
         terminal_seq_no: 1,
         sale_id: item.sale.sale_id,
         idempotency_key: item.sale.idempotency_key,
@@ -431,6 +491,7 @@ describe("PRODX Edge sync Durable Object", () => {
         payload_hash: item.payloadHash,
         failure_code: "INSUFFICIENT_STOCK",
         edge_received_at: item.edgeReceivedAt,
+        sale_snapshot: item.sale,
         resolution_id: resolutionId,
         outcome: "RETRY" as const
       }]

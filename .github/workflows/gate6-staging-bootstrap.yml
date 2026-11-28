@@ -141,6 +141,7 @@ jobs:
             'prodx-pos-edge-sync/migrations/002_store_scoped_inventory.sql',
             'prodx-pos-edge-sync/migrations/003_failed_sequence_recovery.sql',
             'prodx-pos-edge-sync/migrations/004_terminal_retry_attempt_audit.sql',
+            'prodx-pos-edge-sync/migrations/005_terminal_failure_sale_snapshot.sql',
             'prodx-pos-edge-sync/scripts/grant-runtime-role.sql',
             'prodx-pos-edge-sync/scripts/verify-runtime-role-privileges.sql',
             'prodx-pos-edge-sync/scripts/rls-smoke.sql',
@@ -306,7 +307,8 @@ jobs:
             migrations/001_pos_ledger.sql \
             migrations/002_store_scoped_inventory.sql \
             migrations/003_failed_sequence_recovery.sql \
-            migrations/004_terminal_retry_attempt_audit.sql; do
+            migrations/004_terminal_retry_attempt_audit.sql \
+            migrations/005_terminal_failure_sale_snapshot.sql; do
             psql "$STAGING_MIGRATION_DATABASE_URL" --set=ON_ERROR_STOP=1 --file "$migration" \
               2>&1 | tee "artifacts/logs/$(basename "$migration" .sql).log"
           done

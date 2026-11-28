@@ -2,6 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import type {
   IdempotencyBatchResult, IdempotencyResultItem, IdempotencySubmission, QueueSale, TerminalCheckpoint
 } from "./contracts";
+import { canonicalize } from "./canonical";
 
 const IDEMPOTENCY_RETENTION_MS = 30 * 86400_000;
 const MAX_OUT_OF_ORDER_SEQUENCES = 1000;
@@ -236,11 +237,59 @@ export class IdempotencyGate extends DurableObject<Env> {
         payload_hash:string;queue_payload:string;state:string;failure_code:string|null;next_retry_at:string|null;
       }>(`SELECT payload_hash,queue_payload,state,failure_code,next_retry_at FROM idempotency
          WHERE idempotency_key=?`,failure.idempotency_key).toArray()[0];
-      if (!row) continue; // A restored DO may not have the old receipt cache.
+      if (!row) {
+        const resolvedWithoutPayload=failure.outcome === "VOIDED" || failure.outcome === "COMMITTED";
+        const snapshot=failure.sale_snapshot ?? (resolvedWithoutPayload ? {
+          idempotency_key:failure.idempotency_key,payload_hash:failure.payload_hash,
+          sale_id:failure.sale_id,terminal_seq_no:failure.terminal_seq_no,
+          hlc:{physical_ms:0,logical:0},catalog_version:1,signed_price_proofs:[],
+          client_recorded_at:failure.edge_received_at,currency:"THB",lines:[]
+        } as QueueSale["sale"] : null);
+        if (!snapshot || failure.tenant_id === undefined || failure.terminal_id === undefined ||
+            failure.store_id !== checkpoint.store_id || !failure.do_name ||
+            snapshot.sale_id !== failure.sale_id || snapshot.idempotency_key !== failure.idempotency_key ||
+            snapshot.payload_hash !== failure.payload_hash || snapshot.terminal_seq_no !== failure.terminal_seq_no) {
+          throw new Error("ORIGIN_TERMINAL_FAILURE_SNAPSHOT_MISSING");
+        }
+        const restoredQueue:QueueSale={
+          tenant_id:failure.tenant_id,terminal_id:failure.terminal_id,store_id:failure.store_id,
+          idempotency_key:failure.idempotency_key,payload_hash:failure.payload_hash,
+          do_name:failure.do_name,sale:snapshot,edge_received_at:failure.edge_received_at,
+          receipt_id:failure.receipt_id,
+          recovery_resolution_id:failure.outcome === "RETRY" ? (failure.resolution_id ?? undefined) : undefined
+        };
+        const restoredState=failure.outcome === "VOIDED" ? "VOIDED"
+          : failure.outcome === "COMMITTED" ? "COMMITTED"
+          : failure.outcome === "RETRY" ? "ENQUEUE_PENDING" : "QUEUED";
+        this.ctx.storage.sql.exec(
+          `INSERT INTO idempotency
+           (idempotency_key,tenant_id,terminal_id,payload_hash,canonical_payload,receipt_id,
+            queue_payload,state,failure_code,delivery_attempts,next_retry_at,created_at,updated_at)
+           VALUES(?,?,?,?,?,?,?,?,?,0,NULL,?,?)`,
+          failure.idempotency_key,failure.tenant_id,failure.terminal_id,failure.payload_hash,
+          canonicalize({tenant_id:failure.tenant_id,terminal_id:failure.terminal_id,sale:snapshot}),
+          failure.receipt_id,JSON.stringify(restoredQueue),restoredState,
+          failure.outcome === "FAILED" ? failure.failure_code : null,now,now
+        );
+        if (failure.outcome === "FAILED" || failure.outcome === "RETRY") {
+          const seen=this.ctx.storage.sql.exec<{sale_id:string}>(
+            `SELECT sale_id FROM terminal_sequence_seen WHERE seq_no=?`,failure.terminal_seq_no
+          ).toArray()[0];
+          if (seen && seen.sale_id !== failure.sale_id) throw new Error("ORIGIN_TERMINAL_FAILURE_SEQUENCE_OWNER_CONFLICT");
+          this.ctx.storage.sql.exec(
+            `INSERT OR IGNORE INTO terminal_sequence_seen
+             (seq_no,sale_id,seen_at,hlc_physical_ms,hlc_logical) VALUES(?,?,?,?,?)`,
+            failure.terminal_seq_no,failure.sale_id,now,snapshot.hlc.physical_ms,snapshot.hlc.logical
+          );
+        }
+        continue;
+      }
       let queued:QueueSale;
       try { queued=JSON.parse(row.queue_payload) as QueueSale; }
       catch { throw new Error("ORIGIN_TERMINAL_FAILURE_OUTBOX_CORRUPT"); }
       if (row.payload_hash !== failure.payload_hash ||
+          (failure.sale_snapshot !== null && failure.sale_snapshot !== undefined &&
+            canonicalize(queued.sale) !== canonicalize(failure.sale_snapshot)) ||
           queued.sale?.sale_id !== failure.sale_id ||
           queued.sale?.terminal_seq_no !== failure.terminal_seq_no ||
           queued.receipt_id !== failure.receipt_id ||
@@ -301,6 +350,33 @@ export class IdempotencyGate extends DurableObject<Env> {
         );
       }
     }
+
+    // Rebuild the local contiguous sequence checkpoint after restoring origin-only receipts.
+    const localState=this.ctx.storage.sql.exec<{
+      last_contiguous_seq_no:number;last_hlc_physical_ms:number;last_hlc_logical:number;
+    }>(`SELECT last_contiguous_seq_no,last_hlc_physical_ms,last_hlc_logical
+       FROM terminal_sequence_state WHERE singleton=1`).toArray()[0];
+    if (!localState) throw new Error("TERMINAL_SEQUENCE_STATE_MISSING");
+    let contiguous=localState.last_contiguous_seq_no;
+    let lastPhysical=localState.last_hlc_physical_ms;
+    let lastLogical=localState.last_hlc_logical;
+    while (true) {
+      const next=this.ctx.storage.sql.exec<{hlc_physical_ms:number;hlc_logical:number}>(
+        `SELECT hlc_physical_ms,hlc_logical FROM terminal_sequence_seen WHERE seq_no=?`,contiguous+1
+      ).toArray()[0];
+      if (!next) break;
+      if (next.hlc_physical_ms < lastPhysical ||
+          (next.hlc_physical_ms === lastPhysical && next.hlc_logical < lastLogical)) {
+        throw new Error("INVALID_HLC_REGRESSION");
+      }
+      contiguous++;
+      lastPhysical=next.hlc_physical_ms;
+      lastLogical=next.hlc_logical;
+    }
+    this.ctx.storage.sql.exec(
+      `UPDATE terminal_sequence_state SET last_contiguous_seq_no=?,last_hlc_physical_ms=?,last_hlc_logical=? WHERE singleton=1`,
+      contiguous,lastPhysical,lastLogical
+    );
   }
 
   private async ensureRecoveryAlarm(): Promise<void> {

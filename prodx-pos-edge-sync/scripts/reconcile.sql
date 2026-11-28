@@ -334,6 +334,16 @@ BEGIN
   ) THEN RAISE EXCEPTION 'RECONCILIATION_FAILED: void_without_audit_record'; END IF;
 
   IF EXISTS (
+    SELECT 1 FROM terminal_sequence_failures f
+    WHERE f.sale_snapshot IS NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM sales s
+        WHERE s.tenant_id=f.tenant_id AND s.terminal_id=f.terminal_id
+          AND s.terminal_seq_no=f.terminal_seq_no AND s.sale_id=f.sale_id
+      )
+  ) THEN RAISE EXCEPTION 'RECONCILIATION_FAILED: unresolved_failed_sequence_without_sale_snapshot'; END IF;
+
+  IF EXISTS (
     SELECT 1 FROM terminal_sync_state st
     JOIN sales s ON s.tenant_id=st.tenant_id AND s.terminal_id=st.terminal_id
     WHERE s.store_id <> st.store_id
