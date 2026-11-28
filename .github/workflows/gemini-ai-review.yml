@@ -34,7 +34,8 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number || '' }}
           GITHUB_RUN_ID: ${{ github.run_id }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: python3 scripts/gemini_pr_review.py
+          AI_REVIEW_MODEL: ${{ vars.AI_REVIEW_MODEL || 'gemini-3.8-flash' }}
+        run: python3 scripts/gemini_pr_review_routed.py
 
       - name: Verify review contract tests
         if: always()
