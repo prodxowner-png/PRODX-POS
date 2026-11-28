@@ -65,13 +65,13 @@ try {
      INSERT INTO terminal_sequence_failures
        (tenant_id,terminal_id,store_id,terminal_seq_no,sale_id,idempotency_key,receipt_id,
         payload_hash,hlc_physical_ms,hlc_logical,failure_code,sale_snapshot,failure_metadata,failed_at)
-     SELECT $1::uuid,$2::uuid,$3::uuid,seq,sale_id,idempotency_key,receipt_id,$4::char(64),seq,0,'SYNTHETIC_CI_FAILURE',
+     SELECT $1::uuid,$2::uuid,$3::uuid,seq,sale_id,idempotency_key,receipt_id,$4::text,seq,0,'SYNTHETIC_CI_FAILURE',
        CASE WHEN seq=5002 THEN jsonb_build_object(
          'idempotency_key',idempotency_key,'payload_hash',$4::text,'sale_id',sale_id::text,
          'terminal_seq_no',seq,'hlc',jsonb_build_object('physical_ms',seq,'logical',0),
          'catalog_version',1,'signed_price_proofs',jsonb_build_array(jsonb_build_object(
            'algorithm','HMAC-SHA256','catalog_version',1,'issued_at',$5::text,
-           'expires_at',($5::timestamptz + interval '1 day')::text,'product_id',$6::uuid::text,
+           'expires_at',(($5::text)::timestamptz + interval '1 day')::text,'product_id',$6::uuid::text,
            'unit_price_minor',100,'tax_bps',700,'signature',repeat('b',64)
          )),
          'client_recorded_at',$5::text,'currency','THB',
