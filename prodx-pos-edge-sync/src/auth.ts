@@ -98,12 +98,10 @@ export async function verifyTerminalCertificate(request: Request, env: Env, auth
       [auth.tenantId,auth.terminalId,fingerprint]
     );
     if (mapped.rowCount !== 1) throw new Response("mTLS certificate is not enrolled for this tenant/terminal", { status: 403 });
-    const checkpoint = await readTerminalCheckpoint(client,auth.tenantId,auth.terminalId);
+    const storeId = mapped.rows[0]!.store_id;
+    const checkpoint = await readTerminalCheckpoint(client,auth.tenantId,auth.terminalId,storeId);
     await client.query("COMMIT");
-    return {
-      ...checkpoint,
-      store_id: mapped.rows[0]!.store_id
-    };
+    return checkpoint;
   } catch (error) {
     await client.query("ROLLBACK").catch(()=>undefined);
     if (error instanceof Response) throw error;

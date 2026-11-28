@@ -46,6 +46,35 @@ function normalizedFailureCode(value: string): string {
   return code;
 }
 
+async function resolveAuthoritativeTerminalStoreId(
+  client: Client,
+  tenantId: string,
+  terminalId: string,
+  expectedStoreId?: string
+): Promise<string> {
+  if (expectedStoreId !== undefined && !UUID.test(expectedStoreId)) {
+    throw new Error("TERMINAL_STORE_MAPPING_MISMATCH");
+  }
+  const mapped = await client.query<{ store_id: string }>(
+    `SELECT DISTINCT d.store_id::text AS store_id
+       FROM terminal_devices d
+       JOIN pos_stores st
+         ON st.tenant_id = d.tenant_id
+        AND st.id = d.store_id
+        AND st.active = true
+      WHERE d.tenant_id = $1 AND d.terminal_id = $2`,
+    [tenantId, terminalId]
+  );
+  if (mapped.rows.length !== 1) {
+    throw new Error("TERMINAL_STORE_MAPPING_MISMATCH");
+  }
+  const resolvedStoreId = mapped.rows[0]!.store_id;
+  if (expectedStoreId !== undefined && resolvedStoreId !== expectedStoreId) {
+    throw new Error("TERMINAL_STORE_MAPPING_MISMATCH");
+  }
+  return resolvedStoreId;
+}
+
 /**
  * Read the authoritative origin checkpoint and all durable failed-sequence
  * outcomes for one tenant/terminal. The caller must already have set RLS context.
@@ -53,9 +82,11 @@ function normalizedFailureCode(value: string): string {
 export async function readTerminalCheckpoint(
   client: Client,
   tenantId: string,
-  terminalId: string
+  terminalId: string,
+  authoritativeStoreId?: string
 ): Promise<TerminalCheckpoint> {
   const stateResult = await client.query<{
+    store_id: string;
     last_committed_seq_no: string;
     last_hlc_physical_ms: string;
     last_hlc_logical: number;
@@ -63,7 +94,8 @@ export async function readTerminalCheckpoint(
     last_resolved_hlc_physical_ms: string;
     last_resolved_hlc_logical: number;
   }>(
-    `SELECT COALESCE(last_committed_seq_no,0)::text AS last_committed_seq_no,
+    `SELECT store_id::text AS store_id,
+            COALESCE(last_committed_seq_no,0)::text AS last_committed_seq_no,
             COALESCE(last_hlc_physical_ms,0)::text AS last_hlc_physical_ms,
             COALESCE(last_hlc_logical,0) AS last_hlc_logical,
             COALESCE(last_resolved_seq_no,last_committed_seq_no,0)::text AS last_resolved_seq_no,
@@ -74,6 +106,12 @@ export async function readTerminalCheckpoint(
     [tenantId, terminalId]
   );
   const state = stateResult.rows[0];
+  if (authoritativeStoreId !== undefined && state?.store_id && state.store_id !== authoritativeStoreId) {
+    throw new Error("TERMINAL_STORE_MAPPING_MISMATCH");
+  }
+  const storeId = authoritativeStoreId
+    ?? state?.store_id
+    ?? (await resolveAuthoritativeTerminalStoreId(client, tenantId, terminalId));
   const failureResult = await client.query<{
     terminal_seq_no: string;
     sale_id: string;
@@ -151,6 +189,7 @@ export async function readTerminalCheckpoint(
     };
   });
   const checkpoint: TerminalCheckpoint = {
+    store_id: storeId,
     last_committed_seq_no: Number(state?.last_committed_seq_no ?? 0),
     last_hlc_physical_ms: Number(state?.last_hlc_physical_ms ?? 0),
     last_hlc_logical: Number(state?.last_hlc_logical ?? 0),
@@ -159,7 +198,8 @@ export async function readTerminalCheckpoint(
     last_resolved_hlc_logical: Number(state?.last_resolved_hlc_logical ?? 0),
     terminal_failures: failures
   };
-  if (!safeInteger(checkpoint.last_committed_seq_no) ||
+  if (!UUID.test(checkpoint.store_id) ||
+      !safeInteger(checkpoint.last_committed_seq_no) ||
       !safeInteger(checkpoint.last_resolved_seq_no) ||
       checkpoint.last_resolved_seq_no < checkpoint.last_committed_seq_no ||
       !safeInteger(checkpoint.last_resolved_hlc_physical_ms) ||
@@ -246,21 +286,32 @@ export async function recordFailedSequence(
     await client.connect();
     await client.query("BEGIN");
     await client.query("SELECT set_config('app.current_tenant_id',$1,true)", [message.tenant_id]);
+    const storeId = await resolveAuthoritativeTerminalStoreId(
+      client,
+      message.tenant_id,
+      message.terminal_id,
+      message.store_id
+    );
     await client.query(
-      `INSERT INTO terminal_sync_state(tenant_id,terminal_id)
-       VALUES($1,$2) ON CONFLICT (tenant_id,terminal_id) DO NOTHING`,
-      [message.tenant_id, message.terminal_id]
+      `INSERT INTO terminal_sync_state(tenant_id,terminal_id,store_id)
+       VALUES($1,$2,$3) ON CONFLICT (tenant_id,terminal_id) DO NOTHING`,
+      [message.tenant_id, message.terminal_id, storeId]
     );
     const stateResult = await client.query<{
+      store_id: string;
       last_resolved_seq_no: string;
     }>(
-      `SELECT last_resolved_seq_no::text AS last_resolved_seq_no
+      `SELECT store_id::text AS store_id, last_resolved_seq_no::text AS last_resolved_seq_no
          FROM terminal_sync_state
         WHERE tenant_id=$1 AND terminal_id=$2
         FOR UPDATE`,
       [message.tenant_id, message.terminal_id]
     );
-    const lastResolved = Number(stateResult.rows[0]?.last_resolved_seq_no ?? 0);
+    const stateRow = stateResult.rows[0];
+    if (!stateRow || stateRow.store_id !== storeId) {
+      throw new Error("TERMINAL_STORE_MAPPING_MISMATCH");
+    }
+    const lastResolved = Number(stateRow.last_resolved_seq_no ?? 0);
 
     const saleAtSequence = await client.query<{ sale_id: string }>(
       `SELECT sale_id::text AS sale_id FROM sales
@@ -302,18 +353,19 @@ export async function recordFailedSequence(
 
     if (lastResolved >= message.sale.terminal_seq_no) {
       const priorFailure = await client.query<{
-        id: string; sale_id: string; idempotency_key: string; receipt_id: string;
+        id: string; store_id: string; sale_id: string; idempotency_key: string; receipt_id: string;
         payload_hash: string; hlc_physical_ms: string; hlc_logical: number;
         failure_metadata: { edge_received_at?: string };
       }>(
-        `SELECT id::text AS id,sale_id::text AS sale_id,idempotency_key,receipt_id::text AS receipt_id,
+        `SELECT id::text AS id,store_id::text AS store_id,sale_id::text AS sale_id,idempotency_key,receipt_id::text AS receipt_id,
                 payload_hash,hlc_physical_ms::text AS hlc_physical_ms,hlc_logical,failure_metadata
            FROM terminal_sequence_failures
           WHERE tenant_id=$1 AND terminal_id=$2 AND terminal_seq_no=$3`,
         [message.tenant_id, message.terminal_id, message.sale.terminal_seq_no]
       );
       const prior = priorFailure.rows[0];
-      if (prior && prior.sale_id === message.sale.sale_id &&
+      if (prior && prior.store_id === storeId &&
+          prior.sale_id === message.sale.sale_id &&
           prior.idempotency_key === message.idempotency_key &&
           prior.receipt_id === message.receipt_id &&
           prior.payload_hash.trim() === message.payload_hash &&
@@ -348,31 +400,33 @@ export async function recordFailedSequence(
 
     const inserted = await client.query<{ id: string }>(
       `INSERT INTO terminal_sequence_failures
-         (tenant_id,terminal_id,terminal_seq_no,sale_id,idempotency_key,receipt_id,
+         (tenant_id,terminal_id,store_id,terminal_seq_no,sale_id,idempotency_key,receipt_id,
           payload_hash,hlc_physical_ms,hlc_logical,failure_code,failure_metadata,failed_at)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,now())
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,now())
        ON CONFLICT (tenant_id,terminal_id,terminal_seq_no) DO NOTHING
        RETURNING id::text AS id`,
-      [message.tenant_id,message.terminal_id,message.sale.terminal_seq_no,message.sale.sale_id,
+      [message.tenant_id,message.terminal_id,storeId,message.sale.terminal_seq_no,message.sale.sale_id,
        message.idempotency_key,message.receipt_id,message.payload_hash,message.sale.hlc.physical_ms,
        message.sale.hlc.logical,failureCode,JSON.stringify({
          edge_received_at: message.edge_received_at,
-         do_name: message.do_name
+         do_name: message.do_name,
+         store_id: storeId
        })]
     );
     const failure = await client.query<{
-      id: string; sale_id: string; idempotency_key: string; receipt_id: string;
+      id: string; store_id: string; sale_id: string; idempotency_key: string; receipt_id: string;
       payload_hash: string; hlc_physical_ms: string; hlc_logical: number;
       failure_metadata: { edge_received_at?: string };
     }>(
-      `SELECT id::text AS id,sale_id::text AS sale_id,idempotency_key,receipt_id::text AS receipt_id,
+      `SELECT id::text AS id,store_id::text AS store_id,sale_id::text AS sale_id,idempotency_key,receipt_id::text AS receipt_id,
               payload_hash,hlc_physical_ms::text AS hlc_physical_ms,hlc_logical,failure_metadata
          FROM terminal_sequence_failures
         WHERE tenant_id=$1 AND terminal_id=$2 AND terminal_seq_no=$3`,
       [message.tenant_id,message.terminal_id,message.sale.terminal_seq_no]
     );
     const row = failure.rows[0];
-    if (!row || row.sale_id !== message.sale.sale_id || row.idempotency_key !== message.idempotency_key ||
+    if (!row || row.store_id !== storeId || row.sale_id !== message.sale.sale_id ||
+        row.idempotency_key !== message.idempotency_key ||
         row.receipt_id !== message.receipt_id || row.payload_hash.trim() !== message.payload_hash ||
         Number(row.hlc_physical_ms) !== message.sale.hlc.physical_ms ||
         row.hlc_logical !== message.sale.hlc.logical ||
@@ -389,6 +443,7 @@ export async function recordFailedSequence(
         [message.tenant_id,message.terminal_id,row.id,message.payload_hash,message.sale.catalog_version,
          JSON.stringify({
            terminal_id: message.terminal_id,
+           store_id: storeId,
            terminal_seq_no: message.sale.terminal_seq_no,
            sale_id: message.sale.sale_id,
            idempotency_key: message.idempotency_key,
@@ -441,15 +496,21 @@ export async function resolveFailedSequence(
     await client.connect();
     await client.query("BEGIN");
     await client.query("SELECT set_config('app.current_tenant_id',$1,true)", [input.tenantId]);
+    const storeId = await resolveAuthoritativeTerminalStoreId(
+      client,
+      input.tenantId,
+      input.terminalId
+    );
     await client.query(
-      `INSERT INTO terminal_sync_state(tenant_id,terminal_id)
-       VALUES($1,$2) ON CONFLICT (tenant_id,terminal_id) DO NOTHING`,
-      [input.tenantId,input.terminalId]
+      `INSERT INTO terminal_sync_state(tenant_id,terminal_id,store_id)
+       VALUES($1,$2,$3) ON CONFLICT (tenant_id,terminal_id) DO NOTHING`,
+      [input.tenantId,input.terminalId,storeId]
     );
     const stateResult = await client.query<{
+      store_id: string;
       last_resolved_seq_no: string;
     }>(
-      `SELECT last_resolved_seq_no::text AS last_resolved_seq_no
+      `SELECT store_id::text AS store_id, last_resolved_seq_no::text AS last_resolved_seq_no
          FROM terminal_sync_state
         WHERE tenant_id=$1 AND terminal_id=$2
         FOR UPDATE`,
@@ -457,6 +518,7 @@ export async function resolveFailedSequence(
     );
     const state = stateResult.rows[0];
     if (!state) throw new Error("TERMINAL_SEQUENCE_STATE_MISSING");
+    if (state.store_id !== storeId) throw new Error("TERMINAL_STORE_MAPPING_MISMATCH");
 
     const priorRequest = await client.query<{
       resolution_id: string; terminal_id: string; terminal_seq_no: string;
@@ -478,7 +540,7 @@ export async function resolveFailedSequence(
           prior.actor_subject !== actorSubject || prior.reason !== reason) {
         throw new Error("TERMINAL_SEQUENCE_RECOVERY_REQUEST_ID_CONFLICT");
       }
-      const checkpoint = await readTerminalCheckpoint(client,input.tenantId,input.terminalId);
+      const checkpoint = await readTerminalCheckpoint(client,input.tenantId,input.terminalId,storeId);
       const currentFailure = checkpoint.terminal_failures.find((failure) =>
         failure.terminal_seq_no === input.terminalSeqNo
       );
@@ -491,10 +553,10 @@ export async function resolveFailedSequence(
     }
 
     const failureResult = await client.query<{
-      id: string; sale_id: string; idempotency_key: string; receipt_id: string;
+      id: string; store_id: string; sale_id: string; idempotency_key: string; receipt_id: string;
       payload_hash: string; hlc_physical_ms: string; hlc_logical: number; failure_code: string;
     }>(
-      `SELECT id::text AS id,sale_id::text AS sale_id,idempotency_key,receipt_id::text AS receipt_id,
+      `SELECT id::text AS id,store_id::text AS store_id,sale_id::text AS sale_id,idempotency_key,receipt_id::text AS receipt_id,
               payload_hash,hlc_physical_ms::text AS hlc_physical_ms,hlc_logical,failure_code
          FROM terminal_sequence_failures
         WHERE tenant_id=$1 AND terminal_id=$2 AND terminal_seq_no=$3`,
@@ -502,6 +564,7 @@ export async function resolveFailedSequence(
     );
     const failure = failureResult.rows[0];
     if (!failure) throw new Error("TERMINAL_SEQUENCE_FAILURE_NOT_FOUND");
+    if (failure.store_id !== storeId) throw new Error("TERMINAL_STORE_MAPPING_MISMATCH");
 
     const saleAtSequence = await client.query<{ sale_id: string }>(
       `SELECT sale_id::text AS sale_id FROM sales
@@ -512,7 +575,7 @@ export async function resolveFailedSequence(
       if (saleAtSequence.rows[0]!.sale_id !== failure.sale_id) {
         throw new Error("TERMINAL_SEQUENCE_COMMIT_CONFLICT");
       }
-      const checkpoint = await readTerminalCheckpoint(client,input.tenantId,input.terminalId);
+      const checkpoint = await readTerminalCheckpoint(client,input.tenantId,input.terminalId,storeId);
       await client.query("COMMIT");
       return { resolution_id: null, outcome: "COMMITTED", checkpoint };
     }
@@ -526,7 +589,7 @@ export async function resolveFailedSequence(
     );
     if (latest.rows[0]?.disposition === "VOID") {
       if (input.disposition !== "VOID") throw new Error("TERMINAL_SEQUENCE_ALREADY_VOIDED");
-      const checkpoint = await readTerminalCheckpoint(client,input.tenantId,input.terminalId);
+      const checkpoint = await readTerminalCheckpoint(client,input.tenantId,input.terminalId,storeId);
       await client.query("COMMIT");
       return { resolution_id: null, outcome: "VOIDED", checkpoint };
     }
@@ -572,6 +635,7 @@ export async function resolveFailedSequence(
        input.disposition === "VOID" ? "POS_TERMINAL_SEQUENCE_VOIDED" : "POS_TERMINAL_SEQUENCE_RETRY_AUTHORIZED",
        failure.id,failure.payload_hash.trim(),JSON.stringify({
          terminal_id: input.terminalId,
+         store_id: storeId,
          terminal_seq_no: input.terminalSeqNo,
          sale_id: failure.sale_id,
          idempotency_key: failure.idempotency_key,
@@ -584,7 +648,7 @@ export async function resolveFailedSequence(
          reason
        })]
     );
-    const checkpoint = await readTerminalCheckpoint(client,input.tenantId,input.terminalId);
+    const checkpoint = await readTerminalCheckpoint(client,input.tenantId,input.terminalId,storeId);
     await client.query("COMMIT");
     return {
       resolution_id: resolutionId,
